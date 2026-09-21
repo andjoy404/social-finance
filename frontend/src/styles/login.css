@@ -1,0 +1,294 @@
+/**
+ * Social Finance — Login page (AndJoy visual language)
+ * Dark industrial wall treatment with violet accent, same as AndJoy GitOps.
+ */
+
+/* ── Login page shell ─────────────────────────────────────────────────── */
+
+.login-page {
+  --login-bg: #07060b;
+  --login-panel-top: #0e0c15;
+  --login-panel-mid: #0a0910;
+  --login-seam: rgb(0 0 0 / 0.5);
+  --login-seam-hi: rgb(169 112 255 / 0.055);
+  --login-glow: rgb(124 90 199 / 0.16);
+  --login-text: #f2eff9;
+  --login-title: #f5f3fb;
+  --login-muted: #9b93ad;
+  --login-label: #cfc9de;
+  --login-placeholder: #7a7292;
+  --login-icon: #8d82ab;
+  --login-accent: #a970ff;
+  --login-accent-deep: #7c5ac7;
+  --login-danger: #f2495c;
+  --login-card-border: rgb(169 112 255 / 0.1);
+  --login-input-bg: rgb(9 7 15 / 0.78);
+  --login-input-border: rgb(169 112 255 / 0.22);
+
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: clamp(1.25rem, 5vh, 2.5rem) clamp(0.75rem, 4vw, 1.5rem);
+  overflow-x: hidden;
+  color-scheme: dark;
+  background: var(--login-bg);
+}
+
+/* ── Industrial wall background ───────────────────────────────────────── */
+
+.login-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(120% 95% at 50% 42%, transparent 40%, rgb(2 1 5 / 0.58) 80%, rgb(1 0 3 / 0.82) 100%),
+    radial-gradient(58% 42% at 50% 41%, var(--login-glow), transparent 72%),
+    repeating-linear-gradient(90deg, transparent 0 300px, var(--login-seam) 300px 301px, var(--login-seam-hi) 301px 300px),
+    repeating-linear-gradient(0deg, transparent 0 200px, rgb(0 0 0 / 0.45) 200px 201px, var(--login-seam-hi) 201px 200px),
+    linear-gradient(105deg, rgb(255 255 255 / 0.025), transparent 34%),
+    linear-gradient(180deg, var(--login-panel-top) 0%, var(--login-panel-mid) 55%, var(--login-bg) 100%);
+  background-size:
+    auto,
+    auto,
+    300px 200px,
+    300px 200px,
+    auto,
+    auto;
+}
+
+/* ── Centered content column ──────────────────────────────────────────── */
+
+.login-stand {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  width: min(320px, 100%);
+  min-width: 0;
+  font-family: var(--sf-font-sans);
+}
+
+/* ── Brand lockup ─────────────────────────────────────────────────────── */
+
+.login-brand-lockup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.login-product-name {
+  color: var(--login-title);
+  font-family: var(--sf-font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.login-tagline {
+  color: var(--login-muted);
+  font-size: var(--gitops-table-cell-font-size, 0.75rem);
+  font-weight: var(--gitops-table-cell-font-weight, 400);
+  line-height: var(--gitops-table-cell-line-height, 1.35);
+}
+
+/* ── Login card ───────────────────────────────────────────────────────── */
+
+.login-card {
+  width: min(320px, 100%);
+  min-width: 0;
+  padding: 1.25rem 1.25rem 1.15rem;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgb(21 17 31 / 0.94), rgb(13 10 20 / 0.96));
+  border: 1px solid var(--login-card-border);
+  box-shadow:
+    0 30px 80px rgb(0 0 0 / 0.6),
+    0 0 0 1px rgb(0 0 0 / 0.3),
+    0 0 70px rgb(124 90 199 / 0.12);
+  color: var(--login-text);
+  box-sizing: border-box;
+}
+
+/* ── Card head (title + subtitle) ─────────────────────────────────────── */
+
+.login-card-head {
+  text-align: center;
+  margin-bottom: 0.75rem;
+}
+
+.login-card h3 {
+  margin: 0 0 0.15rem;
+  color: var(--login-title);
+  font-family: var(--sf-font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.login-card .login-card-subtitle {
+  margin: 0;
+  color: var(--login-muted);
+  font-size: var(--gitops-table-cell-font-size, 0.75rem);
+  font-weight: var(--gitops-table-cell-font-weight, 400);
+  line-height: var(--gitops-table-cell-line-height, 1.35);
+}
+
+/* ── Fields ────────────────────────────────────────────────────────────── */
+
+.login-field {
+  margin-bottom: 0.7rem;
+}
+
+.login-field label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: var(--gitops-table-cell-font-size, 0.75rem);
+  font-weight: var(--gitops-table-cell-font-weight, 400);
+  line-height: var(--gitops-table-cell-line-height, 1.35);
+  color: var(--login-label);
+}
+
+/* ── Input wrapper (icon + input + toggle) ────────────────────────────── */
+
+.login-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-input-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--login-icon);
+  font-size: 13px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+.login-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 36px 0 32px;
+  border-radius: 7px;
+  border: 1px solid var(--login-input-border);
+  background: var(--login-input-bg);
+  color: var(--login-text);
+  font-size: 0.75rem;
+  font-family: var(--sf-font-sans);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.login-input::placeholder {
+  color: var(--login-placeholder);
+}
+
+.login-input:focus {
+  border-color: var(--login-accent);
+  box-shadow: 0 0 0 2px rgb(169 112 255 / 0.22);
+}
+
+.login-input:hover:not(:focus) {
+  border-color: rgb(169 112 255 / 0.4);
+}
+
+.login-input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px rgb(13 11 20) inset !important;
+  -webkit-text-fill-color: var(--login-text) !important;
+}
+
+.login-toggle-password {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--login-icon);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+  line-height: 1;
+}
+
+.login-toggle-password:hover {
+  color: #cdbcef;
+}
+
+/* ── Error state ───────────────────────────────────────────────────────── */
+
+.login-error {
+  margin: 0.15rem 0 0.65rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 7px;
+  border: 1px solid rgb(242 73 92 / 0.5);
+  background: rgb(242 73 92 / 0.12);
+  color: #ff98a6;
+  font-size: var(--gitops-table-cell-font-size, 0.75rem);
+}
+
+/* ── Submit button ────────────────────────────────────────────────────── */
+
+.login-submit {
+  width: 100%;
+  height: 36px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: var(--sf-font-sans);
+  letter-spacing: 0.01em;
+  border-radius: 7px;
+  border: 1px solid rgb(169 112 255 / 0.45);
+  background: linear-gradient(180deg, #9a6fe3 0%, var(--login-accent-deep) 100%);
+  color: #f8f5fd;
+  box-shadow: 0 8px 22px rgb(124 90 199 / 0.35);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.login-submit:hover:not(:disabled),
+.login-submit:focus:not(:disabled) {
+  border-color: rgb(201 172 245 / 0.7);
+  background: linear-gradient(180deg, #b18cf0 0%, #8f68d8 100%);
+  color: #ffffff;
+}
+
+.login-submit:focus-visible {
+  box-shadow: 0 0 0 3px rgb(169 112 255 / 0.3), 0 8px 22px rgb(124 90 199 / 0.35);
+  outline: none;
+}
+
+.login-submit:disabled {
+  border-color: rgb(169 112 255 / 0.18);
+  background: rgb(124 90 199 / 0.22);
+  color: rgb(210 200 235 / 0.45);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .login-stand {
+    gap: 0.75rem;
+  }
+
+  .login-card {
+    padding: 0.95rem 1rem 1rem;
+    border-radius: 10px;
+  }
+}

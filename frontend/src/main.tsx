@@ -1,0 +1,47 @@
+import { ConfigProvider, type ThemeConfig } from 'antd'
+import { BrowserRouter } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { AuthProvider } from '@/app/AuthContext'
+import { ThemeProvider } from '@/app/ThemeProvider'
+import { App } from '@/app/App'
+import '@/styles/global.css'
+import '@/styles/login.css'
+
+const antdTheme: ThemeConfig = {
+  token: {
+    fontFamily: 'var(--sf-font-sans)',
+    colorPrimary: '#7c5ac7',
+    borderRadius: 8,
+    colorBgContainer: '#ffffff',
+    colorBgElevated: '#f4f5f7',
+  },
+  components: {
+    Button: {
+      algorithm: true,
+    },
+  },
+}
+
+export function ThemeConfigProvider({ children }: { children: ReactNode }) {
+  return (
+    <ConfigProvider theme={antdTheme}>
+      {children}
+    </ConfigProvider>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <AuthProvider>
+        <ThemeProvider>
+          <ThemeConfigProvider>
+            <App />
+          </ThemeConfigProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </BrowserRouter>
+  </React.StrictMode>,
+)

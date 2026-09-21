@@ -1,0 +1,40 @@
+name: social_finance
+description: "Social Finance - Social Finance for Your Neighborhood"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Routing
+  go_router: ^14.8.1
+
+  # HTTP client (reserved for future backend integration)
+  dio: ^5.8.0+1
+
+  # Utilities
+  intl: ^0.20.2
+  fl_chart: ^0.69.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+  riverpod_generator: ^2.6.4
+  build_runner: ^2.4.14
+
+flutter:
+  uses-material-design: true
