@@ -336,7 +336,7 @@ function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
       <td style={{ fontWeight: 600 }}>{household.head_name}</td>
       <td style={{ fontFamily: 'monospace' }}>{formatNull(household.nik ?? household.head_resident?.nik ?? null)}</td>
       <td>{occupancyLabel(household.occupancy_status)}</td>
-      <td style={{ textAlign: 'right', display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+      <td style={{ display: 'flex', gap: '4px' }}>
         <Badge variant={statusBadge(household.is_active)}>
           {statusLabel(household.is_active)}
         </Badge>

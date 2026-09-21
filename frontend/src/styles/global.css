@@ -771,7 +771,6 @@ input { font-family: inherit; }
 }
 
 .sf-table td:last-child {
-  text-align: right;
   font-weight: var(--sf-table-cell-font-weight);
   font-variant-numeric: tabular-nums;
 }

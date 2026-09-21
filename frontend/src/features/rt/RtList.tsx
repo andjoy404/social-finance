@@ -315,10 +315,10 @@ function RtRow({ index, rt, onEdit }: RtRowProps) {
     <tr>
       <td>{index}</td>
       <td>{rt.name}</td>
-      <td style={{ textAlign: 'right' }}>{rt.rw}</td>
-      <td style={{ fontFamily: 'monospace', textAlign: 'right' }}>{rt.rt}</td>
+      <td style={{ fontFamily: 'monospace' }}>{rt.rw}</td>
+      <td style={{ fontFamily: 'monospace' }}>{rt.rt}</td>
       <td>{rt.head_name ?? '\u2014'}</td>
-      <td style={{ textAlign: 'right', display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+      <td style={{ display: 'flex', gap: '4px' }}>
         <Badge variant={statusBadgeForRow(rt.is_active)}>
           {statusLabel(rt.is_active)}
         </Badge>
