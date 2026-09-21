@@ -115,7 +115,7 @@ func ListAll(ctx context.Context, tx *sql.Tx, isActive *bool, search *string, of
 	}
 	defer rows.Close()
 
-	var result []*RT
+	result := make([]*RT, 0)
 	for rows.Next() {
 		var item RT
 		if err := rows.Scan(

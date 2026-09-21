@@ -526,6 +526,37 @@ func TestListHouseholds(t *testing.T) {
 			t.Errorf("expected 1 result and total=1 for email search, got data=%d, total=%v", len(dataEmail), paginationEmail["total"])
 		}
 	})
+
+	t.Run("search nonmatching returns data=[] not null", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/households?search=zzzznonexistentzzzz", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		data, ok := body["data"]
+		if !ok {
+			t.Fatal("response missing 'data' field")
+		}
+		if data == nil {
+			t.Fatal("response 'data' is null (must be empty array [])")
+		}
+		arr, ok := data.([]any)
+		if !ok {
+			t.Fatalf("response 'data' is not an array, got %T", data)
+		}
+		if len(arr) != 0 {
+			t.Errorf("expected 0 results, got %d", len(arr))
+		}
+	})
 }
 
 func TestGetHousehold(t *testing.T) {
