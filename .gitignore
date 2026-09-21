@@ -1,0 +1,46 @@
+# Environment
+.env
+.w43-auth.env
+
+# Dependencies
+backend/vendor/
+node_modules/
+frontend/node_modules/
+
+# Build artifacts
+backend/tmp/
+backend/*.exe
+backend/*.exe.stack
+
+# Go binary
+*.exe
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker volumes
+postgres_data/
+
+# Flutter
+mobile/.dart_tool/
+mobile/build/
+mobile/.idea/
+
+# Generated logs
+*.log
+
+# Go test binaries
+*.test
+backend/api
+
+# Frontend generated
+frontend/dist/
+frontend/tsconfig.tsbuildinfo

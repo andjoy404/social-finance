@@ -1,0 +1,16 @@
+FROM golang:1.23-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates postgresql-client && rm -rf /var/lib/apt/lists/*
+
+ENV GOTOOLCHAIN=auto
+RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.1
+
+# Default source/database so `docker compose run --rm migrate` works
+# without needing explicit flags for every command.
+ENV MIGRATE_SOURCE=file:///migrations
+ENV MIGRATE_DB=postgres://social_finance:${DB_PASSWORD:-s3cur3p@ss!}@postgres:5432/${DB_NAME:-social_finance}?sslmode=disable
+
+COPY migrate-wrapper.sh /usr/local/bin/migrate-wrapper
+RUN chmod +x /usr/local/bin/migrate-wrapper
+
+ENTRYPOINT ["migrate-wrapper"]

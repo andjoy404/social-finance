@@ -1,0 +1,159 @@
+/**
+ * Social Finance — Shell styles (AndJoy visual language)
+ * Dark / near-black base. Violet accent.
+ */
+
+:root {
+  --sf-font-sans: 'Montserrat Variable', system-ui, -apple-system, sans-serif;
+  --sf-font-mono: 'Geist Mono Variable', monospace;
+
+  /* Dark foundation — near-black / graphite hierarchy */
+  --sf-bg: #0d0d0d;
+  --sf-bg-subtle: #141414;
+  --sf-surface: #1a1a1a;
+  --sf-surface-subtle: #121212;
+  --sf-surface-hover: #222222;
+
+  /* Text */
+  --sf-text: #e6e6e6;
+  --sf-text-muted: #888888;
+
+  /* Borders */
+  --sf-border: #2a2a2a;
+  --sf-border-subtle: #1f1f1f;
+
+  /* Accent — violet */
+  --sf-accent: #a970ff;
+  --sf-accent-soft: rgba(169, 112, 255, 0.12);
+
+  /* Semantic colors — subdued for dark base */
+  --sf-success: #73bf69;
+  --sf-success-soft: rgba(115, 191, 105, 0.15);
+  --sf-warning: #ff9830;
+  --sf-warning-soft: rgba(255, 152, 48, 0.15);
+  --sf-danger: #f2495c;
+  --sf-danger-soft: rgba(242, 73, 92, 0.15);
+  --sf-info: #5794f2;
+  --sf-info-soft: rgba(87, 148, 242, 0.15);
+
+  /* Chart colors — neon style for dark background */
+  --sf-chart-success: #00ff88;
+  --sf-chart-success-glow: rgba(0, 255, 136, 0.4);
+  --sf-chart-danger: #ff3366;
+  --sf-chart-danger-glow: rgba(255, 51, 102, 0.4);
+
+  /* Shadows — heavier for dark */
+  --sf-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sf-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --sf-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+
+  /* Focus ring — violet */
+  --sf-focus-ring: 0 0 0 3px rgba(169, 112, 255, 0.35);
+
+  /* Radius */
+  --sf-radius-sm: 6px;
+  --sf-radius-md: 8px;
+  --sf-radius-lg: 12px;
+
+  /* Spacing scale */
+  --sf-sp-xs: 4px;
+  --sf-sp-sm: 8px;
+  --sf-sp-md: 12px;
+  --sf-sp-lg: 16px;
+  --sf-sp-xl: 20px;
+
+  /* Sidebar */
+  --sf-sidebar-width-expanded: 240px;
+  --sf-sidebar-width-collapsed: 56px;
+  --sf-sidebar-transition: 200ms ease;
+
+  /* Shared data-table typography (AndJoy style) */
+  --sf-table-row-min-height: 40px;
+  --sf-table-header-font-size: 0.625rem;
+  --sf-table-header-font-weight: 600;
+  --sf-table-header-line-height: 1.2;
+  --sf-table-header-letter-spacing: 0.0625em;
+  --sf-table-header-color: var(--sf-text-muted);
+  --sf-table-cell-font-size: 0.75rem;
+  --sf-table-cell-font-weight: 400;
+  --sf-table-cell-line-height: 1.35;
+  --sf-table-cell-color: var(--sf-text);
+  --sf-table-secondary-color: var(--sf-text-muted);
+  --sf-table-row-hover: color-mix(in srgb, var(--sf-accent) 8%, var(--sf-bg));
+}
+
+[data-theme='dark'] {
+  /* Dark is now the default via :root. These mirror for completeness. */
+  --sf-bg: #0d0d0d;
+  --sf-bg-subtle: #141414;
+  --sf-surface: #1a1a1a;
+  --sf-surface-subtle: #121212;
+  --sf-surface-hover: #222222;
+  --sf-text: #e6e6e6;
+  --sf-text-muted: #888888;
+  --sf-border: #2a2a2a;
+  --sf-border-subtle: #1f1f1f;
+  --sf-accent: #a970ff;
+  --sf-accent-soft: rgba(169, 112, 255, 0.12);
+  --sf-success: #73bf69;
+  --sf-success-soft: rgba(115, 191, 105, 0.15);
+  --sf-warning: #ff9830;
+  --sf-warning-soft: rgba(255, 152, 48, 0.15);
+  --sf-danger: #f2495c;
+  --sf-danger-soft: rgba(242, 73, 92, 0.15);
+  --sf-info: #5794f2;
+  --sf-info-soft: rgba(87, 148, 242, 0.15);
+  --sf-chart-success: #6ba35e;
+  --sf-chart-danger: #d96070;
+  --sf-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sf-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --sf-focus-ring: 0 0 0 3px rgba(169, 112, 255, 0.35);
+}
+
+/* Legacy light mode — functional but not the canonical design */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --sf-bg: #0d0d0d;
+    --sf-bg-subtle: #141414;
+    --sf-surface: #1a1a1a;
+    --sf-surface-subtle: #121212;
+    --sf-surface-hover: #222222;
+    --sf-text: #e6e6e6;
+    --sf-text-muted: #888888;
+    --sf-border: #2a2a2a;
+    --sf-border-subtle: #1f1f1f;
+    --sf-accent: #a970ff;
+    --sf-accent-soft: rgba(169, 112, 255, 0.12);
+    --sf-success: #73bf69;
+    --sf-success-soft: rgba(115, 191, 105, 0.15);
+    --sf-warning: #ff9830;
+    --sf-warning-soft: rgba(255, 152, 48, 0.15);
+    --sf-danger: #f2495c;
+    --sf-danger-soft: rgba(242, 73, 92, 0.15);
+    --sf-info: #5794f2;
+    --sf-info-soft: rgba(87, 148, 242, 0.15);
+    --sf-chart-success: #6ba35e;
+    --sf-chart-danger: #d96070;
+    --sf-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --sf-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+    --sf-focus-ring: 0 0 0 3px rgba(169, 112, 255, 0.35);
+  }
+}
+
+#root {
+  font-family: var(--sf-font-sans);
+  background: var(--sf-bg);
+  color: var(--sf-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { min-height: 100vh; }
+a { color: var(--sf-accent); text-decoration: none; }
+button { font-family: inherit; }
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--sf-focus-ring);
+}

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+
+  "model": "local-qwen//data/app/vllm/qwen",
+
+  "instructions": [
+    "AGENTS.md"
+  ],
+
+  "web_search": true,
+
+  "permission": {
+    "*": "allow",
+
+    "bash": {
+      "*": "allow",
+      "docker *": "allow",
+      "docker compose *": "allow"
+    },
+
+    "doom_loop": "ask"
+  },
+
+  "provider": {
+    "local-qwen": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Local Qwen vLLM",
+
+      "options": {
+        "baseURL": "http://10.10.20.2:11000/v1",
+        "apiKey": "sk-vllm-7c36663b14119a246060c82bc75ef246"
+      },
+
+      "models": {
+        "/data/app/vllm/qwen": {
+          "name": "Local AI",
+
+          "tool_call": true,
+          "reasoning": true,
+
+          "limit": {
+            "context": 262000,
+            "output": 65536
+          },
+
+          "attachment": true,
+
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          },
+
+          "variants": {
+            "disabled": {
+              "reasoningEffort": "none"
+            },
+
+            "low": {
+              "reasoningEffort": "low"
+            },
+
+            "medium": {
+              "reasoningEffort": "medium"
+            },
+
+            "high": {
+              "reasoningEffort": "high"
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "mcp": {
+    "arcane-docker": {
+      "type": "local",
+      "command": [
+        "/Users/Andriyan/.local/bin/arcane-mcp"
+      ],
+      "environment": {
+        "ARCANE_BASE_URL": "https://arcane.appfuxion.com",
+        "ARCANE_API_KEY": "arc_f3c0d580eaa26cab62af255fad2a8e87a32b9d3ec4bf0495d46ce23ace0dcd21"
+      },
+      "enabled": true,
+      "timeout": 15000
+    },
+    "gitlab": {
+    "type": "remote",
+    "url": "https://gitlab.appfuxion.com/-/mcp",
+    "options": {
+      "headers": {
+        "PRIVATE-TOKEN": "glpat-ZI4zwhpZDgvZk2gNPH-vhG86MQp1OnoH.01.0w0yg0giu"
+      }
+    },
+    "enabled": true,
+    "timeout": 15000
+  }
+  },
+  "sandbox": {
+    "enabled": false,
+    "network": "allow"
+  }
+}

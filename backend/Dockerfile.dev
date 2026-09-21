@@ -1,0 +1,29 @@
+FROM golang:1.23-bookworm AS base
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build server binary into /tmp/build (not /app to avoid volume mount conflict).
+RUN CGO_ENABLED=0 GOOS=linux go build -o /tmp/build/api ./cmd/api
+
+# Install Air for hot reload (used via `docker compose run backend air`).
+# Note: Air has known crashes with certain Go interface types, so the default
+# CMD runs the pre-compiled binary instead.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    GOTOOLCHAIN=auto go install github.com/air-verse/air@latest
+
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+EXPOSE 8080
+
+# Entrypoint copies the pre-built binary into the working directory so it
+# survives the bind mount at /app. Then exec runs the binary.
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["/tmp/build/api"]
