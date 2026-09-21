@@ -346,7 +346,7 @@ func HouseholdList(ctx context.Context, tx *sql.Tx, rtID string, isActive *bool,
 	}
 	defer rows.Close()
 
-	var result []*Household
+	result := make([]*Household, 0)
 	for rows.Next() {
 		item, err := scanHouseholdRow(rows.Scan)
 		if err != nil {
@@ -421,7 +421,7 @@ func HouseholdListAll(ctx context.Context, tx *sql.Tx, isActive *bool, search *s
 	}
 	defer rows.Close()
 
-	var result []*Household
+	result := make([]*Household, 0)
 	for rows.Next() {
 		item, err := scanHouseholdRow(rows.Scan)
 		if err != nil {
@@ -1089,7 +1089,7 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 	}
 	defer rows.Close()
 
-	var result []*Resident
+	result := make([]*Resident, 0)
 	for rows.Next() {
 		var item Resident
 		var hhID, rel sql.NullString
