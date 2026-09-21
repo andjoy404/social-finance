@@ -7,6 +7,7 @@ import {
   getSessionPair,
   type ApiHousehold,
 } from '@/app/api'
+import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
@@ -62,7 +63,7 @@ export function HouseholdList() {
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:warga', [10, 25, 50])
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [search, setSearch] = useState('')
   const [statusValue, setStatusValue] = useState<StatusValue>(null)
