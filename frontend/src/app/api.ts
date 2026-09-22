@@ -368,6 +368,7 @@ export interface ApiCreateHouseholdBody {
   address?: string | null
   start_date?: string
   rt_id?: string
+  is_active?: boolean
 }
 
 export interface ApiUpdateHouseholdBody {

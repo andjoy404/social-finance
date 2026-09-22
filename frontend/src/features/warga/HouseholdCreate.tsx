@@ -38,6 +38,7 @@ interface HouseholdFormState {
   email: string
   address: string
   occupancy_status: OccupancyStatus
+  is_active: boolean
 }
 
 const emptyHouseholdForm: HouseholdFormState = {
@@ -48,6 +49,37 @@ const emptyHouseholdForm: HouseholdFormState = {
   email: '',
   address: '',
   occupancy_status: 'OWNER',
+  is_active: true,
+}
+
+/* ── Status select field ────────────────────────────────────────────── */
+
+function StatusField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: boolean
+  onChange: (v: boolean) => void
+  disabled: boolean
+}) {
+  return (
+    <div className="sf-form-field">
+      <label className="sf-form-label" htmlFor="hf-status">
+        Status <span style={{ color: 'var(--sf-danger)' }}>*</span>
+      </label>
+      <select
+        id="hf-status"
+        className="sf-form-select"
+        value={value ? 'true' : 'false'}
+        onChange={(e) => onChange(e.target.value === 'true')}
+        disabled={disabled}
+      >
+        <option value="true">Aktif</option>
+        <option value="false">Tidak Aktif</option>
+      </select>
+    </div>
+  )
 }
 
 function HouseholdFormFields({
@@ -338,6 +370,7 @@ export function HouseholdCreate() {
         phone: form.phone.trim(),
         email: form.email.trim(),
         occupancy_status: form.occupancy_status,
+        is_active: form.is_active,
         address: form.address.trim() || null,
         start_date: startDate,
       }
@@ -417,6 +450,12 @@ export function HouseholdCreate() {
             startDate={startDate}
             onStartDateChange={setStartDate}
           />
+
+          <StatusField
+            value={form.is_active}
+            onChange={(v) => setForm((prev) => ({ ...prev, is_active: v }))}
+            disabled={loading}
+          />
         </ModalBody>
         <ModalFooter>
           <Link to="/warga" className="sf-btn-ghost">
@@ -477,6 +516,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         email: data.email ?? data.head_resident?.email ?? '',
         address: data.address ?? '',
         occupancy_status: (data.occupancy_status as OccupancyStatus) || 'OWNER',
+        is_active: data.is_active,
       })
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
@@ -540,6 +580,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         email: form.email.trim(),
         address: form.address.trim() || null,
         occupancy_status: form.occupancy_status,
+        is_active: form.is_active,
       }
 
       await updateHousehold(pair.accessToken, id, body)
@@ -604,6 +645,12 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
             <HouseholdFormFields
               form={form}
               onChange={handleChange}
+              disabled={saving}
+            />
+
+            <StatusField
+              value={form.is_active}
+              onChange={(v) => setForm((prev) => ({ ...prev, is_active: v }))}
               disabled={saving}
             />
           </ModalBody>

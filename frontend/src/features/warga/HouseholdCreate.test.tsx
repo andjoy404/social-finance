@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 import { HouseholdCreate } from './HouseholdCreate'
+import { HouseholdEdit } from './HouseholdEdit'
 import { persistSessionPair } from '@/app/api'
 import * as AuthModule from '@/app/AuthContext'
 import { MemoryRouter } from 'react-router-dom'
@@ -538,9 +539,9 @@ describe('SA.2A-WEB1 — HouseholdCreate for SUPER_ADMIN', () => {
   })
 })
 
-// ---- Ordinary user RT selector absent ----
+// ---- is_active Status Tests ----
 
-describe('SA.2A-WEB1 — HouseholdCreate for ordinary user', () => {
+describe('W4.3 — HouseholdCreate is_active defaults to active', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     persistSessionPair({ accessToken: 'test-jwt-token', refreshToken: 'refresh-token' })
@@ -549,13 +550,22 @@ describe('SA.2A-WEB1 — HouseholdCreate for ordinary user', () => {
     vi.restoreAllMocks()
   })
 
-  it('RT selector is NOT visible for ordinary PENGURUS', async () => {
+  it('Status field renders in form', () => {
     renderHouseholdCreate()
-    await tickForReact()
-    expect(screen.queryByLabelText(/RT Tujuan/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Status\s*\*/i)).toBeInTheDocument()
   })
 
-  it('create request does NOT contain rt_id for ordinary user', async () => {
+  it('Status field default is Aktif', () => {
+    renderHouseholdCreate()
+
+    const select = screen.getByLabelText(/Status\s*\*/i) as HTMLSelectElement
+
+    expect(select).toHaveValue('true')
+    expect(select.querySelector('option[value="true"]')).toHaveTextContent('Aktif')
+    expect(select.querySelector('option[value="false"]')).toHaveTextContent('Tidak Aktif')
+  })
+
+  it('send is_active=true in API request when creating active household', async () => {
     let capturedBody: Record<string, unknown> = {}
     mockFetch((input, init) => {
       if (input.includes('/api/v1/households') && init?.method === 'POST') {
@@ -569,7 +579,156 @@ describe('SA.2A-WEB1 — HouseholdCreate for ordinary user', () => {
     const submitBtn = screen.getByRole('button', { name: /Simpan/i })
     await userEvent.click(submitBtn)
 
-    expect(capturedBody.rt_id).toBeUndefined()
-    expect(capturedBody.house_number).toBe('001')
+    expect(capturedBody.is_active).toBe(true)
+  })
+
+  it('can switch status to Tidak Aktif in create form', async () => {
+    let capturedBody: Record<string, unknown> = {}
+    mockFetch((input, init) => {
+      if (input.includes('/api/v1/households') && init?.method === 'POST') {
+        capturedBody = JSON.parse((init.body as string) || '{}')
+        return okResponse({ id: 'hh-new', rt_id: 'rt-1', house_number: '001', head_name: 'Test', address: null, phone: '081234567890', nik: '3201011234560001', email: 'test@example.com', occupancy_status: 'OWNER', is_active: false, created_at: '', updated_at: '' })
+      }
+      return failResponse(404, { code: 'not_found' })
+    })
+    renderHouseholdCreate()
+    await fillValidForm()
+    const statusSelect = screen.getByLabelText(/Status\s*\*/i) as HTMLSelectElement
+    await userEvent.selectOptions(statusSelect, 'false')
+    const submitBtn = screen.getByRole('button', { name: /Simpan/i })
+    await userEvent.click(submitBtn)
+
+    expect(capturedBody.is_active).toBe(false)
+  })
+})
+
+// ---- HouseholdEdit is_active Tests ----
+
+const mockApiHousehold = {
+  id: 'hh-old',
+  rt_id: 'rt-1',
+  house_number: '001',
+  head_name: 'Budi',
+  nik: '3201011234560001',
+  phone: '081234567890',
+  email: 'budi@example.com',
+  address: 'Jl. Test 1',
+  occupancy_status: 'OWNER',
+  is_active: true,
+  head_resident: {
+    id: 'res-1',
+    rt_id: 'rt-1',
+    full_name: 'Budi',
+    nik: '3201011234560001',
+    phone: '081234567890',
+    email: 'budi@example.com',
+    is_active: true,
+  },
+  created_at: '',
+  updated_at: '',
+}
+
+describe('W4.3 — HouseholdEdit is_active', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    persistSessionPair({ accessToken: 'test-jwt-token', refreshToken: 'refresh-token' })
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: mockUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('edit form loads current is_active from API', async () => {
+    mockFetch((input) => {
+      if (input.includes('/api/v1/households/hh-old')) {
+        return mockSuccessResponse(mockApiHousehold)
+      }
+      return failResponse(404, { code: 'not_found' })
+    })
+    render(
+      <MemoryRouter initialEntries={['/warga/hh-old/edit']}>
+        <HouseholdEdit id="hh-old" />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Status\s*\*/i)).toBeInTheDocument()
+    })
+
+    const select = screen.getByLabelText(/Status\s*\*/i) as HTMLSelectElement
+    expect(select).toHaveValue('true')
+  })
+
+  it('edit form includes is_active in PATCH body', async () => {
+    let capturedBody: Record<string, unknown> = {}
+    mockFetch((input, init) => {
+      if (input.includes('/api/v1/households/hh-old') && init?.method === 'PATCH') {
+        capturedBody = JSON.parse((init.body as string) || '{}')
+        return mockSuccessResponse({ ...mockApiHousehold, head_name: 'Updated' })
+      }
+      if (input.includes('/api/v1/households/hh-old')) {
+        return mockSuccessResponse(mockApiHousehold)
+      }
+      return failResponse(404, { code: 'not_found' })
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga/hh-old/edit']}>
+        <HouseholdEdit id="hh-old" />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Status\s*\*/i)).toBeInTheDocument()
+    })
+
+    const select = screen.getByLabelText(/Status\s*\*/i) as HTMLSelectElement
+    expect(select).toHaveValue('true')
+
+    // Submit the edit form
+    const submitBtn = screen.getByRole('button', { name: /Simpan Perubahan/i })
+    await userEvent.click(submitBtn)
+
+    expect(capturedBody.is_active).toBe(true)
+  })
+
+  it('edit form can switch status to Tidak Aktif', async () => {
+    const inactiveHousehold = { ...mockApiHousehold, is_active: false, head_name: 'Test HH' }
+    let capturedBody: Record<string, unknown> = {}
+    mockFetch((input, init) => {
+      if (input.includes('/api/v1/households/hh-old') && init?.method === 'PATCH') {
+        capturedBody = JSON.parse((init.body as string) || '{}')
+        return mockSuccessResponse({ ...inactiveHousehold, is_active: false })
+      }
+      if (input.includes('/api/v1/households/hh-old')) {
+        return mockSuccessResponse(inactiveHousehold)
+      }
+      return failResponse(404, { code: 'not_found' })
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga/hh-old/edit']}>
+        <HouseholdEdit id="hh-old" />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Status\s*\*/i)).toBeInTheDocument()
+    })
+
+    // Change status to Tidak Aktif
+    const select = screen.getByLabelText(/Status\s*\*/i) as HTMLSelectElement
+    await userEvent.selectOptions(select, 'false')
+
+    const submitBtn = screen.getByRole('button', { name: /Simpan Perubahan/i })
+    await userEvent.click(submitBtn)
+
+    expect(capturedBody.is_active).toBe(false)
   })
 })
