@@ -70,14 +70,14 @@ export function FinancialChart({ data }: FinancialChartProps) {
         <Bar
           dataKey="income"
           name="Pemasukan"
-          fill="#4ade80"
+          fill="var(--sf-chart-success)"
           radius={[4, 4, 0, 0]}
           maxBarSize={36}
         />
         <Bar
           dataKey="expense"
           name="Pengeluaran"
-          fill="#ef4444"
+          fill="var(--sf-chart-danger)"
           radius={[4, 4, 0, 0]}
           maxBarSize={36}
         />

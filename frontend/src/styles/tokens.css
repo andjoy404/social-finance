@@ -1,53 +1,34 @@
 /**
  * Social Finance — Shell styles (AndJoy visual language)
  * Dark / near-black base. Violet accent.
+ *
+ * Theme structure:
+ *   :root                     = light theme defaults (CSS variables + non-color tokens)
+ *   [data-theme='dark']       = dark theme overrides
+ *   @media... :root:not(...)  = system preference fallback (when no explicit theme set)
  */
+
+/* ── Non-color tokens (identical across themes) ─────────────────────── */
 
 :root {
   --sf-font-sans: 'Montserrat Variable', system-ui, -apple-system, sans-serif;
   --sf-font-mono: 'Geist Mono Variable', monospace;
 
-  /* Dark foundation — near-black / graphite hierarchy */
-  --sf-bg: #0d0d0d;
-  --sf-bg-subtle: #141414;
-  --sf-surface: #1a1a1a;
-  --sf-surface-subtle: #121212;
-  --sf-surface-hover: #222222;
-
-  /* Text */
-  --sf-text: #e6e6e6;
-  --sf-text-muted: #888888;
-
-  /* Borders */
-  --sf-border: #2a2a2a;
-  --sf-border-subtle: #1f1f1f;
-
-  /* Accent — violet */
+  /* Accent — violet (same for both themes) */
   --sf-accent: #a970ff;
-  --sf-accent-soft: rgba(169, 112, 255, 0.12);
 
-  /* Semantic colors — subdued for dark base */
+  /* Semantic base colors (same for both themes) */
   --sf-success: #73bf69;
-  --sf-success-soft: rgba(115, 191, 105, 0.15);
   --sf-warning: #ff9830;
-  --sf-warning-soft: rgba(255, 152, 48, 0.15);
   --sf-danger: #f2495c;
-  --sf-danger-soft: rgba(242, 73, 92, 0.15);
   --sf-info: #5794f2;
-  --sf-info-soft: rgba(87, 148, 242, 0.15);
 
-  /* Chart colors — neon style for dark background */
-  --sf-chart-success: #00ff88;
-  --sf-chart-success-glow: rgba(0, 255, 136, 0.4);
-  --sf-chart-danger: #ff3366;
-  --sf-chart-danger-glow: rgba(255, 51, 102, 0.4);
-
-  /* Shadows — heavier for dark */
+  /* Shadows (same for both themes) */
   --sf-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
   --sf-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
   --sf-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
 
-  /* Focus ring — violet */
+  /* Focus ring */
   --sf-focus-ring: 0 0 0 3px rgba(169, 112, 255, 0.35);
 
   /* Radius */
@@ -82,35 +63,83 @@
   --sf-table-row-hover: color-mix(in srgb, var(--sf-accent) 8%, var(--sf-bg));
 }
 
+/* ── Light theme (default / fallback) ───────────────────────────────── */
+
+[data-theme='light'] {
+  /* Backgrounds */
+  --sf-bg: #f6f6f7;
+  --sf-bg-subtle: #eaeded;
+  --sf-surface: #ffffff;
+  --sf-surface-subtle: #f2f2f4;
+  --sf-surface-hover: #eaeaea;
+
+  /* Text */
+  --sf-text: #1a1a1a;
+  --sf-text-muted: #6b6b6b;
+
+  /* Borders */
+  --sf-border: #dedede;
+  --sf-border-subtle: #e9e9e9;
+
+  /* Accent soft — tinted backgrounds */
+  --sf-accent-soft: rgba(169, 112, 255, 0.10);
+  --sf-success-soft: rgba(115, 191, 105, 0.10);
+  --sf-warning-soft: rgba(255, 152, 48, 0.10);
+  --sf-danger-soft: rgba(242, 73, 92, 0.10);
+  --sf-info-soft: rgba(87, 148, 242, 0.10);
+
+  /* Semantic hover states */
+  --sf-danger-hover: #ff6b7a;
+
+  /* Chart colors — saturated for light background */
+  --sf-chart-success: #4caf50;
+  --sf-chart-success-glow: rgba(76, 175, 80, 0.2);
+  --sf-chart-danger: #ef5350;
+  --sf-chart-danger-glow: rgba(239, 83, 80, 0.2);
+
+  /* Shadows — lighter for light background */
+  --sf-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --sf-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --sf-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.10);
+}
+
+/* ── Dark theme ─────────────────────────────────────────────────────── */
+
 [data-theme='dark'] {
-  /* Dark is now the default via :root. These mirror for completeness. */
+  /* Backgrounds */
   --sf-bg: #0d0d0d;
   --sf-bg-subtle: #141414;
   --sf-surface: #1a1a1a;
   --sf-surface-subtle: #121212;
   --sf-surface-hover: #222222;
+
+  /* Text */
   --sf-text: #e6e6e6;
   --sf-text-muted: #888888;
+
+  /* Borders */
   --sf-border: #2a2a2a;
   --sf-border-subtle: #1f1f1f;
-  --sf-accent: #a970ff;
+
+  /* Accent soft — tinted backgrounds */
   --sf-accent-soft: rgba(169, 112, 255, 0.12);
-  --sf-success: #73bf69;
   --sf-success-soft: rgba(115, 191, 105, 0.15);
-  --sf-warning: #ff9830;
   --sf-warning-soft: rgba(255, 152, 48, 0.15);
-  --sf-danger: #f2495c;
   --sf-danger-soft: rgba(242, 73, 92, 0.15);
-  --sf-info: #5794f2;
   --sf-info-soft: rgba(87, 148, 242, 0.15);
-  --sf-chart-success: #6ba35e;
-  --sf-chart-danger: #d96070;
-  --sf-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --sf-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --sf-focus-ring: 0 0 0 3px rgba(169, 112, 255, 0.35);
+
+  /* Chart colors — neon style for dark background */
+  --sf-chart-success: #00ff88;
+  --sf-chart-success-glow: rgba(0, 255, 136, 0.4);
+  --sf-chart-danger: #ff3366;
+  --sf-chart-danger-glow: rgba(255, 51, 102, 0.4);
+
+  /* Semantic hover states */
+  --sf-danger-hover: #ff6b7a;
 }
 
-/* Legacy light mode — functional but not the canonical design */
+/* ── System preference fallback (applies only when no explicit theme) ── */
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     --sf-bg: #0d0d0d;
@@ -122,23 +151,19 @@
     --sf-text-muted: #888888;
     --sf-border: #2a2a2a;
     --sf-border-subtle: #1f1f1f;
-    --sf-accent: #a970ff;
     --sf-accent-soft: rgba(169, 112, 255, 0.12);
-    --sf-success: #73bf69;
     --sf-success-soft: rgba(115, 191, 105, 0.15);
-    --sf-warning: #ff9830;
     --sf-warning-soft: rgba(255, 152, 48, 0.15);
-    --sf-danger: #f2495c;
     --sf-danger-soft: rgba(242, 73, 92, 0.15);
-    --sf-info: #5794f2;
     --sf-info-soft: rgba(87, 148, 242, 0.15);
-    --sf-chart-success: #6ba35e;
-    --sf-chart-danger: #d96070;
-    --sf-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --sf-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
-    --sf-focus-ring: 0 0 0 3px rgba(169, 112, 255, 0.35);
+    --sf-chart-success: #00ff88;
+    --sf-chart-success-glow: rgba(0, 255, 136, 0.4);
+    --sf-chart-danger: #ff3366;
+    --sf-chart-danger-glow: rgba(255, 51, 102, 0.4);
   }
 }
+
+/* ── Root element ───────────────────────────────────────────────────── */
 
 #root {
   font-family: var(--sf-font-sans);
