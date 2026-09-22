@@ -784,10 +784,21 @@ input { font-family: inherit; }
 
 /* ── Fit-content table columns ────────────────────────────────────────── */
 
+.table-wrapper table th.sf-table-fit-content,
+.table-wrapper table td.sf-table-fit-content,
 .sf-table-fit-content {
+  text-align: center;
+}
+
+.table-wrapper table th.sf-table-action,
+.table-wrapper table td.sf-table-action,
+.sf-table-action {
+  text-align: center;
+}
+
+.table-wrapper table td.sf-table-fit-content {
   width: 1%;
   white-space: nowrap;
-  text-align: center;
 }
 
 .sf-table-center {
