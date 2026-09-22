@@ -2,7 +2,7 @@ import { type ReactNode } from 'react'
 
 interface BadgeProps {
   children: ReactNode
-  variant?: 'violet' | 'green' | 'red' | 'amber' | 'default'
+  variant?: 'violet' | 'green' | 'red' | 'amber' | 'blue' | 'default'
 }
 
 const variantStyles: Record<string, React.CSSProperties> = {
@@ -26,6 +26,11 @@ const variantStyles: Record<string, React.CSSProperties> = {
     color: 'var(--color-warning)',
     borderColor: 'rgba(255,159,10,0.3)',
   },
+  blue: {
+    background: 'rgba(57,160,255,0.12)',
+    color: 'var(--dashboard-accent, #7c5ac7)',
+    borderColor: 'rgba(57,160,255,0.35)',
+  },
   default: {
     background: 'var(--bg-sidebar-active)',
     color: 'var(--text-secondary)',
@@ -41,11 +46,12 @@ export function Badge({ children, variant = 'default' }: BadgeProps) {
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        padding: '2px 8px',
+        padding: '1px 8px',
         fontSize: '11px',
         fontWeight: 600,
-        borderRadius: '999px',
+        borderRadius: '5px',
         border: '1px solid',
+        lineHeight: '20px',
         ...style,
       }}
     >

@@ -42,6 +42,17 @@ function occupancyLabel(status: ApiHousehold['occupancy_status']): string {
   }
 }
 
+function occupancyBadgeVariant(status: ApiHousehold['occupancy_status']): 'violet' | 'blue' | 'default' {
+  switch (status) {
+    case 'OWNER':
+      return 'violet'
+    case 'TENANT':
+      return 'blue'
+    default:
+      return 'default'
+  }
+}
+
 function statusBadge(value: boolean): 'green' | 'red' {
   return value ? 'green' : 'red'
 }
@@ -288,8 +299,8 @@ export function HouseholdList() {
                   <th>Nomor Rumah</th>
                   <th>Kepala Keluarga</th>
                   <th>NIK</th>
-                  <th>Status Hunian</th>
-                  <th>Status</th>
+                  <th className="sf-table-fit-content">Status Hunian</th>
+                  <th className="sf-table-fit-content">Status</th>
                   <th className="sf-table-action">Aksi</th>
                 </tr>
               </thead>
@@ -337,13 +348,17 @@ function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
       <td style={{ fontFamily: 'monospace' }}>{formatNull(household.house_number)}</td>
       <td style={{ fontWeight: 600 }}>{household.head_name}</td>
       <td style={{ fontFamily: 'monospace' }}>{formatNull(household.nik ?? household.head_resident?.nik ?? null)}</td>
-      <td>{occupancyLabel(household.occupancy_status)}</td>
-      <td>
+      <td className="sf-table-fit-content sf-table-center">
+        <Badge variant={occupancyBadgeVariant(household.occupancy_status)}>
+          {occupancyLabel(household.occupancy_status)}
+        </Badge>
+      </td>
+      <td className="sf-table-fit-content sf-table-center">
         <Badge variant={statusBadge(household.is_active)}>
           {statusLabel(household.is_active)}
         </Badge>
       </td>
-      <td className="sf-table-action">
+      <td className="sf-table-action sf-table-center">
         <RowActionMenu
           items={[
             { label: 'Ubah', onClick: () => onEdit(household) },
