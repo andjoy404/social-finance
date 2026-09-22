@@ -1,14 +1,9 @@
 name: Backend CI
 
+# TEMPORARILY DISABLED: automatic push/pull_request triggers.
+# Restore the previous path-filtered triggers when CI is re-enabled.
 on:
-  push:
-    paths:
-      - 'backend/**'
-      - '.github/workflows/backend-ci.yml'
-  pull_request:
-    paths:
-      - 'backend/**'
-      - '.github/workflows/backend-ci.yml'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

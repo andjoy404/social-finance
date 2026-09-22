@@ -721,6 +721,81 @@ input { font-family: inherit; }
   text-decoration: none;
 }
 
+/* ── Fixed-width Action column ───────────────────────────────────────── */
+
+.sf-table-action {
+  width: 110px;
+  min-width: 110px;
+  max-width: 110px;
+  text-align: left;
+  border-left: 1px solid var(--sf-border);
+}
+
+/* ── Row Action Menu ─────────────────────────────────────────────────── */
+
+.sf-row-action {
+  position: relative;
+  display: inline-block;
+}
+
+.sf-row-action-trigger {
+  background: var(--sf-surface-hover);
+  border: 1px solid var(--sf-border);
+  border-radius: var(--sf-radius-sm);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sf-text);
+  cursor: pointer;
+  transition: all 120ms ease;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sf-row-action-trigger:hover {
+  background: var(--sf-surface-active);
+  border-color: var(--sf-accent);
+  color: var(--sf-accent);
+}
+
+.sf-row-action-trigger-open {
+  background: var(--sf-accent-soft);
+  border-color: var(--sf-accent);
+  color: var(--sf-accent);
+}
+
+.sf-row-action-menu {
+  min-width: 100px;
+  background: var(--sf-bg);
+  border: 1px solid var(--sf-border);
+  border-radius: var(--sf-radius-sm);
+  box-shadow: var(--sf-shadow-md);
+  z-index: 100;
+  padding: 4px 0;
+  overflow: hidden;
+}
+
+.sf-row-action-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--sf-text);
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: all 80ms ease;
+  white-space: nowrap;
+}
+
+.sf-row-action-item:hover {
+  background: var(--sf-accent-soft);
+  color: var(--sf-accent);
+}
+
 /* In-table badges/tags/buttons — uniform height */
 .table-wrapper table td .sf-badge,
 .table-wrapper table td .ant-tag,

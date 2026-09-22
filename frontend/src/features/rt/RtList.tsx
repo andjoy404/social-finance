@@ -7,8 +7,9 @@ import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
-import { ApartmentOutlined, DownOutlined, CloseOutlined, EditOutlined } from '@ant-design/icons'
+import { ApartmentOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons'
 import { RtEdit } from './RtEdit'
+import { RowActionMenu } from '@/components/RowActionMenu'
 
 type FilterType = 'semua' | 'status'
 
@@ -271,6 +272,7 @@ export function RtList() {
                   <th>Kode RT</th>
                   <th>Ketua RT</th>
                   <th>Status</th>
+                  <th className="sf-table-action">Aksi</th>
                 </tr>
               </thead>
               <tbody>
@@ -318,25 +320,17 @@ function RtRow({ index, rt, onEdit }: RtRowProps) {
       <td style={{ fontFamily: 'monospace' }}>{rt.rw}</td>
       <td style={{ fontFamily: 'monospace' }}>{rt.rt}</td>
       <td>{rt.head_name ?? '\u2014'}</td>
-      <td style={{ display: 'flex', gap: '4px' }}>
+      <td>
         <Badge variant={statusBadgeForRow(rt.is_active)}>
           {statusLabel(rt.is_active)}
         </Badge>
-        <button
-          type="button"
-          onClick={() => onEdit(rt)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--sf-text-muted)',
-            cursor: 'pointer',
-            padding: '0 2px',
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
-        >
-          <EditOutlined style={{ fontSize: 14 }} />
-        </button>
+      </td>
+      <td className="sf-table-action">
+        <RowActionMenu
+          items={[
+            { label: 'Edit', onClick: () => onEdit(rt) },
+          ]}
+        />
       </td>
     </tr>
   )

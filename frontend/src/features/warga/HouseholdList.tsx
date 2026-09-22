@@ -13,8 +13,9 @@ import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
-import { UserOutlined, CloseOutlined, DownOutlined, EditOutlined } from '@ant-design/icons'
+import { UserOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons'
 import { HouseholdEdit } from './HouseholdEdit'
+import { RowActionMenu } from '@/components/RowActionMenu'
 
 type FilterType = 'semua' | 'status'
 
@@ -289,6 +290,7 @@ export function HouseholdList() {
                   <th>NIK</th>
                   <th>Status Hunian</th>
                   <th>Status</th>
+                  <th className="sf-table-action">Aksi</th>
                 </tr>
               </thead>
               <tbody>
@@ -336,25 +338,17 @@ function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
       <td style={{ fontWeight: 600 }}>{household.head_name}</td>
       <td style={{ fontFamily: 'monospace' }}>{formatNull(household.nik ?? household.head_resident?.nik ?? null)}</td>
       <td>{occupancyLabel(household.occupancy_status)}</td>
-      <td style={{ display: 'flex', gap: '4px' }}>
+      <td>
         <Badge variant={statusBadge(household.is_active)}>
           {statusLabel(household.is_active)}
         </Badge>
-        <button
-          type="button"
-          onClick={() => onEdit(household)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--sf-text-muted)',
-            cursor: 'pointer',
-            padding: '0 2px',
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
-        >
-          <EditOutlined style={{ fontSize: 14 }} />
-        </button>
+      </td>
+      <td className="sf-table-action">
+        <RowActionMenu
+          items={[
+            { label: 'Edit', onClick: () => onEdit(household) },
+          ]}
+        />
       </td>
     </tr>
   )
