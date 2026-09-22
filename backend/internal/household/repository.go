@@ -219,12 +219,17 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 		headName = strings.TrimSpace(*in.FullName)
 	}
 
+	isActive := true
+	if in.IsActive != nil {
+		isActive = *in.IsActive
+	}
+
 	var item Household
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO households (rt_id, head_name, is_active)
-		 VALUES ($1, $2, true)
+		 VALUES ($1, $2, $3)
 		 RETURNING id, rt_id, head_name, is_active, created_at, updated_at`,
-		in.RTID, headName,
+		in.RTID, headName, isActive,
 	).Scan(
 		&item.ID, &item.RTID, &item.HeadName,
 		&item.IsActive, &item.CreatedAt, &item.UpdatedAt,
@@ -481,6 +486,7 @@ func HouseholdGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Household
 
 // HouseholdGetRTByID returns the rt_id of a household by id without filtering by tenant.
 // This is used by system super_admin handlers to derive the target RT from the resource itself.
+// Only active households are returned.
 func HouseholdGetRTByID(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	var rtID string
 	err := tx.QueryRowContext(ctx,
@@ -491,6 +497,22 @@ func HouseholdGetRTByID(ctx context.Context, tx *sql.Tx, id string) (string, err
 			return "", ErrNotFound
 		}
 		return "", fmt.Errorf("get household rt_id: %w", err)
+	}
+	return rtID, nil
+}
+
+// HouseholdGetRTByIDAnyStatus returns the rt_id of a household by id regardless of active status.
+// This is used by update operations that must allow editing inactive households.
+func HouseholdGetRTByIDAnyStatus(ctx context.Context, tx *sql.Tx, id string) (string, error) {
+	var rtID string
+	err := tx.QueryRowContext(ctx,
+		`SELECT rt_id FROM households WHERE id = $1`, id,
+	).Scan(&rtID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("get household rt_id any status: %w", err)
 	}
 	return rtID, nil
 }
@@ -520,7 +542,7 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 		`SELECT h.id, h.head_name, ho.physical_house_id, ho.id
 		 FROM households h
 		 LEFT JOIN household_occupancies ho ON ho.household_id = h.id AND ho.end_date IS NULL
-		 WHERE h.id = $1 AND h.rt_id = $2 AND h.is_active = true LIMIT 1`,
+		 WHERE h.id = $1 AND h.rt_id = $2 LIMIT 1`,
 		id, rtID,
 	).Scan(&hhID, &currentHeadName, &phID, &hoID)
 	if err != nil {
@@ -699,7 +721,7 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 	if len(fields) > 0 {
 		query := `UPDATE households SET ` + setClause(fields, 0) +
 			`, updated_at = now() WHERE id = $` + fmt.Sprint(len(fields)+1) +
-			` AND rt_id = $` + fmt.Sprint(len(fields)+2) + ` AND is_active = true`
+			` AND rt_id = $` + fmt.Sprint(len(fields)+2)
 		args = append(args, id, rtID)
 		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {

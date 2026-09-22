@@ -294,6 +294,11 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 	canonEmail := NormalizeEmail(*req.Email)
 	req.Email = &canonEmail
 
+	if req.IsActive == nil {
+		trueVal := true
+		req.IsActive = &trueVal
+	}
+
 	result, err := svc.CreateHousehold(ctx, tx, req)
 	if err != nil {
 		if errors.Is(err, ErrDuplicateHouseNumber) {
@@ -474,9 +479,10 @@ func (h *Handler) UpdateHousehold(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve target RT: tenant users use authenticated RT;
-	// system super_admin without RT resolves it from the household itself.
+	// system super_admin without RT resolves it from the household itself,
+	// allowing updates to inactive households.
 	rtID, ok := h.resolveRTID(w, r, func(ctx context.Context, tx *sql.Tx) (string, error) {
-		return HouseholdGetRTByID(ctx, tx, id)
+		return HouseholdGetRTByIDAnyStatus(ctx, tx, id)
 	})
 	if !ok {
 		return

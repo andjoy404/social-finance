@@ -346,7 +346,7 @@ function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
       <td className="sf-table-action">
         <RowActionMenu
           items={[
-            { label: 'Edit', onClick: () => onEdit(household) },
+            { label: 'Ubah', onClick: () => onEdit(household) },
           ]}
         />
       </td>

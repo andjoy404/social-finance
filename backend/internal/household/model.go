@@ -61,6 +61,7 @@ type CreateHouseholdInput struct {
 	Address         *string         `json:"address,omitempty"`
 	OccupancyStatus OccupancyStatus `json:"occupancy_status"`
 	StartDate       *string         `json:"start_date,omitempty"` // YYYY-MM-DD
+	IsActive        *bool           `json:"is_active,omitempty"`
 }
 
 // UpdateHouseholdInput holds optional fields for updating a household.

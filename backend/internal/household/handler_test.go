@@ -665,7 +665,7 @@ func TestUpdateHousehold(t *testing.T) {
 		}
 	})
 
-	t.Run("update deactivated returns 404", func(t *testing.T) {
+		t.Run("update deactivated household succeeds", func(t *testing.T) {
 		deactivateReq := httptest.NewRequest("DELETE", "/api/v1/households/"+hhID, nil)
 		deactivateReq.Header.Set("Authorization", "Bearer "+token)
 		deactivateRec := httptest.NewRecorder()
@@ -674,15 +674,26 @@ func TestUpdateHousehold(t *testing.T) {
 			t.Fatalf("expected 204 for deactivate, got %d: %s", deactivateRec.Code, deactivateRec.Body.String())
 		}
 
-		body := `{"head_name":"Still Trying"}`
+		body := `{"head_name":"Reactivated Head"}`
 		updateReq := httptest.NewRequest("PATCH", "/api/v1/households/"+hhID, bytes.NewBufferString(body))
 		updateReq.Header.Set("Content-Type", "application/json")
 		updateReq.Header.Set("Authorization", "Bearer "+token)
 		updateRec := httptest.NewRecorder()
 		r.ServeHTTP(updateRec, updateReq)
 
-		if updateRec.Code != http.StatusNotFound {
-			t.Errorf("expected 404 for deactivated, got %d: %s", updateRec.Code, updateRec.Body.String())
+		if updateRec.Code != http.StatusOK {
+			t.Errorf("expected 200 for deactivated household patch, got %d: %s", updateRec.Code, updateRec.Body.String())
+		}
+		var result Household
+		if err := json.Unmarshal(updateRec.Body.Bytes(), &result); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		// head_name should be updated but is_active should remain false
+		if result.HeadName != "Reactivated Head" {
+			t.Errorf("expected head_name 'Reactivated Head', got %q", result.HeadName)
+		}
+		if result.IsActive {
+			t.Error("expected is_active=false after patch without is_active field")
 		}
 	})
 
