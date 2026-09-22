@@ -7,34 +7,34 @@ interface BadgeProps {
 
 const variantStyles: Record<string, React.CSSProperties> = {
   violet: {
-    background: 'var(--primary-subtle)',
-    color: 'var(--primary)',
-    borderColor: 'var(--primary-border)',
+    color: `color-mix(in srgb, var(--sf-accent) ${78}, var(--sf-text))`,
+    borderColor: `color-mix(in srgb, var(--sf-accent) ${72}, var(--sf-border))`,
+    background: `linear-gradient(145deg, color-mix(in srgb, var(--sf-accent) ${16}, var(--sf-bg)), color-mix(in srgb, var(--sf-accent) ${9}, var(--sf-bg)))`,
   },
   green: {
-    background: 'var(--color-income-subtle)',
-    color: 'var(--color-income)',
-    borderColor: 'rgba(52,199,89,0.3)',
+    color: `color-mix(in srgb, #34c759 ${76}%, var(--sf-text))`,
+    borderColor: `color-mix(in srgb, #34c759 ${70}%, var(--sf-border))`,
+    background: `linear-gradient(145deg, color-mix(in srgb, #34c759 ${14}%, var(--sf-bg)), color-mix(in srgb, #34c759 ${9}%, var(--sf-bg)))`,
   },
   red: {
-    background: 'var(--color-expense-subtle)',
-    color: 'var(--color-expense)',
-    borderColor: 'rgba(255,59,48,0.3)',
+    color: `color-mix(in srgb, #ff3b30 ${76}%, var(--sf-text))`,
+    borderColor: `color-mix(in srgb, #ff3b30 ${70}%, var(--sf-border))`,
+    background: `linear-gradient(145deg, color-mix(in srgb, #ff3b30 ${14}%, var(--sf-bg)), color-mix(in srgb, #ff3b30 ${9}%, var(--sf-bg)))`,
   },
   amber: {
-    background: 'var(--color-warning-subtle)',
-    color: 'var(--color-warning)',
-    borderColor: 'rgba(255,159,10,0.3)',
+    color: `color-mix(in srgb, #ff9f0a ${76}%, var(--sf-text))`,
+    borderColor: `color-mix(in srgb, #ff9f0a ${70}%, var(--sf-border))`,
+    background: `linear-gradient(145deg, color-mix(in srgb, #ff9f0a ${14}%, var(--sf-bg)), color-mix(in srgb, #ff9f0a ${9}%, var(--sf-bg)))`,
   },
   blue: {
-    background: 'rgba(57,160,255,0.12)',
-    color: 'var(--dashboard-accent, #7c5ac7)',
-    borderColor: 'rgba(57,160,255,0.35)',
+    color: `color-mix(in srgb, #60a5fa ${76}%, var(--sf-text))`,
+    borderColor: `color-mix(in srgb, #3b82f6 ${70}%, var(--sf-border))`,
+    background: `linear-gradient(145deg, color-mix(in srgb, #3b82f6 ${14}%, var(--sf-bg)), color-mix(in srgb, #3b82f6 ${9}%, var(--sf-bg)))`,
   },
   default: {
-    background: 'var(--bg-sidebar-active)',
-    color: 'var(--text-secondary)',
-    borderColor: 'var(--border-color)',
+    color: `color-mix(in srgb, var(--sf-text-muted) ${72}%, transparent)`,
+    borderColor: `color-mix(in srgb, var(--sf-text-muted) ${30}%, transparent)`,
+    background: `color-mix(in srgb, var(--sf-text-muted) ${10}%, var(--sf-bg))`,
   },
 }
 
@@ -48,10 +48,12 @@ export function Badge({ children, variant = 'default' }: BadgeProps) {
         alignItems: 'center',
         padding: '1px 8px',
         fontSize: '11px',
-        fontWeight: 600,
+        fontWeight: 400,
         borderRadius: '5px',
         border: '1px solid',
         lineHeight: '20px',
+        textTransform: 'capitalize',
+        fontFamily: 'inherit',
         ...style,
       }}
     >

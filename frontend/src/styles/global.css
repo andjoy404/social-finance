@@ -727,7 +727,7 @@ input { font-family: inherit; }
   width: 110px;
   min-width: 110px;
   max-width: 110px;
-  text-align: left;
+  text-align: center;
   border-left: 1px solid var(--sf-border);
 }
 
@@ -742,20 +742,20 @@ input { font-family: inherit; }
   background: var(--sf-surface-hover);
   border: 1px solid var(--sf-border);
   border-radius: var(--sf-radius-sm);
-  padding: 4px 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--sf-text);
-  cursor: pointer;
-  transition: all 120ms ease;
-  white-space: nowrap;
+  padding: 4px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 120ms ease;
+  color: var(--sf-text-muted);
+  font-size: 14px;
 }
 
 .sf-row-action-trigger:hover {
-  background: var(--sf-surface-active);
+  background: var(--sf-surface-hover);
   border-color: var(--sf-accent);
   color: var(--sf-accent);
 }
@@ -787,6 +787,7 @@ input { font-family: inherit; }
 .sf-table-fit-content {
   width: 1%;
   white-space: nowrap;
+  text-align: center;
 }
 
 .sf-table-center {
