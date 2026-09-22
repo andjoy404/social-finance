@@ -23,6 +23,17 @@ function occupancyLabel(status: ApiHousehold['occupancy_status']): string {
   }
 }
 
+function occupancyBadgeVariant(status: ApiHousehold['occupancy_status']): 'violet' | 'blue' | 'default' {
+  switch (status) {
+    case 'OWNER':
+      return 'violet'
+    case 'TENANT':
+      return 'blue'
+    default:
+      return 'default'
+  }
+}
+
 function statusBadge(value: boolean): 'green' | 'red' {
   return value ? 'green' : 'red'
 }
@@ -223,7 +234,7 @@ export function HouseholdDetail() {
               </p>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <Badge variant={statusBadge(household.occupancy_status === 'OWNER')}>
+              <Badge variant={occupancyBadgeVariant(household.occupancy_status)}>
                 {occupancyLabel(household.occupancy_status)}
               </Badge>
               <Badge variant={statusBadge(household.is_active)}>
