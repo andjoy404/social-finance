@@ -169,7 +169,7 @@ input { font-family: inherit; }
 .sf-user-dropdown-menu .ant-dropdown-menu-item:hover,
 .sf-user-dropdown-menu .ant-dropdown-menu-item-active {
   background: var(--sf-surface-hover) !important;
-  color: #ff6b7a !important;
+  color: var(--sf-danger-hover) !important;
 }
 
 .sf-user-dropdown-menu .ant-dropdown-menu-item .anticon {
