@@ -13,7 +13,7 @@ import {
   type ApiHousehold,
   type ApiRT,
 } from '@/app/api'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { SearchableSelect } from '@/components/SearchableSelect'
 import {
@@ -458,9 +458,9 @@ export function HouseholdCreate() {
           />
         </ModalBody>
         <ModalFooter>
-          <Link to="/warga" className="sf-btn-ghost">
+          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
             Batal
-          </Link>
+          </button>
           <button
             type="submit"
             className="sf-btn-primary"
@@ -615,9 +615,9 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
             </div>
           </ModalBody>
           <ModalFooter>
-            <Link to="/warga" className="sf-btn-ghost">
+            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
               Batal
-            </Link>
+            </button>
           </ModalFooter>
         </>
       ) : notFound ? (
@@ -628,9 +628,9 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
             </div>
           </ModalBody>
           <ModalFooter>
-            <Link to="/warga" className="sf-btn-ghost">
+            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
               Batal
-            </Link>
+            </button>
           </ModalFooter>
         </>
       ) : (
@@ -655,9 +655,9 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
             />
           </ModalBody>
           <ModalFooter>
-            <Link to="/warga" className="sf-btn-ghost">
+            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
               Batal
-            </Link>
+            </button>
             <button type="submit" className="sf-btn-primary" disabled={saving}>
               {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
             </button>
