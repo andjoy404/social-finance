@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { MoreOutlined } from '@ant-design/icons'
 
 interface RowActionMenuItem {
   label: string
@@ -13,7 +14,7 @@ interface RowActionMenuProps {
 export function RowActionMenu({ items }: RowActionMenuProps) {
   const [open, setOpen] = useState(false)
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null)
-  const triggerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const handleOpen = useCallback(() => {
@@ -66,15 +67,18 @@ export function RowActionMenu({ items }: RowActionMenuProps) {
   }, [open])
 
   return (
-    <div className="sf-row-action" ref={triggerRef}>
+    <div className="sf-row-action">
       <button
+        ref={triggerRef}
         type="button"
         className={`sf-row-action-trigger ${open ? 'sf-row-action-trigger-open' : ''}`}
         onClick={handleOpen}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label="Aksi"
+        title="Aksi"
       >
-        Aksi
+        <MoreOutlined />
       </button>
 
       {open && menuPosition && createPortal(

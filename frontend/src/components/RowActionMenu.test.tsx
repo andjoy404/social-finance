@@ -11,11 +11,14 @@ describe('RowActionMenu', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
-  it('trigger text is Aksi', () => {
+  it('trigger has aria-label Aksi and icon', () => {
     render(
       <RowActionMenu items={[{ label: 'Edit', onClick: vi.fn() }]} />
     )
-    expect(screen.getByRole('button', { name: /aksi/i })).toHaveTextContent('Aksi')
+    const trigger = screen.getByRole('button', { name: /aksi/i })
+    expect(trigger).toHaveAttribute('title', 'Aksi')
+    const icon = trigger.querySelector('svg')
+    expect(icon).toBeInTheDocument()
   })
 
   it('opens on click', () => {
