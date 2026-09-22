@@ -1,14 +1,8 @@
+# TEMPORARILY DISABLED: automatic push/pull_request triggers.
+# Restore the previous path-filtered triggers when CI is re-enabled.
 name: Frontend CI
-
 on:
-  push:
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend-ci.yml'
-  pull_request:
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend-ci.yml'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
