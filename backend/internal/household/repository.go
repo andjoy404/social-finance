@@ -449,7 +449,7 @@ func HouseholdCountAll(ctx context.Context, tx *sql.Tx, isActive *bool, search *
 	argIndex := 1
 
 	if isActive != nil {
-		query += fmt.Sprintf(" AND is_active = $%d", argIndex)
+		query += fmt.Sprintf(" AND h.is_active = $%d", argIndex)
 		args = append(args, *isActive)
 		argIndex++
 	}
