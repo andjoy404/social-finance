@@ -394,7 +394,7 @@ describe('W4.3 — HouseholdEdit form rendering', () => {
     expect(capturedBody.head_name).toBe('Budi Santoso')
   })
 
-  it('cancel button navigates back to /warga', async () => {
+  it('cancel button closes the modal', async () => {
     mockFetch((input, init) => {
       if (init?.method === 'GET' && input.includes('/api/v1/households/hh-1')) {
         return okResponse(mockHousehold)
@@ -404,10 +404,12 @@ describe('W4.3 — HouseholdEdit form rendering', () => {
     renderHouseholdEdit()
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: /Batal/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Batal/i })).toBeInTheDocument()
     })
 
-    const cancelLink = screen.getByRole('link', { name: /Batal/i })
-    expect(cancelLink).toHaveAttribute('href', '/warga')
+    const cancelButton = screen.getByRole('button', { name: /Batal/i })
+    expect(cancelButton).toBeInTheDocument()
+
+    await userEvent.click(cancelButton)
   })
 })

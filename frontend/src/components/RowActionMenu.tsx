@@ -12,7 +12,7 @@ interface RowActionMenuProps {
 
 export function RowActionMenu({ items }: RowActionMenuProps) {
   const [open, setOpen] = useState(false)
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -21,7 +21,7 @@ export function RowActionMenu({ items }: RowActionMenuProps) {
       if (prev) return false
       const rect = triggerRef.current?.getBoundingClientRect()
       if (rect) {
-        setMenuPosition({ top: rect.bottom + 4, left: rect.left })
+        setMenuPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
       }
       return true
     })
@@ -54,7 +54,7 @@ export function RowActionMenu({ items }: RowActionMenuProps) {
     const handleScroll = () => {
       const rect = triggerRef.current?.getBoundingClientRect()
       if (rect) {
-        setMenuPosition({ top: rect.bottom + 4, left: rect.left })
+        setMenuPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
       }
     }
     window.addEventListener('scroll', handleScroll, { passive: true })
@@ -85,7 +85,7 @@ export function RowActionMenu({ items }: RowActionMenuProps) {
           style={{
             position: 'fixed',
             top: menuPosition.top,
-            left: menuPosition.left,
+            right: menuPosition.right,
           }}
         >
           {items.map((item) => (
