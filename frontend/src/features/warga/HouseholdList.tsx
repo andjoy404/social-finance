@@ -75,7 +75,7 @@ export function HouseholdList() {
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:warga', [10, 25, 50])
+  const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:warga', [10, 25, 50, 100])
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [search, setSearch] = useState('')
   const [statusValue, setStatusValue] = useState<StatusValue>(null)
@@ -187,7 +187,9 @@ export function HouseholdList() {
           </span>
           <div className="sf-page-header-copy">
             <div className="sf-page-header-title-text">Daftar Warga</div>
-            <div className="sf-page-header-subtitle">Manajemen kepala keluarga dan rumah tangga</div>
+            <div className="sf-page-header-subtitle">
+              {user.rt?.name ? `Manajemen kepala keluarga dan rumah tangga \u2014 ${user.rt.name}` : 'Manajemen kepala keluarga dan rumah tangga'}
+            </div>
           </div>
         </div>
       </div>
@@ -295,11 +297,15 @@ export function HouseholdList() {
             <table>
               <thead>
                 <tr>
-                  <th>No</th>
+                  <th style={{ width: 40, textAlign: 'center' }}>No</th>
                   <th>Nomor Rumah</th>
+                  <th>Alamat</th>
+                  <th className="sf-table-fit-content">Status Hunian</th>
                   <th>Kepala Keluarga</th>
                   <th>NIK</th>
-                  <th className="sf-table-fit-content">Status Hunian</th>
+                  <th className="sf-table-fit-content">Hubungan</th>
+                  <th>Telepon</th>
+                  <th>Email</th>
                   <th className="sf-table-fit-content">Status</th>
                   <th className="sf-table-action">Aksi</th>
                 </tr>
@@ -327,7 +333,7 @@ export function HouseholdList() {
             totalPages={totalPages}
             onPageChange={handlePage}
             onPageSizeChange={handlePageSizeChange}
-            pageSizeOptions={[10, 25, 50]}
+            pageSizeOptions={[10, 25, 50, 100]}
           />
         )}
       </div>
@@ -342,17 +348,29 @@ interface HouseholdRowProps {
 }
 
 function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
+  const relationship = household.head_resident?.relationship_to_head === 'HEAD'
+    ? 'Kepala Keluarga'
+    : (household.head_resident?.relationship_to_head ?? 'Kepala Keluarga')
+
   return (
     <tr>
-      <td>{index}</td>
+      <td style={{ textAlign: 'center' }}>{index}</td>
       <td style={{ fontFamily: 'monospace' }}>{formatNull(household.house_number)}</td>
-      <td style={{ fontWeight: 600 }}>{household.head_name}</td>
-      <td style={{ fontFamily: 'monospace' }}>{formatNull(household.nik ?? household.head_resident?.nik ?? null)}</td>
+      <td>{formatNull(household.address)}</td>
       <td className="sf-table-fit-content sf-table-center">
         <Badge variant={occupancyBadgeVariant(household.occupancy_status)}>
           {occupancyLabel(household.occupancy_status)}
         </Badge>
       </td>
+      <td style={{ fontWeight: 600 }}>{household.head_name}</td>
+      <td style={{ fontFamily: 'monospace' }}>{formatNull(household.nik ?? household.head_resident?.nik ?? null)}</td>
+      <td className="sf-table-fit-content sf-table-center">
+        <Badge variant="default">
+          {relationship}
+        </Badge>
+      </td>
+      <td style={{ fontFamily: 'monospace' }}>{formatNull(household.phone ?? household.head_resident?.phone ?? null)}</td>
+      <td>{formatNull(household.email ?? household.head_resident?.email ?? null)}</td>
       <td className="sf-table-fit-content sf-table-center">
         <Badge variant={statusBadge(household.is_active)}>
           {statusLabel(household.is_active)}
