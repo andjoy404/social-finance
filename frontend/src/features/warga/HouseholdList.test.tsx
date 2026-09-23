@@ -109,6 +109,18 @@ describe('W4.2C — HouseholdList rendering', () => {
     await waitFor(() => {
       expect(screen.getByText('3201011234560001')).toBeInTheDocument()
     })
+    await waitFor(() => {
+      expect(screen.getByText('Jl. Mawar No. 1')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByText('081234567890')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByText('budi@example.com')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getAllByText('Kepala Keluarga').length).toBeGreaterThanOrEqual(1)
+    })
   })
 
   it('renders OWNER as Pemilik', async () => {

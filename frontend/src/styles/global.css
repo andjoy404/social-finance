@@ -670,6 +670,7 @@ input { font-family: inherit; }
 .table-wrapper {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  width: 100%;
 }
 
 .table-wrapper table {
@@ -689,9 +690,12 @@ input { font-family: inherit; }
   color: var(--sf-table-header-color) !important;
   padding: 10px 14px;
   background: var(--sf-bg) !important;
+  border-top: 1px solid var(--sf-border) !important;
   border-bottom: 1px solid var(--sf-border) !important;
   text-align: left;
   min-height: var(--sf-table-row-min-height);
+  position: relative;
+  white-space: nowrap;
 }
 
 .table-wrapper table td {
@@ -705,6 +709,20 @@ input { font-family: inherit; }
   min-height: var(--sf-table-row-min-height);
   box-sizing: border-box;
   vertical-align: middle;
+  position: relative;
+  white-space: nowrap;
+}
+
+/* Floating vertical separators between table columns — header only */
+.table-wrapper table th:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 25%;
+  height: 50%;
+  width: 1px;
+  background: var(--sf-border-subtle);
+  pointer-events: none;
 }
 
 .table-wrapper table tbody tr:hover > td {
@@ -728,7 +746,6 @@ input { font-family: inherit; }
   min-width: 110px;
   max-width: 110px;
   text-align: center;
-  border-left: 1px solid var(--sf-border);
 }
 
 /* ── Row Action Menu ─────────────────────────────────────────────────── */

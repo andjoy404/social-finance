@@ -43,7 +43,7 @@ export function RtList() {
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:rt', [10, 25, 50])
+  const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:rt', [10, 25, 50, 100])
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [search, setSearch] = useState('')
   const [statusValue, setStatusValue] = useState<StatusValue>(null)
@@ -298,7 +298,7 @@ export function RtList() {
             totalPages={totalPages}
             onPageChange={handlePage}
             onPageSizeChange={handlePageSizeChange}
-            pageSizeOptions={[10, 25, 50]}
+            pageSizeOptions={[10, 25, 50, 100]}
           />
         )}
       </div>
