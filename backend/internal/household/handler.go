@@ -825,12 +825,9 @@ func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resident)
 }
 
-// ListResidents handles GET /api/v1/residents — all tenant roles.
+// ListResidents handles GET /api/v1/residents — all tenant roles, system read for SUPER_ADMIN.
 func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
-	rtID, ok := requireRTID(w, r)
-	if !ok {
-		return
-	}
+	ac := auth.GetAuthContext(r)
 
 	page, pageSize := parsePagination(r)
 	householdID := parseStringQuery(r, "household_id")
@@ -850,6 +847,33 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	svc := NewHouseholdManager(h.pool)
+
+	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		residents, err := svc.ListAllResidents(ctx, tx, householdID, isActive, search, offset, pageSize)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list residents")
+			return
+		}
+
+		total, err := svc.CountAllResidents(ctx, tx, householdID, isActive)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to count residents")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list residents")
+			return
+		}
+
+		writePaginated(w, http.StatusOK, residents, page, pageSize, total)
+		return
+	}
+
+	rtID, ok := requireRTID(w, r)
+	if !ok {
+		return
+	}
 
 	residents, err := svc.ListResidents(ctx, tx, rtID, householdID, isActive, search, offset, pageSize)
 	if err != nil {

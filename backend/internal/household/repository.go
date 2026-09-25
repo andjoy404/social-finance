@@ -1213,6 +1213,121 @@ func ResidentCount(ctx context.Context, tx *sql.Tx, rtID string, householdID *st
 	return count, nil
 }
 
+// ResidentListAll returns residents across all RTs with optional filters and pagination.
+func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
+	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
+	                 ho.household_id, rp.relationship_to_head,
+	                 rt.rt, rt.rw, rt.name
+	          FROM residents r
+	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+	          LEFT JOIN rts rt ON r.rt_id = rt.id
+	          WHERE 1=1`
+
+	var allArgs []interface{}
+	pos := 1
+
+	if isActive != nil {
+		query += fmt.Sprintf(" AND r.is_active = $%d", pos)
+		allArgs = append(allArgs, *isActive)
+		pos++
+	} else {
+		query += " AND r.is_active = true"
+	}
+
+	if householdID != nil {
+		query += fmt.Sprintf(" AND ho.household_id = $%d", pos)
+		allArgs = append(allArgs, *householdID)
+		pos++
+	}
+
+	if search != nil && *search != "" {
+		searchStr := "%" + *search + "%"
+		query += fmt.Sprintf(" AND (r.full_name ILIKE $%d OR r.nik ILIKE $%d OR r.phone ILIKE $%d OR r.email ILIKE $%d)", pos, pos, pos, pos)
+		allArgs = append(allArgs, searchStr)
+		pos++
+	}
+
+	query += fmt.Sprintf(" ORDER BY r.created_at ASC OFFSET $%d LIMIT $%d", pos, pos+1)
+	allArgs = append(allArgs, offset, limit)
+
+	rows, err := tx.QueryContext(ctx, query, allArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("list all residents: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]*Resident, 0)
+	for rows.Next() {
+		var item Resident
+		var hhID, rel sql.NullString
+		var rtNumber, rtName sql.NullString
+		var rw sql.NullInt64
+		if err := rows.Scan(
+			&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email,
+			&item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+			&hhID, &rel,
+			&rtNumber, &rw, &rtName,
+		); err != nil {
+			return nil, fmt.Errorf("scan resident: %w", err)
+		}
+		if hhID.Valid {
+			item.HouseholdID = &hhID.String
+		}
+		if rel.Valid {
+			item.RelationshipToHead = &rel.String
+		}
+		if rtNumber.Valid {
+			item.RTNumber = &rtNumber.String
+		}
+		if rw.Valid {
+			rwVal := int(rw.Int64)
+			item.RW = &rwVal
+		}
+		if rtName.Valid {
+			item.RTName = &rtName.String
+		}
+		result = append(result, &item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate residents: %w", err)
+	}
+	return result, nil
+}
+
+// ResidentCountAll returns the number of residents across all RTs matching the filters.
+func ResidentCountAll(ctx context.Context, tx *sql.Tx, householdID *string, isActive *bool) (int, error) {
+	query := `SELECT COUNT(*)
+	          FROM residents r
+	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+	          WHERE 1=1`
+
+	var args []interface{}
+	argIndex := 1
+
+	if isActive != nil {
+		query += fmt.Sprintf(" AND r.is_active = $%d", argIndex)
+		args = append(args, *isActive)
+		argIndex++
+	} else {
+		query += " AND r.is_active = true"
+	}
+
+	if householdID != nil {
+		query += fmt.Sprintf(" AND ho.household_id = $%d", argIndex)
+		args = append(args, *householdID)
+		argIndex++
+	}
+
+	var count int
+	err := tx.QueryRowContext(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count all residents: %w", err)
+	}
+	return count, nil
+}
+
 // ResidentUpdate partially updates a resident and/or their current relationship_to_head.
 func ResidentUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *UpdateResidentInput) (*Resident, error) {
 	hasChanges := false

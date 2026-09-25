@@ -61,6 +61,14 @@ function statusLabel(value: boolean): string {
   return value ? 'Aktif' : 'Tidak Aktif'
 }
 
+function formatRtNumber(value: string | null): string {
+  return value ? `RT ${value}` : '\u2014'
+}
+
+function formatRw(value: number | null): string {
+  return value != null ? String(value) : '\u2014'
+}
+
 function formatNull(value: string | null): string {
   return value ?? '\u2014'
 }
@@ -298,6 +306,9 @@ export function HouseholdList() {
               <thead>
                 <tr>
                   <th style={{ width: 40, textAlign: 'center' }}>No</th>
+                  <th className="sf-table-fit-content">RT</th>
+                  <th className="sf-table-fit-content">RW</th>
+                  <th className="sf-table-fit-content">Nama RT</th>
                   <th>Nomor Rumah</th>
                   <th>Alamat</th>
                   <th className="sf-table-fit-content">Status Hunian</th>
@@ -355,6 +366,9 @@ function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
   return (
     <tr>
       <td style={{ textAlign: 'center' }}>{index}</td>
+      <td className="sf-table-fit-content">{formatRtNumber(household.head_resident?.rt_number ?? null)}</td>
+      <td className="sf-table-fit-content">{formatRw(household.head_resident?.rw ?? null)}</td>
+      <td>{formatNull(household.head_resident?.rt_name ?? null)}</td>
       <td style={{ fontFamily: 'monospace' }}>{formatNull(household.house_number)}</td>
       <td>{formatNull(household.address)}</td>
       <td className="sf-table-fit-content sf-table-center">

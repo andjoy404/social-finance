@@ -1608,3 +1608,194 @@ func TestTenantCreateHouseholdSecurity(t *testing.T) {
 		}
 	})
 }
+
+func TestSuperAdminListResidents(t *testing.T) {
+	pool := testPool(t)
+	r := setUpRouter(pool)
+	signingSecret()
+
+	rtA := setupTestRT(t, pool, "SuperAdminRTA", 1, "SA-A")
+	rtB := setupTestRT(t, pool, "SuperAdminRTB", 2, "SA-B")
+	t.Cleanup(func() { pool.Close() })
+
+	// Insert residents directly via SQL for reliability
+	db := pool.Raw()
+	c := atomic.AddInt64(&rtCounter, 1)
+	resAName := fmt.Sprintf("SAResA-%d", c)
+	resBName := fmt.Sprintf("SAResB-%d", c+1)
+
+	_, err := db.ExecContext(context.Background(),
+		`INSERT INTO residents (rt_id, full_name, is_active) VALUES ($1, $2, true)`,
+		rtA, resAName,
+	)
+	if err != nil {
+		t.Fatalf("insert resident A failed: %v (rtA=%s, resAName=%s)", err, rtA, resAName)
+	}
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO residents (rt_id, full_name, is_active) VALUES ($1, $2, true)`,
+		rtB, resBName,
+	)
+	if err != nil {
+		t.Fatalf("insert resident B failed: %v (rtB=%s, resBName=%s)", err, rtB, resBName)
+	}
+
+	// Verify residents were actually inserted
+	var countA, countB int
+	pool.Raw().QueryRow("SELECT COUNT(*) FROM residents WHERE rt_id = $1 AND full_name = $2", rtA, resAName).Scan(&countA)
+	if err := pool.Raw().QueryRow("SELECT COUNT(*) FROM residents WHERE rt_id = $1 AND full_name = $2", rtB, resBName).Scan(&countB); err != nil {
+		t.Fatalf("query resident B count failed: %v", err)
+	}
+	if countA == 0 || countB == 0 {
+		t.Fatalf("test setup failed: RT A has %d residents (%s), RT B has %d residents (%s)", countA, resAName, countB, resBName)
+	}
+
+	t.Run("superAdmin sees residents across all RTs", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/residents", nil)
+		req.Header.Set("Authorization", "Bearer "+makeSuperAdminToken(t))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("superAdmin expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		data := body["data"].([]any)
+		total := int(body["pagination"].(map[string]any)["total"].(float64))
+
+		if total == 0 {
+			t.Fatal("superAdmin total should be > 0")
+		}
+
+		rtIDsSeen := make(map[string]bool)
+		for _, item := range data {
+			res := item.(map[string]any)
+			rtIDsSeen[res["rt_id"].(string)] = true
+			if res["rt_number"] == nil {
+				t.Error("expected rt_number in response")
+			}
+			if res["rw"] == nil {
+				t.Error("expected rw in response")
+			}
+			if res["rt_name"] == nil {
+				t.Error("expected rt_name in response")
+			}
+		}
+		if len(rtIDsSeen) < 2 {
+			t.Errorf("expected at least 2 RTs in response, got %d", len(rtIDsSeen))
+		}
+	})
+
+	t.Run("superAdmin sees resident A via search", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/residents?search="+url.QueryEscape(resAName), nil)
+		req.Header.Set("Authorization", "Bearer "+makeSuperAdminToken(t))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("superAdmin search expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		data := body["data"].([]any)
+		if len(data) == 0 {
+			t.Fatal("expected resident A in search results")
+		}
+
+		res := data[0].(map[string]any)
+		if res["full_name"] != resAName {
+			t.Errorf("expected full_name=%s, got %s", resAName, res["full_name"])
+		}
+		if res["rt_id"] != rtA {
+			t.Errorf("expected rt_id=%s, got %s", rtA, res["rt_id"])
+		}
+		if res["rt_number"] == nil || res["rw"] == nil || res["rt_name"] == nil {
+			t.Error("expected rt_number, rw, and rt_name in response")
+		}
+	})
+
+	t.Run("superAdmin sees resident B via search", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/residents?search="+url.QueryEscape(resBName), nil)
+		req.Header.Set("Authorization", "Bearer "+makeSuperAdminToken(t))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("superAdmin search expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		data := body["data"].([]any)
+		if len(data) == 0 {
+			t.Fatal("expected resident B in search results")
+		}
+
+		res := data[0].(map[string]any)
+		if res["full_name"] != resBName {
+			t.Errorf("expected full_name=%s, got %s", resBName, res["full_name"])
+		}
+		if res["rt_id"] != rtB {
+			t.Errorf("expected rt_id=%s, got %s", rtB, res["rt_id"])
+		}
+		if res["rt_number"] == nil || res["rw"] == nil || res["rt_name"] == nil {
+			t.Error("expected rt_number, rw, and rt_name in response")
+		}
+	})
+
+	t.Run("pengurus sees only their RT residents", func(t *testing.T) {
+		token := makeTenantToken(t, "pengurus-test", "membership-test", rtA, auth.RolePengurus)
+		req := httptest.NewRequest("GET", "/api/v1/residents", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("pengurus expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		data := body["data"].([]any)
+		for _, item := range data {
+			res := item.(map[string]any)
+			rtID := res["rt_id"].(string)
+			if rtID != rtA {
+				t.Errorf("pengurus should only see RT A, saw resident from RT %s", rtID)
+			}
+		}
+	})
+
+	t.Run("unauthorized request returns 401", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/residents", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized && rec.Code != http.StatusForbidden {
+			t.Errorf("expected 401/403, got %d", rec.Code)
+		}
+	})
+}
+
+func OccupancyOwnerPtr() *OccupancyStatus { s := OccupancyOwner; return &s }
+
+func keys(m map[string]bool) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}

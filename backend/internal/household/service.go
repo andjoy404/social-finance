@@ -110,3 +110,13 @@ func (s *HouseholdManager) MoveResident(ctx context.Context, tx *sql.Tx, id, rtI
 func (s *HouseholdManager) DeactivateResident(ctx context.Context, tx *sql.Tx, id, rtID string) error {
 	return ResidentDeactivate(ctx, tx, id, rtID)
 }
+
+// ListAllResidents returns residents across all RTs with optional filters and pagination.
+func (s *HouseholdManager) ListAllResidents(ctx context.Context, tx *sql.Tx, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
+	return ResidentListAll(ctx, tx, householdID, isActive, search, offset, limit)
+}
+
+// CountAllResidents returns the count of residents across all RTs.
+func (s *HouseholdManager) CountAllResidents(ctx context.Context, tx *sql.Tx, householdID *string, isActive *bool) (int, error) {
+	return ResidentCountAll(ctx, tx, householdID, isActive)
+}

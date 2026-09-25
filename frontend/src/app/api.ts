@@ -487,6 +487,9 @@ export interface ApiResident {
   is_active: boolean
   created_at: string
   updated_at: string
+  rt_number?: string | null
+  rw?: number | null
+  rt_name?: string | null
 }
 
 export interface ApiCreateResidentBody {
