@@ -1,5 +1,3 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 /// Resident item model for Warga presentation and mock data.
 class ResidentItem {
   final String id;
@@ -31,7 +29,7 @@ class ResidentItem {
   }
 }
 
-/// Mock data store for Warga feature.
+/// Mock data store for Warga feature. Used only for tests.
 class WargaMockData {
   static const List<ResidentItem> residents = [
     ResidentItem(
@@ -106,28 +104,3 @@ class WargaMockData {
     ),
   ];
 }
-
-/// Current search query in Warga screen.
-final wargaSearchQueryProvider = StateProvider<String>((ref) => '');
-
-/// All resident mock items provider.
-final wargaListProvider = Provider<List<ResidentItem>>((ref) {
-  return WargaMockData.residents;
-});
-
-/// Filtered resident list provider based on search query.
-final filteredWargaListProvider = Provider<List<ResidentItem>>((ref) {
-  final residents = ref.watch(wargaListProvider);
-  final query = ref.watch(wargaSearchQueryProvider).trim().toLowerCase();
-
-  if (query.isEmpty) {
-    return residents;
-  }
-
-  return residents.where((resident) {
-    final nameMatch = resident.name.toLowerCase().contains(query);
-    final nikMatch = resident.nik.toLowerCase().contains(query);
-    final houseMatch = resident.houseNumber.toLowerCase().contains(query);
-    return nameMatch || nikMatch || houseMatch;
-  }).toList();
-});

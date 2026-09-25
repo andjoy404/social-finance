@@ -4,11 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
+import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
-import '../../data/mock_warga_data.dart';
+import '../../data/warga_providers.dart';
+import '../../data/api_warga_models.dart';
 
 /// Screen displaying the list of RT residents with search capabilities.
 class WargaScreen extends ConsumerStatefulWidget {
@@ -24,9 +26,10 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
   @override
   void initState() {
     super.initState();
-    _searchController = TextEditingController(
-      text: ref.read(wargaSearchQueryProvider),
-    );
+    _searchController = TextEditingController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchController.text = ref.read(wargaSearchQueryProvider);
+    });
   }
 
   @override
@@ -41,12 +44,23 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
     setState(() {});
   }
 
+  void _retry() {
+    ref.read(wargaListProvider.notifier).refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final residents = ref.watch(filteredWargaListProvider);
+    final wargaState = ref.watch(wargaListProvider);
     final currentQuery = ref.watch(wargaSearchQueryProvider);
+    final residents = ref.watch(filteredWargaListProvider);
+
+    final errorMessage = switch (wargaState) {
+      AsyncError(:final error) =>
+        error is ServerException ? error.message : 'Terjadi kesalahan yang tidak diketahui.',
+      _ => '',
+    };
 
     return Scaffold(
       appBar: AppBar(title: const Text('Warga')),
@@ -105,44 +119,78 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
             ),
           ),
 
-          // ── Residents List / Empty State ──
+          // ── Content: Loading / Error / Empty / List ──
           Expanded(
-            child: residents.isEmpty
-                ? Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: currentQuery.isNotEmpty
-                          ? EmptyState(
-                              icon: Icons.search_off,
-                              title: 'Warga Tidak Ditemukan',
-                              description:
-                                  'Tidak ada data warga yang sesuai dengan "$currentQuery".',
-                              actionText: 'Hapus Pencarian',
-                              onAction: _clearSearch,
-                            )
-                          : const EmptyState(
-                              icon: Icons.people_outline,
-                              title: 'Belum Ada Warga',
-                              description:
-                                  'Data kependudukan warga RT belum tersedia.',
-                            ),
+            child: switch (wargaState) {
+              AsyncLoading() => const Center(child: CircularProgressIndicator()),
+              AsyncError() => Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 64,
+                          color: theme.colorScheme.error.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Terjadi Kesalahan',
+                          style: theme.textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          errorMessage,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _retry,
+                          child: const Text('Coba Lagi'),
+                        ),
+                      ],
                     ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.base,
-                      AppSpacing.xs,
-                      AppSpacing.base,
-                      AppSpacing.xl,
-                    ),
-                    itemCount: residents.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final resident = residents[index];
-                      return _ResidentCard(resident: resident, isDark: isDark);
-                    },
                   ),
+                ),
+              _ => residents.isEmpty
+                  ? Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: currentQuery.isNotEmpty
+                            ? EmptyState(
+                                icon: Icons.search_off,
+                                title: 'Warga Tidak Ditemukan',
+                                description:
+                                    'Tidak ada data warga yang sesuai dengan "$currentQuery".',
+                                actionText: 'Hapus Pencarian',
+                                onAction: _clearSearch,
+                              )
+                            : const EmptyState(
+                                icon: Icons.people_outline,
+                                title: 'Belum Ada Warga',
+                                description:
+                                    'Data kependudukan warga RT belum tersedia.',
+                              ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.base,
+                        AppSpacing.xs,
+                        AppSpacing.base,
+                        AppSpacing.xl,
+                      ),
+                      itemCount: residents.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (context, index) {
+                        final resident = residents[index];
+                        return _ResidentCard(resident: resident, isDark: isDark);
+                      },
+                    ),
+            },
           ),
         ],
       ),
@@ -151,7 +199,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
 }
 
 class _ResidentCard extends StatelessWidget {
-  final ResidentItem resident;
+  final MappedResident resident;
   final bool isDark;
 
   const _ResidentCard({required this.resident, required this.isDark});

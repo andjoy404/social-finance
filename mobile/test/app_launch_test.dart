@@ -18,6 +18,8 @@ import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/providers/theme_provider.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/features/warga/data/api_warga_models.dart';
+import 'package:social_finance/features/warga/data/warga_providers.dart';
 
 AuthRepository _createTestAuthRepo([Map<String, dynamic>? initialData]) {
   final client = ApiClient(baseUrl: 'http://test.local');
@@ -43,9 +45,20 @@ Widget _authWidget(Widget child) {
           'rw': '016',
         });
       })),
+      wargaListProvider.overrideWith(
+        () => _MockWargaNotifierForLaunch(),
+      ),
     ],
     child: child,
   );
+}
+
+class _MockWargaNotifierForLaunch extends WargaListNotifier {
+  @override
+  Future<List<MappedResident>> build() async {
+    state = rp.AsyncData(const <MappedResident>[]);
+    return const [];
+  }
 }
 
 Widget _dashboardViaMaterialApp() {
