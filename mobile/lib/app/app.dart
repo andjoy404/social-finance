@@ -12,6 +12,7 @@ import '../features/dues/presentation/screens/dues_screen.dart';
 import '../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../features/profile/presentation/screens/profile_screen.dart';
 import '../features/reports/presentation/screens/reports_screen.dart';
+import '../features/warga/presentation/screens/warga_screen.dart';
 
 class App extends ConsumerStatefulWidget {
   const App({super.key});
@@ -91,6 +92,11 @@ class _AppState extends ConsumerState<App> {
                   path: 'dues',
                   name: 'dues',
                   builder: (context, state) => const DuesScreen(),
+                ),
+                GoRoute(
+                  path: 'warga',
+                  name: 'warga',
+                  builder: (context, state) => const WargaScreen(),
                 ),
                 GoRoute(
                   path: 'reports',

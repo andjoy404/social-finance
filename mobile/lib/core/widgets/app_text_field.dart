@@ -8,8 +8,10 @@ class AppTextField extends StatelessWidget {
   final String? Function(String?)? validator;
   final TextInputType? keyboardType;
   final bool obscureText;
+  final Widget? prefixIcon;
   final Widget? suffixIcon;
   final AutovalidateMode? autovalidateMode;
+  final ValueChanged<String>? onChanged;
 
   const AppTextField({
     super.key,
@@ -19,8 +21,10 @@ class AppTextField extends StatelessWidget {
     this.validator,
     this.keyboardType,
     this.obscureText = false,
+    this.prefixIcon,
     this.suffixIcon,
     this.autovalidateMode,
+    this.onChanged,
   });
 
   @override
@@ -31,9 +35,11 @@ class AppTextField extends StatelessWidget {
       keyboardType: keyboardType,
       autovalidateMode: autovalidateMode ?? AutovalidateMode.disabled,
       validator: validator,
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         hintText: hintText,
+        prefixIcon: prefixIcon,
         suffixIcon: suffixIcon,
       ),
     );
