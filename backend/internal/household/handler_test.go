@@ -557,6 +557,84 @@ func TestListHouseholds(t *testing.T) {
 			t.Errorf("expected 0 results, got %d", len(arr))
 		}
 	})
+
+	t.Run("resident projection includes RT details", func(t *testing.T) {
+		var expectedRT, expectedRTName string
+		var expectedRW int
+		if err := pool.Raw().QueryRow("SELECT rt, rw, name FROM rts WHERE id = $1", rtID).Scan(&expectedRT, &expectedRW, &expectedRTName); err != nil {
+			t.Fatalf("failed to query test RT: %v", err)
+		}
+
+		headRel := "HEAD"
+
+		// Create active household with head resident
+		hn := "HN-RT-TEST"
+		addr := "Address RT Test"
+		occ := OccupancyOwner
+		testHHID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "Head RT Test", &hn, &addr, &occ)
+		insertTestResidentFixture(t, pool.Raw(), rtID, testHHID, "Head RT Test Resident", &headRel)
+
+		// 1. Check GET /api/v1/households
+		req := httptest.NewRequest("GET", "/api/v1/households?search=HN-RT-TEST", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var resp map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		data := resp["data"].([]any)
+		if len(data) == 0 {
+			t.Fatal("expected at least 1 household")
+		}
+		first := data[0].(map[string]any)
+		headRes, ok := first["head_resident"].(map[string]any)
+		if !ok || headRes == nil {
+			t.Fatal("expected head_resident in household response")
+		}
+		if headRes["rt_number"] != expectedRT {
+			t.Errorf("expected rt_number '%s', got %v", expectedRT, headRes["rt_number"])
+		}
+		if headRes["rw"] != float64(expectedRW) {
+			t.Errorf("expected rw %d, got %v", expectedRW, headRes["rw"])
+		}
+		if headRes["rt_name"] != expectedRTName {
+			t.Errorf("expected rt_name '%s', got %v", expectedRTName, headRes["rt_name"])
+		}
+
+		// 2. Check GET /api/v1/residents
+		reqRes := httptest.NewRequest("GET", "/api/v1/residents?search=Head%20RT%20Test%20Resident", nil)
+		reqRes.Header.Set("Authorization", "Bearer "+token)
+		recRes := httptest.NewRecorder()
+		r.ServeHTTP(recRes, reqRes)
+
+		if recRes.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", recRes.Code, recRes.Body.String())
+		}
+		var respRes map[string]any
+		if err := json.Unmarshal(recRes.Body.Bytes(), &respRes); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		resData := respRes["data"].([]any)
+		if len(resData) == 0 {
+			t.Fatal("expected at least 1 resident")
+		}
+		resItem := resData[0].(map[string]any)
+		if resItem["rt_number"] != expectedRT {
+			t.Errorf("expected resident rt_number '%s', got %v", expectedRT, resItem["rt_number"])
+		}
+		if resItem["rw"] != float64(expectedRW) {
+			t.Errorf("expected resident rw %d, got %v", expectedRW, resItem["rw"])
+		}
+		if resItem["rt_name"] != expectedRTName {
+			t.Errorf("expected resident rt_name '%s', got %v", expectedRTName, resItem["rt_name"])
+		}
+	})
 }
 
 func TestGetHousehold(t *testing.T) {

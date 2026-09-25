@@ -61,12 +61,15 @@ func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 	var resID, resRTID, resFullName, resPhone, resNik, resEmail sql.NullString
 	var resIsActive sql.NullBool
 	var resCreatedAt, resUpdatedAt sql.NullTime
+	var resRT, resRTName sql.NullString
+	var resRW sql.NullInt64
 
 	err := scan(
 		&item.ID, &item.RTID, &item.HeadName,
 		&item.IsActive, &item.CreatedAt, &item.UpdatedAt,
 		&houseNumber, &address, &occStatus,
 		&resID, &resRTID, &resFullName, &resPhone, &resNik, &resEmail, &resIsActive, &resCreatedAt, &resUpdatedAt,
+		&resRT, &resRW, &resRTName,
 	)
 	if err != nil {
 		return nil, err
@@ -109,6 +112,16 @@ func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 			headRes.Email = &resEmail.String
 			item.Email = &resEmail.String
 		}
+		if resRT.Valid {
+			headRes.RTNumber = &resRT.String
+		}
+		if resRW.Valid {
+			rwVal := int(resRW.Int64)
+			headRes.RW = &rwVal
+		}
+		if resRTName.Valid {
+			headRes.RTName = &resRTName.String
+		}
 		item.HeadResident = &headRes
 	}
 
@@ -118,14 +131,17 @@ func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 const householdBaseSelect = `
 	SELECT h.id, h.rt_id, h.head_name, h.is_active, h.created_at, h.updated_at,
 	       ph.house_number, ph.address, ho.occupancy_status,
-	       r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at
+	       r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
+	       r.rt, r.rw, r.rt_name
 	FROM households h
 	LEFT JOIN household_occupancies ho ON ho.household_id = h.id AND ho.end_date IS NULL
 	LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 	LEFT JOIN LATERAL (
-	    SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at
+	    SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
+	           res_rt.rt, res_rt.rw, res_rt.name AS rt_name
 	    FROM residency_periods rp
 	    JOIN residents r ON r.id = rp.resident_id
+	    LEFT JOIN rts res_rt ON r.rt_id = res_rt.id
 	    WHERE rp.household_occupancy_id = ho.id
 	      AND rp.end_date IS NULL
 	      AND (rp.relationship_to_head = 'HEAD' OR rp.relationship_to_head = 'head' OR rp.relationship_to_head = 'Kepala Keluarga' OR rp.relationship_to_head = 'self')
@@ -1025,10 +1041,7 @@ func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtI
 		return nil, fmt.Errorf("create residency period: %w", err)
 	}
 
-	item.HouseholdID = &in.HouseholdID
-	item.RelationshipToHead = in.RelationshipToHead
-
-	return &item, nil
+	return ResidentGetByID(ctx, tx, item.ID, rtID)
 }
 
 // ResidentGetByID finds an active resident by UUID within the given RT,
@@ -1036,19 +1049,24 @@ func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtI
 func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Resident, error) {
 	var item Resident
 	var hhID, rel sql.NullString
+	var rtNumber, rtName sql.NullString
+	var rw sql.NullInt64
 
 	err := tx.QueryRowContext(ctx,
 		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
-		        ho.household_id, rp.relationship_to_head
+		        ho.household_id, rp.relationship_to_head,
+		        rt.rt, rt.rw, rt.name
 		 FROM residents r
 		 LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 		 LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+		 LEFT JOIN rts rt ON r.rt_id = rt.id
 		 WHERE r.id = $1 AND r.rt_id = $2 LIMIT 1`,
 		id, rtID,
 	).Scan(
 		&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email, &item.IsActive,
 		&item.CreatedAt, &item.UpdatedAt,
 		&hhID, &rel,
+		&rtNumber, &rw, &rtName,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1063,6 +1081,16 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 	if rel.Valid {
 		item.RelationshipToHead = &rel.String
 	}
+	if rtNumber.Valid {
+		item.RTNumber = &rtNumber.String
+	}
+	if rw.Valid {
+		rwVal := int(rw.Int64)
+		item.RW = &rwVal
+	}
+	if rtName.Valid {
+		item.RTName = &rtName.String
+	}
 
 	return &item, nil
 }
@@ -1070,10 +1098,12 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 // ResidentList returns residents filtered by RT with optional household_id, active filter, and search.
 func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
 	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
-	                 ho.household_id, rp.relationship_to_head
+	                 ho.household_id, rp.relationship_to_head,
+	                 rt.rt, rt.rw, rt.name
 	          FROM residents r
 	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+	          LEFT JOIN rts rt ON r.rt_id = rt.id
 	          WHERE r.rt_id = $1`
 
 	var allArgs []interface{}
@@ -1115,10 +1145,13 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 	for rows.Next() {
 		var item Resident
 		var hhID, rel sql.NullString
+		var rtNumber, rtName sql.NullString
+		var rw sql.NullInt64
 		if err := rows.Scan(
 			&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email,
 			&item.IsActive, &item.CreatedAt, &item.UpdatedAt,
 			&hhID, &rel,
+			&rtNumber, &rw, &rtName,
 		); err != nil {
 			return nil, fmt.Errorf("scan resident: %w", err)
 		}
@@ -1127,6 +1160,16 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 		}
 		if rel.Valid {
 			item.RelationshipToHead = &rel.String
+		}
+		if rtNumber.Valid {
+			item.RTNumber = &rtNumber.String
+		}
+		if rw.Valid {
+			rwVal := int(rw.Int64)
+			item.RW = &rwVal
+		}
+		if rtName.Valid {
+			item.RTName = &rtName.String
 		}
 		result = append(result, &item)
 	}

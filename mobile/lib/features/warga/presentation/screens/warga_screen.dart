@@ -313,7 +313,24 @@ class _ResidentCard extends StatelessWidget {
           ),
           const Divider(height: 20),
 
-          // Details: House, NIK, Phone
+          // Details: RT/RW, House, NIK, Phone
+          if (resident.formattedRtRw != null) ...[
+            Row(
+              children: [
+                Icon(Icons.location_on_outlined, size: 16, color: iconColor),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    resident.formattedRtRw!,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+          ],
           Row(
             children: [
               Icon(Icons.home_outlined, size: 16, color: iconColor),

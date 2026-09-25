@@ -47,6 +47,9 @@ class BackendResident {
   final String? email;
   final String? relationshipToHead;
   final bool isActive;
+  final String? rtNumber;
+  final int? rw;
+  final String? rtName;
 
   const BackendResident({
     required this.id,
@@ -58,6 +61,9 @@ class BackendResident {
     this.email,
     this.relationshipToHead,
     required this.isActive,
+    this.rtNumber,
+    this.rw,
+    this.rtName,
   });
 
   factory BackendResident.fromJson(Map<String, dynamic> json) {
@@ -71,6 +77,9 @@ class BackendResident {
       email: json['email'] as String?,
       relationshipToHead: json['relationship_to_head'] as String?,
       isActive: json['is_active'] as bool? ?? true,
+      rtNumber: json['rt_number'] as String?,
+      rw: (json['rw'] as num?)?.toInt(),
+      rtName: json['rt_name'] as String?,
     );
   }
 }
@@ -121,6 +130,9 @@ class MappedResident {
   final String? phoneNumber;
   final String? occupancyStatus;
   final bool isActive;
+  final String? rtNumber;
+  final int? rw;
+  final String? rtName;
 
   const MappedResident({
     required this.id,
@@ -132,11 +144,30 @@ class MappedResident {
     this.phoneNumber,
     this.occupancyStatus,
     this.isActive = true,
+    this.rtNumber,
+    this.rw,
+    this.rtName,
   });
 
   String get maskedNik {
     if (nik == null || nik!.length < 10) return '***';
     return '${nik!.substring(0, 6)}******${nik!.substring(nik!.length - 4)}';
+  }
+
+  /// Formatted RT/RW badge text, e.g. "RT 03 · RW 16 · Wisma Rukun Tunggal".
+  String? get formattedRtRw {
+    final parts = <String>[];
+    if (rtNumber != null && rtNumber!.isNotEmpty) {
+      parts.add('RT $rtNumber');
+    }
+    if (rw != null) {
+      parts.add('RW $rw');
+    }
+    if (rtName != null && rtName!.isNotEmpty) {
+      parts.add(rtName!);
+    }
+    if (parts.isEmpty) return null;
+    return parts.join(' · ');
   }
 
   factory MappedResident.fromBackend(BackendResident resident, BackendHousehold? household) {
@@ -152,6 +183,9 @@ class MappedResident {
       phoneNumber: resident.phone,
       occupancyStatus: household?.occupancyStatus == 'OWNER' ? 'Pemilik' : household?.occupancyStatus == 'TENANT' ? 'Penyewa' : null,
       isActive: resident.isActive,
+      rtNumber: resident.rtNumber,
+      rw: resident.rw,
+      rtName: resident.rtName,
     );
   }
 }

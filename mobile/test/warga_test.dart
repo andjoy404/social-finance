@@ -74,10 +74,47 @@ void main() {
 
       expect(resident.maskedNik, equals('***'));
     });
+
+    test('formattedRtRw formats full RT, RW, and RT name correctly', () {
+      const resident = MappedResident(
+        id: 'res-4',
+        name: 'Dedi Kurniawan',
+        isHeadOfHousehold: true,
+        relationship: 'Kepala Keluarga',
+        rtNumber: '03',
+        rw: 16,
+        rtName: 'Wisma Rukun Tunggal',
+      );
+
+      expect(
+        resident.formattedRtRw,
+        equals('RT 03 · RW 16 · Wisma Rukun Tunggal'),
+      );
+    });
+
+    test('formattedRtRw handles partial and missing RT/RW fields', () {
+      const residentPartial = MappedResident(
+        id: 'res-5',
+        name: 'Test Partial',
+        isHeadOfHousehold: false,
+        relationship: 'Anak',
+        rtNumber: '03',
+        rw: 16,
+      );
+      expect(residentPartial.formattedRtRw, equals('RT 03 · RW 16'));
+
+      const residentEmpty = MappedResident(
+        id: 'res-6',
+        name: 'Test Empty',
+        isHeadOfHousehold: false,
+        relationship: 'Anak',
+      );
+      expect(residentEmpty.formattedRtRw, isNull);
+    });
   });
 
   group('BackendResident Parsing', () {
-    test('parses all fields correctly', () {
+    test('parses all fields correctly including RT/RW', () {
       final json = {
         'id': 'uuid-1',
         'rt_id': 'rt-uuid-1',
@@ -90,6 +127,9 @@ void main() {
         'is_active': true,
         'created_at': '2024-01-01T00:00:00Z',
         'updated_at': '2024-01-01T00:00:00Z',
+        'rt_number': '03',
+        'rw': 16,
+        'rt_name': 'Wisma Rukun Tunggal',
       };
 
       final resident = BackendResident.fromJson(json);
@@ -99,6 +139,9 @@ void main() {
       expect(resident.nik, equals('3201012304750001'));
       expect(resident.relationshipToHead, equals('HEAD'));
       expect(resident.householdId, equals('hh-uuid-1'));
+      expect(resident.rtNumber, equals('03'));
+      expect(resident.rw, equals(16));
+      expect(resident.rtName, equals('Wisma Rukun Tunggal'));
     });
 
     test('handles nullable fields', () {
@@ -381,6 +424,9 @@ void main() {
           relationship: 'Kepala Keluarga',
           phoneNumber: '081234567890',
           occupancyStatus: 'Pemilik',
+          rtNumber: '03',
+          rw: 16,
+          rtName: 'Wisma Rukun Tunggal',
         ),
       ];
       await tester.pumpWidget(_createWargaTestApp(
@@ -389,6 +435,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Bambang Sutrisno'), findsOneWidget);
+      expect(find.text('RT 03 · RW 16 · Wisma Rukun Tunggal'), findsOneWidget);
       expect(find.text('Blok A1 No. 12'), findsOneWidget);
       expect(find.textContaining('NIK: 320101******0001'), findsOneWidget);
       expect(find.text('Kepala Keluarga'), findsOneWidget);

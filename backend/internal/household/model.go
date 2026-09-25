@@ -98,6 +98,9 @@ type Resident struct {
 	IsActive           bool      `json:"is_active"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+	RTNumber           *string   `json:"rt_number,omitempty"`
+	RW                 *int      `json:"rw,omitempty"`
+	RTName             *string   `json:"rt_name,omitempty"`
 }
 
 // CreateResidentInput holds the fields for creating a new resident.

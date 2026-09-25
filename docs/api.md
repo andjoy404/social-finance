@@ -493,7 +493,7 @@ Query parameters:
 
 Tenant scope: Derived from JWT `rt_id`. Default: active residents only unless `is_active=false`.
 
-Response (200 OK): paginated list of resident objects.
+Response (200 OK): paginated list of resident objects. Resident objects include projected RT details (`rt_number`, `rw`, `rt_name`) when available.
 
 ### 6.7 Get Resident
 
@@ -506,7 +506,25 @@ Role: **Warga, Bendahara, Pengurus**
 
 Tenant scope: Derived from JWT `rt_id`. Returns resident if belonging to user's RT and is active.
 
-Response (200 OK): the resident object.
+Response (200 OK): the resident object:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440001",
+  "rt_id": "550e8400-e29b-41d4-a716-446655440000",
+  "household_id": "550e8400-e29b-41d4-a716-446655440002",
+  "full_name": "Ahmad Subarjo",
+  "phone": "+6281234567890",
+  "nik": "3201234567890001",
+  "email": "ahmad@example.com",
+  "relationship_to_head": "HEAD",
+  "is_active": true,
+  "created_at": "2026-09-16T10:00:00Z",
+  "updated_at": "2026-09-16T10:00:00Z",
+  "rt_number": "03",
+  "rw": 16,
+  "rt_name": "Wisma Rukun Tunggal"
+}
+```
 
 ### 6.8 Create Resident
 
