@@ -22,6 +22,9 @@ class ValidationError extends AppError {
 class AuthError extends AppError {
   final String message;
   AuthError(this.message);
+
+  @override
+  String toString() => message;
 }
 
 class ServerException implements AppError {
