@@ -26,19 +26,15 @@ AppRole mapStringToAppRole(String? roleStr) {
 
 /// Authentication repository managing login, logout, and session state.
 class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
-  final AuthService? authService;
-  final ApiClient? apiClient;
+  final AuthService authService;
+  final ApiClient apiClient;
 
   Map<String, dynamic>? _currentUser;
 
-  AuthRepository({this.authService, this.apiClient}) : super(null) {
-    apiClient?.onUnauthorized = _handleUnauthorized;
+  AuthRepository({required this.authService, required this.apiClient})
+    : super(null) {
+    apiClient.onUnauthorized = _handleUnauthorized;
   }
-
-  AuthService get _effectiveAuthService =>
-      authService ?? AuthService(_effectiveApiClient);
-
-  ApiClient get _effectiveApiClient => apiClient ?? ApiClient();
 
   void _handleUnauthorized() {
     _currentUser = null;
@@ -58,10 +54,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     state = const AsyncLoading();
 
     try {
-      final response = await _effectiveAuthService.login(
-        trimmedEmail,
-        password,
-      );
+      final response = await authService.login(trimmedEmail, password);
       _currentUser = {
         'id': response.user.id,
         'email': response.user.email,
@@ -84,11 +77,11 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
 
   Future<void> logout() async {
     try {
-      await _effectiveAuthService.logout();
+      await authService.logout();
     } catch (_) {
       // Ignored: local session must always be cleared even if remote logout fails.
     } finally {
-      _effectiveApiClient.clearToken();
+      apiClient.clearToken();
       _currentUser = null;
       state = null;
     }
@@ -98,7 +91,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
 
   Map<String, dynamic>? get currentUser => _currentUser;
 
-  String? get accessToken => _effectiveApiClient.token;
+  String? get accessToken => apiClient.token;
 
   AuthError _mapError(dynamic error) {
     if (error is AuthError) return error;

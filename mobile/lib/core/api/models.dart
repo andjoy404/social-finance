@@ -54,17 +54,28 @@ class LoginResponse {
   });
 
   factory LoginResponse.fromJson(Map<String, dynamic> json) {
-    final userMap = json['user'];
+    final accessToken = json['access_token'] as String?;
+    if (accessToken == null || accessToken.trim().isEmpty) {
+      throw const FormatException(
+        'Missing or empty access_token in login response',
+      );
+    }
+    final userRaw = json['user'];
+    if (userRaw == null || userRaw is! Map) {
+      throw const FormatException(
+        'Missing or invalid user object in login response',
+      );
+    }
+    final userMap = userRaw is Map<String, dynamic>
+        ? userRaw
+        : userRaw.cast<String, dynamic>();
+
     return LoginResponse(
-      accessToken: json['access_token'] as String? ?? '',
+      accessToken: accessToken,
       refreshToken: json['refresh_token'] as String? ?? '',
       tokenType: json['token_type'] as String? ?? 'Bearer',
       expiresIn: (json['expires_in'] as num?)?.toInt() ?? 0,
-      user: userMap is Map<String, dynamic>
-          ? AuthUser.fromJson(userMap)
-          : (userMap is Map
-                ? AuthUser.fromJson(userMap.cast<String, dynamic>())
-                : const AuthUser(id: '', email: '', name: '', role: '')),
+      user: AuthUser.fromJson(userMap),
     );
   }
 

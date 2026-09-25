@@ -104,6 +104,71 @@ void main() {
       expect(user.rtId, isNull);
       expect(user.systemRole, isNull);
     });
+
+    test('LoginResponse throws FormatException when user field is missing', () {
+      final json = {
+        'access_token': 'jwt-access-token-123',
+        'token_type': 'Bearer',
+      };
+
+      expect(
+        () => LoginResponse.fromJson(json),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('LoginResponse throws FormatException when user field is null', () {
+      final json = {
+        'access_token': 'jwt-access-token-123',
+        'token_type': 'Bearer',
+        'user': null,
+      };
+
+      expect(
+        () => LoginResponse.fromJson(json),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test(
+      'LoginResponse throws FormatException when user field is not a Map',
+      () {
+        final json = {
+          'access_token': 'jwt-access-token-123',
+          'token_type': 'Bearer',
+          'user': 'invalid-user-string',
+        };
+
+        expect(
+          () => LoginResponse.fromJson(json),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
+
+    test(
+      'LoginResponse throws FormatException when access_token is missing or empty',
+      () {
+        final jsonMissing = {
+          'token_type': 'Bearer',
+          'user': {'id': '1', 'email': 'test@example.com'},
+        };
+        final jsonEmpty = {
+          'access_token': '   ',
+          'token_type': 'Bearer',
+          'user': {'id': '1', 'email': 'test@example.com'},
+        };
+
+        expect(
+          () => LoginResponse.fromJson(jsonMissing),
+          throwsA(isA<FormatException>()),
+        );
+        expect(
+          () => LoginResponse.fromJson(jsonEmpty),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
   });
 
   group('Role Mapping', () {
@@ -347,6 +412,30 @@ void main() {
         expect(error.message, contains('API_BASE_URL belum dikonfigurasi'));
         expect(error.message, isNot(contains('localhost')));
         expect(error.message, isNot(contains('127.0.0.1')));
+      },
+    );
+
+    test(
+      'Malformed login response with missing user results in AuthError and retains no token',
+      () async {
+        apiClient.dio.httpClientAdapter = MockAdapter((options) async {
+          return _jsonResponse({
+            'access_token': 'test-access-token',
+            'token_type': 'Bearer',
+            // missing 'user'
+          }, 200);
+        });
+
+        await authRepository.login('andi@example.com', 'secret123');
+
+        expect(apiClient.token, isNull);
+        expect(authRepository.state, isA<AsyncError<Map<String, dynamic>?>>());
+        final error = authRepository.state!.error as AuthError;
+        expect(
+          error.message,
+          equals('Format respons dari server tidak sesuai.'),
+        );
+        expect(authRepository.currentUser, isNull);
       },
     );
   });
