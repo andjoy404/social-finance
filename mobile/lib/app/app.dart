@@ -13,19 +13,51 @@ import '../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../features/profile/presentation/screens/profile_screen.dart';
 import '../features/reports/presentation/screens/reports_screen.dart';
 
-class App extends ConsumerWidget {
+class App extends ConsumerStatefulWidget {
   const App({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authRepositoryProvider);
-    final themeMode = ref.watch(themeProvider);
+  ConsumerState<App> createState() => _AppState();
+}
 
-    final router = GoRouter(
-      initialLocation: '/login',
+class _RouterRefreshNotifier extends ChangeNotifier {
+  bool _lastLoggedIn = false;
+
+  void update(bool isLoggedIn) {
+    if (_lastLoggedIn != isLoggedIn) {
+      _lastLoggedIn = isLoggedIn;
+      notifyListeners();
+    }
+  }
+}
+
+class _AppState extends ConsumerState<App> {
+  late final _RouterRefreshNotifier _refreshNotifier;
+  late final GoRouter _router;
+  ProviderSubscription<AsyncValue<Map<String, dynamic>?>?>? _authSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshNotifier = _RouterRefreshNotifier();
+    final initialAuth = ref.read(authRepositoryProvider);
+    _refreshNotifier._lastLoggedIn = initialAuth?.valueOrNull != null;
+
+    _authSubscription = ref.listenManual<AsyncValue<Map<String, dynamic>?>?>(
+      authRepositoryProvider,
+      (previous, next) {
+        final isLoggedIn = next?.valueOrNull != null;
+        _refreshNotifier.update(isLoggedIn);
+      },
+    );
+
+    _router = GoRouter(
+      initialLocation: _refreshNotifier._lastLoggedIn ? '/home' : '/login',
       debugLogDiagnostics: true,
+      refreshListenable: _refreshNotifier,
       redirect: (context, state) {
-        final loggedIn = authState?.value != null;
+        final authState = ref.read(authRepositoryProvider);
+        final loggedIn = authState?.valueOrNull != null;
         if (loggedIn && state.matchedLocation == '/login') {
           return '/home';
         }
@@ -76,6 +108,19 @@ class App extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.close();
+    _router.dispose();
+    _refreshNotifier.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeMode = ref.watch(themeProvider);
 
     return MaterialApp.router(
       title: 'Social Finance',
@@ -83,7 +128,7 @@ class App extends ConsumerWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode.themeMode,
-      routerConfig: router,
+      routerConfig: _router,
     );
   }
 }

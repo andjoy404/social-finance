@@ -17,7 +17,7 @@ class ProfileScreen extends ConsumerWidget {
     final authState = ref.watch(authRepositoryProvider);
     final authRepo = ref.read(authRepositoryProvider.notifier);
 
-    final user = authState!.value;
+    final user = authState?.valueOrNull;
     final userName = user?['name'] ?? 'Pengguna';
     final role = user?['role'] as AppRole? ?? AppRole.warga;
     final rt = user?['rt'] ?? '';

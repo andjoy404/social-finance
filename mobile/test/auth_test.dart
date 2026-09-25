@@ -2,14 +2,18 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:social_finance/app/app.dart';
 import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/auth/presentation/screens/login_screen.dart';
+import 'package:social_finance/features/dashboard/presentation/screens/dashboard_screen.dart';
 
 class MockAdapter implements HttpClientAdapter {
   final Future<ResponseBody> Function(RequestOptions options) handler;
@@ -436,6 +440,117 @@ void main() {
           equals('Format respons dari server tidak sesuai.'),
         );
         expect(authRepository.currentUser, isNull);
+      },
+    );
+  });
+
+  group('Auth Error UI & Router Resilience', () {
+    testWidgets(
+      'App does not throw when authState is AsyncError and keeps LoginScreen visible with error banner',
+      (tester) async {
+        final client = ApiClient(baseUrl: 'http://test.local');
+        final repo = AuthRepository(
+          authService: AuthService(client),
+          apiClient: client,
+        );
+        repo.state = AsyncError(
+          AuthError('Email atau kata sandi salah.'),
+          StackTrace.current,
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [authRepositoryProvider.overrideWith((ref) => repo)],
+            child: const App(),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(find.text('Email atau kata sandi salah.'), findsOneWidget);
+        expect(find.byType(TextFormField), findsNWidgets(2));
+        expect(find.text('Masuk'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'Full App invalid login flow captures 401, shows error banner, and allows retry with valid login',
+      (tester) async {
+        final client = ApiClient(baseUrl: 'http://test.local');
+        var attempts = 0;
+        client.dio.httpClientAdapter = MockAdapter((options) async {
+          attempts++;
+          if (options.data['password'] == 'wrongpassword') {
+            return _jsonResponse({
+              'error': {
+                'code': 'unauthorized',
+                'message': 'Email atau kata sandi salah.',
+              },
+            }, 401);
+          }
+          return _jsonResponse({
+            'access_token': 'valid-access-token',
+            'refresh_token': 'valid-refresh-token',
+            'token_type': 'Bearer',
+            'expires_in': 900,
+            'user': {
+              'id': 'uuid-1',
+              'email': 'user@example.com',
+              'name': 'Budi',
+              'role': 'warga',
+            },
+          }, 200);
+        });
+
+        final repo = AuthRepository(
+          authService: AuthService(client),
+          apiClient: client,
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [authRepositoryProvider.overrideWith((ref) => repo)],
+            child: const App(),
+          ),
+        );
+        await tester.pump();
+
+        // 1. Submit invalid login
+        await tester.enterText(
+          find.byType(TextFormField).first,
+          'user@example.com',
+        );
+        await tester.enterText(
+          find.byType(TextFormField).last,
+          'wrongpassword',
+        );
+        await tester.tap(find.text('Masuk'));
+        await tester.pump(); // Start loading
+        await tester.pump(
+          const Duration(milliseconds: 100),
+        ); // Complete response
+        await tester.pump();
+
+        // Verify: Stays on login screen, error banner displayed, no uncaught exception
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(find.text('Email atau kata sandi salah.'), findsOneWidget);
+        expect(find.byType(DashboardScreen), findsNothing);
+        expect(attempts, equals(1));
+
+        // 2. Retry with valid credentials
+        await tester.enterText(
+          find.byType(TextFormField).last,
+          'correctpassword',
+        );
+        await tester.tap(find.text('Masuk'));
+        await tester.pump(); // Start loading
+        await tester.pump(
+          const Duration(milliseconds: 100),
+        ); // Complete response
+        await tester.pumpAndSettle();
+
+        expect(attempts, equals(2));
+        expect(find.byType(DashboardScreen), findsOneWidget);
       },
     );
   });
