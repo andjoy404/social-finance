@@ -5,7 +5,7 @@ import 'package:social_finance/features/cash/presentation/screens/cash_screen.da
 import 'package:social_finance/features/dues/presentation/screens/dues_screen.dart';
 import 'package:social_finance/features/dashboard/presentation/screens/dashboard_screen.dart';
 import 'package:social_finance/features/profile/presentation/screens/profile_screen.dart';
-import 'package:social_finance/features/reports/presentation/screens/reports_screen.dart';
+import 'package:social_finance/features/warga/presentation/screens/warga_screen.dart';
 
 class MainNavigationShell extends StatefulWidget {
   final Widget child;
@@ -39,10 +39,10 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       activeIcon: Icons.receipt_long,
     ),
     _NavRoute(
-      path: '/home/reports',
-      label: 'Laporan',
-      icon: Icons.bar_chart_outlined,
-      activeIcon: Icons.bar_chart,
+      path: '/home/warga',
+      label: 'Warga',
+      icon: Icons.people_outline,
+      activeIcon: Icons.people,
     ),
     _NavRoute(
       path: '/home/profile',
@@ -63,7 +63,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             DashboardScreen(),
             CashScreen(),
             DuesScreen(),
-            ReportsScreen(),
+            WargaScreen(),
             ProfileScreen(),
           ],
         ),

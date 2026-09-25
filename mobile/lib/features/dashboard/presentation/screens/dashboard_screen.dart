@@ -40,7 +40,7 @@ class DashboardScreen extends ConsumerWidget {
     final summary = ref.watch(dashboardSummaryProvider);
     final transactions = ref.watch(recentTransactionsProvider);
 
-    final user = authState!.value;
+    final user = authState?.valueOrNull;
     final userName = user?['name'] ?? 'Pengguna';
     final roleUser = user?['role'] as AppRole? ?? AppRole.warga;
     final rt = user?['rt'] ?? '';

@@ -12,42 +12,65 @@ import 'package:social_finance/features/profile/presentation/screens/profile_scr
 import 'package:social_finance/features/dashboard/presentation/screens/dashboard_screen.dart';
 import 'package:social_finance/features/dashboard/data/mock_dashboard_data.dart';
 import 'package:social_finance/features/dashboard/presentation/widgets/financial_summary_chart.dart';
+import 'package:social_finance/core/api/auth_service.dart';
+import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/providers/theme_provider.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/features/warga/data/api_warga_models.dart';
+import 'package:social_finance/features/warga/data/warga_providers.dart';
+
+AuthRepository _createTestAuthRepo([Map<String, dynamic>? initialData]) {
+  final client = ApiClient(baseUrl: 'http://test.local');
+  final repo = AuthRepository(
+    authService: AuthService(client),
+    apiClient: client,
+  );
+  if (initialData != null) {
+    repo.state = rp.AsyncData<Map<String, dynamic>?>(initialData);
+  }
+  return repo;
+}
 
 // Shared pre-authenticated widget for all tests that need auth state.
 Widget _authWidget(Widget child) {
   return rp.ProviderScope(
     overrides: [
       authRepositoryProvider.overrideWith(((ref) {
-        final repo = AuthRepository();
-        repo.state = rp.AsyncData<Map<String, dynamic>?>({
+        return _createTestAuthRepo({
           'name': 'Heri Prastyo',
           'role': AppRole.bendahara,
           'rt': '002',
           'rw': '016',
         });
-        return repo;
       })),
+      wargaListProvider.overrideWith(
+        () => _MockWargaNotifierForLaunch(),
+      ),
     ],
     child: child,
   );
+}
+
+class _MockWargaNotifierForLaunch extends WargaListNotifier {
+  @override
+  Future<List<MappedResident>> build() async {
+    state = rp.AsyncData(const <MappedResident>[]);
+    return const [];
+  }
 }
 
 Widget _dashboardViaMaterialApp() {
   return rp.ProviderScope(
     overrides: [
       authRepositoryProvider.overrideWith(((ref) {
-        final repo = AuthRepository();
-        repo.state = rp.AsyncData<Map<String, dynamic>?>({
+        return _createTestAuthRepo({
           'name': 'Heri Prastyo',
           'role': AppRole.bendahara,
           'rt': '002',
           'rw': '016',
         });
-        return repo;
       })),
     ],
     child: MaterialApp(home: const DashboardScreen()),
@@ -245,7 +268,7 @@ void main() {
     expect(find.text('Beranda'), findsOneWidget);
     expect(find.text('Kas'), findsOneWidget);
     expect(find.text('Iuran'), findsOneWidget);
-    expect(find.text('Laporan'), findsOneWidget);
+    expect(find.text('Warga'), findsOneWidget);
     expect(find.text('Profil'), findsOneWidget);
   });
 
@@ -258,14 +281,12 @@ void main() {
       rp.ProviderScope(
         overrides: [
           authRepositoryProvider.overrideWith(((ref) {
-            final repo = AuthRepository();
-            repo.state = rp.AsyncData<Map<String, dynamic>?>({
+            return _createTestAuthRepo({
               'name': 'Heri Prastyo',
               'role': AppRole.bendahara,
               'rt': '002',
               'rw': '016',
             });
-            return repo;
           })),
         ],
         child: MaterialApp(
@@ -353,14 +374,12 @@ void main() {
       rp.ProviderScope(
         overrides: [
           authRepositoryProvider.overrideWith(((ref) {
-            final repo = AuthRepository();
-            repo.state = rp.AsyncData<Map<String, dynamic>?>({
+            return _createTestAuthRepo({
               'name': 'Heri Prastyo',
               'role': AppRole.bendahara,
               'rt': '002',
               'rw': '016',
             });
-            return repo;
           })),
         ],
         child: MaterialApp(
@@ -480,14 +499,12 @@ void main() {
       rp.ProviderScope(
         overrides: [
           authRepositoryProvider.overrideWith(((ref) {
-            final repo = AuthRepository();
-            repo.state = rp.AsyncData<Map<String, dynamic>?>({
+            return _createTestAuthRepo({
               'name': 'Heri Prastyo',
               'role': AppRole.bendahara,
               'rt': '002',
               'rw': '016',
             });
-            return repo;
           })),
         ],
         child: MaterialApp(
