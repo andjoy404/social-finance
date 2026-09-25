@@ -469,6 +469,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Get("/api/v1/residents", hh.ListResidents)
 		r.Get("/api/v1/residents/{id}", hh.GetResident)
 		r.Get("/api/v1/warga/export", household.HandleWargaExport(pool))
+		r.Get("/api/v1/warga/export/xlsx", household.HandleWargaExportXLSX(pool))
+		r.Get("/api/v1/warga/template", household.HandleWargaTemplateXLSX(pool))
 	})
 
 	// Write access: pengurus only. System-level SUPER_ADMIN can access and
@@ -486,6 +488,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
 		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
 		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
+		r.Post("/api/v1/warga/import/preview/xlsx", household.HandleWargaImportPreviewXLSX(pool))
+		r.Post("/api/v1/warga/import/commit/xlsx", household.HandleWargaImportCommitXLSX(pool))
 	})
 
 	// Finance module
