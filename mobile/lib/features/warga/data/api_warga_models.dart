@@ -128,6 +128,8 @@ class MappedResident {
   final bool isHeadOfHousehold;
   final String relationship;
   final String? phoneNumber;
+  final String? email;
+  final String? address;
   final String? occupancyStatus;
   final bool isActive;
   final String? rtNumber;
@@ -142,6 +144,8 @@ class MappedResident {
     required this.isHeadOfHousehold,
     required this.relationship,
     this.phoneNumber,
+    this.email,
+    this.address,
     this.occupancyStatus,
     this.isActive = true,
     this.rtNumber,
@@ -152,6 +156,24 @@ class MappedResident {
   String get maskedNik {
     if (nik == null || nik!.length < 10) return '***';
     return '${nik!.substring(0, 6)}******${nik!.substring(nik!.length - 4)}';
+  }
+
+  /// Formatted RT/RW and Alamat text, e.g. "RT 03 · RW 16 · Jl. Mawar No. 1".
+  String? get formattedRtRwAlamat {
+    final parts = <String>[];
+    if (rtNumber != null && rtNumber!.isNotEmpty) {
+      parts.add('RT $rtNumber');
+    }
+    if (rw != null) {
+      parts.add('RW $rw');
+    }
+    if (address != null && address!.isNotEmpty) {
+      parts.add(address!);
+    } else if (rtName != null && rtName!.isNotEmpty) {
+      parts.add(rtName!);
+    }
+    if (parts.isEmpty) return null;
+    return parts.join(' · ');
   }
 
   /// Formatted RT/RW badge text, e.g. "RT 03 · RW 16 · Wisma Rukun Tunggal".
@@ -170,6 +192,20 @@ class MappedResident {
     return parts.join(' · ');
   }
 
+  /// User-facing relationship label adhering to Social Finance rules:
+  /// - HEAD -> Kepala Keluarga
+  /// - CHILD -> Kerabat
+  /// - SPOUSE -> Keluarga
+  String get displayRelationship {
+    if (isHeadOfHousehold) return 'Kepala Keluarga';
+    final upper = relationship.toUpperCase();
+    if (upper == 'CHILD') return 'Kerabat';
+    if (upper == 'SPOUSE') return 'Keluarga';
+    if (upper == 'HEAD') return 'Kepala Keluarga';
+    if (relationship.isNotEmpty) return relationship;
+    return 'Keluarga';
+  }
+
   factory MappedResident.fromBackend(BackendResident resident, BackendHousehold? household) {
     final isHead = resident.relationshipToHead == 'HEAD';
     final relationshipLabel = resident.relationshipToHead;
@@ -181,7 +217,13 @@ class MappedResident {
       isHeadOfHousehold: isHead,
       relationship: isHead ? (relationshipLabel ?? 'Kepala Keluarga') : (relationshipLabel ?? ''),
       phoneNumber: resident.phone,
-      occupancyStatus: household?.occupancyStatus == 'OWNER' ? 'Pemilik' : household?.occupancyStatus == 'TENANT' ? 'Penyewa' : null,
+      email: resident.email,
+      address: household?.address,
+      occupancyStatus: household?.occupancyStatus == 'OWNER'
+          ? 'Pemilik'
+          : household?.occupancyStatus == 'TENANT'
+              ? 'Penyewa'
+              : null,
       isActive: resident.isActive,
       rtNumber: resident.rtNumber,
       rw: resident.rw,

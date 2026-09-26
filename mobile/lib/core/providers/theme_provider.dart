@@ -18,7 +18,7 @@ enum AppThemeMode {
 /// Starts with [AppThemeMode.system] in-memory. In production, you would
 /// persist this value to shared preferences or a similar mechanism.
 class ThemeNotifier extends StateNotifier<AppThemeMode> {
-  ThemeNotifier() : super(AppThemeMode.system);
+  ThemeNotifier() : super(AppThemeMode.dark);
 
   void setMode(AppThemeMode mode) {
     state = mode;

@@ -437,7 +437,7 @@ void main() {
       expect(find.text('Bambang Sutrisno'), findsOneWidget);
       expect(find.text('RT 03 · RW 16 · Wisma Rukun Tunggal'), findsOneWidget);
       expect(find.text('Blok A1 No. 12'), findsOneWidget);
-      expect(find.textContaining('NIK: 320101******0001'), findsOneWidget);
+      expect(find.textContaining('NIK'), findsNothing);
       expect(find.text('Kepala Keluarga'), findsOneWidget);
       expect(find.text('081234567890'), findsOneWidget);
     });

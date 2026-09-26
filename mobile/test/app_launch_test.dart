@@ -333,7 +333,7 @@ void main() {
 
   testWidgets('Theme provider supports three modes', (tester) async {
     final notifier = rp.ProviderContainer();
-    expect(notifier.read(themeProvider), AppThemeMode.system);
+    expect(notifier.read(themeProvider), AppThemeMode.dark);
     notifier.read(themeProvider.notifier).setMode(AppThemeMode.light);
     expect(notifier.read(themeProvider), AppThemeMode.light);
     notifier.read(themeProvider.notifier).setMode(AppThemeMode.dark);

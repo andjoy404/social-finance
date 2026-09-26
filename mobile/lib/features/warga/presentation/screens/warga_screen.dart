@@ -87,7 +87,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
                 const SizedBox(height: AppSpacing.md),
                 AppTextField(
                   controller: _searchController,
-                  hintText: 'Cari nama, NIK, atau nomor rumah...',
+                  hintText: 'Cari nama, alamat, atau nomor rumah...',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: _searchController.text.isNotEmpty
                       ? IconButton(
@@ -223,6 +223,7 @@ class _ResidentCard extends StatelessWidget {
     final occupancyColor = isOwner
         ? (isDark ? const Color(0xFF9B8FD6) : AppColors.seed)
         : (isDark ? const Color(0xFF60A5FA) : const Color(0xFF1976D2));
+    final rtRwAlamat = resident.formattedRtRwAlamat ?? resident.formattedRtRw;
 
     return AppCard(
       padding: const EdgeInsets.all(AppSpacing.base),
@@ -266,9 +267,7 @@ class _ResidentCard extends StatelessWidget {
                       runSpacing: 4,
                       children: [
                         AppBadge(
-                          label: resident.isHeadOfHousehold
-                              ? 'Kepala Keluarga'
-                              : resident.relationship,
+                          label: resident.displayRelationship,
                           isNeonStyle: isDark && resident.isHeadOfHousehold,
                           backgroundColor: resident.isHeadOfHousehold
                               ? null
@@ -313,15 +312,19 @@ class _ResidentCard extends StatelessWidget {
           ),
           const Divider(height: 20),
 
-          // Details: RT/RW, House, NIK, Phone
-          if (resident.formattedRtRw != null) ...[
+          // Details in exact order:
+          // 1. RT . RW . Alamat
+          // 2. Nomor Rumah
+          // 3. Nomor Telepon
+          // 4. Email
+          if (rtRwAlamat != null && rtRwAlamat.isNotEmpty) ...[
             Row(
               children: [
                 Icon(Icons.location_on_outlined, size: 16, color: iconColor),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    resident.formattedRtRw!,
+                    rtRwAlamat,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w500,
                     ),
@@ -331,33 +334,24 @@ class _ResidentCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
           ],
-          Row(
-            children: [
-              Icon(Icons.home_outlined, size: 16, color: iconColor),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  resident.houseNumber,
-                  style: theme.textTheme.bodyMedium,
+          if (resident.houseNumber.isNotEmpty) ...[
+            Row(
+              children: [
+                Icon(Icons.home_outlined, size: 16, color: iconColor),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    resident.houseNumber,
+                    style: theme.textTheme.bodyMedium,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Icon(Icons.badge_outlined, size: 16, color: iconColor),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'NIK: ${resident.maskedNik}',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-            ],
-          ),
-          if (resident.phoneNumber != null) ...[
-            const SizedBox(height: 6),
+              ],
+            ),
+            if ((resident.phoneNumber != null && resident.phoneNumber!.isNotEmpty) ||
+                (resident.email != null && resident.email!.isNotEmpty))
+              const SizedBox(height: 6),
+          ],
+          if (resident.phoneNumber != null && resident.phoneNumber!.isNotEmpty) ...[
             Row(
               children: [
                 Icon(Icons.phone_outlined, size: 16, color: iconColor),
@@ -365,6 +359,22 @@ class _ResidentCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     resident.phoneNumber!,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+            if (resident.email != null && resident.email!.isNotEmpty)
+              const SizedBox(height: 6),
+          ],
+          if (resident.email != null && resident.email!.isNotEmpty) ...[
+            Row(
+              children: [
+                Icon(Icons.email_outlined, size: 16, color: iconColor),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    resident.email!,
                     style: theme.textTheme.bodyMedium,
                   ),
                 ),
