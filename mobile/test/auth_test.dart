@@ -468,7 +468,7 @@ void main() {
 
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(find.text('Email atau kata sandi salah.'), findsOneWidget);
-        expect(find.byType(TextFormField), findsNWidgets(2));
+        expect(find.byType(TextField), findsNWidgets(2));
         expect(find.text('Masuk'), findsOneWidget);
       },
     );
@@ -515,21 +515,28 @@ void main() {
         );
         await tester.pump();
 
+        // Ensure the login card is visible before interacting with it
+        await tester.ensureVisible(find.byType(LoginScreen));
+        await tester.pumpAndSettle();
+
         // 1. Submit invalid login
         await tester.enterText(
-          find.byType(TextFormField).first,
+          find.byType(TextField).first,
           'user@example.com',
         );
         await tester.enterText(
-          find.byType(TextFormField).last,
+          find.byType(TextField).last,
           'wrongpassword',
         );
-        await tester.tap(find.text('Masuk'));
+        final button = find.text('Masuk');
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        await tester.tap(button);
         await tester.pump(); // Start loading
         await tester.pump(
           const Duration(milliseconds: 100),
         ); // Complete response
-        await tester.pump();
+        await tester.pumpAndSettle(); // Process microtasks (async continuation)
 
         // Verify: Stays on login screen, error banner displayed, no uncaught exception
         expect(find.byType(LoginScreen), findsOneWidget);
@@ -539,7 +546,7 @@ void main() {
 
         // 2. Retry with valid credentials
         await tester.enterText(
-          find.byType(TextFormField).last,
+          find.byType(TextField).last,
           'correctpassword',
         );
         await tester.tap(find.text('Masuk'));
