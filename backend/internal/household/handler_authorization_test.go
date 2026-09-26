@@ -1048,3 +1048,126 @@ func TestWargaWritePermissionsRegression(t *testing.T) {
 		}
 	})
 }
+
+// TestCrossRTIsolationGET verifies cross-RT GET isolation on individual
+// household and resident endpoints across warga, pengurus, and super_admin roles.
+func TestCrossRTIsolationGET(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	h := NewHandler(pool)
+
+	rtAID := setupTestRT(t, pool, "CrossRTGet RT A", 1, "CRTGETA")
+	rtBID := setupTestRT(t, pool, "CrossRTGet RT B", 1, "CRTGETB")
+
+	hnA := "CRT-A1"
+	hhAID := insertTestHouseholdFixture(t, pool.Raw(), rtAID, "Head A", &hnA, strPtr("Addr A"), occPtr(OccupancyOwner))
+	resAID := insertTestResidentFixture(t, pool.Raw(), rtAID, hhAID, "Resident A", strPtr("Self"))
+
+	hnB := "CRT-B1"
+	hhBID := insertTestHouseholdFixture(t, pool.Raw(), rtBID, "Head B", &hnB, strPtr("Addr B"), occPtr(OccupancyOwner))
+	resBID := insertTestResidentFixture(t, pool.Raw(), rtBID, hhBID, "Resident B", strPtr("Self"))
+
+	wargaTokenA := makeTenantToken(t, "user-w-a", "mem-w-a", rtAID, auth.RoleWarga)
+	pengurusTokenA := makeTenantToken(t, "user-p-a", "mem-p-a", rtAID, auth.RolePengurus)
+	adminToken := makeSuperAdminToken(t)
+
+	r := chi.NewRouter()
+	r.Use(auth.RequireAuth)
+	r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
+	r.Get("/api/v1/households/{id}", h.GetHousehold)
+	r.Get("/api/v1/residents/{id}", h.GetResident)
+
+	tests := []struct {
+		name         string
+		token        string
+		path         string
+		expectedCode int
+	}{
+		// Baseline: Own RT access succeeds
+		{
+			name:         "warga RT A -> GET household in RT A (own RT)",
+			token:        wargaTokenA,
+			path:         "/api/v1/households/" + hhAID,
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "warga RT A -> GET resident in RT A (own RT)",
+			token:        wargaTokenA,
+			path:         "/api/v1/residents/" + resAID,
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "pengurus RT A -> GET household in RT A (own RT)",
+			token:        pengurusTokenA,
+			path:         "/api/v1/households/" + hhAID,
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "pengurus RT A -> GET resident in RT A (own RT)",
+			token:        pengurusTokenA,
+			path:         "/api/v1/residents/" + resAID,
+			expectedCode: http.StatusOK,
+		},
+
+		// 1. Warga in RT A -> GET household in RT B -> 404
+		{
+			name:         "warga RT A -> GET household in RT B (cross-RT isolation)",
+			token:        wargaTokenA,
+			path:         "/api/v1/households/" + hhBID,
+			expectedCode: http.StatusNotFound,
+		},
+
+		// 2. Warga in RT A -> GET resident in RT B -> 404
+		{
+			name:         "warga RT A -> GET resident in RT B (cross-RT isolation)",
+			token:        wargaTokenA,
+			path:         "/api/v1/residents/" + resBID,
+			expectedCode: http.StatusNotFound,
+		},
+
+		// 3. Pengurus in RT A -> GET household in RT B -> 404
+		{
+			name:         "pengurus RT A -> GET household in RT B (cross-RT isolation)",
+			token:        pengurusTokenA,
+			path:         "/api/v1/households/" + hhBID,
+			expectedCode: http.StatusNotFound,
+		},
+
+		// 4. Pengurus in RT A -> GET resident in RT B -> 404
+		{
+			name:         "pengurus RT A -> GET resident in RT B (cross-RT isolation)",
+			token:        pengurusTokenA,
+			path:         "/api/v1/residents/" + resBID,
+			expectedCode: http.StatusNotFound,
+		},
+
+		// 5. Super admin -> GET household in RT B -> 200
+		{
+			name:         "super admin -> GET household in RT B (system-wide access)",
+			token:        adminToken,
+			path:         "/api/v1/households/" + hhBID,
+			expectedCode: http.StatusOK,
+		},
+
+		// 6. Super admin -> GET resident in RT B -> 200
+		{
+			name:         "super admin -> GET resident in RT B (system-wide access)",
+			token:        adminToken,
+			path:         "/api/v1/residents/" + resBID,
+			expectedCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+
+			if rec.Code != tc.expectedCode {
+				t.Fatalf("expected status %d, got %d: %s", tc.expectedCode, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

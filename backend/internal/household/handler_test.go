@@ -743,7 +743,7 @@ func TestUpdateHousehold(t *testing.T) {
 		}
 	})
 
-		t.Run("update deactivated household succeeds", func(t *testing.T) {
+	t.Run("update deactivated household succeeds", func(t *testing.T) {
 		deactivateReq := httptest.NewRequest("DELETE", "/api/v1/households/"+hhID, nil)
 		deactivateReq.Header.Set("Authorization", "Bearer "+token)
 		deactivateRec := httptest.NewRecorder()

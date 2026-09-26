@@ -78,6 +78,13 @@ func main() {
 
 	slog.Info("database connected", "host", cfg.DBHost, "database", cfg.DBName)
 
+	if cfg.AppEnv != "production" {
+		if err := runBootstrap(); err != nil {
+			slog.Error("bootstrap failed", "error", err)
+			return
+		}
+	}
+
 	// Initialize auth module.
 	if cfg.JWTSecret != "" {
 		auth.SigningSecret = []byte(cfg.JWTSecret)
@@ -481,6 +488,14 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Get("/api/v1/warga/export", household.HandleWargaExport(pool))
 	})
 
+	// Management read access: bendahara, pengurus (warga denied). Super admin allowed.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireRole(auth.RoleBendahara, auth.RolePengurus))
+		r.Get("/api/v1/warga/template", household.HandleWargaTemplateXLSX(pool))
+		r.Get("/api/v1/warga/export/xlsx", household.HandleWargaExportXLSX(pool))
+	})
+
 	// Write access: pengurus only. System-level SUPER_ADMIN can access and
 	// will derive target RT from existing resources (not from auth context).
 	r.Group(func(r chi.Router) {
@@ -496,6 +511,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
 		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
 		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
+		r.Post("/api/v1/warga/import/preview/xlsx", household.HandleWargaImportPreviewXLSX(pool))
+		r.Post("/api/v1/warga/import/commit/xlsx", household.HandleWargaImportCommitXLSX(pool))
 	})
 
 	// Finance module

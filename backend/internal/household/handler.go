@@ -895,12 +895,9 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 	writePaginated(w, http.StatusOK, residents, page, pageSize, total)
 }
 
-// GetResident handles GET /api/v1/residents/{id} — all tenant roles.
+// GetResident handles GET /api/v1/residents/{id} — all tenant roles & super_admin.
 func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
-	rtID, ok := requireRTID(w, r)
-	if !ok {
-		return
-	}
+	ac := auth.GetAuthContext(r)
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -919,6 +916,31 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	svc := NewHouseholdManager(h.pool)
+
+	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		resident, err := svc.GetAllResidentByID(ctx, tx, id)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				httpx.WriteNotFound(w, "resident not found")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, resident)
+		return
+	}
+
+	rtID, ok := requireRTID(w, r)
+	if !ok {
+		return
+	}
 
 	resident, err := svc.GetResidentByID(ctx, tx, id, rtID)
 	if err != nil {

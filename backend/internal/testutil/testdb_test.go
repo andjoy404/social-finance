@@ -66,4 +66,3 @@ func TestGetTestDBName_IgnoresSocialFinanceEnv(t *testing.T) {
 		t.Errorf("GetTestDBName = %q, want %q", name, DefaultTestDBName)
 	}
 }
-

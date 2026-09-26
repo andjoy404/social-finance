@@ -1095,6 +1095,56 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 	return &item, nil
 }
 
+// ResidentGetByIDAll finds a resident by UUID across all RTs (super_admin access).
+func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, error) {
+	var item Resident
+	var hhID, rel sql.NullString
+	var rtNumber, rtName sql.NullString
+	var rw sql.NullInt64
+
+	err := tx.QueryRowContext(ctx,
+		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
+		        ho.household_id, rp.relationship_to_head,
+		        rt.rt, rt.rw, rt.name
+		 FROM residents r
+		 LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+		 LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+		 LEFT JOIN rts rt ON r.rt_id = rt.id
+		 WHERE r.id = $1 LIMIT 1`,
+		id,
+	).Scan(
+		&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email, &item.IsActive,
+		&item.CreatedAt, &item.UpdatedAt,
+		&hhID, &rel,
+		&rtNumber, &rw, &rtName,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get resident by id all: %w", err)
+	}
+
+	if hhID.Valid {
+		item.HouseholdID = &hhID.String
+	}
+	if rel.Valid {
+		item.RelationshipToHead = &rel.String
+	}
+	if rtNumber.Valid {
+		item.RTNumber = &rtNumber.String
+	}
+	if rw.Valid {
+		rwVal := int(rw.Int64)
+		item.RW = &rwVal
+	}
+	if rtName.Valid {
+		item.RTName = &rtName.String
+	}
+
+	return &item, nil
+}
+
 // ResidentList returns residents filtered by RT with optional household_id, active filter, and search.
 func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
 	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,

@@ -733,8 +733,8 @@ func TestRequireRoleEmptyContextFields(t *testing.T) {
 			recv:     true,
 		},
 		{
-			name:  "all empty",
-			claim: TokenClaims{UserID: "user-uuid"},
+			name:     "all empty",
+			claim:    TokenClaims{UserID: "user-uuid"},
 			expected: http.StatusForbidden,
 			recv:     false,
 		},

@@ -86,6 +86,11 @@ func (s *HouseholdManager) GetResidentByID(ctx context.Context, tx *sql.Tx, id, 
 	return ResidentGetByID(ctx, tx, id, rtID)
 }
 
+// GetAllResidentByID finds a resident by ID across all RTs (super_admin access).
+func (s *HouseholdManager) GetAllResidentByID(ctx context.Context, tx *sql.Tx, id string) (*Resident, error) {
+	return ResidentGetByIDAll(ctx, tx, id)
+}
+
 // ListResidents returns residents for the RT with optional filters and pagination.
 func (s *HouseholdManager) ListResidents(ctx context.Context, tx *sql.Tx, rtID string, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
 	return ResidentList(ctx, tx, rtID, householdID, isActive, search, offset, limit)
