@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -68,6 +69,104 @@ func UsersFindByEmail(ctx context.Context, tx *sql.Tx, email string) (*UserWithH
 		u.SystemRole = SystemRole(sysRole.String)
 	}
 	return &u, nil
+}
+
+// NormalizePhone converts Indonesian phone input to canonical +62 format.
+// Accepts: 081234567890, 6281234567890, +6281234567890
+// Returns: +6281234567890
+func NormalizePhone(phone string) (string, error) {
+	trimmed := strings.TrimSpace(phone)
+	if trimmed == "" {
+		return "", fmt.Errorf("phone is required")
+	}
+	canon := trimmed
+	if strings.HasPrefix(canon, "+62") {
+		if len(canon) > 3 && canon[3] == '0' {
+			canon = "+62" + canon[4:]
+		}
+	} else if strings.HasPrefix(canon, "08") {
+		canon = "+62" + canon[1:]
+	} else if strings.HasPrefix(canon, "62") {
+		canon = "+" + canon
+	} else {
+		return "", fmt.Errorf("phone number format is invalid")
+	}
+	var sb strings.Builder
+	for _, c := range canon {
+		if (c >= '0' && c <= '9') || c == '+' {
+			sb.WriteByte(byte(c))
+		}
+	}
+	return sb.String(), nil
+}
+
+// UsersFindByPhone finds a user by phone number.
+// Supports both canonical (+62...) and standard local (08...) formats.
+func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithHash, error) {
+	trimmed := strings.TrimSpace(phone)
+	if trimmed == "" {
+		return nil, ErrUserNotFound
+	}
+
+	variants := []string{trimmed}
+	if canon, err := NormalizePhone(trimmed); err == nil && canon != "" {
+		if canon != trimmed {
+			variants = append(variants, canon)
+		}
+		if strings.HasPrefix(canon, "+62") && len(canon) > 3 {
+			local := "0" + canon[3:]
+			variants = append(variants, local)
+		}
+	}
+
+	var clauses []string
+	var args []interface{}
+	for i, v := range variants {
+		clauses = append(clauses, fmt.Sprintf("phone = $%d", i+1))
+		args = append(args, v)
+	}
+	query := fmt.Sprintf(`
+		SELECT id, system_role, full_name, email, phone, password_hash, is_active
+		FROM users
+		WHERE (%s)
+		LIMIT 1
+	`, strings.Join(clauses, " OR "))
+
+	var u UserWithHash
+	var sysRole sql.NullString
+	err := tx.QueryRowContext(ctx, query, args...).Scan(
+		&u.ID, &sysRole, &u.Fullname, &u.Email, &u.Phone, &u.PasswordHash, &u.IsActive,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("find user by phone: %w", err)
+	}
+	if sysRole.Valid {
+		u.SystemRole = SystemRole(sysRole.String)
+	}
+	return &u, nil
+}
+
+// UsersFindByIdentifier finds a user by email, phone, or generic identifier.
+func UsersFindByIdentifier(ctx context.Context, tx *sql.Tx, identifier string) (*UserWithHash, error) {
+	trimmed := strings.TrimSpace(identifier)
+	if trimmed == "" {
+		return nil, ErrUserNotFound
+	}
+	if strings.Contains(trimmed, "@") {
+		return UsersFindByEmail(ctx, tx, trimmed)
+	}
+
+	// Try finding by phone first
+	u, err := UsersFindByPhone(ctx, tx, trimmed)
+	if err == nil {
+		return u, nil
+	}
+
+	// Fallback to email in case identifier has no @
+	return UsersFindByEmail(ctx, tx, trimmed)
 }
 
 // UsersFindByID finds a user by UUID.

@@ -12,9 +12,12 @@ import (
 )
 
 // LoginRequest is the body of a login POST request.
+// Accepts identifier via email, phone, or identifier fields.
 type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email      string `json:"email"`
+	Phone      string `json:"phone,omitempty"`
+	Identifier string `json:"identifier,omitempty"`
+	Password   string `json:"password"`
 }
 
 // LoginResponse is the body of a login 200 response.
@@ -82,13 +85,18 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "invalid request body")
 		return
 	}
-	if req.Email == "" || req.Password == "" {
-		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "email and password are required")
+
+	identifier := strings.TrimSpace(req.Identifier)
+	if identifier == "" {
+		identifier = strings.TrimSpace(req.Email)
+	}
+	if identifier == "" {
+		identifier = strings.TrimSpace(req.Phone)
+	}
+	if identifier == "" || req.Password == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "email or phone and password are required")
 		return
 	}
-
-	// Normalize email: trim whitespace + lowercase for global uniqueness.
-	email := strings.ToLower(strings.TrimSpace(req.Email))
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -100,7 +108,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	result, err := h.svc.Login(ctx, tx, email, req.Password)
+	result, err := h.svc.Login(ctx, tx, identifier, req.Password)
 	if err != nil {
 		switch err {
 		case ErrInvalidPassword, ErrUserNotFound:

@@ -158,10 +158,24 @@ POST /api/v1/auth/login
 
 Authentication: **None**
 
-Request:
+Request (supports email, phone, or identifier):
 ```json
 {
   "email": "user@example.com",
+  "password": "secret123"
+}
+```
+Or with phone number:
+```json
+{
+  "phone": "+6281234567890",
+  "password": "secret123"
+}
+```
+Or with generic identifier (email or phone):
+```json
+{
+  "identifier": "081234567890",
   "password": "secret123"
 }
 ```

@@ -27,6 +27,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      seed:
+        condition: service_completed_successfully
     networks:
       - social-finance-internal
 
@@ -70,6 +72,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-social_finance_dev_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init-test-db.sh:/docker-entrypoint-initdb.d/01-init-test-db.sh:ro
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
@@ -96,6 +99,29 @@ services:
         condition: service_healthy
     volumes:
       - ./backend/migrations:/migrations
+    networks:
+      - social-finance-internal
+
+  seed:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: social-finance-seed
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    environment:
+      - APP_ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-social_finance}
+      - DB_USER=${DB_USER:-social_finance}
+      - DB_PASSWORD=${DB_PASSWORD:-social_finance_dev_password}
+      - DB_SSLMODE=${DB_SSLMODE:-prefer}
+    command: ["/tmp/build/api", "--seed-dev"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     networks:
       - social-finance-internal
 

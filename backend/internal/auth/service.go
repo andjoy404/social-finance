@@ -53,7 +53,7 @@ type RTInfo struct {
 	Name string `json:"name"`
 }
 
-// Login authenticates a user by email + password.
+// Login authenticates a user by email, phone, or identifier + password.
 //
 // Rules enforced during login:
 //   - user exists and is active
@@ -68,9 +68,9 @@ type RTInfo struct {
 // For users with multiple active memberships:
 //
 //	ErrMultipleMemberships is returned.
-func (s *Service) Login(ctx context.Context, tx *sql.Tx, email, rawPassword string) (*LoginResult, error) {
-	// Step 1 -- find user by normalized email.
-	user, err := UsersFindByEmail(ctx, tx, email)
+func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword string) (*LoginResult, error) {
+	// Step 1 -- find user by identifier (email or phone).
+	user, err := UsersFindByIdentifier(ctx, tx, identifier)
 	if err != nil {
 		return nil, err
 	}

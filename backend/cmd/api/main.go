@@ -17,6 +17,7 @@ import (
 	"social-finance/internal/auth"
 	"social-finance/internal/config"
 	"social-finance/internal/database"
+	"social-finance/internal/devseed"
 	"social-finance/internal/finance"
 	"social-finance/internal/health"
 	"social-finance/internal/household"
@@ -31,6 +32,15 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--bootstrap" {
 		if err := runBootstrap(); err != nil {
 			slog.Error("bootstrap failed", "error", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// Check for --seed-dev flag.
+	if len(os.Args) > 1 && os.Args[1] == "--seed-dev" {
+		if err := runDevSeed(); err != nil {
+			slog.Error("seed-dev failed", "error", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -551,4 +561,25 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(v)
+}
+
+// runDevSeed populates development mock data into the development database.
+func runDevSeed() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	ctx := context.Background()
+	pool, err := database.NewPool(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("database connection: %w", err)
+	}
+	defer pool.Close()
+
+	summary, err := devseed.Run(ctx, pool, cfg.AppEnv)
+	if err != nil {
+		return fmt.Errorf("devseed: %w", err)
+	}
+	fmt.Printf("devseed completed successfully: %+v\n", summary)
+	return nil
 }
