@@ -107,7 +107,7 @@ describe('W4.2C — HouseholdList rendering', () => {
       expect(screen.getByText('001')).toBeInTheDocument()
     })
     await waitFor(() => {
-      expect(screen.getByText('3201011234560001')).toBeInTheDocument()
+      expect(screen.queryByText('3201011234560001')).not.toBeInTheDocument()
     })
     await waitFor(() => {
       expect(screen.getByText('Jl. Mawar No. 1')).toBeInTheDocument()

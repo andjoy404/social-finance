@@ -403,25 +403,6 @@ export function HouseholdDetail() {
                 textTransform: 'uppercase',
                 letterSpacing: '0.03em',
               }}>
-                KTP / NIK
-              </div>
-              <div style={{
-                fontSize: '13px',
-                color: 'var(--text-primary)',
-                fontFamily: 'monospace',
-              }}>
-                {formatNull(household.nik ?? household.head_resident?.nik ?? null)}
-              </div>
-            </div>
-            <div>
-              <div style={{
-                fontSize: '11px',
-                color: 'var(--text-muted)',
-                marginBottom: '2px',
-                fontWeight: 500,
-                textTransform: 'uppercase',
-                letterSpacing: '0.03em',
-              }}>
                 Kepala Keluarga
               </div>
               <div style={{

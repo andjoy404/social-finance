@@ -257,7 +257,7 @@ export function RtDetail() {
                 whiteSpace: 'nowrap',
               }}
             >
-              Edit RT
+              Ubah RT
             </Link>
             {rt.is_active ? (
               <button

@@ -4,6 +4,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { ThemeMenu } from '@/components/ThemeMenu'
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
 import { Dropdown, Avatar } from 'antd'
+import logoImg from '@/assets/logo.png'
 
 function getInitials(name?: string): string {
   if (!name || !name.trim()) return ''
@@ -40,6 +41,12 @@ export function AppLayout() {
       {/* Full-width global header */}
       <header className="sf-header">
         <div className="sf-header-left">
+          <img
+            src={logoImg}
+            alt="Social Finance Logo"
+            className="sf-header-logo"
+            style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'contain' }}
+          />
           <span className="sf-header-brand">Social Finance</span>
         </div>
         <div className="sf-header-right">

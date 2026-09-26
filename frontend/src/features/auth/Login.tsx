@@ -1,12 +1,34 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { ApiError } from '@/app/api'
 import { MailOutlined, LockOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
+import logoAnimated from '@/assets/logo-animated.gif'
+import logoStatic from '@/assets/logo.png'
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches)
+    setReduced(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+
+  return reduced
+}
 
 export function Login() {
   const { login, isAuthenticated } = useAuth()
   const navigate = useNavigate()
+  const reducedMotion = usePrefersReducedMotion()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -63,6 +85,25 @@ export function Login() {
       <div className="login-stand">
         {/* Brand lockup */}
         <div className="login-brand-lockup">
+          <div className="login-logo">
+            {reducedMotion ? (
+              <img
+                className="login-logo-static"
+                src={logoStatic}
+                alt="Social Finance Logo"
+                width={104}
+                height={104}
+              />
+            ) : (
+              <img
+                className="login-logo-animated"
+                src={logoAnimated}
+                alt="Social Finance Logo"
+                width={104}
+                height={104}
+              />
+            )}
+          </div>
           <div className="login-product-name">Social Finance</div>
           <span className="login-tagline">Social Finance for Your Neighborhood</span>
         </div>

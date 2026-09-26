@@ -328,7 +328,7 @@ function RtRow({ index, rt, onEdit }: RtRowProps) {
       <td className="sf-table-action">
         <RowActionMenu
           items={[
-            { label: 'Edit', onClick: () => onEdit(rt) },
+            { label: 'Ubah', onClick: () => onEdit(rt) },
           ]}
         />
       </td>

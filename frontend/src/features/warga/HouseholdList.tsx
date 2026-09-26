@@ -61,6 +61,15 @@ function statusLabel(value: boolean): string {
   return value ? 'Aktif' : 'Tidak Aktif'
 }
 
+export function formatRelationship(rel?: string | null): string {
+  if (!rel) return 'Kepala Keluarga'
+  const upper = rel.toUpperCase()
+  if (upper === 'HEAD') return 'Kepala Keluarga'
+  if (upper === 'CHILD') return 'Kerabat'
+  if (upper === 'SPOUSE') return 'Keluarga'
+  return 'Keluarga'
+}
+
 function formatRtNumber(value: string | null): string {
   return value ? `RT ${value}` : '\u2014'
 }
@@ -313,7 +322,6 @@ export function HouseholdList() {
                   <th>Alamat</th>
                   <th className="sf-table-fit-content">Status Hunian</th>
                   <th>Kepala Keluarga</th>
-                  <th>NIK</th>
                   <th className="sf-table-fit-content">Hubungan</th>
                   <th>Telepon</th>
                   <th>Email</th>
@@ -359,9 +367,7 @@ interface HouseholdRowProps {
 }
 
 function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
-  const relationship = household.head_resident?.relationship_to_head === 'HEAD'
-    ? 'Kepala Keluarga'
-    : (household.head_resident?.relationship_to_head ?? 'Kepala Keluarga')
+  const relationship = formatRelationship(household.head_resident?.relationship_to_head)
 
   return (
     <tr>
@@ -377,7 +383,6 @@ function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
         </Badge>
       </td>
       <td style={{ fontWeight: 600 }}>{household.head_name}</td>
-      <td style={{ fontFamily: 'monospace' }}>{formatNull(household.nik ?? household.head_resident?.nik ?? null)}</td>
       <td className="sf-table-fit-content sf-table-center">
         <Badge variant="default">
           {relationship}

@@ -362,7 +362,7 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved 
   return (
     <Modal open onClose={handleClose} width={520}>
       <ModalHeader
-        title="Edit RT"
+        title="Ubah RT"
         subtitle="Ubah informasi unit wilayah administratif"
         onClose={handleClose}
       />
