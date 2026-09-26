@@ -18,6 +18,12 @@ services:
       - DB_USER=${DB_USER:-social_finance}
       - DB_PASSWORD=${DB_PASSWORD:-social_finance_dev_password}
       - DB_SSLMODE=${DB_SSLMODE:-prefer}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRY=${JWT_EXPIRY:-900}
+      - REFRESH_EXPIRY=${REFRESH_EXPIRY:-604800}
+      - BOOTSTRAP_EMAIL=${BOOTSTRAP_EMAIL}
+      - BOOTSTRAP_PASSWORD=${BOOTSTRAP_PASSWORD}
+      - BOOTSTRAP_NAME=${BOOTSTRAP_NAME:-Super Admin}
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,6 +49,12 @@ services:
       - DB_USER=${DB_USER:-social_finance}
       - DB_PASSWORD=${DB_PASSWORD:-social_finance_dev_password}
       - DB_SSLMODE=${DB_SSLMODE:-prefer}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRY=${JWT_EXPIRY:-900}
+      - REFRESH_EXPIRY=${REFRESH_EXPIRY:-604800}
+      - BOOTSTRAP_EMAIL=${BOOTSTRAP_EMAIL}
+      - BOOTSTRAP_PASSWORD=${BOOTSTRAP_PASSWORD}
+      - BOOTSTRAP_NAME=${BOOTSTRAP_NAME:-Super Admin}
     depends_on:
       postgres:
         condition: service_healthy

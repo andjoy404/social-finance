@@ -132,7 +132,7 @@ func main() {
 
 // This endpoint is NOT publicly exposed. It is run via:
 
-//   docker compose run --rm backend server --bootstrap
+//   docker compose run --rm backend /tmp/build/api --bootstrap
 
 func runBootstrap() error {
 
