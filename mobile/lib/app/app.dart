@@ -12,6 +12,7 @@ import '../features/dues/presentation/screens/dues_screen.dart';
 import '../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../features/profile/presentation/screens/profile_screen.dart';
 import '../features/reports/presentation/screens/reports_screen.dart';
+import '../features/warga/data/warga_providers.dart';
 import '../features/warga/presentation/screens/warga_screen.dart';
 
 class App extends ConsumerStatefulWidget {
@@ -36,10 +37,12 @@ class _AppState extends ConsumerState<App> {
   late final _RouterRefreshNotifier _refreshNotifier;
   late final GoRouter _router;
   ProviderSubscription<AsyncValue<Map<String, dynamic>?>?>? _authSubscription;
+  late final WidgetRef _ref;
 
   @override
   void initState() {
     super.initState();
+    _ref = ref;
     _refreshNotifier = _RouterRefreshNotifier();
     final initialAuth = ref.read(authRepositoryProvider);
     _refreshNotifier._lastLoggedIn = initialAuth?.valueOrNull != null;
@@ -48,7 +51,12 @@ class _AppState extends ConsumerState<App> {
       authRepositoryProvider,
       (previous, next) {
         final isLoggedIn = next?.valueOrNull != null;
-        _refreshNotifier.update(isLoggedIn);
+        if (isLoggedIn != _refreshNotifier._lastLoggedIn) {
+          if (!isLoggedIn) {
+            _ref.read(wargaSearchQueryProvider.notifier).state = '';
+          }
+          _refreshNotifier.update(isLoggedIn);
+        }
       },
     );
 

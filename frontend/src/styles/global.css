@@ -678,7 +678,7 @@ input { font-family: inherit; }
   border-collapse: collapse;
   color: var(--sf-table-cell-color) !important;
   background: var(--sf-bg) !important;
-  table-layout: auto !important;
+  table-layout: fixed !important;
 }
 
 .table-wrapper table th {
@@ -1591,4 +1591,128 @@ input { font-family: inherit; }
 
 .recharts-wrapper {
   transition: filter 0.2s ease;
+}
+
+/* ── Warga Table column formatting & layout ─────────────────────────── */
+
+.table-wrapper table.sf-warga-table {
+  width: max-content !important;
+  min-width: 100% !important;
+  table-layout: auto !important;
+}
+
+.table-wrapper table.sf-warga-table th,
+.table-wrapper table.sf-warga-table td {
+  white-space: nowrap !important;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+
+/* Static column width rules */
+.table-wrapper table.sf-warga-table th.col-rt,
+.table-wrapper table.sf-warga-table td.col-rt {
+  width: 60px !important;
+  min-width: 60px !important;
+  max-width: 60px !important;
+  text-align: center !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-rw,
+.table-wrapper table.sf-warga-table td.col-rw {
+  width: 60px !important;
+  min-width: 60px !important;
+  max-width: 60px !important;
+  text-align: center !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-occupancy,
+.table-wrapper table.sf-warga-table td.col-occupancy {
+  width: 130px !important;
+  min-width: 130px !important;
+  max-width: 130px !important;
+  text-align: center !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-nik,
+.table-wrapper table.sf-warga-table td.col-nik {
+  width: 170px !important;
+  min-width: 170px !important;
+  max-width: 170px !important;
+  text-align: center !important;
+  font-family: monospace;
+}
+
+.table-wrapper table.sf-warga-table th.col-phone,
+.table-wrapper table.sf-warga-table td.col-phone {
+  width: 140px !important;
+  min-width: 140px !important;
+  max-width: 140px !important;
+  text-align: center !important;
+  font-family: monospace;
+}
+
+.table-wrapper table.sf-warga-table th.col-start-date,
+.table-wrapper table.sf-warga-table td.col-start-date {
+  width: 140px !important;
+  min-width: 140px !important;
+  max-width: 140px !important;
+  text-align: left !important;
+  font-family: monospace;
+}
+
+.table-wrapper table.sf-warga-table th.col-end-date,
+.table-wrapper table.sf-warga-table td.col-end-date {
+  width: 140px !important;
+  min-width: 140px !important;
+  max-width: 140px !important;
+  text-align: left !important;
+  font-family: monospace;
+}
+
+.table-wrapper table.sf-warga-table th.col-status,
+.table-wrapper table.sf-warga-table td.col-status {
+  width: 100px !important;
+  min-width: 100px !important;
+  max-width: 100px !important;
+  text-align: center !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-action,
+.table-wrapper table.sf-warga-table td.col-action {
+  width: 80px !important;
+  min-width: 80px !important;
+  max-width: 80px !important;
+  text-align: center !important;
+}
+
+/* Dynamic columns: allowed to dynamically size to content */
+.table-wrapper table.sf-warga-table th.col-rt-name,
+.table-wrapper table.sf-warga-table td.col-rt-name {
+  min-width: 140px;
+  text-align: left !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-house-number,
+.table-wrapper table.sf-warga-table td.col-house-number {
+  min-width: 120px;
+  text-align: left !important;
+  font-family: monospace;
+}
+
+.table-wrapper table.sf-warga-table th.col-address,
+.table-wrapper table.sf-warga-table td.col-address {
+  min-width: 180px;
+  text-align: left !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-name,
+.table-wrapper table.sf-warga-table td.col-name {
+  min-width: 160px;
+  text-align: left !important;
+}
+
+.table-wrapper table.sf-warga-table th.col-email,
+.table-wrapper table.sf-warga-table td.col-email {
+  min-width: 180px;
+  text-align: left !important;
 }

@@ -9,8 +9,19 @@ import '../../../core/models/role.dart';
 
 /// Maps backend role string to [AppRole].
 /// Unknown roles safely default to non-privileged [AppRole.warga].
-AppRole mapStringToAppRole(String? roleStr) {
-  switch (roleStr?.toLowerCase().trim()) {
+///
+/// The backend assigns [systemRoleStr] (system_role) to platform-wide admins
+/// and sets [roleStr] (role) to the RT-scoped role for ordinary users.
+/// For super_admin users, [roleStr] is empty and [systemRoleStr] is
+/// "super_admin". For all other users, [systemRoleStr] is null/empty.
+///
+/// Mapping priority: use [roleStr] if non-empty; otherwise fall back to
+/// [systemRoleStr]. Unknown strings → [AppRole.warga] (never elevated).
+AppRole mapStringToAppRole(String? roleStr, {String? systemRoleStr}) {
+  final effective = (roleStr?.trim().isNotEmpty == true)
+      ? roleStr!.trim().toLowerCase()
+      : (systemRoleStr?.trim().toLowerCase() ?? '');
+  switch (effective) {
     case 'super_admin':
       return AppRole.superAdmin;
     case 'pengurus':
@@ -61,7 +72,10 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         'name': response.user.name.isNotEmpty
             ? response.user.name
             : response.user.email,
-        'role': mapStringToAppRole(response.user.role),
+        'role': mapStringToAppRole(
+          response.user.role,
+          systemRoleStr: response.user.systemRole,
+        ),
         'system_role': response.user.systemRole,
         'rt_id': response.user.rtId,
         'rt': null,

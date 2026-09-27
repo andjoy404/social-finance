@@ -5,7 +5,6 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
-import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
@@ -266,16 +265,6 @@ class _ResidentCard extends StatelessWidget {
                       spacing: 6,
                       runSpacing: 4,
                       children: [
-                        AppBadge(
-                          label: resident.displayRelationship,
-                          isNeonStyle: isDark && resident.isHeadOfHousehold,
-                          backgroundColor: resident.isHeadOfHousehold
-                              ? null
-                              : theme.colorScheme.surfaceContainerHighest,
-                          textColor: resident.isHeadOfHousehold
-                              ? null
-                              : theme.colorScheme.onSurfaceVariant,
-                        ),
                         if (resident.occupancyStatus != null)
                           Container(
                             padding: const EdgeInsets.symmetric(

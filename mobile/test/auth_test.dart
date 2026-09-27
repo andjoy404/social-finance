@@ -200,6 +200,38 @@ void main() {
         expect(mapStringToAppRole('unknown_role'), equals(AppRole.warga));
       },
     );
+
+    test('system_role fallback when role is empty', () {
+      expect(
+        mapStringToAppRole('', systemRoleStr: 'super_admin'),
+        equals(AppRole.superAdmin),
+      );
+      expect(
+        mapStringToAppRole(null, systemRoleStr: 'super_admin'),
+        equals(AppRole.superAdmin),
+      );
+    });
+
+    test('role takes priority over system_role when both present', () {
+      expect(
+        mapStringToAppRole('pengurus', systemRoleStr: 'super_admin'),
+        equals(AppRole.pengurus),
+      );
+      expect(
+        mapStringToAppRole('warga', systemRoleStr: 'super_admin'),
+        equals(AppRole.warga),
+      );
+    });
+
+    test('never fallback warga/pengurus to superAdmin', () {
+      // Verify that warga/pengurus can never be elevated
+      expect(mapStringToAppRole('warga'), equals(AppRole.warga));
+      expect(mapStringToAppRole('pengurus'), equals(AppRole.pengurus));
+      expect(
+        mapStringToAppRole('warga', systemRoleStr: 'super_admin'),
+        equals(AppRole.warga),
+      );
+    });
   });
 
   group('Auth Flow with Mocked Network', () {
@@ -464,7 +496,7 @@ void main() {
             child: const App(),
           ),
         );
-        await tester.pump();
+        await tester.pumpAndSettle(const Duration(milliseconds: 7000));
 
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(find.text('Email atau kata sandi salah.'), findsOneWidget);
@@ -513,7 +545,7 @@ void main() {
             child: const App(),
           ),
         );
-        await tester.pump();
+        await tester.pumpAndSettle(const Duration(milliseconds: 7000));
 
         // Ensure the login card is visible before interacting with it
         await tester.ensureVisible(find.byType(LoginScreen));

@@ -344,6 +344,8 @@ export interface ApiHousehold {
   occupancy_status: 'OWNER' | 'TENANT' | null
   is_active: boolean
   head_resident?: ApiResident | null
+  start_date?: string | null
+  end_date?: string | null
   created_at: string
   updated_at: string
 }
@@ -490,6 +492,8 @@ export interface ApiResident {
   rt_number?: string | null
   rw?: number | null
   rt_name?: string | null
+  start_date?: string | null
+  end_date?: string | null
 }
 
 export interface ApiCreateResidentBody {

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../features/auth/data/mock_auth_repository.dart';
 import 'api_warga_models.dart';
 import 'warga_repository.dart';
 
@@ -8,13 +9,15 @@ final wargaSearchQueryProvider = StateProvider<String>((ref) => '');
 
 /// Async state of the warga list.
 /// null = never loaded / loading, AsyncError = error, AsyncData = success (possibly empty list).
-final wargaListProvider = AsyncNotifierProvider<WargaListNotifier, List<MappedResident>>(() {
-  return WargaListNotifier();
-});
+final wargaListProvider =
+    AsyncNotifierProvider.autoDispose<WargaListNotifier, List<MappedResident>>(
+      () => WargaListNotifier(),
+    );
 
-class WargaListNotifier extends AsyncNotifier<List<MappedResident>> {
+class WargaListNotifier extends AutoDisposeAsyncNotifier<List<MappedResident>> {
   @override
   Future<List<MappedResident>> build() async {
+    ref.watch(authRepositoryProvider);
     return _fetch();
   }
 

@@ -438,7 +438,7 @@ void main() {
       expect(find.text('RT 03 · RW 16 · Wisma Rukun Tunggal'), findsOneWidget);
       expect(find.text('Blok A1 No. 12'), findsOneWidget);
       expect(find.textContaining('NIK'), findsNothing);
-      expect(find.text('Kepala Keluarga'), findsOneWidget);
+      expect(find.text('Pemilik'), findsOneWidget);
       expect(find.text('081234567890'), findsOneWidget);
     });
 
@@ -455,7 +455,7 @@ void main() {
       );
     });
 
-    testWidgets('Loading state shows circular indicator', (tester) async {
+    test('Loading state can be set directly', () {
       final container = ProviderContainer(
         overrides: [
           wargaListProvider.overrideWith(
@@ -464,28 +464,14 @@ void main() {
         ],
       );
 
-      // Set state to loading directly
       container.read(wargaListProvider.notifier).state = const AsyncLoading();
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: switch (container.read(wargaListProvider)) {
-              AsyncLoading() => const Center(child: CircularProgressIndicator()),
-              _ => const Text('Not loading'),
-            },
-          ),
-        ),
-      );
-
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(container.read(wargaListProvider), isA<AsyncLoading>());
 
       container.dispose();
     });
 
-    testWidgets('Error state shows error message with retry button', (
-      tester,
-    ) async {
+    test('Error state can be set directly', () {
       final container = ProviderContainer(
         overrides: [
           wargaListProvider.overrideWith(
@@ -500,19 +486,11 @@ void main() {
         StackTrace.current,
       );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: switch (container.read(wargaListProvider)) {
-              AsyncError(:final error) =>
-                error is ServerException ? Text(error.message) : const Text('unknown'),
-              _ => const Text('Not error'),
-            },
-          ),
-        ),
-      );
-
-      expect(find.textContaining('Sesi Anda telah berakhir'), findsOneWidget);
+      final state = container.read(wargaListProvider);
+      expect(state, isA<AsyncError>());
+      final error = (state as AsyncError).error;
+      expect(error, isA<ServerException>());
+      expect((error as ServerException).message, contains('Sesi Anda telah berakhir'));
 
       container.dispose();
     });
@@ -553,6 +531,55 @@ void main() {
       );
       final err = repo.mapDioError(exception);
       expect(err.message, contains('tidak memiliki akses'));
+    });
+  });
+
+  group('Relationship Badge Color', () {
+    test('Kepala Keluarga has violet color', () {
+      const resident = MappedResident(
+        id: 'r1',
+        name: 'Bapak',
+        houseNumber: 'A1',
+        isHeadOfHousehold: true,
+        relationship: 'HEAD',
+      );
+      expect(resident.displayRelationship, equals('Kepala Keluarga'));
+      expect(resident.relationshipColor, const Color(0xFF8B5CF6));
+    });
+
+    test('Keluarga has blue color', () {
+      const resident = MappedResident(
+        id: 'r2',
+        name: 'Ibu',
+        houseNumber: 'A1',
+        isHeadOfHousehold: false,
+        relationship: 'SPOUSE',
+      );
+      expect(resident.displayRelationship, equals('Keluarga'));
+      expect(resident.relationshipColor, const Color(0xFF3B82F6));
+    });
+
+    test('Kerabat has violet-blue color', () {
+      const resident = MappedResident(
+        id: 'r3',
+        name: 'Anak',
+        houseNumber: 'A1',
+        isHeadOfHousehold: false,
+        relationship: 'CHILD',
+      );
+      expect(resident.displayRelationship, equals('Kerabat'));
+      expect(resident.relationshipColor, const Color(0xFF6366C0));
+    });
+
+    test('Unknown relationship defaults to blue', () {
+      const resident = MappedResident(
+        id: 'r4',
+        name: 'Tetangga',
+        houseNumber: 'A2',
+        isHeadOfHousehold: false,
+        relationship: '',
+      );
+      expect(resident.relationshipColor, const Color(0xFF3B82F6));
     });
   });
 }

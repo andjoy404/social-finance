@@ -3,6 +3,7 @@ import { type ReactNode } from 'react'
 interface BadgeProps {
   children: ReactNode
   variant?: 'violet' | 'green' | 'red' | 'amber' | 'blue' | 'default'
+  style?: React.CSSProperties
 }
 
 const variantStyles: Record<string, React.CSSProperties> = {
@@ -38,8 +39,8 @@ const variantStyles: Record<string, React.CSSProperties> = {
   },
 }
 
-export function Badge({ children, variant = 'default' }: BadgeProps) {
-  const style = variantStyles[variant] ?? variantStyles.default
+export function Badge({ children, variant = 'default', style }: BadgeProps) {
+  const variantStyle = variantStyles[variant] ?? variantStyles.default
 
   return (
     <span
@@ -54,6 +55,7 @@ export function Badge({ children, variant = 'default' }: BadgeProps) {
         lineHeight: '20px',
         textTransform: 'capitalize',
         fontFamily: 'inherit',
+        ...variantStyle,
         ...style,
       }}
     >

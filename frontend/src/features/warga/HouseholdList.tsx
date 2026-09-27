@@ -61,30 +61,64 @@ function statusLabel(value: boolean): string {
   return value ? 'Aktif' : 'Tidak Aktif'
 }
 
-export function formatRelationship(rel?: string | null): string {
-  if (!rel) return 'Kepala Keluarga'
-  const upper = rel.toUpperCase()
-  if (upper === 'HEAD') return 'Kepala Keluarga'
-  if (upper === 'CHILD') return 'Kerabat'
-  if (upper === 'SPOUSE') return 'Keluarga'
-  return 'Keluarga'
+function formatIntegerOnly(value: string | number | null | undefined): string {
+  if (value == null) return '\u2014'
+  if (typeof value === 'number') {
+    return isNaN(value) ? '\u2014' : String(Math.floor(value))
+  }
+  const str = String(value).trim()
+  if (!str || str === '\u2014' || str === '-') return '\u2014'
+  const match = str.replace(/^(rt|rw)\s*/i, '').match(/\d+/)
+  if (match) {
+    const num = parseInt(match[0], 10)
+    return isNaN(num) ? '\u2014' : String(num)
+  }
+  return '\u2014'
 }
 
-function formatRtNumber(value: string | null): string {
-  return value ? `RT ${value}` : '\u2014'
+function formatStrictDate(value?: string | null): string {
+  if (!value) return '\u2014'
+  const trimmed = value.trim()
+  if (!trimmed || trimmed === '\u2014' || trimmed === '-') return '\u2014'
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (match) {
+    return match[1]
+  }
+  const d = new Date(trimmed)
+  if (isNaN(d.getTime())) return '\u2014'
+  return d.toISOString().substring(0, 10)
 }
 
-function formatRw(value: number | null): string {
-  return value != null ? String(value) : '\u2014'
-}
-
-function formatNull(value: string | null): string {
+function formatNull(value: string | null | undefined): string {
   return value ?? '\u2014'
+}
+
+const colStyles = {
+  rt: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
+  rw: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
+  rtName: { minWidth: 140, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  houseNumber: { minWidth: 120, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
+  address: { minWidth: 180, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  occupancy: { width: 130, minWidth: 130, maxWidth: 130, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
+  name: { minWidth: 160, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  nik: { width: 170, minWidth: 170, maxWidth: 170, textAlign: 'center' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
+  phone: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'center' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
+  email: { minWidth: 180, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  startDate: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
+  endDate: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
+  status: { width: 100, minWidth: 100, maxWidth: 100, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
+  action: { width: 80, minWidth: 80, maxWidth: 80, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
 }
 
 export function HouseholdList() {
   const { user } = useAuth()
   if (!user) return null
+
+  const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
+  const isPengurus = user.role === 'pengurus'
+  const isReadOnly = user.role === 'warga' && !isSuperAdmin
+  const showNik = isPengurus || isSuperAdmin
+  const showAksi = !isReadOnly
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<ApiError | null>(null)
@@ -179,7 +213,6 @@ export function HouseholdList() {
     setEditingHh(hh)
   }
 
-  const start = total === 0 ? 0 : (page - 1) * pageSize + 1
 
   const statusValueLabel: string | null = statusValue === 'aktif' ? 'Aktif' : statusValue === 'tidak_aktif' ? 'Tidak Aktif' : null
 
@@ -215,76 +248,80 @@ export function HouseholdList() {
       <div className="sf-content-surface">
         {/* Toolbar */}
         <div className="sf-list-toolbar">
-          {/* Filter type dropdown */}
-          <FilterDropdown
-            value={filterType}
-            options={statusFilterOptions}
-            onChange={handleFilter}
-            ariaLabel="Tipe filter"
-          />
+          <div className="sf-list-toolbar-left">
+            {/* Filter type dropdown */}
+            <FilterDropdown
+              value={filterType}
+              options={statusFilterOptions}
+              onChange={handleFilter}
+              ariaLabel="Tipe filter"
+            />
 
-          {/* Search */}
-          <SearchBox
-            value={search}
-            onChange={(v) => setSearch(v)}
-            onSearch={handleSearch}
-            placeholder="Cari kepala keluarga/alamat..."
-            statusControl={
-              filterType === 'status' ? (
-                <div className="sf-status-selector">
-                  {statusValueLabel ? (
-                    <span
-                      className={`sf-status-badge ${statusValue === 'aktif' ? 'sf-status-badge__active' : 'sf-status-badge__inactive'}`}
-                    >
-                      {statusValueLabel}
-                      <button
-                        type="button"
-                        className="sf-status-badge-clear"
-                        onClick={handleStatusClear}
-                        aria-label="Hapus filter status"
-                        title="Hapus filter status"
+            {/* Search */}
+            <SearchBox
+              value={search}
+              onChange={(v) => setSearch(v)}
+              onSearch={handleSearch}
+              placeholder="Cari kepala keluarga/alamat..."
+              statusControl={
+                filterType === 'status' ? (
+                  <div className="sf-status-selector">
+                    {statusValueLabel ? (
+                      <span
+                        className={`sf-status-badge ${statusValue === 'aktif' ? 'sf-status-badge__active' : 'sf-status-badge__inactive'}`}
                       >
-                        <CloseOutlined style={{ fontSize: 10 }} />
-                      </button>
-                    </span>
-                  ) : (
-                    <div className="sf-status-dropdown">
-                      <button
-                        type="button"
-                        className="sf-status-selector-trigger"
-                        onClick={() => setStatusOpen(!statusOpen)}
-                        aria-haspopup="listbox"
-                        aria-expanded={statusOpen}
-                      >
-                        Pilih Status
-                        <DownOutlined style={{ fontSize: 9, color: 'var(--sf-text-muted)' }} />
-                      </button>
-                      {statusOpen && (
-                        <div className="sf-status-dropdown-menu" role="listbox">
-                          {statusValueOptions.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              className={`sf-status-dropdown-item ${statusValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
-                              onClick={() => handleStatusSelect(opt.value)}
-                              role="button"
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : null
-            }
-          />
+                        {statusValueLabel}
+                        <button
+                          type="button"
+                          className="sf-status-badge-clear"
+                          onClick={handleStatusClear}
+                          aria-label="Hapus filter status"
+                          title="Hapus filter status"
+                        >
+                          <CloseOutlined style={{ fontSize: 10 }} />
+                        </button>
+                      </span>
+                    ) : (
+                      <div className="sf-status-dropdown">
+                        <button
+                          type="button"
+                          className="sf-status-selector-trigger"
+                          onClick={() => setStatusOpen(!statusOpen)}
+                          aria-haspopup="listbox"
+                          aria-expanded={statusOpen}
+                        >
+                          Pilih Status
+                          <DownOutlined style={{ fontSize: 9, color: 'var(--sf-text-muted)' }} />
+                        </button>
+                        {statusOpen && (
+                          <div className="sf-status-dropdown-menu" role="listbox">
+                            {statusValueOptions.map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                className={`sf-status-dropdown-item ${statusValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
+                                onClick={() => handleStatusSelect(opt.value)}
+                                role="button"
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : null
+              }
+            />
+          </div>
 
-          {/* Create button */}
-          <Link to="/warga/baru" className="sf-create-btn" style={{ marginLeft: 'auto' }}>
-            + Tambah
-          </Link>
+          {/* Create button — hidden for warga (read-only) */}
+          {!isReadOnly && (
+            <Link to="/warga/baru" className="sf-create-btn">
+              + Tambah
+            </Link>
+          )}
         </div>
 
         {/* Error */}
@@ -311,31 +348,33 @@ export function HouseholdList() {
         {/* Household Table */}
         {!loading && householdList.length > 0 && (
           <div className="table-wrapper">
-            <table>
+            <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
               <thead>
                 <tr>
-                  <th style={{ width: 40, textAlign: 'center' }}>No</th>
-                  <th className="sf-table-fit-content">RT</th>
-                  <th className="sf-table-fit-content">RW</th>
-                  <th className="sf-table-fit-content">Nama RT</th>
-                  <th>Nomor Rumah</th>
-                  <th>Alamat</th>
-                  <th className="sf-table-fit-content">Status Hunian</th>
-                  <th>Kepala Keluarga</th>
-                  <th className="sf-table-fit-content">Hubungan</th>
-                  <th>Telepon</th>
-                  <th>Email</th>
-                  <th className="sf-table-fit-content">Status</th>
-                  <th className="sf-table-action">Aksi</th>
+                  <th className="col-rt" style={colStyles.rt}>RT</th>
+                  <th className="col-rw" style={colStyles.rw}>RW</th>
+                  <th className="col-rt-name" style={colStyles.rtName}>NAMA RT</th>
+                  <th className="col-house-number" style={colStyles.houseNumber}>NOMOR RUMAH</th>
+                  <th className="col-address" style={colStyles.address}>ALAMAT</th>
+                  <th className="col-occupancy" style={colStyles.occupancy}>STATUS HUNIAN</th>
+                  <th className="col-name" style={colStyles.name}>NAMA</th>
+                  {showNik && <th className="col-nik" style={colStyles.nik}>NIK</th>}
+                  <th className="col-phone" style={colStyles.phone}>TELEPON</th>
+                  <th className="col-email" style={colStyles.email}>EMAIL</th>
+                  <th className="col-start-date" style={colStyles.startDate}>TANGGAL MULAI</th>
+                  <th className="col-end-date" style={colStyles.endDate}>TANGGAL SELESAI</th>
+                  <th className="col-status" style={colStyles.status}>STATUS</th>
+                  {showAksi && <th className="col-action" style={colStyles.action}>AKSI</th>}
                 </tr>
               </thead>
               <tbody>
-                {householdList.map((hh, i) => (
+                {householdList.map((hh) => (
                   <HouseholdRow
                     key={hh.id}
-                    index={start + i}
                     household={hh}
                     onEdit={handleEdit}
+                    showNik={showNik}
+                    showAksi={showAksi}
                   />
                 ))}
               </tbody>
@@ -361,47 +400,102 @@ export function HouseholdList() {
 }
 
 interface HouseholdRowProps {
-  index: number
   household: ApiHousehold
   onEdit: (hh: ApiHousehold) => void
+  showNik: boolean
+  showAksi: boolean
 }
 
-function HouseholdRow({ index, household, onEdit }: HouseholdRowProps) {
-  const relationship = formatRelationship(household.head_resident?.relationship_to_head)
+function HouseholdRow({ household, onEdit, showNik, showAksi }: HouseholdRowProps) {
+  const startDateRaw = household.start_date ?? household.head_resident?.start_date ?? household.created_at
+  const startDate = formatStrictDate(startDateRaw)
+
+  const endDateRaw = household.end_date ?? household.head_resident?.end_date ?? null
+  const endDate = formatStrictDate(endDateRaw)
 
   return (
     <tr>
-      <td style={{ textAlign: 'center' }}>{index}</td>
-      <td className="sf-table-fit-content">{formatRtNumber(household.head_resident?.rt_number ?? null)}</td>
-      <td className="sf-table-fit-content">{formatRw(household.head_resident?.rw ?? null)}</td>
-      <td>{formatNull(household.head_resident?.rt_name ?? null)}</td>
-      <td style={{ fontFamily: 'monospace' }}>{formatNull(household.house_number)}</td>
-      <td>{formatNull(household.address)}</td>
-      <td className="sf-table-fit-content sf-table-center">
+      {/* 1. RT */}
+      <td className="col-rt" style={colStyles.rt}>
+        {formatIntegerOnly(household.head_resident?.rt_number ?? null)}
+      </td>
+
+      {/* 2. RW */}
+      <td className="col-rw" style={colStyles.rw}>
+        {formatIntegerOnly(household.head_resident?.rw ?? null)}
+      </td>
+
+      {/* 3. NAMA RT */}
+      <td className="col-rt-name" style={colStyles.rtName}>
+        {formatNull(household.head_resident?.rt_name ?? null)}
+      </td>
+
+      {/* 4. NOMOR RUMAH */}
+      <td className="col-house-number" style={colStyles.houseNumber}>
+        {formatNull(household.house_number)}
+      </td>
+
+      {/* 5. ALAMAT */}
+      <td className="col-address" style={colStyles.address}>
+        {formatNull(household.address)}
+      </td>
+
+      {/* 6. STATUS HUNIAN */}
+      <td className="col-occupancy" style={colStyles.occupancy}>
         <Badge variant={occupancyBadgeVariant(household.occupancy_status)}>
           {occupancyLabel(household.occupancy_status)}
         </Badge>
       </td>
-      <td style={{ fontWeight: 600 }}>{household.head_name}</td>
-      <td className="sf-table-fit-content sf-table-center">
-        <Badge variant="default">
-          {relationship}
-        </Badge>
+
+      {/* 7. NAMA */}
+      <td className="col-name" style={{ ...colStyles.name, fontWeight: 600 }}>
+        {household.head_name}
       </td>
-      <td style={{ fontFamily: 'monospace' }}>{formatNull(household.phone ?? household.head_resident?.phone ?? null)}</td>
-      <td>{formatNull(household.email ?? household.head_resident?.email ?? null)}</td>
-      <td className="sf-table-fit-content sf-table-center">
+
+      {/* 8. NIK */}
+      {showNik && (
+        <td className="col-nik" style={colStyles.nik}>
+          {formatNull(household.nik ?? household.head_resident?.nik ?? null)}
+        </td>
+      )}
+
+      {/* 9. TELEPON */}
+      <td className="col-phone" style={colStyles.phone}>
+        {formatNull(household.phone ?? household.head_resident?.phone ?? null)}
+      </td>
+
+      {/* 10. EMAIL */}
+      <td className="col-email" style={colStyles.email}>
+        {formatNull(household.email ?? household.head_resident?.email ?? null)}
+      </td>
+
+      {/* 11. TANGGAL MULAI */}
+      <td className="col-start-date" style={colStyles.startDate}>
+        {startDate}
+      </td>
+
+      {/* 12. TANGGAL SELESAI */}
+      <td className="col-end-date" style={colStyles.endDate}>
+        {endDate}
+      </td>
+
+      {/* 13. STATUS */}
+      <td className="col-status" style={colStyles.status}>
         <Badge variant={statusBadge(household.is_active)}>
           {statusLabel(household.is_active)}
         </Badge>
       </td>
-      <td className="sf-table-action sf-table-center">
-        <RowActionMenu
-          items={[
-            { label: 'Ubah', onClick: () => onEdit(household) },
-          ]}
-        />
-      </td>
+
+      {/* 14. AKSI */}
+      {showAksi && (
+        <td className="col-action" style={colStyles.action}>
+          <RowActionMenu
+            items={[
+              { label: 'Ubah', onClick: () => onEdit(household) },
+            ]}
+          />
+        </td>
+      )}
     </tr>
   )
 }

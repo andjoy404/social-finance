@@ -81,18 +81,6 @@ class DashboardScreen extends ConsumerWidget {
                       ref.read(themeProvider.notifier).setMode(mode);
                     },
                   ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    onPressed: () async {
-                      ref.read(authRepositoryProvider.notifier).logout();
-                    },
-                    icon: Icon(
-                      Icons.logout_rounded,
-                      size: 18,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    tooltip: 'Keluar',
-                  ),
                 ],
               ),
             ],

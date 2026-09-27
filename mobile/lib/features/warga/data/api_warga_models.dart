@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
+
 
 /// API response wrapper for paginated endpoints.
 @immutable
@@ -204,6 +206,22 @@ class MappedResident {
     if (upper == 'HEAD') return 'Kepala Keluarga';
     if (relationship.isNotEmpty) return relationship;
     return 'Keluarga';
+  }
+
+  /// Badge background color for relationship, using the violet→blue palette:
+  ///   Kepala Keluarga → #8B5CF6 (violet)
+  ///   Keluarga        → #3B82F6 (blue)
+  ///   Kerabat         → #6366C0 (violet-blue)
+  Color get relationshipColor {
+    switch (displayRelationship) {
+      case 'Kepala Keluarga':
+        return const Color(0xFF8B5CF6);
+      case 'Kerabat':
+        return const Color(0xFF6366C0);
+      case 'Keluarga':
+      default:
+        return const Color(0xFF3B82F6);
+    }
   }
 
   factory MappedResident.fromBackend(BackendResident resident, BackendHousehold? household) {

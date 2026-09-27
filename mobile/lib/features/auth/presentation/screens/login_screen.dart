@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/constants/app_constants.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/widgets/one_shot_animated_gif.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
 /// Login screen that matches the Web login design.
@@ -59,30 +60,63 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF07060B),
-      body: _buildBackground(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 20,
-              vertical: 24,
-            ),
-            child: _buildCard(context, isLoading),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFF0E0C15),
+              const Color(0xFF0A0910),
+              const Color(0xFF07060B),
+            ],
+            stops: const [0.0, 0.55, 1.0],
           ),
+        ),
+        child: Stack(
+          children: [
+            // Vignette overlay for depth
+            Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.5, 0.42),
+                  radius: 0.95,
+                  colors: [
+                    Colors.transparent,
+                    const Color(0xFF020105).withValues(alpha: 0.58),
+                    const Color(0xFF010003).withValues(alpha: 0.82),
+                  ],
+                  stops: const [0.4, 0.8, 1.0],
+                ),
+              ),
+            ),
+            // Violet ambient glow
+            Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.5, 0.41),
+                  radius: 0.42,
+                  colors: [
+                    const Color(0xFF7C5AC7).withValues(alpha: 0.16),
+                    Colors.transparent,
+                  ],
+                  stops: const [0.0, 0.72],
+                ),
+              ),
+            ),
+            // Main content
+            Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 24,
+                ),
+                child: _buildCard(context, isLoading),
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _buildBackground({required Widget child}) {
-    return Stack(
-      children: [
-        child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: CustomPaint(painter: _LoginBackgroundPainter()),
-          ),
-        ),
-      ],
     );
   }
 
@@ -128,6 +162,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           children: [
             // Brand lockup
             const SizedBox(height: 4),
+            // Animated logo — plays once, then stops on final frame
+            OneShotAnimatedLogo(
+              assetPath: 'assets/images/logo_animated.gif',
+              width: 104,
+              height: 104,
+            ),
+            const SizedBox(height: 6),
             Text(
               AppConstants.appName,
               textAlign: TextAlign.center,
@@ -309,6 +350,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
+
   Widget _buildPasswordToggle() {
     final obscure = _obscurePassword;
     return GestureDetector(
@@ -372,33 +414,4 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ),
     );
   }
-}
-
-/// Background painter that reproduces the Web login's dark industrial
-/// wall treatment using the same radial gradients, seam lines, and glow.
-class _LoginBackgroundPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint1 = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-        colors: [
-          Colors.white.withValues(alpha: 0.025),
-          Colors.transparent,
-        ],
-        stops: const [0.34, 1.0],
-      ).createShader(
-        Rect.fromLTWH(0, 0, size.width, size.height),
-      );
-
-    // White highlight fade
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      paint1,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

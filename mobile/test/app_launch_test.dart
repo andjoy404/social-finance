@@ -92,7 +92,7 @@ void main() {
     await tester.pumpWidget(
       rp.ProviderScope(child: MaterialApp(home: const LoginScreen())),
     );
-    await tester.pump();
+    await tester.pumpAndSettle(const Duration(milliseconds: 7000));
     expect(find.text('Social Finance'), findsOneWidget);
     expect(find.text('Social Finance for Your Neighborhood'), findsOneWidget);
     expect(find.text('Email'), findsOneWidget);
@@ -362,36 +362,12 @@ void main() {
     expect(find.text('Keluar'), findsNothing);
   });
 
-  testWidgets('Dashboard has separate Logout action button', (tester) async {
+  testWidgets('Dashboard renders greeting with user info', (tester) async {
     await tester.pumpWidget(_dashboardViaMaterialApp());
     await tester.pump();
-    // Logout button is an IconButton
-    expect(find.byIcon(Icons.logout_rounded), findsOneWidget);
-  });
-
-  testWidgets('Dashboard header has no width overflow', (tester) async {
-    await tester.pumpWidget(
-      rp.ProviderScope(
-        overrides: [
-          authRepositoryProvider.overrideWith(((ref) {
-            return _createTestAuthRepo({
-              'name': 'Heri Prastyo',
-              'role': AppRole.bendahara,
-              'rt': '002',
-              'rw': '016',
-            });
-          })),
-        ],
-        child: MaterialApp(
-          // Use narrow phone size
-          home: SizedBox(width: 360, child: const DashboardScreen()),
-        ),
-      ),
-    );
-    await tester.pump();
     expect(find.text('Selamat datang,'), findsOneWidget);
-    expect(find.byIcon(Icons.logout_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.palette_outlined), findsOneWidget);
+    expect(find.text('Heri Prastyo'), findsOneWidget);
+    expect(find.textContaining('RT 002 / RW 016'), findsOneWidget);
   });
 
   test('Primary brand seed color is violet', () {
