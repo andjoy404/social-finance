@@ -24,6 +24,12 @@ class WargaScreen extends ConsumerStatefulWidget {
   ConsumerState<WargaScreen> createState() => _WargaScreenState();
 }
 
+/// Jabatan yang hanya muncul dengan tombol edit petugas, bukan edit warga biasa.
+const Set<String> kPetugasKhususJabatan = {
+  'keamanan',
+  'kebersihan_pembangunan',
+};
+
 /// Whether the current user has write access to warga data.
 bool _hasWargaWriteAccess(WidgetRef ref) {
   final authState = ref.read(authRepositoryProvider);
@@ -39,11 +45,16 @@ void _handleFabPressed(BuildContext context, WidgetRef ref, bool isSuperAdmin) {
       return DataChoiceDialog(
         onChoice: (choice) {
           Navigator.of(dialogCtx).pop();
-          if (choice == 'warga') {
-            context.push('/warga/baru');
-          } else {
-            context.push('/warga/baru/petugas');
-          }
+          // Defer navigation until after the dialog dismiss animation completes.
+          // Pushing immediately races with the dialog exit animation,
+          // causing GoRouter to silently drop the route change.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (choice == 'warga') {
+              context.push('/home/warga/baru');
+            } else {
+              context.push('/home/warga/baru/petugas');
+            }
+          });
         },
       );
     },
@@ -349,6 +360,13 @@ class _ResidentCard extends StatelessWidget {
     final occupancyColor = isOwner ? AppColors.accent : AppColors.info;
     final rtRwAlamat = resident.formattedRtRwAlamat ?? resident.formattedRtRw;
 
+    // Determine if this resident qualifies as Petugas Khusus for edit routing.
+    // Only 'keamanan' and 'kebersihan_pembangunan' get the edit-petugas button;
+    // Pengurus RT and warga biasa get edit-warga (household) instead.
+    final isPetugasKhusus =
+        resident.jabatan != null &&
+            kPetugasKhususJabatan.contains(resident.jabatan!);
+
     return AppCard(
       padding: const EdgeInsets.all(AppSpacing.base),
       child: Column(
@@ -505,56 +523,59 @@ class _ResidentCard extends StatelessWidget {
           ],
 
           // ── Ubah Action ──
-          if (canWrite) ...[
-            // Warga biasa (punya householdId)
-            if (resident.householdId != null)
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    context.push('/warga/edit/${resident.householdId}');
-                  },
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('Ubah'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                      horizontal: AppSpacing.md,
-                    ),
-                    foregroundColor: AppColors.accent,
-                    side: BorderSide(color: AppColors.accent),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
+          // Only Petugas Khusus (keamanan, kebersihan_pembangunan) get edit
+          // petugas button. Pengurus RT (ketua, wakil_ketua, sekretaris,
+          // bendahara, sosial) and warga biasa use edit warga (household).
+          // isPetugasKhusus already computed above
+          // Petugas Khusus → edit petugas (mutual exclusion: warga biasa tidak kena)
+          if (isPetugasKhusus)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  context.push('/home/warga/edit/petugas/${resident.id}');
+                },
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Ubah'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppSpacing.xs,
+                    horizontal: AppSpacing.md,
+                  ),
+                  foregroundColor: AppColors.accent,
+                  side: BorderSide(color: AppColors.accent),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
                 ),
               ),
-            // Petugas Khusus (punya jabatan)
-            if (resident.jabatan != null && resident.jabatan!.isNotEmpty)
-              const SizedBox(height: AppSpacing.sm),
-            if (resident.jabatan != null && resident.jabatan!.isNotEmpty)
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    context.push('/warga/edit/petugas/${resident.id}');
-                  },
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('Ubah'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                      horizontal: AppSpacing.md,
-                    ),
-                    foregroundColor: AppColors.accent,
-                    side: BorderSide(color: AppColors.accent),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
+            ),
+
+          // Warga biasa (punya householdId, TIDAK qualifies sebagai petugas khusus)
+          if (resident.householdId != null && !isPetugasKhusus)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  context.push(
+                    '/home/warga/edit/household/${resident.householdId}',
+                  );
+                },
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Ubah'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppSpacing.xs,
+                    horizontal: AppSpacing.md,
+                  ),
+                  foregroundColor: AppColors.accent,
+                  side: BorderSide(color: AppColors.accent),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
                 ),
               ),
-          ],
+            ),
         ],
       ),
     );

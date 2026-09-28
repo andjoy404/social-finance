@@ -33,7 +33,8 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
   final _addressCtrl = TextEditingController();
 
   String _occupancyStatus = 'OWNER';
-  String _startDate = '';
+  bool _isActive = true;
+  String? _startDate;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -73,18 +74,27 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
 
     try {
       final repository = ref.read(wargaRepositoryProvider);
-      
+
       final response = await repository.fetchResidentsWithHouseholds(
         page: 1,
         pageSize: 100,
       );
-      
+
       final resident = response.data.firstWhere(
         (r) => r.householdId == widget.householdId,
         orElse: () => throw const FormatException('Household not found'),
       );
 
       if (!mounted) return;
+
+      // Find the household to get startDate
+      BackendHousehold? hh;
+      try {
+        final households = await repository.fetchHouseholds();
+        hh = households[widget.householdId];
+      } catch (_) {
+        // Silently ignore - startDate is optional display
+      }
 
       setState(() {
         _houseNumberCtrl.text = resident.houseNumber;
@@ -94,6 +104,8 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
         _nikCtrl.text = resident.nik ?? '';
         _phoneCtrl.text = resident.phoneNumber ?? '';
         _emailCtrl.text = resident.email ?? '';
+        _isActive = resident.isActive;
+        _startDate = hh?.startDate;
         _loading = false;
       });
     } on FormatException catch (_) {
@@ -166,6 +178,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
         address: _addressCtrl.text.trim().isEmpty
             ? null
             : _addressCtrl.text.trim(),
+        isActive: _isActive,
       );
 
       final repo = ref.read(wargaRepositoryProvider);
@@ -413,6 +426,96 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
               controller: _addressCtrl,
               label: 'Alamat (opsional)',
               hintText: 'Jl. Mawar No. 1',
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Tanggal Mulai Hunian (READ-ONLY display)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Tanggal Mulai Hunian',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: AppColors.lightBorder,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    color: isDark
+                        ? AppColors.darkSurface
+                        : AppColors.lightSurface.withValues(alpha: 0.5),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.calendar_today,
+                        size: 20,
+                        color: AppColors.accent,
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Text(
+                        _startDate ?? '-',
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: isDark
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Status Aktif/Tidak Aktif
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Status',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(
+                      value: true,
+                      label: const Text('Aktif'),
+                      icon: const Icon(Icons.check_circle, size: 18),
+                    ),
+                    ButtonSegment(
+                      value: false,
+                      label: const Text('Tidak Aktif'),
+                      icon: const Icon(Icons.cancel, size: 18),
+                    ),
+                  ],
+                  selected: {_isActive},
+                  onSelectionChanged: (selected) {
+                    setState(() => _isActive = selected.first);
+                  },
+                  style: SegmentedButton.styleFrom(
+                    backgroundColor: isDark
+                        ? AppColors.darkSurface
+                        : AppColors.lightSurface,
+                    foregroundColor: isDark
+                        ? AppColors.darkText
+                        : AppColors.lightText,
+                    selectedForegroundColor: AppColors.accent,
+                    selectedBackgroundColor: AppColors.accentSoftColor(
+                      context,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.xxl),
 

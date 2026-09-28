@@ -10,7 +10,6 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/primary_button.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
-import '../../../../core/models/role.dart';
 
 /// Screen for creating a new household (adding a warga/head of family).
 class HouseholdCreateScreen extends ConsumerStatefulWidget {
@@ -34,6 +33,7 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
 
   String _occupancyStatus = 'OWNER';
   String _startDate = '';
+  bool _isActive = true;
   String? _selectedRtId;
   bool _saving = false;
   List<Map<String, dynamic>> _rtOptions = [];
@@ -142,6 +142,7 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
         occupancyStatus: _occupancyStatus,
         startDate: _startDate,
         address: _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
+        isActive: _isActive,
       );
 
       await repo.createHousehold(
@@ -474,6 +475,51 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
               controller: _addressCtrl,
               label: 'Alamat (opsional)',
               hintText: 'Jl. Mawar No. 1',
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            // Status
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Status',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(
+                      value: true,
+                      label: const Text('Aktif'),
+                      icon: const Icon(Icons.check_circle, size: 18),
+                    ),
+                    ButtonSegment(
+                      value: false,
+                      label: const Text('Tidak Aktif'),
+                      icon: const Icon(Icons.cancel, size: 18),
+                    ),
+                  ],
+                  selected: {_isActive},
+                  onSelectionChanged: (selected) {
+                    setState(() => _isActive = selected.first);
+                  },
+                  style: SegmentedButton.styleFrom(
+                    backgroundColor: isDark
+                        ? AppColors.darkSurface
+                        : AppColors.lightSurface,
+                    foregroundColor: isDark
+                        ? AppColors.darkText
+                        : AppColors.lightText,
+                    selectedForegroundColor: AppColors.accent,
+                    selectedBackgroundColor: AppColors.accentSoftColor(
+                      context,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.xxl),
 

@@ -10,6 +10,7 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/primary_button.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
+import '../../data/warga_providers.dart';
 import '../../../../core/models/role.dart';
 
 /// Screen for creating a new special resident (Petugas Keamanan/Kebersihan).
@@ -137,6 +138,9 @@ class _SpecialResidentCreateScreenState
         request: request,
         rtId: widget.isSuperAdmin ? _selectedRtId : null,
       );
+
+      // Refresh warga list before popping so the new resident appears
+      await ref.read(wargaListProvider.notifier).refresh();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

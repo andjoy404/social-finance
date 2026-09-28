@@ -108,6 +108,7 @@ class BackendHousehold {
   final String? address;
   final String? occupancyStatus;
   final bool isActive;
+  final String? startDate;
 
   const BackendHousehold({
     required this.id,
@@ -117,6 +118,7 @@ class BackendHousehold {
     this.address,
     this.occupancyStatus,
     required this.isActive,
+    this.startDate,
   });
 
   factory BackendHousehold.fromJson(Map<String, dynamic> json) {
@@ -128,6 +130,7 @@ class BackendHousehold {
       address: json['address'] as String?,
       occupancyStatus: json['occupancy_status'] as String?,
       isActive: json['is_active'] as bool? ?? true,
+      startDate: json['start_date'] as String?,
     );
   }
 }
@@ -143,6 +146,7 @@ class CreateHouseholdRequest {
   final String occupancyStatus;
   final String startDate;
   final String? address;
+  final bool isActive;
 
   const CreateHouseholdRequest({
     required this.houseNumber,
@@ -153,6 +157,7 @@ class CreateHouseholdRequest {
     required this.occupancyStatus,
     required this.startDate,
     this.address,
+    this.isActive = true,
   });
 
   Map<String, dynamic> toJson() {
@@ -166,6 +171,7 @@ class CreateHouseholdRequest {
       'start_date': startDate,
     };
     if (address != null) data['address'] = address!;
+    data['is_active'] = isActive;
     return data;
   }
 }
@@ -179,8 +185,8 @@ class UpdateHouseholdRequest {
   final String? phone;
   final String? email;
   final String? occupancyStatus;
-  final String? startDate;
   final String? address;
+  final bool? isActive;
 
   const UpdateHouseholdRequest({
     this.houseNumber,
@@ -189,8 +195,8 @@ class UpdateHouseholdRequest {
     this.phone,
     this.email,
     this.occupancyStatus,
-    this.startDate,
     this.address,
+    this.isActive,
   });
 
   Map<String, dynamic> toJson() {
@@ -201,8 +207,8 @@ class UpdateHouseholdRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (occupancyStatus != null) data['occupancy_status'] = occupancyStatus;
-    if (startDate != null) data['start_date'] = startDate;
     if (address != null) data['address'] = address;
+    if (isActive != null) data['is_active'] = isActive;
     return data;
   }
 }
