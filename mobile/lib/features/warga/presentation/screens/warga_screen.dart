@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -10,6 +11,10 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import '../../data/warga_providers.dart';
 import '../../data/api_warga_models.dart';
+import '../../data/warga_repository.dart';
+import '../dialogs/data_choice_dialog.dart';
+import 'package:social_finance/core/models/role.dart';
+import '../../../auth/data/mock_auth_repository.dart';
 
 /// Screen displaying the list of RT residents with search capabilities.
 class WargaScreen extends ConsumerStatefulWidget {
@@ -17,6 +22,18 @@ class WargaScreen extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<WargaScreen> createState() => _WargaScreenState();
+}
+
+/// Whether the current user has write access to warga data.
+bool _hasWargaWriteAccess(WidgetRef ref) {
+  final authState = ref.read(authRepositoryProvider);
+  final role = authState?.valueOrNull?['role'] as AppRole?;
+  return (role != null && kWargaWriteRoles.contains(role));
+}
+
+/// Launch the household create screen directly.
+void _handleFabPressed(BuildContext context, WidgetRef ref, bool isSuperAdmin) {
+  context.push('/warga/baru');
 }
 
 class _WargaScreenState extends ConsumerState<WargaScreen> {
@@ -54,6 +71,10 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
     final wargaState = ref.watch(wargaListProvider);
     final currentQuery = ref.watch(wargaSearchQueryProvider);
     final residents = ref.watch(filteredWargaListProvider);
+    final canWrite = _hasWargaWriteAccess(ref);
+    final authState = ref.read(authRepositoryProvider);
+    final systemRole = authState?.valueOrNull?['system_role'] as String?;
+    final isSuperAdmin = systemRole == 'super_admin';
 
     final errorMessage = switch (wargaState) {
       AsyncError(:final error) =>
@@ -65,6 +86,14 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Warga')),
+      floatingActionButton: canWrite
+          ? FloatingActionButton.extended(
+              onPressed: () => _handleFabPressed(context, ref, isSuperAdmin),
+              icon: const Icon(Icons.person_add),
+              label: const Text('Tambah'),
+              backgroundColor: AppColors.accent,
+            )
+          : null,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -194,6 +223,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
                           return _ResidentCard(
                             resident: resident,
                             isDark: isDark,
+                            canWrite: canWrite,
                           );
                         },
                       ),
@@ -208,8 +238,13 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
 class _ResidentCard extends StatelessWidget {
   final MappedResident resident;
   final bool isDark;
+  final bool canWrite;
 
-  const _ResidentCard({required this.resident, required this.isDark});
+  const _ResidentCard({
+    required this.resident,
+    required this.isDark,
+    required this.canWrite,
+  });
 
   String _getInitials(String name) {
     final parts = name.trim().split(RegExp(r'\s+'));
@@ -223,7 +258,11 @@ class _ResidentCard extends StatelessWidget {
     required bool isDark,
     required ThemeData theme,
   }) {
-    final text = resident.displayJabatan ?? resident.jabatan!;
+    // Guard: if jabatan is null, return null to let caller decide
+    final jabatan = resident.jabatan;
+    if (jabatan == null || jabatan.isEmpty) return Text('');
+
+    final text = resident.displayJabatan ?? jabatan;
     if (resident.isNeutralJabatan) {
       final neutralText = isDark
           ? AppColors.darkBadgeNeutral
@@ -448,6 +487,32 @@ class _ResidentCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+
+          // ── Ubah Action ──
+          if (canWrite && resident.householdId != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  context.push('/warga/edit/${resident.householdId}');
+                },
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Ubah'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppSpacing.xs,
+                    horizontal: AppSpacing.md,
+                  ),
+                  foregroundColor: AppColors.accent,
+                  side: BorderSide(color: AppColors.accent),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                ),
+              ),
             ),
           ],
         ],

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Input field wrapper that delegates decoration to the current theme.
 class AppTextField extends StatelessWidget {
@@ -12,6 +13,7 @@ class AppTextField extends StatelessWidget {
   final Widget? suffixIcon;
   final AutovalidateMode? autovalidateMode;
   final ValueChanged<String>? onChanged;
+  final List<TextInputFormatter>? inputFormatters;
 
   const AppTextField({
     super.key,
@@ -25,6 +27,7 @@ class AppTextField extends StatelessWidget {
     this.suffixIcon,
     this.autovalidateMode,
     this.onChanged,
+    this.inputFormatters,
   });
 
   @override
@@ -36,6 +39,7 @@ class AppTextField extends StatelessWidget {
       autovalidateMode: autovalidateMode ?? AutovalidateMode.disabled,
       validator: validator,
       onChanged: onChanged,
+      inputFormatters: inputFormatters,
       decoration: InputDecoration(
         labelText: label,
         hintText: hintText,

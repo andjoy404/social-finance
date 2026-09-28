@@ -14,6 +14,9 @@ import '../features/profile/presentation/screens/profile_screen.dart';
 import '../features/reports/presentation/screens/reports_screen.dart';
 import '../features/warga/data/warga_providers.dart';
 import '../features/warga/presentation/screens/warga_screen.dart';
+import '../features/warga/presentation/screens/household_create_screen.dart';
+import '../features/warga/presentation/screens/household_edit_screen.dart';
+import '../features/warga/presentation/screens/special_resident_create_screen.dart';
 
 class App extends ConsumerStatefulWidget {
   const App({super.key});
@@ -105,6 +108,25 @@ class _AppState extends ConsumerState<App> {
                   path: 'warga',
                   name: 'warga',
                   builder: (context, state) => const WargaScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'baru',
+                      name: 'warga_baru',
+                      builder: (context, state) {
+                        final authState = ref.read(authRepositoryProvider);
+                        final systemRole = authState?.valueOrNull?['system_role'] as String?;
+                        return HouseholdCreateScreen(isSuperAdmin: systemRole == 'super_admin');
+                      },
+                    ),
+                    GoRoute(
+                      path: 'edit/:householdId',
+                      name: 'warga_edit',
+                      builder: (context, state) {
+                        final householdId = state.pathParameters['householdId']!;
+                        return HouseholdEditScreen(householdId: householdId);
+                      },
+                    ),
+                  ],
                 ),
                 GoRoute(
                   path: 'reports',

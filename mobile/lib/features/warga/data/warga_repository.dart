@@ -11,6 +11,131 @@ class WargaRepository {
 
   WargaRepository({required this.client});
 
+  // ── Household ───────────────────────────────────────────────────────
+
+  Future<String> createHousehold({
+    required CreateHouseholdRequest request,
+    String? rtId,
+  }) async {
+    final body = request.toJson();
+    if (rtId != null && rtId.isNotEmpty) {
+      body['rt_id'] = rtId;
+    }
+
+    final response = await client.dio.post(
+      '/api/v1/households',
+      data: body,
+    );
+
+    final data = response.data;
+    if (data is! Map) {
+      throw const FormatException('Expected JSON object in household creation response');
+    }
+
+    final id = data['id'] as String?;
+    if (id == null || id.isEmpty) {
+      throw const FormatException('Response missing household id');
+    }
+    return id;
+  }
+
+  Future<void> updateHousehold(String id, {required UpdateHouseholdRequest request}) async {
+    final body = request.toJson();
+    if (body.isEmpty) {
+      return; // Nothing to update
+    }
+
+    await client.dio.patch(
+      '/api/v1/households/$id',
+      data: body,
+    );
+  }
+
+  // ── Special Resident ────────────────────────────────────────────────
+
+  Future<String> createSpecialResident({
+    required CreateSpecialResidentRequest request,
+    String? rtId,
+  }) async {
+    final body = request.toJson();
+    if (rtId != null && rtId.isNotEmpty) {
+      body['rt_id'] = rtId;
+    }
+
+    final response = await client.dio.post(
+      '/api/v1/residents/special',
+      data: body,
+    );
+
+    final data = response.data;
+    if (data is! Map) {
+      throw const FormatException('Expected JSON object in special resident creation response');
+    }
+
+    final id = data['id'] as String?;
+    if (id == null || id.isEmpty) {
+      throw const FormatException('Response missing special resident id');
+    }
+    return id;
+  }
+
+  Future<void> updateSpecialResident(
+    String id, {
+    required UpdateSpecialResidentRequest request,
+  }) async {
+    final body = request.toJson();
+    if (body.isEmpty) {
+      return; // Nothing to update
+    }
+
+    await client.dio.patch(
+      '/api/v1/residents/special/$id',
+      data: body,
+    );
+  }
+
+  // ── RT (for superadmin) ─────────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> fetchRts({
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    final allRts = <Map<String, dynamic>>[];
+    int currentPage = 1;
+    int totalPages = 1;
+
+    do {
+      final response = await client.dio.get(
+        '/api/v1/rts',
+        queryParameters: {
+          'page': currentPage.toString(),
+          'page_size': pageSize.toString(),
+        },
+      );
+
+      final data = response.data;
+      if (data is Map) {
+        final rawList = data['data'];
+        if (rawList is List) {
+          for (final item in rawList) {
+            if (item is Map) {
+              allRts.add(item.cast<String, dynamic>());
+            }
+          }
+        }
+
+        final pag = data['pagination'] as Map<String, dynamic>?;
+        totalPages = (pag?['total_pages'] as num?)?.toInt() ?? 1;
+      }
+
+      currentPage++;
+    } while (currentPage <= totalPages);
+
+    return allRts;
+  }
+
+  // ── Error Mapping ───────────────────────────────────────────────────
+
   Future<PaginatedResponse<BackendResident>> fetchResidents({
     int page = 1,
     int pageSize = 100,

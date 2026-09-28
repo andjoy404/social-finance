@@ -30,6 +30,8 @@ AppRole mapStringToAppRole(String? roleStr, {String? systemRoleStr}) {
       return AppRole.bendahara;
     case 'warga':
       return AppRole.warga;
+    case 'perangkat':
+      return AppRole.perangkat;
     default:
       return AppRole.warga;
   }

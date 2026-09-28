@@ -132,10 +132,148 @@ class BackendHousehold {
   }
 }
 
+/// Create request for a regular household (with resident data).
+@immutable
+class CreateHouseholdRequest {
+  final String houseNumber;
+  final String headName;
+  final String nik;
+  final String phone;
+  final String email;
+  final String occupancyStatus;
+  final String startDate;
+  final String? address;
+
+  const CreateHouseholdRequest({
+    required this.houseNumber,
+    required this.headName,
+    required this.nik,
+    required this.phone,
+    required this.email,
+    required this.occupancyStatus,
+    required this.startDate,
+    this.address,
+  });
+
+  Map<String, dynamic> toJson() {
+    final data = <String, dynamic>{
+      'house_number': houseNumber,
+      'head_name': headName,
+      'nik': nik,
+      'phone': phone,
+      'email': email,
+      'occupancy_status': occupancyStatus,
+      'start_date': startDate,
+    };
+    if (address != null) data['address'] = address!;
+    return data;
+  }
+}
+
+/// Update request for a household (all fields optional).
+@immutable
+class UpdateHouseholdRequest {
+  final String? houseNumber;
+  final String? headName;
+  final String? nik;
+  final String? phone;
+  final String? email;
+  final String? occupancyStatus;
+  final String? startDate;
+  final String? address;
+
+  const UpdateHouseholdRequest({
+    this.houseNumber,
+    this.headName,
+    this.nik,
+    this.phone,
+    this.email,
+    this.occupancyStatus,
+    this.startDate,
+    this.address,
+  });
+
+  Map<String, dynamic> toJson() {
+    final data = <String, dynamic>{};
+    if (houseNumber != null) data['house_number'] = houseNumber;
+    if (headName != null) data['head_name'] = headName;
+    if (nik != null) data['nik'] = nik;
+    if (phone != null) data['phone'] = phone;
+    if (email != null) data['email'] = email;
+    if (occupancyStatus != null) data['occupancy_status'] = occupancyStatus;
+    if (startDate != null) data['start_date'] = startDate;
+    if (address != null) data['address'] = address;
+    return data;
+  }
+}
+
+/// Create request for a special resident (petugas khusus).
+@immutable
+class CreateSpecialResidentRequest {
+  final String jabatan;
+  final String fullName;
+  final String nik;
+  final String phone;
+  final String email;
+  final bool isActive;
+
+  const CreateSpecialResidentRequest({
+    required this.jabatan,
+    required this.fullName,
+    required this.nik,
+    required this.phone,
+    required this.email,
+    required this.isActive,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'jabatan': jabatan,
+      'full_name': fullName,
+      'nik': nik,
+      'phone': phone,
+      'email': email,
+      'is_active': isActive,
+    };
+  }
+}
+
+/// Update request for a special resident (all fields optional).
+@immutable
+class UpdateSpecialResidentRequest {
+  final String? fullName;
+  final String? nik;
+  final String? phone;
+  final String? email;
+  final String? jabatan;
+  final bool? isActive;
+
+  const UpdateSpecialResidentRequest({
+    this.fullName,
+    this.nik,
+    this.phone,
+    this.email,
+    this.jabatan,
+    this.isActive,
+  });
+
+  Map<String, dynamic> toJson() {
+    final data = <String, dynamic>{};
+    if (fullName != null) data['full_name'] = fullName;
+    if (nik != null) data['nik'] = nik;
+    if (phone != null) data['phone'] = phone;
+    if (email != null) data['email'] = email;
+    if (jabatan != null) data['jabatan'] = jabatan;
+    if (isActive != null) data['is_active'] = isActive;
+    return data;
+  }
+}
+
 /// Mapped resident for the mobile UI.
 @immutable
 class MappedResident {
   final String id;
+  final String? householdId;
   final String name;
   final String? nik;
   final String houseNumber;
@@ -153,6 +291,7 @@ class MappedResident {
 
   const MappedResident({
     required this.id,
+    this.householdId,
     required this.name,
     this.nik,
     this.houseNumber = '',
@@ -286,6 +425,7 @@ class MappedResident {
     final mappedJabatan = resident.jabatan;
     return MappedResident(
       id: resident.id,
+      householdId: resident.householdId,
       name: resident.fullName,
       nik: resident.nik,
       houseNumber: household?.houseNumber ?? '',
