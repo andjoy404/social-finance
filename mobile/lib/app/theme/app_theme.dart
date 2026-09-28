@@ -6,46 +6,38 @@ import 'package:social_finance/core/theme/app_radius.dart';
 class AppTheme {
   AppTheme._();
 
-  // Dark surface palette for intentional dark-mode contrast.
-  static const _darkSurfaceLighter = Color(0xFF2A2F32);
-  static const _darkSurfaceDarker = Color(0xFF22282B);
-  static const _darkBorder = Color(0xFF454B4F);
-
-  // Brand violet with soft luminous quality for dark mode accents.
-  static const _darkBrandAccent = Color(0xFF9B8FD6);
-
-  // Brand violet with deeper contrast for light mode.
-  static const _lightBrandAccent = Color(0xFF7C5FCE);
-
   // ── Light theme ──────────────────────────────────────────────
 
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
-      colorSchemeSeed: AppColors.seed,
+      colorSchemeSeed: AppColors.accent,
       brightness: Brightness.light,
+      scaffoldBackgroundColor: AppColors.lightBg,
 
       // App bar
       appBarTheme: const AppBarTheme(
         centerTitle: true,
         elevation: 0,
         scrolledUnderElevation: 1,
+        backgroundColor: AppColors.lightSurface,
       ),
 
-      // Cards: subtle border, no large shadows
+      // Cards: Web style — white surface with subtle border
       cardTheme: CardThemeData(
         elevation: 0,
+        color: AppColors.lightSurface,
         shape: RoundedRectangleBorder(
-          side: const BorderSide(color: Color(0xFFE8ECED), width: 1),
+          side: const BorderSide(color: AppColors.lightBorder, width: 1),
           borderRadius: BorderRadius.circular(AppRadius.base),
         ),
         clipBehavior: Clip.antiAlias,
       ),
 
-      // Primary/raised button
+      // Primary/raised button — Web accent violet
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.seed,
+          backgroundColor: AppColors.accent,
           foregroundColor: Colors.white,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -56,143 +48,140 @@ class AppTheme {
         ),
       ),
 
-      // Text button
+      // Text button — Web accent violet
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: AppColors.seed),
+        style: TextButton.styleFrom(foregroundColor: AppColors.accent),
       ),
 
-      // Input fields
+      // Input fields — Web light mode style
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFFF8F9FA),
+        fillColor: AppColors.lightSurfaceSubtle,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
+          borderSide: const BorderSide(color: AppColors.lightBorder),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
+          borderSide: const BorderSide(color: AppColors.lightBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: AppColors.seed, width: 2),
+          borderSide: const BorderSide(color: AppColors.accent, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: AppColors.expense),
+          borderSide: const BorderSide(color: AppColors.danger),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: AppColors.expense, width: 2),
+          borderSide: const BorderSide(color: AppColors.danger, width: 2),
         ),
       ),
 
-      // Bottom navigation — violet brand accent.
+      // Bottom navigation — Web accent violet
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: _lightBrandAccent,
-        unselectedItemColor: Color(0xFF9E9E9E),
-        elevation: 8,
+        selectedItemColor: AppColors.accent,
+        unselectedItemColor: AppColors.lightTextMuted,
+        elevation: 0,
+        backgroundColor: AppColors.lightSurface,
         selectedLabelStyle: TextStyle(fontSize: 12),
         unselectedLabelStyle: TextStyle(fontSize: 12),
       ),
 
-      // Text theme — size/weight, color via colorScheme for dark-mode safety
+      // Text theme — Web light mode colors
       textTheme: const TextTheme(
         displayLarge: TextStyle(
           fontSize: 32,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF1B1D1E),
+          color: AppColors.lightText,
         ),
         displayMedium: TextStyle(
           fontSize: 28,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF1B1D1E),
+          color: AppColors.lightText,
         ),
         displaySmall: TextStyle(
           fontSize: 24,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF1B1D1E),
+          color: AppColors.lightText,
         ),
         headlineLarge: TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.w700,
-          color: Color(0xFF1B1D1E),
+          color: AppColors.lightText,
         ),
         headlineMedium: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w600,
-          color: Color(0xFF1B1D1E),
+          color: AppColors.lightText,
         ),
         headlineSmall: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w600,
-          color: Color(0xFF1B1D1E),
+          color: AppColors.lightText,
         ),
         titleLarge: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w600,
-          color: Color(0xFF2E3031),
+          color: AppColors.lightText,
         ),
         titleMedium: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w500,
-          color: Color(0xFF424242),
+          color: AppColors.lightText,
         ),
         titleSmall: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
-          color: Color(0xFF4E4E4E),
+          color: AppColors.lightTextMuted,
         ),
         bodyLarge: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.normal,
-          color: Color(0xFF3C4043),
+          color: AppColors.lightText,
         ),
         bodyMedium: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.normal,
-          color: Color(0xFF4E5458),
+          color: AppColors.lightTextMuted,
         ),
         bodySmall: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.normal,
-          color: Color(0xFF6E777D),
+          color: AppColors.lightTextMuted,
         ),
       ),
 
-      // Icon theme
-      iconTheme: const IconThemeData(color: Color(0xFF6B7280), size: 24),
+      // Icon theme — Web light mode
+      iconTheme: const IconThemeData(color: AppColors.lightTextMuted, size: 24),
+
+      // Divider — Web light mode
       dividerTheme: const DividerThemeData(
-        color: Color(0xFFE8ECED),
+        color: AppColors.lightBorder,
         thickness: 1,
       ),
     );
   }
 
-  // ── Dark theme — enhanced ────────────────────────────────────
+  // ── Dark theme ───────────────────────────────────────────────
 
   static ThemeData get darkTheme {
-    // Precompute ColorScheme from violet seed to avoid conflict.
-    final darkColorScheme =
-        ColorScheme.fromSeed(
-          seedColor: AppColors.seed,
-          brightness: Brightness.dark,
-        ).copyWith(
-          surfaceContainerHighest: _darkSurfaceLighter,
-          // Soft luminous violet for dark mode accents.
-          primary: _darkBrandAccent,
-        );
+    // Precompute ColorScheme from accent seed for consistency
+    final darkColorScheme = ColorScheme.fromSeed(
+      seedColor: AppColors.accent,
+      brightness: Brightness.dark,
+    );
 
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      // Scaffold / card surfaces — neutral, not pure-black.
-      scaffoldBackgroundColor: _darkSurfaceDarker,
+      scaffoldBackgroundColor: AppColors.darkBg,
       colorScheme: darkColorScheme,
 
       // App bar
@@ -200,15 +189,15 @@ class AppTheme {
         centerTitle: true,
         elevation: 0,
         scrolledUnderElevation: 1,
-        backgroundColor: Color(0xFF1C2226),
+        backgroundColor: AppColors.darkSurface,
       ),
 
-      // Cards: slightly lighter surface with subtle border.
+      // Cards: Web style — dark surface with subtle border
       cardTheme: CardThemeData(
         elevation: 0,
-        color: _darkSurfaceDarker,
+        color: AppColors.darkSurface,
         shape: RoundedRectangleBorder(
-          side: const BorderSide(color: _darkBorder, width: 1),
+          side: const BorderSide(color: AppColors.darkBorder, width: 1),
           borderRadius: BorderRadius.circular(AppRadius.base),
         ),
         clipBehavior: Clip.antiAlias,
@@ -217,7 +206,7 @@ class AppTheme {
       // Primary/raised button
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.seed,
+          backgroundColor: AppColors.accent,
           foregroundColor: Colors.white,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -230,117 +219,122 @@ class AppTheme {
 
       // Text button
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: _darkBrandAccent),
+        style: TextButton.styleFrom(foregroundColor: AppColors.accent),
       ),
 
-      // Input fields
+      // Input fields — Web dark mode style
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFF2A2F32),
+        fillColor: AppColors.darkSurfaceSubtle,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: _darkBorder),
+          borderSide: const BorderSide(color: AppColors.darkBorder),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: _darkBorder),
+          borderSide: const BorderSide(color: AppColors.darkBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: _darkBrandAccent, width: 2),
+          borderSide: const BorderSide(color: AppColors.accent, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: AppColors.expense),
+          borderSide: const BorderSide(color: AppColors.danger),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.base),
-          borderSide: const BorderSide(color: AppColors.expense, width: 2),
+          borderSide: const BorderSide(color: AppColors.danger, width: 2),
         ),
       ),
 
-      // Bottom navigation — soft luminous violet.
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
+      // Bottom navigation
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: _darkBrandAccent,
-        unselectedItemColor: const Color(0xFF637078),
+        selectedItemColor: AppColors.accent,
+        unselectedItemColor: AppColors.darkTextMuted,
         elevation: 0,
-        backgroundColor: const Color(0xFF1C2226),
-        selectedLabelStyle: const TextStyle(fontSize: 12),
-        unselectedLabelStyle: const TextStyle(fontSize: 12),
+        backgroundColor: AppColors.darkSurface,
+        selectedLabelStyle: TextStyle(fontSize: 12),
+        unselectedLabelStyle: TextStyle(fontSize: 12),
       ),
 
-      // Text theme
+      // Text theme — Web dark mode colors
       textTheme: const TextTheme(
         displayLarge: TextStyle(
           fontSize: 32,
           fontWeight: FontWeight.bold,
-          color: Color(0xFFECF0F3),
+          color: AppColors.darkText,
         ),
         displayMedium: TextStyle(
           fontSize: 28,
           fontWeight: FontWeight.bold,
-          color: Color(0xFFECF0F3),
+          color: AppColors.darkText,
         ),
         displaySmall: TextStyle(
           fontSize: 24,
           fontWeight: FontWeight.bold,
-          color: Color(0xFFECF0F3),
+          color: AppColors.darkText,
         ),
         headlineLarge: TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.w700,
-          color: Color(0xFFECF0F3),
+          color: AppColors.darkText,
         ),
         headlineMedium: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w600,
-          color: Color(0xFFECF0F3),
+          color: AppColors.darkText,
         ),
         headlineSmall: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w600,
-          color: Color(0xFFECF0F3),
+          color: AppColors.darkText,
         ),
         titleLarge: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w600,
-          color: Color(0xFFD8DDE0),
+          color: AppColors.darkText,
         ),
         titleMedium: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.w500,
-          color: Color(0xFFBAC1C7),
+          color: AppColors.darkText,
         ),
         titleSmall: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
-          color: Color(0xFF9DA6AF),
+          color: AppColors.darkTextMuted,
         ),
         bodyLarge: TextStyle(
           fontSize: 16,
           fontWeight: FontWeight.normal,
-          color: Color(0xFFC6CDD3),
+          color: AppColors.darkText,
         ),
         bodyMedium: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.normal,
-          color: Color(0xFFAEB8C0),
+          color: AppColors.darkTextMuted,
         ),
         bodySmall: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.normal,
-          color: Color(0xFF7D8790),
+          color: AppColors.darkTextMuted,
         ),
       ),
 
-      // Icon theme
-      iconTheme: const IconThemeData(color: Color(0xFF9DA6AF), size: 24),
-      dividerTheme: const DividerThemeData(color: _darkBorder, thickness: 1),
+      // Icon theme — Web dark mode
+      iconTheme: const IconThemeData(color: AppColors.darkTextMuted, size: 24),
+
+      // Divider — Web dark mode
+      dividerTheme: const DividerThemeData(
+        color: AppColors.darkBorder,
+        thickness: 1,
+      ),
     );
   }
 }

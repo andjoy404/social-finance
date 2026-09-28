@@ -6,7 +6,7 @@ import { HouseholdCreate } from './HouseholdCreate'
 import { HouseholdEdit } from './HouseholdEdit'
 import { persistSessionPair } from '@/app/api'
 import * as AuthModule from '@/app/AuthContext'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 // ---- Test helpers ----
 
@@ -732,5 +732,80 @@ describe('W4.3 — HouseholdEdit is_active', () => {
     await userEvent.click(submitBtn)
 
     expect(capturedBody.is_active).toBe(false)
+  })
+
+  it('Batal/Close from HouseholdEdit navigates to /warga (not /warga/:householdId)', async () => {
+    mockFetch((input) => {
+      if (input.includes('/api/v1/households/hh-old')) {
+        return mockSuccessResponse(mockApiHousehold)
+      }
+      return failResponse(404, { code: 'not_found' })
+    })
+
+    function LocationProbe() {
+      const loc = useLocation()
+      return <span data-testid="location-path">{loc.pathname}</span>
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/warga/hh-old/edit']}>
+        <Routes>
+          <Route path="*" element={<HouseholdEdit id="hh-old" />} />
+          <Route path="/warga" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Status\s*\*/i)).toBeInTheDocument()
+    })
+
+    const closeBtn = screen.getByRole('button', { name: /Batal/i })
+    await userEvent.click(closeBtn)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-path')).toHaveTextContent('/warga')
+    })
+  })
+
+  it('Successful save from HouseholdEdit navigates to /warga (not /warga/:householdId)', async () => {
+    let capturedBody: Record<string, unknown> = {}
+    mockFetch((input, init) => {
+      if (input.includes('/api/v1/households/hh-old') && init?.method === 'PATCH') {
+        capturedBody = JSON.parse((init.body as string) || '{}')
+        return mockSuccessResponse({ ...mockApiHousehold, head_name: 'Updated' })
+      }
+      if (input.includes('/api/v1/households/hh-old')) {
+        return mockSuccessResponse(mockApiHousehold)
+      }
+      return failResponse(404, { code: 'not_found' })
+    })
+
+    function LocationProbe() {
+      const loc = useLocation()
+      return <span data-testid="location-path">{loc.pathname}</span>
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/warga/hh-old/edit']}>
+        <Routes>
+          <Route path="*" element={<HouseholdEdit id="hh-old" />} />
+          <Route path="/warga" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Status\s*\*/i)).toBeInTheDocument()
+    })
+
+    const submitBtn = screen.getByRole('button', { name: /Simpan Perubahan/i })
+    await userEvent.click(submitBtn)
+
+    expect(capturedBody.house_number).toBe('001')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-path')).toHaveTextContent('/warga')
+    })
   })
 })

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/features/cash/presentation/screens/cash_screen.dart';
 import 'package:social_finance/features/dues/presentation/screens/dues_screen.dart';
 import 'package:social_finance/features/dashboard/presentation/screens/dashboard_screen.dart';
@@ -128,7 +129,7 @@ class _NavRailItem extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0x1A7C5FCE) : null,
+          color: isSelected ? AppColors.hoverTint : null,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
@@ -138,7 +139,7 @@ class _NavRailItem extends StatelessWidget {
               isSelected ? tab.activeIcon : tab.icon,
               size: 22,
               color: isSelected
-                  ? const Color(0xFF7C5FCE)
+                  ? AppColors.seed
                   : theme.colorScheme.onSurfaceVariant,
             ),
             const SizedBox(height: 2),
@@ -146,7 +147,7 @@ class _NavRailItem extends StatelessWidget {
               tab.label,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: isSelected
-                    ? const Color(0xFF7C5FCE)
+                    ? AppColors.seed
                     : theme.colorScheme.onSurfaceVariant,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 fontSize: 11,

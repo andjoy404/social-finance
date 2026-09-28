@@ -122,6 +122,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Widget _buildCard(BuildContext context, bool isLoading) {
     return GestureDetector(
+      behavior: HitTestBehavior.translucent,
       onTap: () => FocusScope.of(context).unfocus(),
       child: Container(
         width: double.infinity,
@@ -131,16 +132,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           gradient: const LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xE015111F),
-              Color(0xF50D0A14),
-            ],
+            colors: [Color(0xE015111F), Color(0xF50D0A14)],
           ),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: const Color(0x1AA970FF),
-            width: 1,
-          ),
+          border: Border.all(color: const Color(0x1AA970FF), width: 1),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.6),
@@ -165,6 +160,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             // Animated logo — plays once, then stops on final frame
             OneShotAnimatedLogo(
               assetPath: 'assets/images/logo_animated.gif',
+              fallbackAssetPath: 'assets/images/logo.png',
               width: 104,
               height: 104,
             ),
@@ -196,13 +192,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             // Error message
             if (_error.isNotEmpty) ...[
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFE8453C).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(7),
-                  border: Border.all(
-                    color: const Color(0x80F2495C),
-                  ),
+                  border: Border.all(color: const Color(0x80F2495C)),
                 ),
                 child: Text(
                   _error,
@@ -247,10 +244,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             Text(
               'Gunakan email dan kata sandi apa saja untuk pengembangan.',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF6E777D),
-              ),
+              style: const TextStyle(fontSize: 11, color: Color(0xFF6E777D)),
             ),
           ],
         ),
@@ -322,15 +316,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               fillColor: const Color(0x0F09070F),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(7),
-                borderSide: const BorderSide(
-                  color: Color(0x38A970FF),
-                ),
+                borderSide: const BorderSide(color: Color(0x38A970FF)),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(7),
-                borderSide: const BorderSide(
-                  color: Color(0x38A970FF),
-                ),
+                borderSide: const BorderSide(color: Color(0x38A970FF)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(7),
@@ -349,7 +339,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ],
     );
   }
-
 
   Widget _buildPasswordToggle() {
     final obscure = _obscurePassword;
@@ -376,9 +365,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       child: ElevatedButton(
         onPressed: isDisabled ? null : _handleLogin,
         style: ElevatedButton.styleFrom(
-          backgroundColor: isDisabled
-              ? const Color(0x387C5AC7)
-              : null,
+          backgroundColor: isDisabled ? const Color(0x387C5AC7) : null,
           foregroundColor: isDisabled
               ? const Color(0x73C8C8EB)
               : const Color(0xFFF8F5FD),

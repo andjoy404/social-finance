@@ -489,7 +489,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
     return null
   }
 
-  const handleClose = propOnClose ?? (() => navigate('/warga/' + id))
+  const handleClose = propOnClose ?? (() => navigate('/warga?refresh=1'))
 
   const [loadingData, setLoadingData] = useState(true)
   const [saving, setSaving] = useState(false)

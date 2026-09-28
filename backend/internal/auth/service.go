@@ -129,6 +129,7 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 			MID:     m.ID,
 			RTID:    m.RTID,
 			Role:    string(m.Role),
+			Jabatan: string(m.Jabatan),
 			SysRole: string(user.SystemRole),
 		})
 		if err != nil {
@@ -228,6 +229,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 		MID:     m.ID,
 		RTID:    m.RTID,
 		Role:    string(m.Role),
+		Jabatan: string(m.Jabatan),
 		SysRole: string(user.SystemRole),
 	})
 	if err != nil {

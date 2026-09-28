@@ -43,6 +43,19 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 		t.Errorf("expected 29 memberships, got %d", summary1.MembershipsCount)
 	}
 
+	if summary1.PositionUsersCount != 40 {
+		t.Errorf("expected 40 position users, got %d", summary1.PositionUsersCount)
+	}
+	if summary1.PositionMembershipsCount != 40 {
+		t.Errorf("expected 40 position memberships, got %d", summary1.PositionMembershipsCount)
+	}
+	if summary1.PermissionTypesCount != 12 {
+		t.Errorf("expected 12 permission types, got %d", summary1.PermissionTypesCount)
+	}
+	if summary1.PositionPermissionsCount != 38 {
+		t.Errorf("expected 38 position permissions, got %d", summary1.PositionPermissionsCount)
+	}
+
 	// 2. Second run: idempotency test - should succeed without error or duplicating rows
 	summary2, err := devseed.Run(ctx, pool, "test")
 	if err != nil {
@@ -67,6 +80,9 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 
 	if summary2.UsersCount != summary1.UsersCount {
 		t.Errorf("expected idempotent user count %d, got %d", summary1.UsersCount, summary2.UsersCount)
+	}
+	if summary2.PositionUsersCount != summary1.PositionUsersCount {
+		t.Errorf("expected idempotent position user count %d, got %d", summary1.PositionUsersCount, summary2.PositionUsersCount)
 	}
 }
 

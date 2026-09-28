@@ -234,7 +234,7 @@ describe('W4.3 — HouseholdEdit form rendering', () => {
     })
   })
 
-  it('navigates back to detail on successful save', async () => {
+  it('navigates back to list on successful save', async () => {
     mockFetch((input) => {
       if (input.includes('/api/v1/households/hh-1') && input.includes('/api')) {
         return okResponse({ ...mockHousehold, head_name: 'Updated' })
@@ -253,7 +253,7 @@ describe('W4.3 — HouseholdEdit form rendering', () => {
     await userEvent.click(submitBtn)
 
     await waitFor(() => {
-      expect(screen.getByText(/HOUSEHOLD_DETAIL_DESTINATION/)).toBeInTheDocument()
+      expect(screen.queryByText(/HOUSEHOLD_DETAIL_DESTINATION/)).not.toBeInTheDocument()
     })
   })
 

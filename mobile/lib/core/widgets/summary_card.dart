@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 
 /// Reusable metric / summary card.
 ///
-/// Displays a title, a large value, and an optional icon or
-/// semantic accent color for quick financial scanning.
+/// Displays a title, a large value, and an optional icon or semantic color.
+/// Uses Web semantic colors from AppColors.
 class SummaryCard extends StatelessWidget {
   final String title;
   final String value;
@@ -27,20 +28,17 @@ class SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final textColor = accentColor ?? theme.colorScheme.primary;
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor = accentColor ?? AppColors.accent;
+
+    // Use Web semantic colors for card styling
+    final cardBg = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color:
-            theme.cardTheme.color ??
-            (theme.brightness == Brightness.dark
-                ? const Color(0xFF22282B)
-                : Colors.white),
-        border: Border.all(
-          color: theme.cardTheme.shape is RoundedRectangleBorder
-              ? (theme.cardTheme.shape as RoundedRectangleBorder).side.color
-              : const Color(0xFFE8ECED),
-        ),
+        color: cardBg,
+        border: Border.all(color: borderColor, width: 1),
         borderRadius: BorderRadius.circular(AppRadius.base),
       ),
       child: Padding(

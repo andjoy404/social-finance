@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { HouseholdList } from './HouseholdList'
-import { persistSessionPair, type ApiHousehold } from '@/app/api'
+import { ResidentList } from './ResidentList'
+import { persistSessionPair, type ApiResident } from '@/app/api'
 import * as AuthModule from '@/app/AuthContext'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 
 // ---- Test helpers ----
 
@@ -13,26 +13,25 @@ const mockUser = {
   name: 'Test User',
   email: 'test@example.com',
   systemRole: null,
-  role: 'warga',
+  role: 'pengurus',
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 
-const mockHousehold: ApiHousehold = {
-  id: 'hh-1',
+const mockResident: ApiResident = {
+  id: 'res-1',
   rt_id: 'rt-1',
-  house_number: '001',
+  household_id: 'hh-1',
+  full_name: 'Budi Santoso',
   nik: '3201011234560001',
-  head_name: 'Budi Santoso',
-  address: 'Jl. Mawar No. 1',
   phone: '081234567890',
   email: 'budi@example.com',
-  occupancy_status: 'OWNER',
+  relationship_to_head: 'HEAD',
   is_active: true,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 }
 
-const mockPaginatedResponse = (data: ApiHousehold[]) => ({
+const mockPaginatedResponse = (data: ApiResident[]) => ({
   data,
   pagination: { page: 1, page_size: 20, total: data.length, total_pages: 1 },
 })
@@ -59,7 +58,7 @@ function errorResponse(status: number, code: string, message: string): Response 
   })
 }
 
-function renderHouseholdList() {
+function renderResidentList() {
   vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
     user: mockUser,
     isAuthenticated: true,
@@ -70,7 +69,7 @@ function renderHouseholdList() {
   return {
     ...render(
       <MemoryRouter initialEntries={['/warga']}>
-        <HouseholdList />
+        <ResidentList />
       </MemoryRouter>,
     ),
   }
@@ -78,7 +77,7 @@ function renderHouseholdList() {
 
 // ---- Tests ----
 
-describe('W4.2C — HouseholdList rendering', () => {
+describe('W4.2C — ResidentList rendering', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     persistSessionPair({ accessToken: 'test-jwt-token', refreshToken: 'refresh-token' })
@@ -90,27 +89,21 @@ describe('W4.2C — HouseholdList rendering', () => {
   it('shows loading state on initial render', () => {
     const promise = new Promise<Response>(() => {})
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => promise)
-    renderHouseholdList()
+    renderResidentList()
     expect(screen.getByText(/Memuat data warga/i)).toBeInTheDocument()
   })
 
-  it('renders household list with real data', async () => {
+  it('renders resident list with real data', async () => {
     mockFetch(() => {
-      return mockSuccessResponse(mockPaginatedResponse([mockHousehold]))
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
     })
-    renderHouseholdList()
+    renderResidentList()
 
     await waitFor(() => {
       expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
     })
     await waitFor(() => {
-      expect(screen.getByText('001')).toBeInTheDocument()
-    })
-    await waitFor(() => {
-      expect(screen.queryByText('3201011234560001')).not.toBeInTheDocument()
-    })
-    await waitFor(() => {
-      expect(screen.getByText('Jl. Mawar No. 1')).toBeInTheDocument()
+      expect(screen.getByText('3201011234560001')).toBeInTheDocument()
     })
     await waitFor(() => {
       expect(screen.getByText('081234567890')).toBeInTheDocument()
@@ -120,46 +113,22 @@ describe('W4.2C — HouseholdList rendering', () => {
     })
   })
 
-  it('renders OWNER as Pemilik', async () => {
-    mockFetch(() => {
-      return mockSuccessResponse(mockPaginatedResponse([mockHousehold]))
-    })
-    renderHouseholdList()
-
-    await waitFor(() => {
-      expect(screen.getByText('Pemilik')).toBeInTheDocument()
-    })
-  })
-
-  it('renders TENANT as Penyewa', async () => {
-    const tenant: ApiHousehold = { ...mockHousehold, occupancy_status: 'TENANT' as const, head_name: 'Siti Rahayu' }
-    mockFetch(() => {
-      return mockSuccessResponse(mockPaginatedResponse([tenant]))
-    })
-    renderHouseholdList()
-
-    await waitFor(() => {
-      expect(screen.getByText('Penyewa')).toBeInTheDocument()
-    })
-  })
-
   it('renders null fields as dash', async () => {
-    const noOptionalHh = {
-      ...mockHousehold,
+    const noOptional = {
+      ...mockResident,
       nik: null,
-      address: null,
       phone: null,
       email: null,
-      head_name: 'Tanpa KK',
-      occupancy_status: null,
+      full_name: 'Tanpa Data',
+      relationship_to_head: null,
     }
     mockFetch(() => {
-      return mockSuccessResponse(mockPaginatedResponse([noOptionalHh]))
+      return mockSuccessResponse(mockPaginatedResponse([noOptional]))
     })
-    renderHouseholdList()
+    renderResidentList()
 
     await waitFor(() => {
-      expect(screen.getByText('Tanpa KK')).toBeInTheDocument()
+      expect(screen.getByText('Tanpa Data')).toBeInTheDocument()
     })
     await waitFor(() => {
       const dashes = screen.getAllByText('—')
@@ -167,11 +136,11 @@ describe('W4.2C — HouseholdList rendering', () => {
     })
   })
 
-  it('shows empty state when no households', async () => {
+  it('shows empty state when no residents', async () => {
     mockFetch(() => {
       return mockSuccessResponse(mockPaginatedResponse([]))
     })
-    renderHouseholdList()
+    renderResidentList()
 
     await waitFor(() => {
       expect(screen.getByText(/Tidak ada data warga/i)).toBeInTheDocument()
@@ -182,72 +151,39 @@ describe('W4.2C — HouseholdList rendering', () => {
     mockFetch(() => {
       return errorResponse(500, 'internal_error', 'Server error')
     })
-    renderHouseholdList()
+    renderResidentList()
 
     await waitFor(() => {
       expect(screen.getByText(/Gagal memuat data warga/i)).toBeInTheDocument()
     })
   })
 
-  it('does not render row as a link', async () => {
-    mockFetch(() => {
-      return mockSuccessResponse(mockPaginatedResponse([mockHousehold]))
-    })
-    renderHouseholdList()
-
-    await waitFor(() => {
-      const row = screen.getByText('Budi Santoso')
-      expect(row).toBeInTheDocument()
-      const link = row.closest('a')
-      expect(link).not.toBeInTheDocument()
-    })
-  })
-
-  it('search uses Household API query parameter', async () => {
-    mockFetch((input, init) => {
-      if (init?.method === 'GET' && input.includes('/api/v1/households')) {
-        return mockSuccessResponse(mockPaginatedResponse([]))
-      }
-      return errorResponse(404, 'not_found', 'not found')
-    })
-    renderHouseholdList()
-
-    const searchInput = screen.getByPlaceholderText(/Cari/i) as HTMLInputElement
-    fireEvent.change(searchInput, { target: { value: 'Budi' } })
-    const searchBtn = screen.getByRole('button', { name: /Cari/i })
-    fireEvent.click(searchBtn)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Tidak ada data warga/i)).toBeInTheDocument()
-    })
-  })
-
   it('list calls API with correct path', async () => {
     let capturedUrl = ''
     mockFetch((input, init) => {
-      if (init?.method === 'GET' && input.includes('/api/v1/households')) {
+      if (init?.method === 'GET' && input.includes('/api/v1/residents')) {
         capturedUrl = input
         return mockSuccessResponse(mockPaginatedResponse([]))
       }
       return errorResponse(404, 'not_found', 'not found')
     })
-    renderHouseholdList()
+    renderResidentList()
 
     await waitFor(() => {
-      expect(capturedUrl).toContain('/api/v1/households')
+      expect(capturedUrl).toContain('/api/v1/residents')
     })
   })
 
   it('list sends Authorization header', async () => {
     let capturedHeaders: Record<string, string> | undefined
     mockFetch((input, init) => {
-      if (init?.method === 'GET' && input.includes('/api/v1/households')) {
+      if (init?.method === 'GET' && input.includes('/api/v1/residents')) {
         capturedHeaders = init.headers as Record<string, string>
         return mockSuccessResponse(mockPaginatedResponse([]))
       }
       return errorResponse(404, 'not_found', 'not found')
     })
-    renderHouseholdList()
+    renderResidentList()
 
     await waitFor(() => {
       expect(capturedHeaders).toHaveProperty('Authorization', 'Bearer test-jwt-token')
@@ -256,9 +192,9 @@ describe('W4.2C — HouseholdList rendering', () => {
 
   it('pagination shows page numbers', async () => {
     const largeList = Array.from({ length: 25 }, (_, i) => ({
-      ...mockHousehold,
-      id: `hh-${i}`,
-      head_name: `Head ${i}`,
+      ...mockResident,
+      id: `res-${i}`,
+      full_name: `Resident ${i}`,
     }))
     mockFetch(() => {
       return mockSuccessResponse({
@@ -266,15 +202,42 @@ describe('W4.2C — HouseholdList rendering', () => {
         pagination: { page: 1, page_size: 20, total: 25, total_pages: 2 },
       })
     })
-    renderHouseholdList()
+    renderResidentList()
 
     await waitFor(() => {
       expect(screen.getByText(/Prev/i)).toBeInTheDocument()
     })
   })
+
+  it('renders position resident naturally from API data', async () => {
+    const positionResident: ApiResident = {
+      ...mockResident,
+      id: 'position-1',
+      full_name: 'Position Ketua RT 03',
+      nik: '9999999999990001',
+      phone: null,
+      email: 'position.ketua.rt03@example.com',
+      relationship_to_head: 'HEAD',
+      is_active: true,
+      rt_number: '03',
+      rw: 16,
+      rt_name: 'Wisma Rukun Tunggal',
+    }
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([positionResident]))
+    })
+    renderResidentList()
+
+    await waitFor(() => {
+      expect(screen.getByText('Position Ketua RT 03')).toBeInTheDocument()
+    })
+    await waitFor(() => {
+      expect(screen.getByText('9999999999990001')).toBeInTheDocument()
+    })
+  })
 })
 
-describe('W4.2C — HouseholdList status filter', () => {
+describe('W4.2C — ResidentList status filter', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     persistSessionPair({ accessToken: 'test-jwt-token', refreshToken: 'refresh-token' })
@@ -286,7 +249,7 @@ describe('W4.2C — HouseholdList status filter', () => {
   it('includes is_active=query when selecting Status then Aktif', async () => {
     let capturedUrl = ''
     mockFetch((input, init) => {
-      if (init?.method === 'GET' && input.includes('/api/v1/households')) {
+      if (init?.method === 'GET' && input.includes('/api/v1/residents')) {
         capturedUrl = input
         return new Response(JSON.stringify(mockPaginatedResponse([])), {
           status: 200,
@@ -295,7 +258,7 @@ describe('W4.2C — HouseholdList status filter', () => {
       }
       return errorResponse(404, 'not_found', 'not found')
     })
-    renderHouseholdList()
+    renderResidentList()
 
     // First, open the type filter dropdown and select "Status"
     const filterTrigger = screen.getByRole('button', { name: /Tipe filter/i })
@@ -327,7 +290,7 @@ describe('W4.2C — HouseholdList status filter', () => {
   it('includes is_active=false when selecting Status then Tidak Aktif', async () => {
     let capturedUrl = ''
     mockFetch((input, init) => {
-      if (init?.method === 'GET' && input.includes('/api/v1/households')) {
+      if (init?.method === 'GET' && input.includes('/api/v1/residents')) {
         capturedUrl = input
         return new Response(JSON.stringify(mockPaginatedResponse([])), {
           status: 200,
@@ -336,7 +299,7 @@ describe('W4.2C — HouseholdList status filter', () => {
       }
       return errorResponse(404, 'not_found', 'not found')
     })
-    renderHouseholdList()
+    renderResidentList()
 
     // Select "Status" from type filter
     const filterTrigger = screen.getByRole('button', { name: /Tipe filter/i })
@@ -353,6 +316,87 @@ describe('W4.2C — HouseholdList status filter', () => {
 
     await waitFor(() => {
       expect(capturedUrl).toContain('is_active=false')
+    })
+  })
+})
+
+function LocationProbe() {
+  const location = useLocation()
+  return <div data-testid="location">{location.pathname}</div>
+}
+
+function renderResidentListWithRouter() {
+  vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+    user: mockUser,
+    isAuthenticated: true,
+    isInitializing: false,
+    login: async () => {},
+    logout: () => {},
+  })
+  return {
+    ...render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+        <LocationProbe />
+      </MemoryRouter>,
+    ),
+  }
+}
+
+describe('W4.2C — Aksi row navigation', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    persistSessionPair({ accessToken: 'test-jwt-token', refreshToken: 'refresh-token' })
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('Detail action navigates to /warga/<resident-id>', async () => {
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+    renderResidentListWithRouter()
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    // Open Aksi menu
+    const aksiBtn = screen.getByRole('button', { name: /Aksi/i })
+    fireEvent.click(aksiBtn)
+
+    // Click Detail
+    const detailLink = screen.getByRole('menuitem', { name: 'Detail' })
+    fireEvent.click(detailLink)
+
+    // Verify navigation to resident detail page
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('/warga/res-1')
+    })
+  })
+
+  it('Ubah action navigates to /warga/<household-id>/edit', async () => {
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+    renderResidentListWithRouter()
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    // Open Aksi menu
+    const aksiBtn = screen.getByRole('button', { name: /Aksi/i })
+    fireEvent.click(aksiBtn)
+
+    // Click Ubah
+    const ubahLink = screen.getByRole('menuitem', { name: 'Ubah' })
+    fireEvent.click(ubahLink)
+
+    // Verify navigation to edit page
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('/warga/hh-1/edit')
     })
   })
 })

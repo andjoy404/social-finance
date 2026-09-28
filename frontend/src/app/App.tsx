@@ -7,8 +7,8 @@ import { RtList } from '@/features/rt/RtList'
 import { RtDetail } from '@/features/rt/RtDetail'
 import { RtCreate } from '@/features/rt/RtCreate'
 import { RtEdit } from '@/features/rt/RtEdit'
-import { HouseholdList } from '@/features/warga/HouseholdList'
-import { HouseholdDetail } from '@/features/warga/HouseholdDetail'
+import { WargaLayout } from '@/features/warga/WargaLayout'
+import { ResidentDetail } from '@/features/warga/ResidentDetail'
 import { HouseholdCreate } from '@/features/warga/HouseholdCreate'
 import { HouseholdEdit } from '@/features/warga/HouseholdEdit'
 import { HouseholdMove } from '@/features/warga/HouseholdMove'
@@ -87,24 +87,25 @@ export function App() {
         />
         <Route
           path="warga"
-          element={<HouseholdList />}
-        />
-        <Route
-          path="warga/:id"
-          element={<HouseholdDetail />}
-        />
-        <Route
-          path="warga/baru"
-          element={<HouseholdCreate />}
-        />
-        <Route
-          path="warga/:id/edit"
-          element={<HouseholdEdit />}
-        />
-        <Route
-          path="warga/:id/pindah"
-          element={<HouseholdMove />}
-        />
+          element={<WargaLayout />}
+        >
+          <Route
+            path=":id"
+            element={<ResidentDetail />}
+          />
+          <Route
+            path="baru"
+            element={<HouseholdCreate />}
+          />
+          <Route
+            path=":id/edit"
+            element={<HouseholdEdit />}
+          />
+          <Route
+            path=":id/pindah"
+            element={<HouseholdMove />}
+          />
+        </Route>
       </Route>
 
       <Route path="*" element={<Navigate to={isAuthenticated ? "/" : "/login"} replace />} />

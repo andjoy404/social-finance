@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 
 /// Standard card container for Social Finance.
-///
-/// Uses a subtle border and controlled radius.  For emphasis
-/// (e.g. the primary Saldo Kas card) callers should pass
-/// [useEmphasis] or set [cardColor] explicitly.
+/// Uses Web semantic colors from AppColors.
 class AppCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
@@ -24,7 +22,10 @@ class AppCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final defaultColor = isDark ? const Color(0xFF22282B) : Colors.white;
+    final defaultColor = isDark
+        ? AppColors.darkSurface
+        : AppColors.lightSurface;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
 
     return Card(
       color: cardColor ?? (useEmphasis ? defaultColor : null),
@@ -34,7 +35,7 @@ class AppCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppRadius.lg),
             )
           : RoundedRectangleBorder(
-              side: const BorderSide(color: Color(0xFFE8ECED), width: 1),
+              side: BorderSide(color: borderColor, width: 1),
               borderRadius: BorderRadius.circular(AppRadius.base),
             ),
       clipBehavior: Clip.antiAlias,

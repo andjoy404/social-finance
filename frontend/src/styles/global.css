@@ -500,6 +500,7 @@ input { font-family: inherit; }
   box-shadow: var(--sf-shadow-sm);
   overflow-y: visible;
   overflow-x: hidden;
+  margin-top: 6px;
 }
 
 .sf-content-surface-padding {

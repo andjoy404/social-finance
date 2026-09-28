@@ -104,11 +104,11 @@ class DashboardScreen extends ConsumerWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF262C30) : const Color(0xFFFDFCFF),
+              color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
               border: Border.all(
                 color: isDark
-                    ? const Color(0xFF9B8FD6).withValues(alpha: 0.4)
-                    : AppColors.seed.withValues(alpha: 0.3),
+                    ? AppColors.darkBorder.withValues(alpha: 0.5)
+                    : AppColors.lightBorder,
                 width: 1.5,
               ),
               borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -119,7 +119,7 @@ class DashboardScreen extends ConsumerWidget {
                   width: 4,
                   height: 60,
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF9B8FD6) : AppColors.seed,
+                    color: AppColors.accent,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -133,17 +133,13 @@ class DashboardScreen extends ConsumerWidget {
                           Icon(
                             Icons.account_balance_wallet_rounded,
                             size: 16,
-                            color: isDark
-                                ? const Color(0xFF9B8FD6)
-                                : AppColors.seed,
+                            color: AppColors.accent,
                           ),
                           const SizedBox(width: 8),
                           Text(
                             'Saldo Kas',
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: isDark
-                                  ? const Color(0xFFB0B8C0)
-                                  : const Color(0xFF6B7280),
+                              color: AppColors.textMutedColor(context),
                             ),
                           ),
                         ],
@@ -153,8 +149,8 @@ class DashboardScreen extends ConsumerWidget {
                         RupiahFormatter.format(summary.saldoKas),
                         style: theme.textTheme.headlineLarge?.copyWith(
                           color: isDark
-                              ? Colors.white
-                              : const Color(0xFF1B1D1E),
+                              ? AppColors.darkTextPrimary
+                              : AppColors.lightTextPrimary,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -228,15 +224,12 @@ class DashboardScreen extends ConsumerWidget {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.secondary.withValues(
-                          alpha: isDark ? 0.2 : 0.12,
-                        ),
+                        color: isDark
+                            ? AppColors.darkAccentSoft
+                            : AppColors.lightAccentSoft,
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
-                      child: Icon(
-                        Icons.receipt_long,
-                        color: theme.colorScheme.secondary,
-                      ),
+                      child: Icon(Icons.receipt_long, color: AppColors.accent),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -248,7 +241,7 @@ class DashboardScreen extends ConsumerWidget {
                     Text(
                       '${dues.percentage}%',
                       style: theme.textTheme.headlineSmall?.copyWith(
-                        color: theme.colorScheme.primary,
+                        color: AppColors.accent,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -264,12 +257,10 @@ class DashboardScreen extends ConsumerWidget {
                         child: LinearProgressIndicator(
                           value: dues.ratio,
                           minHeight: 8,
-                          backgroundColor: theme.colorScheme.primary.withValues(
+                          backgroundColor: AppColors.accent.withValues(
                             alpha: isDark ? 0.2 : 0.15,
                           ),
-                          valueColor: AlwaysStoppedAnimation(
-                            theme.colorScheme.primary,
-                          ),
+                          valueColor: AlwaysStoppedAnimation(AppColors.accent),
                         ),
                       ),
                     );

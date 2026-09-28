@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 
 /// Compact status badge / pill.
 ///
-/// Used for role display (Bendahara, Warga, etc.), payment status, etc.
-/// When [isNeonStyle] is true (dark mode), renders a soft violet-tinted
-/// badge with a thin violet border and subtle outer glow inspired by
-/// the AndJoy visual language.
+/// Used for role display, status indicators, etc.
+/// Uses Web semantic colors from AppColors.
 class AppBadge extends StatelessWidget {
   final String label;
   final Color? backgroundColor;
@@ -27,30 +26,26 @@ class AppBadge extends StatelessWidget {
     final theme = Theme.of(context);
 
     if (isNeonStyle) {
-      return _NeonVioletBadge(
+      return _NeonBadge(
         label: label,
-        textColor: textColor ?? const Color(0xFFD4CCF5),
+        textColor: textColor ?? AppColors.darkText,
       );
     }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color:
-            backgroundColor ??
-            theme.colorScheme.primary.withValues(alpha: 0.12),
+        color: backgroundColor ?? AppColors.accent.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(AppRadius.sm),
         border: Border.all(
-          color:
-              backgroundColor ??
-              theme.colorScheme.primary.withValues(alpha: 0.25),
+          color: backgroundColor ?? AppColors.accent.withValues(alpha: 0.25),
           width: 0.5,
         ),
       ),
       child: Text(
         label,
         style: theme.textTheme.bodySmall?.copyWith(
-          color: textColor ?? theme.colorScheme.primary,
+          color: textColor ?? AppColors.accent,
           fontWeight: FontWeight.w600,
           fontSize: 11,
         ),
@@ -59,14 +54,12 @@ class AppBadge extends StatelessWidget {
   }
 }
 
-/// Soft violet neon badge for dark-mode surface.
-///
-/// Restrained — no cyberpunk glow, no animated bloom.
-class _NeonVioletBadge extends StatelessWidget {
+/// Dark mode neon badge variant.
+class _NeonBadge extends StatelessWidget {
   final String label;
   final Color textColor;
 
-  const _NeonVioletBadge({required this.label, required this.textColor});
+  const _NeonBadge({required this.label, required this.textColor});
 
   @override
   Widget build(BuildContext context) {
@@ -74,12 +67,12 @@ class _NeonVioletBadge extends StatelessWidget {
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0x3A2E1F4D),
+        color: AppColors.darkAccentSoft,
         borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: const Color(0xFF9B8FD6), width: 1),
+        border: Border.all(color: AppColors.accent, width: 1),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF9B8FD6).withValues(alpha: 0.15),
+            color: AppColors.accent.withValues(alpha: 0.15),
             blurRadius: 8,
             offset: const Offset(0, 0),
           ),

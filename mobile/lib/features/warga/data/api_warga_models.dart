@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
+import 'package:social_finance/core/theme/app_colors.dart';
 
 /// API response wrapper for paginated endpoints.
 @immutable
@@ -10,7 +11,10 @@ class PaginatedResponse<T> {
 
   const PaginatedResponse({required this.data, required this.pagination});
 
-  factory PaginatedResponse.fromJson(Map<String, dynamic> json, T Function(dynamic) fromItem) {
+  factory PaginatedResponse.fromJson(
+    Map<String, dynamic> json,
+    T Function(dynamic) fromItem,
+  ) {
     final raw = json['data'];
     final items = raw is List ? raw.map((e) => fromItem(e)).toList() : <T>[];
     final pag = json['pagination'] as Map<String, dynamic>?;
@@ -34,7 +38,12 @@ class PaginationInfo {
   final int total;
   final int totalPages;
 
-  const PaginationInfo({required this.page, required this.pageSize, required this.total, required this.totalPages});
+  const PaginationInfo({
+    required this.page,
+    required this.pageSize,
+    required this.total,
+    required this.totalPages,
+  });
 }
 
 /// Backend Resident DTO.
@@ -52,6 +61,7 @@ class BackendResident {
   final String? rtNumber;
   final int? rw;
   final String? rtName;
+  final String? jabatan;
 
   const BackendResident({
     required this.id,
@@ -66,6 +76,7 @@ class BackendResident {
     this.rtNumber,
     this.rw,
     this.rtName,
+    this.jabatan,
   });
 
   factory BackendResident.fromJson(Map<String, dynamic> json) {
@@ -82,6 +93,7 @@ class BackendResident {
       rtNumber: json['rt_number'] as String?,
       rw: (json['rw'] as num?)?.toInt(),
       rtName: json['rt_name'] as String?,
+      jabatan: json['jabatan'] as String?,
     );
   }
 }
@@ -137,6 +149,7 @@ class MappedResident {
   final String? rtNumber;
   final int? rw;
   final String? rtName;
+  final String? jabatan;
 
   const MappedResident({
     required this.id,
@@ -153,6 +166,7 @@ class MappedResident {
     this.rtNumber,
     this.rw,
     this.rtName,
+    this.jabatan,
   });
 
   String get maskedNik {
@@ -208,44 +222,90 @@ class MappedResident {
     return 'Keluarga';
   }
 
-  /// Badge background color for relationship, using the violet→blue palette:
-  ///   Kepala Keluarga → #8B5CF6 (violet)
-  ///   Keluarga        → #3B82F6 (blue)
-  ///   Kerabat         → #6366C0 (violet-blue)
+  /// Badge background color for relationship
+  /// Simplified: uses accent color for all relationship types
+  /// This matches Web behavior which uses semantic accent color
   Color get relationshipColor {
-    switch (displayRelationship) {
-      case 'Kepala Keluarga':
-        return const Color(0xFF8B5CF6);
-      case 'Kerabat':
-        return const Color(0xFF6366C0);
-      case 'Keluarga':
+    return AppColors.accent;
+  }
+
+  /// User-facing jabatan label (Indonesian position name).
+  String? get displayJabatan {
+    if (jabatan == null || jabatan!.isEmpty) return null;
+    switch (jabatan!) {
+      case 'ketua':
+        return 'Ketua RT';
+      case 'wakil_ketua':
+        return 'Wakil Ketua RT';
+      case 'sekretaris':
+        return 'Sekretaris RT';
+      case 'bendahara':
+        return 'Bendahara RT';
+      case 'keamanan':
+        return 'Seksi Keamanan';
+      case 'sosial':
+        return 'Seksi Sosial';
+      case 'kebersihan_pembangunan':
+        return 'Seksi Kebersihan dan Pembangunan';
       default:
-        return const Color(0xFF3B82F6);
+        return jabatan;
     }
   }
 
-  factory MappedResident.fromBackend(BackendResident resident, BackendHousehold? household) {
+  /// Color for jabatan badge based on position.
+  Color get jabatanColor {
+    if (jabatan == null || jabatan!.isEmpty) return AppColors.accent;
+    switch (jabatan!) {
+      case 'ketua':
+        return AppColors.accent;
+      case 'wakil_ketua':
+        return AppColors.info;
+      case 'sekretaris':
+        return AppColors.success;
+      case 'bendahara':
+        return AppColors.warning;
+      case 'keamanan':
+        return AppColors.danger;
+      case 'kebersihan_pembangunan':
+        return AppColors.info;
+      case 'sosial':
+        return AppColors.warning;
+      default:
+        return AppColors.accent;
+    }
+  }
+
+  bool get isNeutralJabatan => jabatan == 'sosial';
+
+  factory MappedResident.fromBackend(
+    BackendResident resident,
+    BackendHousehold? household,
+  ) {
     final isHead = resident.relationshipToHead == 'HEAD';
     final relationshipLabel = resident.relationshipToHead;
+    final mappedJabatan = resident.jabatan;
     return MappedResident(
       id: resident.id,
       name: resident.fullName,
       nik: resident.nik,
       houseNumber: household?.houseNumber ?? '',
       isHeadOfHousehold: isHead,
-      relationship: isHead ? (relationshipLabel ?? 'Kepala Keluarga') : (relationshipLabel ?? ''),
+      relationship: isHead
+          ? (relationshipLabel ?? 'Kepala Keluarga')
+          : (relationshipLabel ?? ''),
       phoneNumber: resident.phone,
       email: resident.email,
       address: household?.address,
       occupancyStatus: household?.occupancyStatus == 'OWNER'
           ? 'Pemilik'
           : household?.occupancyStatus == 'TENANT'
-              ? 'Penyewa'
-              : null,
+          ? 'Penyewa'
+          : null,
       isActive: resident.isActive,
       rtNumber: resident.rtNumber,
       rw: resident.rw,
       rtName: resident.rtName,
+      jabatan: mappedJabatan,
     );
   }
 }

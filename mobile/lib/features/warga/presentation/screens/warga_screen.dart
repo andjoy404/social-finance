@@ -57,7 +57,9 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
 
     final errorMessage = switch (wargaState) {
       AsyncError(:final error) =>
-        error is ServerException ? error.message : 'Terjadi kesalahan yang tidak diketahui.',
+        error is ServerException
+            ? error.message
+            : 'Terjadi kesalahan yang tidak diketahui.',
       _ => '',
     };
 
@@ -121,74 +123,80 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
           // ── Content: Loading / Error / Empty / List ──
           Expanded(
             child: switch (wargaState) {
-              AsyncLoading() => const Center(child: CircularProgressIndicator()),
+              AsyncLoading() => const Center(
+                child: CircularProgressIndicator(),
+              ),
               AsyncError() => Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: theme.colorScheme.error.withValues(alpha: 0.5),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Terjadi Kesalahan',
-                          style: theme.textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          errorMessage,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _retry,
-                          child: const Text('Coba Lagi'),
-                        ),
-                      ],
-                    ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: theme.colorScheme.error.withValues(alpha: 0.5),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Terjadi Kesalahan',
+                        style: theme.textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        errorMessage,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _retry,
+                        child: const Text('Coba Lagi'),
+                      ),
+                    ],
                   ),
                 ),
-              _ => residents.isEmpty
-                  ? Center(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: currentQuery.isNotEmpty
-                            ? EmptyState(
-                                icon: Icons.search_off,
-                                title: 'Warga Tidak Ditemukan',
-                                description:
-                                    'Tidak ada data warga yang sesuai dengan "$currentQuery".',
-                                actionText: 'Hapus Pencarian',
-                                onAction: _clearSearch,
-                              )
-                            : const EmptyState(
-                                icon: Icons.people_outline,
-                                title: 'Belum Ada Warga',
-                                description:
-                                    'Data kependudukan warga RT belum tersedia.',
-                              ),
+              ),
+              _ =>
+                residents.isEmpty
+                    ? Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          child: currentQuery.isNotEmpty
+                              ? EmptyState(
+                                  icon: Icons.search_off,
+                                  title: 'Warga Tidak Ditemukan',
+                                  description:
+                                      'Tidak ada data warga yang sesuai dengan "$currentQuery".',
+                                  actionText: 'Hapus Pencarian',
+                                  onAction: _clearSearch,
+                                )
+                              : const EmptyState(
+                                  icon: Icons.people_outline,
+                                  title: 'Belum Ada Warga',
+                                  description:
+                                      'Data kependudukan warga RT belum tersedia.',
+                                ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.base,
+                          AppSpacing.xs,
+                          AppSpacing.base,
+                          AppSpacing.xl,
+                        ),
+                        itemCount: residents.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: AppSpacing.sm),
+                        itemBuilder: (context, index) {
+                          final resident = residents[index];
+                          return _ResidentCard(
+                            resident: resident,
+                            isDark: isDark,
+                          );
+                        },
                       ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.base,
-                        AppSpacing.xs,
-                        AppSpacing.base,
-                        AppSpacing.xl,
-                      ),
-                      itemCount: residents.length,
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(height: AppSpacing.sm),
-                      itemBuilder: (context, index) {
-                        final resident = residents[index];
-                        return _ResidentCard(resident: resident, isDark: isDark);
-                      },
-                    ),
             },
           ),
         ],
@@ -210,18 +218,82 @@ class _ResidentCard extends StatelessWidget {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 
+  Widget _buildJabatanBadge({
+    required MappedResident resident,
+    required bool isDark,
+    required ThemeData theme,
+  }) {
+    final text = resident.displayJabatan ?? resident.jabatan!;
+    if (resident.isNeutralJabatan) {
+      final neutralText = isDark
+          ? AppColors.darkBadgeNeutral
+          : AppColors.lightBadgeNeutral;
+      final neutralBg = isDark
+          ? AppColors.darkBadgeNeutralBg
+          : AppColors.lightBadgeNeutralBg;
+      final neutralBorder = isDark
+          ? AppColors.darkBadgeNeutralBorder
+          : AppColors.lightBadgeNeutralBorder;
+      return Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 2,
+        ),
+        decoration: BoxDecoration(
+          color: neutralBg,
+          borderRadius: BorderRadius.circular(AppRadius.xs),
+          border: Border.all(
+            color: neutralBorder,
+            width: 0.5,
+          ),
+        ),
+        child: Text(
+          text,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: neutralText,
+          ),
+        ),
+      );
+    }
+    final color = resident.jabatanColor;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.18 : 0.10),
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        border: Border.all(
+          color: color.withValues(alpha: isDark ? 0.35 : 0.25),
+          width: 0.5,
+        ),
+      ),
+      child: Text(
+        text,
+        style: theme.textTheme.bodySmall?.copyWith(
+          fontSize: 10,
+          fontWeight: FontWeight.w500,
+          color: color,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final iconColor = AppColors.iconTint(context);
+    final iconColor = theme.brightness == Brightness.dark
+        ? AppColors.darkTextMuted
+        : AppColors.lightTextMuted;
 
     // Occupancy styling matching web Badge variants:
     // OWNER ('Pemilik'): violet accent
-    // TENANT ('Penyewa'): blue accent
+    // TENANT ('Penyewa'): blue info
     final isOwner = resident.occupancyStatus == 'Pemilik';
-    final occupancyColor = isOwner
-        ? (isDark ? const Color(0xFF9B8FD6) : AppColors.seed)
-        : (isDark ? const Color(0xFF60A5FA) : const Color(0xFF1976D2));
+    final occupancyColor = isOwner ? AppColors.accent : AppColors.info;
     final rtRwAlamat = resident.formattedRtRwAlamat ?? resident.formattedRtRw;
 
     return AppCard(
@@ -249,7 +321,7 @@ class _ResidentCard extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.md),
 
-              // Name and Relationship / Occupancy Badges
+              // Name and Occupancy / Jabatan Badges
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,6 +363,12 @@ class _ResidentCard extends StatelessWidget {
                                 color: occupancyColor,
                               ),
                             ),
+                          ),
+                        if (resident.jabatan != null && resident.jabatan!.isNotEmpty)
+                          _buildJabatanBadge(
+                            resident: resident,
+                            isDark: isDark,
+                            theme: theme,
                           ),
                       ],
                     ),
@@ -336,11 +414,13 @@ class _ResidentCard extends StatelessWidget {
                 ),
               ],
             ),
-            if ((resident.phoneNumber != null && resident.phoneNumber!.isNotEmpty) ||
+            if ((resident.phoneNumber != null &&
+                    resident.phoneNumber!.isNotEmpty) ||
                 (resident.email != null && resident.email!.isNotEmpty))
               const SizedBox(height: 6),
           ],
-          if (resident.phoneNumber != null && resident.phoneNumber!.isNotEmpty) ...[
+          if (resident.phoneNumber != null &&
+              resident.phoneNumber!.isNotEmpty) ...[
             Row(
               children: [
                 Icon(Icons.phone_outlined, size: 16, color: iconColor),

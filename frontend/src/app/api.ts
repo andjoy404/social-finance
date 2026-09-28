@@ -494,6 +494,8 @@ export interface ApiResident {
   rt_name?: string | null
   start_date?: string | null
   end_date?: string | null
+  jabatan?: string | null
+  occupancy_status?: 'OWNER' | 'TENANT' | null
 }
 
 export interface ApiCreateResidentBody {

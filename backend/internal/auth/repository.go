@@ -35,12 +35,13 @@ type UserWithHash struct {
 	IsActive     bool
 }
 
-// Membership is a user's role assignment within a specific RT.
+// Membership is a user's role and position assignment within a specific RT.
 type Membership struct {
 	ID       string
 	UserID   string
 	RTID     string
 	Role     Role
+	Jabatan  Jabatan
 	IsActive bool
 }
 
@@ -197,7 +198,7 @@ func UsersFindByID(ctx context.Context, tx *sql.Tx, userID string) (*UserWithHas
 // RTMembershipsFindByUser returns all memberships for a user.
 func RTMembershipsFindByUser(ctx context.Context, tx *sql.Tx, userID string) ([]Membership, error) {
 	query := `
-		SELECT id, rt_id, role, is_active
+		SELECT id, rt_id, role, jabatan, is_active
 		FROM user_rt_memberships
 		WHERE user_id = $1 AND is_active = true
 		ORDER BY created_at ASC
@@ -211,11 +212,14 @@ func RTMembershipsFindByUser(ctx context.Context, tx *sql.Tx, userID string) ([]
 	var result []Membership
 	for rows.Next() {
 		var m Membership
-		var roleStr string
-		if err := rows.Scan(&m.ID, &m.RTID, &roleStr, &m.IsActive); err != nil {
+		var roleStr, jabatanStr sql.NullString
+		if err := rows.Scan(&m.ID, &m.RTID, &roleStr, &jabatanStr, &m.IsActive); err != nil {
 			return nil, fmt.Errorf("scan membership: %w", err)
 		}
-		m.Role = Role(roleStr)
+		m.Role = Role(roleStr.String)
+		if jabatanStr.Valid {
+			m.Jabatan = Jabatan(jabatanStr.String)
+		}
 		m.UserID = userID
 		result = append(result, m)
 	}
@@ -226,15 +230,15 @@ func RTMembershipsFindByUser(ctx context.Context, tx *sql.Tx, userID string) ([]
 // Returns sql.ErrNoRows when not found.
 func RTMembershipFindByUserAndRT(ctx context.Context, tx *sql.Tx, userID, rtID string) (*Membership, error) {
 	query := `
-		SELECT id, user_id, rt_id, role, is_active
+		SELECT id, user_id, rt_id, role, jabatan, is_active
 		FROM user_rt_memberships
 		WHERE user_id = $1 AND rt_id = $2 AND is_active = true
 		LIMIT 1
 	`
 	var m Membership
-	var roleStr string
+	var roleStr, jabatanStr sql.NullString
 	err := tx.QueryRowContext(ctx, query, userID, rtID).Scan(
-		&m.ID, &m.UserID, &m.RTID, &roleStr, &m.IsActive,
+		&m.ID, &m.UserID, &m.RTID, &roleStr, &jabatanStr, &m.IsActive,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -242,22 +246,25 @@ func RTMembershipFindByUserAndRT(ctx context.Context, tx *sql.Tx, userID, rtID s
 		}
 		return nil, fmt.Errorf("find membership: %w", err)
 	}
-	m.Role = Role(roleStr)
+	m.Role = Role(roleStr.String)
+	if jabatanStr.Valid {
+		m.Jabatan = Jabatan(jabatanStr.String)
+	}
 	return &m, nil
 }
 
 // RTMembershipFindByID returns a membership by its UUID.
 func RTMembershipFindByID(ctx context.Context, tx *sql.Tx, id string) (*Membership, error) {
 	query := `
-		SELECT id, user_id, rt_id, role, is_active
+		SELECT id, user_id, rt_id, role, jabatan, is_active
 		FROM user_rt_memberships
 		WHERE id = $1 AND is_active = true
 		LIMIT 1
 	`
 	var m Membership
-	var roleStr string
+	var roleStr, jabatanStr sql.NullString
 	err := tx.QueryRowContext(ctx, query, id).Scan(
-		&m.ID, &m.UserID, &m.RTID, &roleStr, &m.IsActive,
+		&m.ID, &m.UserID, &m.RTID, &roleStr, &jabatanStr, &m.IsActive,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -265,7 +272,10 @@ func RTMembershipFindByID(ctx context.Context, tx *sql.Tx, id string) (*Membersh
 		}
 		return nil, fmt.Errorf("find membership by id: %w", err)
 	}
-	m.Role = Role(roleStr)
+	m.Role = Role(roleStr.String)
+	if jabatanStr.Valid {
+		m.Jabatan = Jabatan(jabatanStr.String)
+	}
 	return &m, nil
 }
 

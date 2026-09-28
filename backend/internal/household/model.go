@@ -95,12 +95,17 @@ type Resident struct {
 	Nik                *string   `json:"nik,omitempty"`
 	Email              *string   `json:"email,omitempty"`
 	RelationshipToHead *string   `json:"relationship_to_head,omitempty"`
+	StartDate          *string   `json:"start_date,omitempty"` // YYYY-MM-DD
+	EndDate            *string   `json:"end_date,omitempty"`   // YYYY-MM-DD
 	IsActive           bool      `json:"is_active"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 	RTNumber           *string   `json:"rt_number,omitempty"`
 	RW                 *int      `json:"rw,omitempty"`
 	RTName             *string   `json:"rt_name,omitempty"`
+	UserID             *string   `json:"user_id,omitempty"`
+	Jabatan            *string   `json:"jabatan,omitempty"`
+	OccupancyStatus    *string   `json:"occupancy_status,omitempty"`
 }
 
 // CreateResidentInput holds the fields for creating a new resident.

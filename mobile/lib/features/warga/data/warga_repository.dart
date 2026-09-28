@@ -40,7 +40,8 @@ class WargaRepository {
     if (rawList is List) {
       for (final item in rawList) {
         if (item is Map) {
-          items.add(BackendResident.fromJson(item.cast<String, dynamic>()));
+          final parsed = BackendResident.fromJson(item.cast<String, dynamic>());
+          items.add(parsed);
         }
       }
     }
@@ -124,12 +125,10 @@ class WargaRepository {
 
     final households = await fetchHouseholds();
 
-    final mapped = allResidents
-        .map((r) {
-          final hh = households[r.householdId ?? ''];
-          return MappedResident.fromBackend(r, hh);
-        })
-        .toList();
+    final mapped = allResidents.map((r) {
+      final hh = households[r.householdId ?? ''];
+      return MappedResident.fromBackend(r, hh);
+    }).toList();
 
     return PaginatedResponse<MappedResident>(
       data: mapped,
@@ -180,9 +179,7 @@ class WargaRepository {
       return ServerException(message: error.message);
     }
 
-    return ServerException(
-      message: 'Terjadi kesalahan yang tidak diketahui.',
-    );
+    return ServerException(message: 'Terjadi kesalahan yang tidak diketahui.');
   }
 }
 

@@ -1,29 +1,30 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
-  listHouseholds,
+  listResidents,
   ApiError,
   clearSessionPair,
   getSessionPair,
-  type ApiHousehold,
+  type ApiResident,
 } from '@/app/api'
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
 import { UserOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons'
-import { HouseholdEdit } from './HouseholdEdit'
 import { RowActionMenu } from '@/components/RowActionMenu'
 
-type FilterType = 'semua' | 'status'
+type FilterType = 'semua' | 'status' | 'occupancy'
 
 type StatusValue = 'aktif' | 'tidak_aktif' | null
+type OccupancyValue = 'semua' | 'OWNER' | 'TENANT'
 
 const statusFilterOptions: { value: FilterType; label: string }[] = [
   { value: 'semua', label: 'Semua' },
   { value: 'status', label: 'Status' },
+  { value: 'occupancy', label: 'Status Hunian' },
 ]
 
 const statusValueOptions: { value: StatusValue; label: string }[] = [
@@ -31,27 +32,11 @@ const statusValueOptions: { value: StatusValue; label: string }[] = [
   { value: 'tidak_aktif', label: 'Tidak Aktif' },
 ]
 
-function occupancyLabel(status: ApiHousehold['occupancy_status']): string {
-  switch (status) {
-    case 'OWNER':
-      return 'Pemilik'
-    case 'TENANT':
-      return 'Penyewa'
-    default:
-      return '\u2014'
-  }
-}
-
-function occupancyBadgeVariant(status: ApiHousehold['occupancy_status']): 'violet' | 'blue' | 'default' {
-  switch (status) {
-    case 'OWNER':
-      return 'violet'
-    case 'TENANT':
-      return 'blue'
-    default:
-      return 'default'
-  }
-}
+const occupancyOptions: { value: OccupancyValue; label: string }[] = [
+  { value: 'semua', label: 'Semua' },
+  { value: 'OWNER', label: 'Pemilik' },
+  { value: 'TENANT', label: 'Penyewa' },
+]
 
 function statusBadge(value: boolean): 'green' | 'red' {
   return value ? 'green' : 'red'
@@ -93,25 +78,74 @@ function formatNull(value: string | null | undefined): string {
   return value ?? '\u2014'
 }
 
+function formatOccupancyStatus(status: 'OWNER' | 'TENANT' | null | undefined): { label: string; variant: 'violet' | 'blue' | 'default' } {
+  if (!status) return { label: '\u2014', variant: 'default' as const }
+  return status === 'OWNER' ? { label: 'Pemilik', variant: 'violet' as const } : { label: 'Penyewa', variant: 'blue' as const }
+}
+
+function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPurple' | 'lightPurple' | 'amber' | 'green' | 'red' | 'blue' | 'gray' | 'default' {
+  if (!jabatan || jabatan.trim() === '') return 'default'
+  switch (jabatan) {
+    case 'ketua':
+      return 'violet'
+    case 'wakil_ketua':
+      return 'blue'
+    case 'sekretaris':
+      return 'green'
+    case 'bendahara':
+      return 'amber'
+    case 'sosial':
+      return 'gray'
+    case 'keamanan':
+      return 'red'
+    case 'kebersihan_pembangunan':
+      return 'blue'
+    default:
+      return 'default'
+  }
+}
+
+function getJabatanLabel(jabatan: string | null | undefined): string {
+  if (!jabatan || jabatan.trim() === '') return '\u2014'
+  switch (jabatan) {
+    case 'ketua':
+      return 'Ketua RT'
+    case 'wakil_ketua':
+      return 'Wakil Ketua RT'
+    case 'sekretaris':
+      return 'Sekretaris RT'
+    case 'bendahara':
+      return 'Bendahara RT'
+    case 'sosial':
+      return 'Seksi Sosial'
+    case 'keamanan':
+      return 'Seksi Keamanan'
+    case 'kebersihan_pembangunan':
+      return 'Kebersihan & Pembangunan'
+    default:
+      return jabatan
+  }
+}
+
 const colStyles = {
   rt: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   rw: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   rtName: { minWidth: 140, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  houseNumber: { minWidth: 120, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
-  address: { minWidth: 180, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  occupancy: { width: 130, minWidth: 130, maxWidth: 130, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   name: { minWidth: 160, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
   nik: { width: 170, minWidth: 170, maxWidth: 170, textAlign: 'center' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
   phone: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'center' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
   email: { minWidth: 180, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  occupancyStatus: { width: 110, minWidth: 110, maxWidth: 110, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   startDate: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
-  endDate: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
+  endDate: { width: 150, minWidth: 150, maxWidth: 150, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
+  jabatan: { width: 170, minWidth: 170, maxWidth: 170, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
   status: { width: 100, minWidth: 100, maxWidth: 100, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   action: { width: 80, minWidth: 80, maxWidth: 80, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
 }
 
-export function HouseholdList() {
+export function ResidentList() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   if (!user) return null
 
   const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
@@ -122,7 +156,7 @@ export function HouseholdList() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<ApiError | null>(null)
-  const [householdList, setHouseholdList] = useState<ApiHousehold[]>([])
+  const [residentList, setResidentList] = useState<ApiResident[]>([])
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -131,9 +165,11 @@ export function HouseholdList() {
   const [search, setSearch] = useState('')
   const [statusValue, setStatusValue] = useState<StatusValue>(null)
   const [statusOpen, setStatusOpen] = useState(false)
-  const [editingHh, setEditingHh] = useState<ApiHousehold | null>(null)
+  const [occupancyFilter, setOccupancyFilter] = useState<OccupancyValue>('semua')
+  const [occupancyOpen, setOccupancyOpen] = useState(false)
+  const [searchParams] = useSearchParams()
 
-  const fetchHouseholds = useCallback(async (p: number, size: number) => {
+  const fetchResidents = useCallback(async (p: number, size: number) => {
     const pair = getSessionPair()
     if (!pair?.accessToken) {
       setError(new ApiError('auth_expired', 'Sesi telah berakhir. Silakan masuk kembali.'))
@@ -154,9 +190,9 @@ export function HouseholdList() {
 
       if (search.trim()) params.search = search.trim()
 
-      const resp = await listHouseholds(pair.accessToken, params as import('@/app/api').ApiListHouseholdsParams)
+      const resp = await listResidents(pair.accessToken, params as import('@/app/api').ApiListResidentsParams)
 
-      setHouseholdList(resp.data)
+      setResidentList(resp.data)
       setTotalPages(resp.pagination.total_pages)
       setTotal(resp.pagination.total)
     } catch (err) {
@@ -174,14 +210,24 @@ export function HouseholdList() {
   }, [filterType, statusValue, search])
 
   useEffect(() => {
-    void fetchHouseholds(page, pageSize)
-  }, [page, pageSize, fetchHouseholds])
+    void fetchResidents(page, pageSize)
+  }, [page, pageSize, fetchResidents])
+
+  const refresh = searchParams.get('refresh')
+  useEffect(() => {
+    if (refresh !== '1') return
+    void fetchResidents(page, pageSize)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('refresh')
+    window.history.replaceState({}, '', url.pathname + url.search)
+  }, [refresh, fetchResidents, page, pageSize])
 
   const handleFilter = (filter: FilterType) => {
     setFilterType(filter)
     setPage(1)
     if (filter === 'semua') {
       setStatusValue(null)
+      setOccupancyFilter('semua')
     }
   }
 
@@ -209,26 +255,35 @@ export function HouseholdList() {
     setStatusValue(null)
   }
 
-  const handleEdit = (hh: ApiHousehold) => {
-    setEditingHh(hh)
+  const handleOccupancySelect = (val: OccupancyValue) => {
+    setOccupancyFilter(val)
+    setOccupancyOpen(false)
+    setPage(1)
   }
 
+  const handleOccupancyClear = () => {
+    setOccupancyFilter('semua')
+  }
+
+  const occupancyFilterLabel: string | null = occupancyFilter === 'semua' ? null : occupancyFilter === 'OWNER' ? 'Pemilik' : 'Penyewa'
+
+  const filteredResidents = useMemo(() => {
+    if (occupancyFilter === 'semua') return residentList
+    return residentList.filter((r) => r.occupancy_status === occupancyFilter)
+  }, [residentList, occupancyFilter])
+
+  const handleDetail = useCallback((id: string) => {
+    navigate(`/warga/${id}`)
+  }, [navigate])
+
+  const handleEdit = useCallback((id: string) => {
+    navigate(`/warga/${id}/edit`)
+  }, [navigate])
 
   const statusValueLabel: string | null = statusValue === 'aktif' ? 'Aktif' : statusValue === 'tidak_aktif' ? 'Tidak Aktif' : null
 
   return (
     <>
-      {editingHh && (
-        <HouseholdEdit
-          id={editingHh.id}
-          onClose={() => setEditingHh(null)}
-          onSaved={() => {
-            setEditingHh(null)
-            void fetchHouseholds(page, pageSize)
-          }}
-        />
-      )}
-
       {/* PageHeader — separate floating surface */}
       <div className="sf-page-header-surface">
         <div className="sf-page-header-left">
@@ -238,7 +293,7 @@ export function HouseholdList() {
           <div className="sf-page-header-copy">
             <div className="sf-page-header-title-text">Daftar Warga</div>
             <div className="sf-page-header-subtitle">
-              {user.rt?.name ? `Manajemen kepala keluarga dan rumah tangga \u2014 ${user.rt.name}` : 'Manajemen kepala keluarga dan rumah tangga'}
+              {user.rt?.name ? `Manajemen warga dan kepala keluarga \u2014 ${user.rt.name}` : 'Manajemen warga dan kepala keluarga'}
             </div>
           </div>
         </div>
@@ -262,7 +317,7 @@ export function HouseholdList() {
               value={search}
               onChange={(v) => setSearch(v)}
               onSearch={handleSearch}
-              placeholder="Cari kepala keluarga/alamat..."
+              placeholder="Cari nama warga/NIK..."
               statusControl={
                 filterType === 'status' ? (
                   <div className="sf-status-selector">
@@ -311,6 +366,53 @@ export function HouseholdList() {
                       </div>
                     )}
                   </div>
+                ) : filterType === 'occupancy' ? (
+                  <div className="sf-status-selector">
+                    {occupancyFilterLabel ? (
+                      <span
+                        className={`sf-status-badge sf-status-badge__active`}
+                      >
+                        {occupancyFilterLabel}
+                        <button
+                          type="button"
+                          className="sf-status-badge-clear"
+                          onClick={handleOccupancyClear}
+                          aria-label="Hapus filter status hunian"
+                          title="Hapus filter status hunian"
+                        >
+                          <CloseOutlined style={{ fontSize: 10 }} />
+                        </button>
+                      </span>
+                    ) : (
+                      <div className="sf-status-dropdown">
+                        <button
+                          type="button"
+                          className="sf-status-selector-trigger"
+                          onClick={() => setOccupancyOpen(!occupancyOpen)}
+                          aria-haspopup="listbox"
+                          aria-expanded={occupancyOpen}
+                        >
+                          Pilih Status Hunian
+                          <DownOutlined style={{ fontSize: 9, color: 'var(--sf-text-muted)' }} />
+                        </button>
+                        {occupancyOpen && (
+                          <div className="sf-status-dropdown-menu" role="listbox">
+                            {occupancyOptions.map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                className={`sf-status-dropdown-item ${occupancyFilter === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
+                                onClick={() => handleOccupancySelect(opt.value)}
+                                role="button"
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ) : null
               }
             />
@@ -339,14 +441,14 @@ export function HouseholdList() {
         )}
 
         {/* Empty */}
-        {!loading && !error && householdList.length === 0 && (
+        {!loading && !error && filteredResidents.length === 0 && (
           <div className="sf-empty-banner">
             Tidak ada data warga.
           </div>
         )}
 
-        {/* Household Table */}
-        {!loading && householdList.length > 0 && (
+        {/* Resident Table */}
+        {!loading && filteredResidents.length > 0 && (
           <div className="table-wrapper">
             <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
               <thead>
@@ -354,27 +456,27 @@ export function HouseholdList() {
                   <th className="col-rt" style={colStyles.rt}>RT</th>
                   <th className="col-rw" style={colStyles.rw}>RW</th>
                   <th className="col-rt-name" style={colStyles.rtName}>NAMA RT</th>
-                  <th className="col-house-number" style={colStyles.houseNumber}>NOMOR RUMAH</th>
-                  <th className="col-address" style={colStyles.address}>ALAMAT</th>
-                  <th className="col-occupancy" style={colStyles.occupancy}>STATUS HUNIAN</th>
                   <th className="col-name" style={colStyles.name}>NAMA</th>
                   {showNik && <th className="col-nik" style={colStyles.nik}>NIK</th>}
                   <th className="col-phone" style={colStyles.phone}>TELEPON</th>
                   <th className="col-email" style={colStyles.email}>EMAIL</th>
+                  <th className="col-occupancy-status" style={colStyles.occupancyStatus}>STATUS HUNIAN</th>
                   <th className="col-start-date" style={colStyles.startDate}>TANGGAL MULAI</th>
                   <th className="col-end-date" style={colStyles.endDate}>TANGGAL SELESAI</th>
+                  <th className="col-jabatan" style={colStyles.jabatan}>JABATAN</th>
                   <th className="col-status" style={colStyles.status}>STATUS</th>
                   {showAksi && <th className="col-action" style={colStyles.action}>AKSI</th>}
                 </tr>
               </thead>
               <tbody>
-                {householdList.map((hh) => (
-                  <HouseholdRow
-                    key={hh.id}
-                    household={hh}
-                    onEdit={handleEdit}
+                {filteredResidents.map((resident) => (
+                  <ResidentRow
+                    key={resident.id}
+                    resident={resident}
                     showNik={showNik}
                     showAksi={showAksi}
+                    onDetail={handleDetail}
+                    onEdit={handleEdit}
                   />
                 ))}
               </tbody>
@@ -383,7 +485,7 @@ export function HouseholdList() {
         )}
 
         {/* Pagination */}
-        {!loading && householdList.length > 0 && (
+        {!loading && filteredResidents.length > 0 && (
           <Pagination
             page={page}
             pageSize={pageSize}
@@ -399,99 +501,99 @@ export function HouseholdList() {
   )
 }
 
-interface HouseholdRowProps {
-  household: ApiHousehold
-  onEdit: (hh: ApiHousehold) => void
+interface ResidentRowProps {
+  resident: ApiResident
   showNik: boolean
   showAksi: boolean
+  onDetail: (id: string) => void
+  onEdit: (id: string) => void
 }
 
-function HouseholdRow({ household, onEdit, showNik, showAksi }: HouseholdRowProps) {
-  const startDateRaw = household.start_date ?? household.head_resident?.start_date ?? household.created_at
-  const startDate = formatStrictDate(startDateRaw)
+function ResidentRow({ resident, showNik, showAksi, onDetail, onEdit }: ResidentRowProps) {
+  const startDate = formatStrictDate(resident.start_date)
+  const endDate = formatStrictDate(resident.end_date)
 
-  const endDateRaw = household.end_date ?? household.head_resident?.end_date ?? null
-  const endDate = formatStrictDate(endDateRaw)
+  const occupancy = formatOccupancyStatus(resident.occupancy_status)
+  const jabatanLabel = getJabatanLabel(resident.jabatan)
+  const jabatanColor = getJabatanColor(resident.jabatan)
 
   return (
     <tr>
       {/* 1. RT */}
       <td className="col-rt" style={colStyles.rt}>
-        {formatIntegerOnly(household.head_resident?.rt_number ?? null)}
+        {formatIntegerOnly(resident.rt_number ?? null)}
       </td>
 
       {/* 2. RW */}
       <td className="col-rw" style={colStyles.rw}>
-        {formatIntegerOnly(household.head_resident?.rw ?? null)}
+        {formatIntegerOnly(resident.rw ?? null)}
       </td>
 
       {/* 3. NAMA RT */}
       <td className="col-rt-name" style={colStyles.rtName}>
-        {formatNull(household.head_resident?.rt_name ?? null)}
+        {formatNull(resident.rt_name ?? null)}
       </td>
 
-      {/* 4. NOMOR RUMAH */}
-      <td className="col-house-number" style={colStyles.houseNumber}>
-        {formatNull(household.house_number)}
-      </td>
-
-      {/* 5. ALAMAT */}
-      <td className="col-address" style={colStyles.address}>
-        {formatNull(household.address)}
-      </td>
-
-      {/* 6. STATUS HUNIAN */}
-      <td className="col-occupancy" style={colStyles.occupancy}>
-        <Badge variant={occupancyBadgeVariant(household.occupancy_status)}>
-          {occupancyLabel(household.occupancy_status)}
-        </Badge>
-      </td>
-
-      {/* 7. NAMA */}
+      {/* 4. NAMA */}
       <td className="col-name" style={{ ...colStyles.name, fontWeight: 600 }}>
-        {household.head_name}
+        {resident.full_name}
       </td>
 
-      {/* 8. NIK */}
+      {/* 5. NIK */}
       {showNik && (
         <td className="col-nik" style={colStyles.nik}>
-          {formatNull(household.nik ?? household.head_resident?.nik ?? null)}
+          {formatNull(resident.nik ?? null)}
         </td>
       )}
 
-      {/* 9. TELEPON */}
+      {/* 6. TELEPON */}
       <td className="col-phone" style={colStyles.phone}>
-        {formatNull(household.phone ?? household.head_resident?.phone ?? null)}
+        {formatNull(resident.phone ?? null)}
       </td>
 
-      {/* 10. EMAIL */}
+      {/* 7. EMAIL */}
       <td className="col-email" style={colStyles.email}>
-        {formatNull(household.email ?? household.head_resident?.email ?? null)}
+        {formatNull(resident.email ?? null)}
       </td>
 
-      {/* 11. TANGGAL MULAI */}
+      {/* 8. STATUS HUNIAN */}
+      <td className="col-occupancy-status" style={colStyles.occupancyStatus}>
+        <Badge variant={occupancy.variant}>
+          {occupancy.label}
+        </Badge>
+      </td>
+
+      {/* 9. TANGGAL MULAI */}
       <td className="col-start-date" style={colStyles.startDate}>
         {startDate}
       </td>
 
-      {/* 12. TANGGAL SELESAI */}
+      {/* 10. TANGGAL SELESAI */}
       <td className="col-end-date" style={colStyles.endDate}>
         {endDate}
       </td>
 
-      {/* 13. STATUS */}
-      <td className="col-status" style={colStyles.status}>
-        <Badge variant={statusBadge(household.is_active)}>
-          {statusLabel(household.is_active)}
+      {/* 11. JABATAN */}
+      <td className="col-jabatan" style={colStyles.jabatan}>
+        <Badge variant={jabatanColor}>
+          {jabatanLabel}
         </Badge>
       </td>
 
-      {/* 14. AKSI */}
+      {/* 12. STATUS */}
+      <td className="col-status" style={colStyles.status}>
+        <Badge variant={statusBadge(resident.is_active)}>
+          {statusLabel(resident.is_active)}
+        </Badge>
+      </td>
+
+      {/* 13. AKSI */}
       {showAksi && (
         <td className="col-action" style={colStyles.action}>
           <RowActionMenu
             items={[
-              { label: 'Ubah', onClick: () => onEdit(household) },
+              { label: 'Detail', onClick: () => onDetail(resident.id) },
+              { label: 'Ubah', onClick: () => onEdit(resident.household_id!) },
             ]}
           />
         </td>

@@ -28,13 +28,49 @@ var ValidRoles = map[Role]bool{
 	RoleWarga:     true,
 }
 
+// Jabatan represents an RT organizational position (jabatan).
+type Jabatan string
+
+const (
+	JabatanKetua               Jabatan = "ketua"
+	JabatanWakilKetua          Jabatan = "wakil_ketua"
+	JabatanSekretaris          Jabatan = "sekretaris"
+	JabatanBendahara           Jabatan = "bendahara"
+	JabatanKeamanan            Jabatan = "keamanan"
+	JabatanSosial              Jabatan = "sosial"
+	JabatanKebersihanPembangunan Jabatan = "kebersihan_pembangunan"
+)
+
+// ValidJabatans maps recognized RT positions.
+var ValidJabatans = map[Jabatan]bool{
+	JabatanKetua:               true,
+	JabatanWakilKetua:          true,
+	JabatanSekretaris:          true,
+	JabatanBendahara:           true,
+	JabatanKeamanan:            true,
+	JabatanSosial:              true,
+	JabatanKebersihanPembangunan: true,
+}
+
+// AllJabatans returns all valid jabatan values in a stable order.
+var AllJabatans = []Jabatan{
+	JabatanKetua,
+	JabatanWakilKetua,
+	JabatanSekretaris,
+	JabatanBendahara,
+	JabatanKeamanan,
+	JabatanSosial,
+	JabatanKebersihanPembangunan,
+}
+
 // AuthContext is attached to the request context after successful
 // authentication. All authorised handlers derive rtID, userID, etc. from
 // this — never from request body or query parameters.
 type AuthContext struct {
 	UserID       string
 	SystemRole   SystemRole // empty if the user has no global authorization
-	MembershipID string     // empty for system-only users
-	RTID         string     // empty for system-only users
-	TenantRole   Role       // empty for system-only users
+	MembershipID string     // empty for system-only auth
+	RTID         string     // empty for system-only auth
+	TenantRole   Role       // empty for system-only auth
+	Jabatan      Jabatan    // empty if no position assigned
 }

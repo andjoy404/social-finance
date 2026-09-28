@@ -40,7 +40,10 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Ringkasan Keuangan', style: widget.theme.textTheme.titleMedium),
+            Text(
+              'Ringkasan Keuangan',
+              style: widget.theme.textTheme.titleMedium,
+            ),
             const SizedBox(height: 20),
             SizedBox(
               height: 200,
@@ -115,7 +118,9 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
                     horizontalInterval: _calcInterval(),
                     getDrawingHorizontalLine: (value) {
                       return FlLine(
-                        color: widget.theme.dividerColor.withValues(alpha: 0.15),
+                        color: widget.theme.dividerColor.withValues(
+                          alpha: 0.15,
+                        ),
                         strokeWidth: 1,
                       );
                     },

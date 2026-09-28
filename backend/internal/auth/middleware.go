@@ -4,8 +4,10 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	httpx "social-finance/internal/http"
+	"social-finance/internal/database"
 )
 
 const authContextKey = "auth"
@@ -47,6 +49,7 @@ func RequireAuth(next http.Handler) http.Handler {
 			RTID:         claims.RTID,
 			SystemRole:   SystemRole(claims.SysRole),
 			TenantRole:   Role(claims.Role),
+			Jabatan:      Jabatan(claims.Jabatan),
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -130,6 +133,68 @@ func RequireRole(allowed ...Role) func(http.Handler) http.Handler {
 				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
 				return
 			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequirePermission returns a middleware that enforces position-based permissions
+// for jabatan-based users. Role-based users (no jabatan) and super_admin always pass.
+//
+// The middleware queries permission_types and position_permissions via the database
+// pool, scoped to the authenticated user's RTID from JWT claims.
+//
+// Usage:
+//
+//	r.Group(func(r chi.Router) {
+//	    r.Use(auth.RequireAuth)
+//	    r.Use(auth.RequirePermission(pool, "warga.create"))
+//	    r.Post("/api/v1/residents", createResident)
+//	})
+func RequirePermission(pool *database.Pool, permission string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
+			if !ok || ac == nil {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+				return
+			}
+
+			// Super admin always passes.
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Role-based users (no jabatan) pass through — RequireRole enforces their access.
+			if ac.Jabatan == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// jabatan-based user: resolve permission from DB.
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer cancel()
+
+			tx, err := pool.BeginTx(ctx)
+			if err != nil {
+				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+				return
+			}
+			defer tx.Rollback()
+
+			pr := NewPermissionResolver(pool)
+			has, err := pr.HasPermission(ctx, tx, ac, permission)
+			if err != nil {
+				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to check permission")
+				return
+			}
+
+			if !has {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+				return
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}

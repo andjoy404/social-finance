@@ -17,6 +17,7 @@ var SigningSecret []byte
 //   - mid: membership UUID (empty for system-only auth)
 //   - rt_id: RT UUID (empty for system-only auth)
 //   - role: tenant role string (e.g. "bendahara", empty for system-only)
+//   - jabatan: RT organizational position (e.g. "ketua", empty if not assigned)
 //   - sys_role: system role (e.g. "super_admin", empty for tenant-only)
 //   - exp, iat, jti: registered claims
 type TokenClaims struct {
@@ -24,6 +25,7 @@ type TokenClaims struct {
 	MID     string `json:"mid"`
 	RTID    string `json:"rt_id"`
 	Role    string `json:"role"`
+	Jabatan string `json:"jabatan"`
 	SysRole string `json:"sys_role"`
 	jwt.RegisteredClaims
 }
