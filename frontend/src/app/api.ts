@@ -608,3 +608,55 @@ export async function moveResident(token: string, id: string, body: ApiMoveResid
   if (!data) throw new ApiError('unexpected', 'Response data missing')
   return data
 }
+
+// ── Special Resident (Petugas Khusus) ────────────────────────────────────────
+
+export interface ApiSpecialResidentCreateBody {
+  rt_id: string
+  jabatan: 'keamanan' | 'kebersihan_pembangunan'
+  full_name: string
+  nik: string
+  phone: string
+  email: string
+}
+
+export interface ApiSpecialResidentUpdateBody {
+  full_name?: string
+  nik?: string
+  phone?: string
+  email?: string
+  jabatan?: 'keamanan' | 'kebersihan_pembangunan'
+  is_active?: boolean
+}
+
+export async function createSpecialResident(
+  token: string,
+  body: ApiSpecialResidentCreateBody,
+): Promise<ApiResident | void> {
+  const res = await authenticatedApiRequest(BASE + '/residents/special', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (res.status === 204) return
+  const data = await json<ApiResident>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function updateSpecialResident(
+  token: string,
+  id: string,
+  body: ApiSpecialResidentUpdateBody,
+): Promise<ApiResident> {
+  const res = await authenticatedApiRequest(BASE + '/residents/special/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiResident>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}

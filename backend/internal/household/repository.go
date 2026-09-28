@@ -986,35 +986,83 @@ func HouseholdDeactivate(ctx context.Context, tx *sql.Tx, id, rtID string) error
 
 // ResidentCreate creates a new resident attached to the current occupancy of the specified household.
 func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtID string) (*Resident, error) {
-	// 1. Verify household exists, is active, and belongs to RT
-	var hhID string
-	err := tx.QueryRowContext(ctx,
-		`SELECT id FROM households WHERE id = $1 AND rt_id = $2 AND is_active = true`,
-		in.HouseholdID, rtID,
-	).Scan(&hhID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
+	// Determine if this is a special resident (no household).
+	isSpecial := in.HouseholdID == nil || *in.HouseholdID == ""
+
+	if !isSpecial {
+		// 1. Verify household exists, is active, and belongs to RT
+		var hhID string
+		err := tx.QueryRowContext(ctx,
+			`SELECT id FROM households WHERE id = $1 AND rt_id = $2 AND is_active = true`,
+			*in.HouseholdID, rtID,
+		).Scan(&hhID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, fmt.Errorf("validate household: %w", err)
 		}
-		return nil, fmt.Errorf("validate household: %w", err)
+
+		// 2. Find current occupancy for household
+		var hoID string
+		err = tx.QueryRowContext(ctx,
+			`SELECT id FROM household_occupancies WHERE household_id = $1 AND end_date IS NULL LIMIT 1`,
+			hhID,
+		).Scan(&hoID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, ErrNoCurrentOccupancy
+			}
+			return nil, fmt.Errorf("find current occupancy: %w", err)
+		}
+
+		// 3. Insert resident (household_id is no longer on residents — tracked via residency_periods)
+		var item Resident
+		err = tx.QueryRowContext(ctx,
+			`INSERT INTO residents (rt_id, full_name, phone, nik, email, is_active)
+			 VALUES ($1, $2, $3, $4, $5, true)
+			 RETURNING id, rt_id, full_name, phone, nik, email, is_active, created_at, updated_at`,
+			rtID, in.FullName, in.Phone, in.Nik, in.Email,
+		).Scan(
+			&item.ID, &item.RTID, &item.FullName, &item.Phone,
+			&item.Nik, &item.Email, &item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+		)
+		if err != nil {
+			if isPGNikViolation(err) {
+				return nil, ErrDuplicateNik
+			}
+			return nil, fmt.Errorf("create resident: %w", err)
+		}
+
+		// 4. Create current residency period
+		var startDate *time.Time
+		if in.StartDate != nil && *in.StartDate != "" {
+			d, parseErr := time.Parse("2006-01-02", *in.StartDate)
+			if parseErr != nil {
+				return nil, ErrInvalidDate
+			}
+			startDate = &d
+		} else {
+			now := time.Now().UTC().Truncate(24 * time.Hour)
+			startDate = &now
+		}
+
+		var rpID string
+		err = tx.QueryRowContext(ctx,
+			`INSERT INTO residency_periods (resident_id, household_occupancy_id, relationship_to_head, start_date, end_date)
+			 VALUES ($1, $2, $3, $4, NULL) RETURNING id`,
+			item.ID, hoID, in.RelationshipToHead, startDate,
+		).Scan(&rpID)
+		if err != nil {
+			return nil, fmt.Errorf("create residency period: %w", err)
+		}
+
+		return ResidentGetByID(ctx, tx, item.ID, rtID)
 	}
 
-	// 2. Find current occupancy for household
-	var hoID string
-	err = tx.QueryRowContext(ctx,
-		`SELECT id FROM household_occupancies WHERE household_id = $1 AND end_date IS NULL LIMIT 1`,
-		hhID,
-	).Scan(&hoID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNoCurrentOccupancy
-		}
-		return nil, fmt.Errorf("find current occupancy: %w", err)
-	}
-
-	// 3. Insert resident
+	// ── Special resident path (no household) ──
 	var item Resident
-	err = tx.QueryRowContext(ctx,
+	err := tx.QueryRowContext(ctx,
 		`INSERT INTO residents (rt_id, full_name, phone, nik, email, is_active)
 		 VALUES ($1, $2, $3, $4, $5, true)
 		 RETURNING id, rt_id, full_name, phone, nik, email, is_active, created_at, updated_at`,
@@ -1027,30 +1075,7 @@ func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtI
 		if isPGNikViolation(err) {
 			return nil, ErrDuplicateNik
 		}
-		return nil, fmt.Errorf("create resident: %w", err)
-	}
-
-	// 4. Create current residency period
-	var startDate *time.Time
-	if in.StartDate != nil && *in.StartDate != "" {
-		d, parseErr := time.Parse("2006-01-02", *in.StartDate)
-		if parseErr != nil {
-			return nil, ErrInvalidDate
-		}
-		startDate = &d
-	} else {
-		now := time.Now().UTC().Truncate(24 * time.Hour)
-		startDate = &now
-	}
-
-	var rpID string
-	err = tx.QueryRowContext(ctx,
-		`INSERT INTO residency_periods (resident_id, household_occupancy_id, relationship_to_head, start_date, end_date)
-		 VALUES ($1, $2, $3, $4, NULL) RETURNING id`,
-		item.ID, hoID, in.RelationshipToHead, startDate,
-	).Scan(&rpID)
-	if err != nil {
-		return nil, fmt.Errorf("create residency period: %w", err)
+		return nil, fmt.Errorf("create special resident: %w", err)
 	}
 
 	return ResidentGetByID(ctx, tx, item.ID, rtID)
@@ -1183,6 +1208,9 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 	}
 	if rpStart.Valid {
 		item.StartDate = stringPtr(rpStart.Time.Format("2006-01-02"))
+	}
+	if jabatanStr.Valid {
+		item.Jabatan = &jabatanStr.String
 	}
 
 	return &item, nil

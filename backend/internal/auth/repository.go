@@ -283,7 +283,7 @@ func RTMembershipFindByID(ctx context.Context, tx *sql.Tx, id string) (*Membersh
 func CreateNewUser(ctx context.Context, tx *sql.Tx, email string, phone *string, passwordHash, fullname, systemRole string) (string, error) {
 	query := `
 		INSERT INTO users (email, phone, password_hash, full_name, system_role)
-		VALUES ($1, $2, $3, $4, $5)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''))
 		RETURNING id
 	`
 	var id string

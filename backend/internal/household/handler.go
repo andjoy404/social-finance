@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -735,26 +736,31 @@ func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
 		return
 	}
-	if req.HouseholdID == "" {
-		httpx.WriteValidationError(w, "household_id is required", nil)
-		return
-	}
 
 	// Resolve target RT: tenant users use authenticated RT;
-	// system super_admin without RT resolves it from the target household.
-	rtID, ok := h.resolveRTID(w, r, func(ctx context.Context, tx *sql.Tx) (string, error) {
-		return HouseholdGetRTByID(ctx, tx, req.HouseholdID)
-	})
-	if !ok {
-		return
+	// system super_admin without RT resolves it from the target household (if provided).
+	// For special residents (no household_id), RT comes from auth context only.
+	var rtID string
+	var ok bool
+	if req.HouseholdID != nil && *req.HouseholdID != "" {
+		rtID, ok = h.resolveRTID(w, r, func(ctx context.Context, tx *sql.Tx) (string, error) {
+			return HouseholdGetRTByID(ctx, tx, *req.HouseholdID)
+		})
+		if !ok {
+			return
+		}
+	} else {
+		// Special resident: RT must come from auth context (not from client).
+		ac := auth.GetAuthContext(r)
+		if ac == nil || ac.RTID == "" {
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+			return
+		}
+		rtID = ac.RTID
 	}
 
 	if req.FullName == "" {
 		httpx.WriteValidationError(w, "full_name is required", nil)
-		return
-	}
-	if req.HouseholdID == "" {
-		httpx.WriteValidationError(w, "household_id is required", nil)
 		return
 	}
 	if req.Nik == nil || strings.TrimSpace(*req.Nik) == "" {
@@ -1173,4 +1179,400 @@ func (h *Handler) DeactivateResident(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Special Resident (keamanan, kebersihan_pembangunan)
+// No household chain — user account + membership + household-less resident.
+// ────────────────────────────────────────────────────────────────────────
+
+// validSpecialJabatans is the allowed set of jabatan for special residents.
+var validSpecialJabatans = map[string]bool{
+	"keamanan":                    true,
+	"kebersihan_pembangunan": true,
+}
+
+// SpecialResidentCreateRequest is the body for POST /api/v1/residents/special.
+type SpecialResidentCreateRequest struct {
+	RTID     string `json:"rt_id,omitempty"`
+	Jabatan  string `json:"jabatan"`
+	FullName string `json:"full_name"`
+	Nik      string `json:"nik"`
+	Phone    string `json:"phone"`
+	Email    string `json:"email"`
+}
+
+// CreateSpecialResident handles POST /api/v1/residents/special.
+// Creates: user → membership (pengurus + jabatan) → resident (household_id=NULL).
+func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) {
+	var req SpecialResidentCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
+		return
+	}
+
+	if req.Jabatan == "" {
+		httpx.WriteValidationError(w, "jabatan is required", nil)
+		return
+	}
+	if !validSpecialJabatans[req.Jabatan] {
+		httpx.WriteValidationError(w, "jabatan must be 'keamanan' or 'kebersihan_pembangunan'", nil)
+		return
+	}
+	if req.FullName == "" {
+		httpx.WriteValidationError(w, "full_name is required", nil)
+		return
+	}
+	if req.Nik == "" {
+		httpx.WriteValidationError(w, "nik is required", nil)
+		return
+	}
+	trimmedNik := strings.TrimSpace(req.Nik)
+	if err := ValidateNik(trimmedNik); err != nil {
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+	if req.Phone == "" {
+		httpx.WriteValidationError(w, "phone is required", nil)
+		return
+	}
+	canonPhone, phoneErr := NormalizePhone(req.Phone)
+	if phoneErr != nil {
+		httpx.WriteValidationError(w, phoneErr.Error(), nil)
+		return
+	}
+	if req.Email == "" {
+		httpx.WriteValidationError(w, "email is required", nil)
+		return
+	}
+	if err := ValidateEmail(req.Email); err != nil {
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+	canonEmail := NormalizeEmail(req.Email)
+
+	// Resolve RTID: non-super-admin uses their authenticated RT.
+	// Super-admin without RTID must provide rt_id in the body.
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.RTID == "" {
+		if ac == nil || ac.SystemRole != auth.SystemRoleSuperAdmin {
+			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+			return
+		}
+		// System-level super admin: resolve from body rt_id
+		if req.RTID == "" {
+			httpx.WriteValidationError(w, "rt_id is required for super admin", nil)
+			return
+		}
+		// Validate the RT exists
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		tx, err := h.pool.BeginTx(ctx)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+			return
+		}
+		defer tx.Rollback()
+		var rtName string
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM rts WHERE id = $1 AND is_active = true`, req.RTID).Scan(&rtName); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				httpx.WriteNotFound(w, "RT not found")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify RT")
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not verify RT")
+			return
+		}
+		ac.RTID = req.RTID
+	} else {
+		// Tenant users: enforce their own RT
+		req.RTID = ac.RTID
+	}
+	rtID := ac.RTID
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	tx, err := h.pool.BeginTx(ctx)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// 1. Create user (upsert by normalized email)
+	passwordHash, err := auth.Hash("SpecialResident123!")
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to hash password")
+		return
+	}
+	userID, err := auth.CreateNewUser(ctx, tx, canonEmail, &canonPhone, passwordHash, strings.TrimSpace(req.FullName), "")
+	if err != nil {
+		// User may already exist — query by normalized email to get the existing ID
+		existingUser, userErr := auth.UsersFindByEmail(ctx, tx, canonEmail)
+		if userErr != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create user")
+			return
+		}
+		userID = existingUser.ID
+	}
+
+	// 2. Upsert membership (pengurus + jabatan)
+	memQ := `
+		INSERT INTO user_rt_memberships (user_id, rt_id, role, jabatan, is_active)
+		VALUES ($1, $2, $3, $4, true)
+		ON CONFLICT (user_id, rt_id) WHERE is_active = true DO UPDATE SET
+			role = EXCLUDED.role,
+			jabatan = EXCLUDED.jabatan,
+			updated_at = now()
+	`
+	if _, err := tx.ExecContext(ctx, memQ, userID, rtID, string(auth.RolePengurus), req.Jabatan); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create membership")
+		return
+	}
+
+	// 3. Create resident with household_id = NULL
+	var resident Resident
+	err = tx.QueryRowContext(ctx,
+		`INSERT INTO residents (rt_id, user_id, full_name, phone, nik, email, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $6, true)
+		 RETURNING id, rt_id, full_name, phone, nik, email, is_active, created_at, updated_at`,
+		rtID, userID, req.FullName, canonPhone, strings.TrimSpace(req.Nik), canonEmail,
+	).Scan(
+		&resident.ID, &resident.RTID, &resident.FullName, &resident.Phone,
+		&resident.Nik, &resident.Email, &resident.IsActive, &resident.CreatedAt, &resident.UpdatedAt,
+	)
+	if err != nil {
+		if isPGNikViolation(err) {
+			httpx.WriteConflict(w, "duplicate NIK within RT")
+			return
+		}
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create resident")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to commit")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resident)
+}
+
+// SpecialResidentUpdateRequest is the body for PATCH /api/v1/residents/special/:id.
+type SpecialResidentUpdateRequest struct {
+	FullName *string `json:"full_name,omitempty"`
+	Nik      *string `json:"nik,omitempty"`
+	Phone    *string `json:"phone,omitempty"`
+	Email    *string `json:"email,omitempty"`
+	Jabatan  *string `json:"jabatan,omitempty"`
+	IsActive *bool   `json:"is_active,omitempty"`
+}
+
+// UpdateSpecialResident handles PATCH /api/v1/residents/special/:id.
+// Updates resident personal fields + membership jabatan in one transaction.
+func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+
+	var req SpecialResidentUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
+		return
+	}
+
+	// At least one field must be provided
+	if req.FullName == nil && req.Nik == nil && req.Phone == nil && req.Email == nil && req.Jabatan == nil && req.IsActive == nil {
+		httpx.WriteValidationError(w, "at least one field must be provided", nil)
+		return
+	}
+
+	// Validate jabatan if provided
+	if req.Jabatan != nil {
+		if !validSpecialJabatans[*req.Jabatan] {
+			httpx.WriteValidationError(w, "jabatan must be 'keamanan' or 'kebersihan_pembangunan'", nil)
+			return
+		}
+	}
+
+	ac := auth.GetAuthContext(r)
+	if ac == nil || (ac.RTID == "" && ac.SystemRole != auth.SystemRoleSuperAdmin) {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	tx, err := h.pool.BeginTx(ctx)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// 1. Find the resident and verify it's a special resident (no household)
+	var resident Resident
+	var userID sql.NullString
+	err = tx.QueryRowContext(ctx,
+		`SELECT id, rt_id, full_name, phone, nik, email, user_id, is_active, created_at, updated_at
+		 FROM residents WHERE id = $1 AND is_active = true`,
+		id,
+	).Scan(
+		&resident.ID, &resident.RTID, &resident.FullName, &resident.Phone,
+		&resident.Nik, &resident.Email, &userID, &resident.IsActive,
+		&resident.CreatedAt, &resident.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteNotFound(w, "special resident not found")
+			return
+		}
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to find resident")
+		return
+	}
+
+	// Verify the resident has no active residency period (special residents have none).
+	var activePeriodCount int
+	err = tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM residency_periods
+		 WHERE resident_id = $1 AND end_date IS NULL`, id,
+	).Scan(&activePeriodCount)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify resident type")
+		return
+	}
+	if activePeriodCount > 0 {
+		httpx.WriteConflict(w, "not a special resident — has active residency period")
+		return
+	}
+
+	// Verify RT access: tenant users can only update their own RT
+	if ac.RTID != "" && resident.RTID != ac.RTID {
+		httpx.WriteNotFound(w, "special resident not found")
+		return
+	}
+	rtID := resident.RTID
+
+	// 2. Update resident fields
+	hasChanges := false
+	var fields []updateField
+	var args []interface{}
+	argIdx := 1
+
+	if req.FullName != nil {
+		trimmed := strings.TrimSpace(*req.FullName)
+		if trimmed == "" {
+			httpx.WriteValidationError(w, "full_name cannot be empty", nil)
+			return
+		}
+		fields = append(fields, updateField{"full_name", trimmed})
+		args = append(args, trimmed)
+		argIdx++
+	}
+	if req.Phone != nil {
+		trimmed := strings.TrimSpace(*req.Phone)
+		if trimmed == "" {
+			httpx.WriteValidationError(w, "phone cannot be empty", nil)
+			return
+		}
+		normalized, normErr := NormalizePhone(trimmed)
+		if normErr != nil {
+			httpx.WriteValidationError(w, normErr.Error(), nil)
+			return
+		}
+		fields = append(fields, updateField{"phone", normalized})
+		args = append(args, normalized)
+		argIdx++
+	}
+	if req.Nik != nil {
+		trimmed := strings.TrimSpace(*req.Nik)
+		if trimmed == "" {
+			httpx.WriteValidationError(w, "nik cannot be empty", nil)
+			return
+		}
+		if err := ValidateNik(trimmed); err != nil {
+			httpx.WriteValidationError(w, err.Error(), nil)
+			return
+		}
+		fields = append(fields, updateField{"nik", trimmed})
+		args = append(args, trimmed)
+		argIdx++
+	}
+	if req.Email != nil {
+		trimmed := strings.TrimSpace(*req.Email)
+		if trimmed == "" {
+			httpx.WriteValidationError(w, "email cannot be empty", nil)
+			return
+		}
+		if err := ValidateEmail(trimmed); err != nil {
+			httpx.WriteValidationError(w, err.Error(), nil)
+			return
+		}
+		fields = append(fields, updateField{"email", NormalizeEmail(trimmed)})
+		args = append(args, NormalizeEmail(trimmed))
+		argIdx++
+	}
+	if req.IsActive != nil {
+		fields = append(fields, updateField{"is_active", *req.IsActive})
+		args = append(args, *req.IsActive)
+		argIdx++
+	}
+
+	if len(fields) > 0 {
+		query := `UPDATE residents SET ` + setClause(fields, 0) +
+			`, updated_at = now() WHERE id = $` + fmt.Sprint(len(fields)+1) +
+			` AND rt_id = $` + fmt.Sprint(len(fields)+2) + ` AND is_active = true`
+		args = append(args, id, rtID)
+		result, execErr := tx.ExecContext(ctx, query, args...)
+		if execErr != nil {
+			if isPGNikViolation(execErr) {
+				httpx.WriteConflict(w, "duplicate NIK within RT")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to update resident")
+			return
+		}
+		rows, _ := result.RowsAffected()
+		if rows == 0 {
+			httpx.WriteNotFound(w, "special resident not found")
+			return
+		}
+		hasChanges = true
+	}
+
+	// 3. Update membership jabatan if provided
+	if req.Jabatan != nil {
+		memUpdateQ := `
+			UPDATE user_rt_memberships SET jabatan = $1, updated_at = now()
+			WHERE user_id = $2 AND rt_id = $3 AND is_active = true
+		`
+		if _, err := tx.ExecContext(ctx, memUpdateQ, *req.Jabatan, userID.String, rtID); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to update jabatan")
+			return
+		}
+		hasChanges = true
+	}
+
+	if !hasChanges {
+		httpx.WriteNotFound(w, "no changes to apply")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to commit")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resident)
 }

@@ -274,12 +274,6 @@ var CanonicalResidencyPeriods = []ResidencyPeriodSeed{
 // All users share the password "TestUser123!".
 // NEVER include Super Admin here.
 var CanonicalUsers = []UserSeed{
-	// Pengurus for RT 03 - 06
-	{ID: "11110001-0000-4000-8000-000000000001", Email: "pengurus.rt03@example.com", Phone: "+6281300000003", FullName: "Pengurus RT 03", Role: "pengurus", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
-	{ID: "11110002-0000-4000-8000-000000000001", Email: "pengurus.rt04@example.com", Phone: "+6281400000004", FullName: "Pengurus RT 04", Role: "pengurus", RTID: "efb70405-09f5-48a0-ad14-34802cf09e3b"},
-	{ID: "11110003-0000-4000-8000-000000000001", Email: "pengurus.rt05@example.com", Phone: "+6281500000005", FullName: "Pengurus RT 05", Role: "pengurus", RTID: "5106197a-c4e4-4bbc-8ef7-921d7208717d"},
-	{ID: "11110004-0000-4000-8000-000000000001", Email: "pengurus.rt06@example.com", Phone: "+6281600000006", FullName: "Pengurus RT 06", Role: "pengurus", RTID: "a3390720-dd56-4b28-92b1-43f384f584cd"},
-
 	// Dedicated Warga accounts for RT 03 - 06
 	{ID: "22220001-0000-4000-8000-000000000001", Email: "warga.rt03@example.com", Phone: "+6281300000030", FullName: "Warga RT 03", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
 	{ID: "22220002-0000-4000-8000-000000000001", Email: "warga.rt04@example.com", Phone: "+6281400000040", FullName: "Warga RT 04", Role: "warga", RTID: "efb70405-09f5-48a0-ad14-34802cf09e3b"},

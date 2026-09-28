@@ -509,6 +509,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Post("/api/v1/residents/{id}/move", hh.MoveResident)
 		r.Patch("/api/v1/residents/{id}", hh.UpdateResident)
 		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
+		r.Post("/api/v1/residents/special", hh.CreateSpecialResident)
+		r.Patch("/api/v1/residents/special/{id}", hh.UpdateSpecialResident)
 		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
 		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
 		r.Post("/api/v1/warga/import/preview/xlsx", household.HandleWargaImportPreviewXLSX(pool))

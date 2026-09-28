@@ -8,6 +8,7 @@ import { ThemeProvider, useTheme } from '@/app/ThemeProvider'
 import { App } from '@/app/App'
 import '@/styles/global.css'
 import '@/styles/login.css'
+import '@/styles/data-choice.css'
 
 const antdBase = {
   token: {

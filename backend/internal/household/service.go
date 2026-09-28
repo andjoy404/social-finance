@@ -77,6 +77,7 @@ func (s *HouseholdManager) GetAllHouseholdByID(ctx context.Context, tx *sql.Tx, 
 // ─── Resident ───────────────────────────────────────────────────────────────
 
 // CreateResident inserts a new resident, validating that the household belongs to the RT.
+// For special residents (HouseholdID == nil), creates a household-less resident record.
 func (s *HouseholdManager) CreateResident(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtID string) (*Resident, error) {
 	return ResidentCreate(ctx, tx, in, rtID)
 }

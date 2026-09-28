@@ -148,18 +148,25 @@ function RtFormFields({
 
 /* ── Create RT modal page ─────────────────────────────────────────────── */
 
-export function RtCreate() {
-  const { user } = useAuth()
+export function RtCreate({
+  open: openProp,
+  onClose: onCloseProp,
+  onSaved: onSavedProp,
+}: {
+  open?: boolean
+  onClose?: () => void
+  onSaved?: () => void
+} = {}) {
   const navigate = useNavigate()
 
-  if (!user) return null
+  const open = openProp ?? true
+  const handleClose = onCloseProp ?? (() => navigate('/rt'))
+  const handleSave = onSavedProp ?? (() => {})
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [form, setForm] = useState<RtFormState>(emptyForm)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
-
-  const handleClose = () => navigate('/rt')
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -186,7 +193,7 @@ export function RtCreate() {
     try {
       const pair = getSessionPair()
       if (!pair?.accessToken) {
-        navigate('/login')
+        handleClose()
         return
       }
 
@@ -199,11 +206,12 @@ export function RtCreate() {
       }
 
       await apiCreateRT(pair.accessToken, body)
-      navigate('/rt')
+      handleSave()
+      handleClose()
     } catch (err) {
       if (err instanceof ApiError && err.code === 'auth_expired') {
         clearSessionPair()
-        navigate('/login')
+        handleClose()
       } else if (err instanceof ApiError) {
         setError(new ApiError(err.code, err.message || 'Gagal membuat RT.'))
       } else {
@@ -215,7 +223,7 @@ export function RtCreate() {
   }
 
   return (
-    <Modal open onClose={handleClose} width={520}>
+    <Modal open={open} onClose={handleClose} width={520} overlayClassName="sf-modal-overlay-rt">
       <ModalHeader
         title="Tambah RT Baru"
         subtitle="Form pembuatan unit wilayah administratif"
@@ -252,7 +260,7 @@ export function RtCreate() {
 
 /* ── Edit RT modal page ───────────────────────────────────────────────── */
 
-export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved }: { id?: string, onClose?: () => void, onSaved?: () => void }) {
+export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved, overlayClassName }: { id?: string, onClose?: () => void, onSaved?: () => void, overlayClassName?: string }) {
   const { user } = useAuth()
   const { id: routeId } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -360,7 +368,7 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved 
   }
 
   return (
-    <Modal open onClose={handleClose} width={520}>
+    <Modal open onClose={handleClose} width={520} overlayClassName={overlayClassName}>
       <ModalHeader
         title="Ubah RT"
         subtitle="Ubah informasi unit wilayah administratif"

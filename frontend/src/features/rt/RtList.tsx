@@ -2,13 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import { apiListRTs, ApiError, clearSessionPair, getSessionPair, type ApiRT } from '@/app/api'
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
-import { Link } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
 import { ApartmentOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons'
-import { RtEdit } from './RtEdit'
+import { RtEdit, RtCreate } from './RtCreate'
 import { RowActionMenu } from '@/components/RowActionMenu'
 
 type FilterType = 'semua' | 'status'
@@ -50,6 +49,11 @@ export function RtList() {
   const [statusOpen, setStatusOpen] = useState(false)
 
   const [editingRt, setEditingRt] = useState<ApiRT | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+
+  const handleCreate = () => {
+    setCreateOpen(true)
+  }
 
   const fetchRts = useCallback(async (p: number, size: number) => {
     const pair = getSessionPair()
@@ -144,6 +148,7 @@ export function RtList() {
             setEditingRt(null)
             void fetchRts(page, pageSize)
           }}
+          overlayClassName="sf-modal-overlay-rt"
         />
       )}
 
@@ -230,13 +235,14 @@ export function RtList() {
           />
 
           {/* Add RT button */}
-          <Link
-            to="/rt/new"
+          <button
+            type="button"
             className="sf-create-btn"
             style={{ marginLeft: 'auto' }}
+            onClick={handleCreate}
           >
             + Tambah RT
-          </Link>
+          </button>
         </div>
 
         {/* Error */}
@@ -299,6 +305,18 @@ export function RtList() {
             onPageChange={handlePage}
             onPageSizeChange={handlePageSizeChange}
             pageSizeOptions={[10, 25, 50, 100]}
+          />
+        )}
+
+        {/* RtCreate Modal — after table and pagination */}
+        {createOpen && (
+          <RtCreate
+            open={createOpen}
+            onClose={() => setCreateOpen(false)}
+            onSaved={() => {
+              setCreateOpen(false)
+              void fetchRts(page, pageSize)
+            }}
           />
         )}
       </div>

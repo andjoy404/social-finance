@@ -1338,6 +1338,21 @@ input { font-family: inherit; }
   overflow: hidden;
 }
 
+/* ── RT modal: lighter backdrop so table stays visible ──────────────────── */
+
+.sf-modal-overlay-rt {
+  background: rgba(0, 0, 0, 0.25) !important;
+  -webkit-backdrop-filter: blur(3px) !important;
+  backdrop-filter: blur(3px) !important;
+}
+
+/* Override base overlay properties when both classes are present */
+.sf-modal-overlay.sf-modal-overlay-rt {
+  background: rgba(0, 0, 0, 0.25) !important;
+  -webkit-backdrop-filter: blur(3px) !important;
+  backdrop-filter: blur(3px) !important;
+}
+
 .sf-modal-header {
   display: flex;
   align-items: flex-start;

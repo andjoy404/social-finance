@@ -8,18 +8,28 @@ import {
   type ApiResident,
 } from '@/app/api'
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
 import { UserOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons'
 import { RowActionMenu } from '@/components/RowActionMenu'
+import { DataChoiceModal } from './DataChoiceModal'
 
 type FilterType = 'semua' | 'status' | 'occupancy'
 
 type StatusValue = 'aktif' | 'tidak_aktif' | null
 type OccupancyValue = 'semua' | 'OWNER' | 'TENANT'
+
+const validSpecialJabatans: Record<string, boolean> = {
+  keamanan: true,
+  kebersihan_pembangunan: true,
+}
+
+function isSpecialResident(resident: ApiResident): boolean {
+  return validSpecialJabatans[resident.jabatan ?? ''] === true
+}
 
 const statusFilterOptions: { value: FilterType; label: string }[] = [
   { value: 'semua', label: 'Semua' },
@@ -154,6 +164,8 @@ export function ResidentList() {
   const showNik = isPengurus || isSuperAdmin
   const showAksi = !isReadOnly
 
+  const [choiceOpen, setChoiceOpen] = useState(false)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<ApiError | null>(null)
   const [residentList, setResidentList] = useState<ApiResident[]>([])
@@ -278,6 +290,10 @@ export function ResidentList() {
 
   const handleEdit = useCallback((id: string) => {
     navigate(`/warga/${id}/edit`)
+  }, [navigate])
+
+  const handleEditSpecial = useCallback((id: string) => {
+    navigate(`/warga/special/${id}/edit`)
   }, [navigate])
 
   const statusValueLabel: string | null = statusValue === 'aktif' ? 'Aktif' : statusValue === 'tidak_aktif' ? 'Tidak Aktif' : null
@@ -420,11 +436,14 @@ export function ResidentList() {
 
           {/* Create button — hidden for warga (read-only) */}
           {!isReadOnly && (
-            <Link to="/warga/baru" className="sf-create-btn">
+            <button className="sf-create-btn" onClick={() => setChoiceOpen(true)}>
               + Tambah
-            </Link>
+            </button>
           )}
         </div>
+
+        {/* Data Choice Modal */}
+        <DataChoiceModal open={choiceOpen} onClose={() => setChoiceOpen(false)} />
 
         {/* Error */}
         {error && (
@@ -477,6 +496,7 @@ export function ResidentList() {
                     showAksi={showAksi}
                     onDetail={handleDetail}
                     onEdit={handleEdit}
+                    onEditSpecial={handleEditSpecial}
                   />
                 ))}
               </tbody>
@@ -507,9 +527,10 @@ interface ResidentRowProps {
   showAksi: boolean
   onDetail: (id: string) => void
   onEdit: (id: string) => void
+  onEditSpecial: (id: string) => void
 }
 
-function ResidentRow({ resident, showNik, showAksi, onDetail, onEdit }: ResidentRowProps) {
+function ResidentRow({ resident, showNik, showAksi, onDetail, onEdit, onEditSpecial }: ResidentRowProps) {
   const startDate = formatStrictDate(resident.start_date)
   const endDate = formatStrictDate(resident.end_date)
 
@@ -593,7 +614,11 @@ function ResidentRow({ resident, showNik, showAksi, onDetail, onEdit }: Resident
           <RowActionMenu
             items={[
               { label: 'Detail', onClick: () => onDetail(resident.id) },
-              { label: 'Ubah', onClick: () => onEdit(resident.household_id!) },
+              ...(resident.household_id
+                ? [{ label: 'Ubah', onClick: () => onEdit(resident.household_id!) }]
+                : isSpecialResident(resident)
+                  ? [{ label: 'Ubah', onClick: () => onEditSpecial(resident.id) }]
+                  : []),
             ]}
           />
         </td>

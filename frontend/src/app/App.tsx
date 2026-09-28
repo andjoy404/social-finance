@@ -12,6 +12,8 @@ import { ResidentDetail } from '@/features/warga/ResidentDetail'
 import { HouseholdCreate } from '@/features/warga/HouseholdCreate'
 import { HouseholdEdit } from '@/features/warga/HouseholdEdit'
 import { HouseholdMove } from '@/features/warga/HouseholdMove'
+import { SpecialResidentCreate } from '@/features/warga/SpecialResidentCreate'
+import { SpecialResidentEdit } from '@/features/warga/SpecialResidentEdit'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -90,11 +92,15 @@ export function App() {
           element={<WargaLayout />}
         >
           <Route
+            path="baru"
+            element={<Navigate to="/warga" replace />}
+          />
+          <Route
             path=":id"
             element={<ResidentDetail />}
           />
           <Route
-            path="baru"
+            path="household/baru"
             element={<HouseholdCreate />}
           />
           <Route
@@ -104,6 +110,14 @@ export function App() {
           <Route
             path=":id/pindah"
             element={<HouseholdMove />}
+          />
+          <Route
+            path="special/baru"
+            element={<SpecialResidentCreate />}
+          />
+          <Route
+            path="special/:id/edit"
+            element={<SpecialResidentEdit />}
           />
         </Route>
       </Route>

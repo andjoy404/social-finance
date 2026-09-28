@@ -5,10 +5,12 @@ interface ModalProps {
   onClose: () => void
   /** Width in px. Defaults to 520. */
   width?: number
+  /** Custom class for the overlay element. */
+  overlayClassName?: string
   children: React.ReactNode
 }
 
-export function Modal({ open, onClose, width = 520, children }: ModalProps) {
+export function Modal({ open, onClose, width = 520, overlayClassName, children }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
 
   /* Close on Escape */
@@ -44,7 +46,7 @@ export function Modal({ open, onClose, width = 520, children }: ModalProps) {
 
   return (
     <div
-      className="sf-modal-overlay"
+      className={`sf-modal-overlay ${overlayClassName || ''}`.trim()}
       aria-modal="true"
       role="dialog"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
