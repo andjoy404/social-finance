@@ -138,7 +138,7 @@ const colStyles = {
   occupancyStatus: { width: 110, minWidth: 110, maxWidth: 110, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   startDate: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
   endDate: { width: 150, minWidth: 150, maxWidth: 150, textAlign: 'left' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
-  jabatan: { width: 170, minWidth: 170, maxWidth: 170, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  jabatan: { width: 200, minWidth: 200, maxWidth: 200, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
   status: { width: 100, minWidth: 100, maxWidth: 100, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   action: { width: 80, minWidth: 80, maxWidth: 80, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
 }
