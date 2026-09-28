@@ -31,9 +31,23 @@ bool _hasWargaWriteAccess(WidgetRef ref) {
   return (role != null && kWargaWriteRoles.contains(role));
 }
 
-/// Launch the household create screen directly.
+/// Launch DataChoiceDialog and navigate to the selected form.
 void _handleFabPressed(BuildContext context, WidgetRef ref, bool isSuperAdmin) {
-  context.push('/warga/baru');
+  showDialog<void>(
+    context: context,
+    builder: (dialogCtx) {
+      return DataChoiceDialog(
+        onChoice: (choice) {
+          Navigator.of(dialogCtx).pop();
+          if (choice == 'warga') {
+            context.push('/warga/baru');
+          } else {
+            context.push('/warga/baru/petugas');
+          }
+        },
+      );
+    },
+  );
 }
 
 class _WargaScreenState extends ConsumerState<WargaScreen> {
@@ -491,29 +505,55 @@ class _ResidentCard extends StatelessWidget {
           ],
 
           // ── Ubah Action ──
-          if (canWrite && resident.householdId != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  context.push('/warga/edit/${resident.householdId}');
-                },
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: const Text('Ubah'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.xs,
-                    horizontal: AppSpacing.md,
-                  ),
-                  foregroundColor: AppColors.accent,
-                  side: BorderSide(color: AppColors.accent),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
+          if (canWrite) ...[
+            // Warga biasa (punya householdId)
+            if (resident.householdId != null)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    context.push('/warga/edit/${resident.householdId}');
+                  },
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Ubah'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.xs,
+                      horizontal: AppSpacing.md,
+                    ),
+                    foregroundColor: AppColors.accent,
+                    side: BorderSide(color: AppColors.accent),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
                   ),
                 ),
               ),
-            ),
+            // Petugas Khusus (punya jabatan)
+            if (resident.jabatan != null && resident.jabatan!.isNotEmpty)
+              const SizedBox(height: AppSpacing.sm),
+            if (resident.jabatan != null && resident.jabatan!.isNotEmpty)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    context.push('/warga/edit/petugas/${resident.id}');
+                  },
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Ubah'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.xs,
+                      horizontal: AppSpacing.md,
+                    ),
+                    foregroundColor: AppColors.accent,
+                    side: BorderSide(color: AppColors.accent),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ],
       ),

@@ -228,6 +228,19 @@ class WargaRepository {
     return result;
   }
 
+  Future<BackendResident> fetchResidentById(String id) async {
+    final response = await client.dio.get(
+      '/api/v1/residents/$id',
+    );
+
+    final data = response.data;
+    if (data is! Map) {
+      throw const FormatException('Expected JSON object in resident response');
+    }
+
+    return BackendResident.fromJson(data.cast<String, dynamic>());
+  }
+
   Future<PaginatedResponse<MappedResident>> fetchResidentsWithHouseholds({
     int page = 1,
     int pageSize = 100,

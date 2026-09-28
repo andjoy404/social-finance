@@ -17,6 +17,7 @@ import '../features/warga/presentation/screens/warga_screen.dart';
 import '../features/warga/presentation/screens/household_create_screen.dart';
 import '../features/warga/presentation/screens/household_edit_screen.dart';
 import '../features/warga/presentation/screens/special_resident_create_screen.dart';
+import '../features/warga/presentation/screens/special_resident_edit_screen.dart';
 
 class App extends ConsumerStatefulWidget {
   const App({super.key});
@@ -119,11 +120,28 @@ class _AppState extends ConsumerState<App> {
                       },
                     ),
                     GoRoute(
-                      path: 'edit/:householdId',
+                      path: 'edit/household/:householdId',
                       name: 'warga_edit',
                       builder: (context, state) {
                         final householdId = state.pathParameters['householdId']!;
                         return HouseholdEditScreen(householdId: householdId);
+                      },
+                    ),
+                    GoRoute(
+                      path: 'baru/petugas',
+                      name: 'warga_petugas_baru',
+                      builder: (context, state) {
+                        final authState = ref.read(authRepositoryProvider);
+                        final systemRole = authState?.valueOrNull?['system_role'] as String?;
+                        return SpecialResidentCreateScreen(isSuperAdmin: systemRole == 'super_admin');
+                      },
+                    ),
+                    GoRoute(
+                      path: 'edit/petugas/:residentId',
+                      name: 'warga_resident_edit',
+                      builder: (context, state) {
+                        final residentId = state.pathParameters['residentId']!;
+                        return SpecialResidentEditScreen(residentId: residentId);
                       },
                     ),
                   ],
