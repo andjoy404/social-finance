@@ -2,11 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
-import 'package:social_finance/features/cash/presentation/screens/cash_screen.dart';
-import 'package:social_finance/features/dues/presentation/screens/dues_screen.dart';
-import 'package:social_finance/features/dashboard/presentation/screens/dashboard_screen.dart';
-import 'package:social_finance/features/profile/presentation/screens/profile_screen.dart';
-import 'package:social_finance/features/warga/presentation/screens/warga_screen.dart';
 
 class MainNavigationShell extends StatefulWidget {
   final Widget child;
@@ -54,20 +49,32 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
   ];
 
   @override
+  void didUpdateWidget(MainNavigationShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync tab index with actual route location using longest prefix match.
+    // This ensures /home/cash matches index 1 (not 0 for /home).
+    final location = GoRouterState.of(context).matchedLocation;
+    var bestMatch = -1;
+    for (var i = 0; i < _tabs.length; i++) {
+      final tabPath = _tabs[i].path;
+      if (location == tabPath || location.startsWith('$tabPath/')) {
+        if (bestMatch == -1 ||
+            tabPath.length > _tabs[bestMatch].path.length) {
+          bestMatch = i;
+        }
+      }
+    }
+    if (bestMatch != -1 && bestMatch != _currentIndex) {
+      setState(() => _currentIndex = bestMatch);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: IndexedStack(
-          index: _currentIndex,
-          children: const [
-            DashboardScreen(),
-            CashScreen(),
-            DuesScreen(),
-            WargaScreen(),
-            ProfileScreen(),
-          ],
-        ),
+        child: widget.child,
       ),
       bottomNavigationBar: BottomAppBar(
         child: Row(
