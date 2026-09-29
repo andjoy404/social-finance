@@ -114,7 +114,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
       floatingActionButton: canWrite
           ? FloatingActionButton.extended(
               onPressed: () => _handleFabPressed(context, ref, isSuperAdmin),
-              icon: const Icon(Icons.person_add),
+              icon: const Icon(Icons.person_add, size: 18),
               label: const Text('Tambah'),
               backgroundColor: AppColors.accent,
             )
@@ -535,17 +535,17 @@ class _ResidentCard extends StatelessWidget {
                 onPressed: () {
                   context.push('/home/warga/edit/petugas/${resident.id}');
                 },
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: const Text('Ubah'),
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('Ubah', style: TextStyle(fontSize: 12)),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.xs,
-                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.xxs,
+                    horizontal: AppSpacing.sm,
                   ),
                   foregroundColor: AppColors.accent,
                   side: BorderSide(color: AppColors.accent),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
                   ),
                 ),
               ),
@@ -561,17 +561,17 @@ class _ResidentCard extends StatelessWidget {
                     '/home/warga/edit/household/${resident.householdId}',
                   );
                 },
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: const Text('Ubah'),
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('Ubah', style: TextStyle(fontSize: 12)),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.xs,
-                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.xxs,
+                    horizontal: AppSpacing.sm,
                   ),
                   foregroundColor: AppColors.accent,
                   side: BorderSide(color: AppColors.accent),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
                   ),
                 ),
               ),

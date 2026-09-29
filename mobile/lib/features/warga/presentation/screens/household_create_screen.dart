@@ -324,13 +324,13 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
                         segments: [
                           ButtonSegment(
                             value: 'OWNER',
-                            label: const Text('Pemilik'),
-                            icon: const Icon(Icons.home, size: 18),
+                            label: const Text('Pemilik', style: TextStyle(fontSize: 12)),
+                            icon: const Icon(Icons.home, size: 16),
                           ),
                           ButtonSegment(
                             value: 'TENANT',
-                            label: const Text('Penyewa'),
-                            icon: const Icon(Icons.hail, size: 18),
+                            label: const Text('Penyewa', style: TextStyle(fontSize: 12)),
+                            icon: const Icon(Icons.hail, size: 16),
                           ),
                         ],
                         selected: {_occupancyStatus},
@@ -338,6 +338,10 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
                           setState(() => _occupancyStatus = selected.first);
                         },
                         style: SegmentedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           backgroundColor: isDark
                               ? AppColors.darkSurface
                               : AppColors.lightSurface,
