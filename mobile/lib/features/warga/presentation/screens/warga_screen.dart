@@ -295,8 +295,8 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
         border: Border.all(color: AppColors.accent, width: 1),
         boxShadow: [
           BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.25),
-            blurRadius: 12,
+            color: AppColors.accent.withValues(alpha: 0.15),
+            blurRadius: 8,
             offset: const Offset(0, 0),
           ),
         ],
@@ -344,8 +344,8 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
         border: Border.all(color: AppColors.accent, width: 1),
         boxShadow: [
           BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.3),
-            blurRadius: 12,
+            color: AppColors.accent.withValues(alpha: 0.15),
+            blurRadius: 8,
             offset: const Offset(0, 0),
           ),
         ],
@@ -635,7 +635,7 @@ class _ResidentCard extends StatelessWidget {
                   border: Border.all(color: AppColors.accent, width: 1.5),
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.accent.withValues(alpha: 0.25),
+                      color: AppColors.accent.withValues(alpha: 0.15),
                       blurRadius: 8,
                       offset: const Offset(0, 0),
                     ),
@@ -679,7 +679,7 @@ class _ResidentCard extends StatelessWidget {
                   border: Border.all(color: AppColors.accent, width: 1.5),
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.accent.withValues(alpha: 0.25),
+                      color: AppColors.accent.withValues(alpha: 0.15),
                       blurRadius: 8,
                       offset: const Offset(0, 0),
                     ),
