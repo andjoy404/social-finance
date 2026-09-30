@@ -83,7 +83,9 @@ void main() {
   testWidgets('App launches without error', (tester) async {
     await tester.pumpWidget(_authWidget(const App()));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byType(Scaffold), findsOneWidget);
+    // ShellRoute wraps all tabs in a Scaffold (bottom nav) + each screen has its own Scaffold.
+    // Finding at least one confirms the app tree mounted without crash.
+    expect(find.byType(Scaffold), findsWidgets);
   });
 
   // ── Login Screen (isolated, not through App router) ──
