@@ -206,6 +206,45 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     }
   }
 
+  /// Show confirmation dialog before canceling the form.
+  Future<void> _confirmCancel() async {
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Apakah Anda yakin ingin membatalkan?'),
+        content: const Text(
+          'Perubahan yang belum disimpan akan hilang.',
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppColors.accent),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+            ),
+            child: const Text('Tidak, Tetap di Halaman'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+            ),
+            child: const Text('Ya, Batalkan'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldCancel == true && mounted) {
+      context.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -237,7 +276,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
               ),
               const SizedBox(height: 8),
               ElevatedButton(
-                onPressed: () => context.pop(),
+                onPressed: () => Navigator.of(context).pop(),
                 child: const Text('Kembali'),
               ),
             ],
@@ -246,21 +285,27 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit Warga'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _confirmCancel();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Edit Warga'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => _confirmCancel(),
+          ),
         ),
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.base),
-          children: [
-            // Error message
-            if (_error != null)
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            children: [
+              // Error message
+              if (_error != null)
               Container(
                 padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
@@ -321,7 +366,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                     controller: _houseNumberCtrl,
                     label: 'Nomor Rumah',
                     hintText: 'Contoh: 001',
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.text,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -523,19 +568,42 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
             ),
             const SizedBox(height: AppSpacing.xxl),
 
-            // Save button
-            SizedBox(
-              width: double.infinity,
-              child: PrimaryButton(
-                text: _saving ? 'Menyimpan...' : 'Simpan Perubahan',
-                onPressed: _save,
-                isLoading: _saving,
-              ),
+            // Horizontal buttons: Simpan + Batal
+            Row(
+              children: [
+                Expanded(
+                  child: PrimaryButton(
+                    text: _saving ? 'Menyimpan...' : 'Simpan Perubahan',
+                    onPressed: _save,
+                    isLoading: _saving,
+                    icon: _saving ? null : Icons.save_outlined,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _confirmCancel,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                      side: BorderSide(color: AppColors.lightBorder),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.close, size: 18),
+                        const SizedBox(width: 6),
+                        const Text('Batal'),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.base),
           ],
         ),
       ),
+    ),
     );
   }
 }
