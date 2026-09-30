@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/models/role.dart';
@@ -30,11 +31,18 @@ const _titleGap = AppSpacing.sm; // 8
 /// All full-width panels share the same left/right edges defined by
 /// [AppSpacing.screenPadding].  Children never apply their own
 /// horizontal offset — only the scroll view controls that.
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  DateTime? _lastBackPressTime;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final authState = ref.watch(authRepositoryProvider);
     final summary = ref.watch(dashboardSummaryProvider);
@@ -48,160 +56,197 @@ class DashboardScreen extends ConsumerWidget {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(
-        AppSpacing.base,
-        AppSpacing.base,
-        AppSpacing.base,
-        DashboardMedia.bottomPadding(context),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Header ──
-          Row(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        debugPrint('BACK_DIAG: DASHBOARD PopScope invoked didPop=$didPop');
+        if (didPop) return;
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).removeCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Tekan sekali lagi untuk keluar dari aplikasi',
+              ),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        body: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            AppSpacing.base,
+            AppSpacing.base,
+            AppSpacing.base,
+            DashboardMedia.bottomPadding(context),
+          ),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Selamat datang,', style: theme.textTheme.bodyMedium),
-                    Text(userName, style: theme.textTheme.headlineMedium),
-                    Text('RT $rt / RW $rw', style: theme.textTheme.bodySmall),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
+              // ── Header ──
               Row(
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _ThemeActionButton(
-                    onSelected: (mode) {
-                      ref.read(themeProvider.notifier).setMode(mode);
-                    },
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Selamat datang,',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        Text(userName, style: theme.textTheme.headlineMedium),
+                        Text(
+                          'RT $rt / RW $rw',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _ThemeActionButton(
+                        onSelected: (mode) {
+                          ref.read(themeProvider.notifier).setMode(mode);
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
-          ),
 
-          // ── Badge → Saldo Kas ──
-          const SizedBox(height: _panelGap),
+              // ── Badge → Saldo Kas ──
+              const SizedBox(height: _panelGap),
 
-          // ── Role badge ──
-          Align(
-            alignment: Alignment.centerLeft,
-            child: AppBadge(
-              label: appRoleDisplayName(roleUser),
-              isNeonStyle: isDark,
-            ),
-          ),
-
-          // ── Saldo Kas ──
-          const SizedBox(height: _panelGap),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-              border: Border.all(
-                color: isDark
-                    ? AppColors.darkBorder.withValues(alpha: 0.5)
-                    : AppColors.lightBorder,
-                width: 1.5,
-              ),
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 4,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: AppColors.accent,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+              // ── Role badge ──
+              Align(
+                alignment: Alignment.centerLeft,
+                child: AppBadge(
+                  label: appRoleDisplayName(roleUser),
+                  isNeonStyle: isDark,
                 ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+              ),
+
+              // ── Saldo Kas ──
+              const SizedBox(height: _panelGap),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.darkSurface
+                      : AppColors.lightSurface,
+                  border: Border.all(
+                    color: isDark
+                        ? AppColors.darkBorder.withValues(alpha: 0.5)
+                        : AppColors.lightBorder,
+                    width: 1.5,
+                  ),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: AppColors.accent,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.account_balance_wallet_rounded,
-                            size: 16,
-                            color: AppColors.accent,
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.account_balance_wallet_rounded,
+                                size: 16,
+                                color: AppColors.accent,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Saldo Kas',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: AppColors.textMutedColor(context),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(height: 12),
                           Text(
-                            'Saldo Kas',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: AppColors.textMutedColor(context),
+                            RupiahFormatter.format(summary.saldoKas),
+                            style: theme.textTheme.headlineLarge?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextPrimary
+                                  : AppColors.lightTextPrimary,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        RupiahFormatter.format(summary.saldoKas),
-                        style: theme.textTheme.headlineLarge?.copyWith(
-                          color: isDark
-                              ? AppColors.darkTextPrimary
-                              : AppColors.lightTextPrimary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
 
-          // ── Pemasukan / Pengeluaran ──
-          const SizedBox(height: _panelGap),
-          Row(
-            children: [
-              Expanded(
-                child: SummaryCard(
-                  title: 'Pemasukan Bulan Ini',
-                  value: RupiahFormatter.format(summary.pemasukanBulanIni),
-                  icon: Icons.arrow_downward,
-                  accentColor: AppColors.income,
-                ),
+              // ── Pemasukan / Pengeluaran ──
+              const SizedBox(height: _panelGap),
+              Row(
+                children: [
+                  Expanded(
+                    child: SummaryCard(
+                      title: 'Pemasukan Bulan Ini',
+                      value: RupiahFormatter.format(
+                        summary.pemasukanBulanIni,
+                      ),
+                      icon: Icons.arrow_downward,
+                      accentColor: AppColors.income,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SummaryCard(
+                      title: 'Pengeluaran Bulan Ini',
+                      value: RupiahFormatter.format(
+                        summary.pengeluaranBulanIni,
+                      ),
+                      icon: Icons.arrow_upward,
+                      accentColor: AppColors.expense,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: SummaryCard(
-                  title: 'Pengeluaran Bulan Ini',
-                  value: RupiahFormatter.format(summary.pengeluaranBulanIni),
-                  icon: Icons.arrow_upward,
-                  accentColor: AppColors.expense,
-                ),
+
+              // ── Ringkasan Keuangan ──
+              const SizedBox(height: _panelGap),
+              FinancialSummaryChart(summary: summary, theme: theme),
+
+              // ── Iuran Bulan Ini ──
+              const SizedBox(height: _sectionGap),
+              _buildDuesSection(summary.duesProgress, theme),
+
+              // ── Transaksi Terbaru ──
+              const SizedBox(height: _sectionGap),
+              const SectionHeader(title: 'Transaksi Terbaru'),
+              const SizedBox(height: _titleGap),
+              ...transactions.map(
+                (tx) => TransactionRow(transaction: tx, theme: theme),
               ),
+              const SizedBox(height: AppSpacing.base),
             ],
           ),
-
-          // ── Ringkasan Keuangan ──
-          const SizedBox(height: _panelGap),
-          FinancialSummaryChart(summary: summary, theme: theme),
-
-          // ── Iuran Bulan Ini ──
-          const SizedBox(height: _sectionGap),
-          _buildDuesSection(summary.duesProgress, theme),
-
-          // ── Transaksi Terbaru ──
-          const SizedBox(height: _sectionGap),
-          const SectionHeader(title: 'Transaksi Terbaru'),
-          const SizedBox(height: _titleGap),
-          ...transactions.map(
-            (tx) => TransactionRow(transaction: tx, theme: theme),
-          ),
-          const SizedBox(height: AppSpacing.base),
-        ],
+        ),
       ),
     );
   }

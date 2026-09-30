@@ -10,6 +10,7 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/primary_button.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
+import '../../data/warga_providers.dart';
 
 /// Screen for creating a new household (adding a warga/head of family).
 class HouseholdCreateScreen extends ConsumerStatefulWidget {
@@ -150,6 +151,9 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
         rtId: widget.isSuperAdmin ? _selectedRtId : null,
       );
 
+      // Refresh warga list so the new household appears immediately
+      await ref.read(wargaListProvider.notifier).refresh();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -169,24 +173,70 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
     }
   }
 
+  /// Show confirmation dialog before canceling the form.
+  /// Used by AppBar back, Android system back, and the Batal button.
+  Future<void> _confirmCancel() async {
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Apakah Anda yakin ingin membatalkan?'),
+        content: const Text(
+          'Perubahan yang belum disimpan akan hilang.',
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppColors.accent),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+            ),
+            child: const Text('Tidak, Tetap di Halaman'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+            ),
+            child: const Text('Ya, Batalkan'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldCancel == true && mounted) {
+      context.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tambah Warga'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _confirmCancel();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Tambah Warga'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => _confirmCancel(),
+          ),
         ),
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.base),
-          children: [
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            children: [
             // Error message
             if (_error != null)
               Container(
@@ -304,7 +354,7 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
                     controller: _houseNumberCtrl,
                     label: 'Nomor Rumah',
                     hintText: 'Contoh: 001',
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.text,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -527,19 +577,42 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
             ),
             const SizedBox(height: AppSpacing.xxl),
 
-            // Save button
-            SizedBox(
-              width: double.infinity,
-              child: PrimaryButton(
-                text: _saving ? 'Menyimpan...' : 'Simpan',
-                onPressed: _save,
-                isLoading: _saving,
-              ),
+            // Horizontal buttons: Simpan + Batal
+            Row(
+              children: [
+                Expanded(
+                  child: PrimaryButton(
+                    text: _saving ? 'Menyimpan...' : 'Simpan',
+                    onPressed: _save,
+                    isLoading: _saving,
+                    icon: _saving ? null : Icons.save_outlined,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _confirmCancel,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                      side: BorderSide(color: AppColors.lightBorder),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.close, size: 18),
+                        const SizedBox(width: 6),
+                        const Text('Batal'),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.base),
           ],
         ),
       ),
+    ),
     );
   }
 }

@@ -11,7 +11,6 @@ import 'package:social_finance/core/widgets/primary_button.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
 import '../../data/warga_providers.dart';
-import '../../../../core/models/role.dart';
 
 /// Screen for creating a new special resident (Petugas Keamanan/Kebersihan).
 class SpecialResidentCreateScreen extends ConsumerStatefulWidget {
@@ -172,282 +171,351 @@ class _SpecialResidentCreateScreenState
     }
   }
 
+  /// Show confirmation dialog before canceling the form.
+  /// Used by AppBar back, Android system back, and the Batal button.
+  Future<void> _confirmCancel() async {
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Apakah Anda yakin ingin membatalkan?'),
+        content: const Text(
+          'Perubahan yang belum disimpan akan hilang.',
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppColors.accent),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+            ),
+            child: const Text('Tidak, Tetap di Halaman'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+            ),
+            child: const Text('Ya, Batalkan'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldCancel == true && mounted) {
+      context.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tambah Petugas'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _confirmCancel();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Tambah Petugas'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => _confirmCancel(),
+          ),
         ),
-      ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.base),
-          children: [
-            // Error message
-            if (_error != null)
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.danger.withValues(alpha: isDark ? 0.2 : 0.1),
-                  borderRadius: BorderRadius.circular(AppRadius.base),
-                  border: Border.all(
-                    color: AppColors.danger.withValues(alpha: isDark ? 0.4 : 0.2),
+        body: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            children: [
+              // Error message
+              if (_error != null)
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(alpha: isDark ? 0.2 : 0.1),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(
+                      color: AppColors.danger.withValues(alpha: isDark ? 0.4 : 0.2),
+                    ),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: AppColors.danger,
+                    ),
                   ),
                 ),
-                child: Text(
-                  _error!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppColors.danger,
-                  ),
-                ),
-              ),
-            if (_error != null) const SizedBox(height: AppSpacing.md),
+              if (_error != null) const SizedBox(height: AppSpacing.md),
 
-            // Validation errors
-            if (_validationErrors.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
-                  borderRadius: BorderRadius.circular(AppRadius.base),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Data belum lengkap:',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.danger,
+              // Validation errors
+              if (_validationErrors.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Data belum lengkap:',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.danger,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    ..._validationErrors.map((e) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('• ', style: TextStyle(fontSize: 16)),
-                          Expanded(child: Text(e)),
-                        ],
-                      ),
-                    )),
-                  ],
-                ),
-              ),
-
-            // Jenis Petugas
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Jenis Petugas',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                DropdownButtonFormField<String>(
-                  value: _jabatan,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
-                    ),
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'keamanan',
-                      child: Text('Keamanan'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'kebersihan_pembangunan',
-                      child: Text('Kebersihan & Pembangunan'),
-                    ),
-                  ],
-                  onChanged: widget.isSuperAdmin
-                      ? (value) {
-                          if (value != null) {
-                            setState(() => _jabatan = value);
-                          }
-                        }
-                      : (value) {
-                          // For non-superadmin, show the hint but allow selection
-                          // The actual authorization is enforced server-side
-                          setState(() => _jabatan = value ?? _jabatan);
-                        },
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Nama
-            AppTextField(
-              controller: _fullNameCtrl,
-              label: 'Nama',
-              hintText: 'Nama lengkap',
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // NIK + Telepon
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: AppTextField(
-                    controller: _nikCtrl,
-                    label: 'NIK',
-                    hintText: '16 digit',
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(16),
+                      const SizedBox(height: AppSpacing.sm),
+                      ..._validationErrors.map((e) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('• ', style: TextStyle(fontSize: 16)),
+                            Expanded(child: Text(e)),
+                          ],
+                        ),
+                      )),
                     ],
                   ),
                 ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  flex: 3,
-                  child: AppTextField(
-                    controller: _phoneCtrl,
-                    label: 'Telepon',
-                    hintText: '08123456789',
-                    keyboardType: TextInputType.phone,
+
+              // Jenis Petugas
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Jenis Petugas',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: AppSpacing.sm),
+                  DropdownButtonFormField<String>(
+                    value: _jabatan,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'keamanan',
+                        child: Text('Keamanan'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'kebersihan_pembangunan',
+                        child: Text('Kebersihan & Pembangunan'),
+                      ),
+                    ],
+                    onChanged: widget.isSuperAdmin
+                        ? (value) {
+                            if (value != null) {
+                              setState(() => _jabatan = value);
+                            }
+                          }
+                        : (value) {
+                            // For non-superadmin, show the hint but allow selection
+                            // The actual authorization is enforced server-side
+                            setState(() => _jabatan = value ?? _jabatan);
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
 
-            // Email
-            AppTextField(
-              controller: _emailCtrl,
-              label: 'Email',
-              hintText: 'nama@email.com',
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: AppSpacing.lg),
+              // Nama
+              AppTextField(
+                controller: _fullNameCtrl,
+                label: 'Nama',
+                hintText: 'Nama lengkap',
+              ),
+              const SizedBox(height: AppSpacing.lg),
 
-            // Status
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              // NIK + Telepon
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: AppTextField(
+                      controller: _nikCtrl,
+                      label: 'NIK',
+                      hintText: '16 digit',
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(16),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    flex: 3,
+                    child: AppTextField(
+                      controller: _phoneCtrl,
+                      label: 'Telepon',
+                      hintText: '08123456789',
+                      keyboardType: TextInputType.phone,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Email
+              AppTextField(
+                controller: _emailCtrl,
+                label: 'Email',
+                hintText: 'nama@email.com',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Status
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Status',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SegmentedButton<bool>(
+                    segments: [
+                      ButtonSegment(
+                        value: true,
+                        label: const Text('Aktif'),
+                        icon: const Icon(Icons.check_circle, size: 18),
+                      ),
+                      ButtonSegment(
+                        value: false,
+                        label: const Text('Tidak Aktif'),
+                        icon: const Icon(Icons.cancel, size: 18),
+                      ),
+                    ],
+                    selected: {_isActive},
+                    onSelectionChanged: (selected) {
+                      setState(() => _isActive = selected.first);
+                    },
+                    style: SegmentedButton.styleFrom(
+                      backgroundColor: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurface,
+                      foregroundColor: isDark
+                          ? AppColors.darkText
+                          : AppColors.lightText,
+                      selectedForegroundColor: AppColors.accent,
+                      selectedBackgroundColor: AppColors.accentSoftColor(
+                        context,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              // RT selector for superadmin
+              if (widget.isSuperAdmin) ...[
+                const SizedBox(height: AppSpacing.lg),
                 Text(
-                  'Status',
+                  'RT Tujuan',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                SegmentedButton<bool>(
-                  segments: [
-                    ButtonSegment(
-                      value: true,
-                      label: const Text('Aktif'),
-                      icon: const Icon(Icons.check_circle, size: 18),
+                if (_rtLoading)
+                  const Center(child: CircularProgressIndicator())
+                else if (_rtOptions.isEmpty)
+                  Text(
+                    'Tidak ada RT yang tersedia.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
-                    ButtonSegment(
-                      value: false,
-                      label: const Text('Tidak Aktif'),
-                      icon: const Icon(Icons.cancel, size: 18),
+                  )
+                else
+                  DropdownButtonFormField<String>(
+                    decoration: InputDecoration(
+                      labelText: 'Pilih RT',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
                     ),
-                  ],
-                  selected: {_isActive},
-                  onSelectionChanged: (selected) {
-                    setState(() => _isActive = selected.first);
-                  },
-                  style: SegmentedButton.styleFrom(
-                    backgroundColor: isDark
-                        ? AppColors.darkSurface
-                        : AppColors.lightSurface,
-                    foregroundColor: isDark
-                        ? AppColors.darkText
-                        : AppColors.lightText,
-                    selectedForegroundColor: AppColors.accent,
-                    selectedBackgroundColor: AppColors.accentSoftColor(
-                      context,
-                    ),
+                    value: _selectedRtId,
+                    hint: const Text('Pilih RT'),
+                    items: _rtOptions.map((rt) {
+                      final rtNum = ((rt['rt'] as String?) ?? '').padLeft(3, '0');
+                      final rwNum = ((rt['rw'] as num?)?.toInt().toString().padLeft(3, '0')) ?? '';
+                      final name = (rt['name'] as String?) ?? 'RT tanpa nama';
+                      return DropdownMenuItem(
+                        value: rt['id'] as String?,
+                        child: Text('RT $rtNum / RW $rwNum — $name'),
+                      );
+                    }).toList(),
+                    onChanged: widget.isSuperAdmin
+                        ? (value) => setState(() => _selectedRtId = value)
+                        : null,
+                    validator: (value) {
+                      if (widget.isSuperAdmin && (value == null || value.isEmpty)) {
+                        return 'RT Tujuan harus dipilih.';
+                      }
+                      return null;
+                    },
                   ),
-                ),
+                const SizedBox(height: AppSpacing.lg),
               ],
-            ),
 
-            // RT selector for superadmin
-            if (widget.isSuperAdmin) ...[
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'RT Tujuan',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+              // Horizontal buttons: Simpan + Batal
+              Row(
+                children: [
+                  Expanded(
+                    child: PrimaryButton(
+                      text: _saving ? 'Menyimpan...' : 'Simpan',
+                      onPressed: _save,
+                      isLoading: _saving,
+                      icon: _saving ? null : Icons.save_outlined,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _confirmCancel,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                        side: BorderSide(color: AppColors.lightBorder),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.close, size: 18),
+                          const SizedBox(width: 6),
+                          const Text('Batal'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: AppSpacing.sm),
-              if (_rtLoading)
-                const Center(child: CircularProgressIndicator())
-              else if (_rtOptions.isEmpty)
-                Text(
-                  'Tidak ada RT yang tersedia.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                )
-              else
-                DropdownButtonFormField<String>(
-                  decoration: InputDecoration(
-                    labelText: 'Pilih RT',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
-                    ),
-                  ),
-                  value: _selectedRtId,
-                  hint: const Text('Pilih RT'),
-                  items: _rtOptions.map((rt) {
-                    final rtNum = ((rt['rt'] as String?) ?? '').padLeft(3, '0');
-                    final rwNum = ((rt['rw'] as num?)?.toInt().toString().padLeft(3, '0')) ?? '';
-                    final name = (rt['name'] as String?) ?? 'RT tanpa nama';
-                    return DropdownMenuItem(
-                      value: rt['id'] as String?,
-                      child: Text('RT $rtNum / RW $rwNum — $name'),
-                    );
-                  }).toList(),
-                  onChanged: widget.isSuperAdmin
-                      ? (value) => setState(() => _selectedRtId = value)
-                      : null,
-                  validator: (value) {
-                    if (widget.isSuperAdmin && (value == null || value.isEmpty)) {
-                      return 'RT Tujuan harus dipilih.';
-                    }
-                    return null;
-                  },
-                ),
-              const SizedBox(height: AppSpacing.xxl),
+              const SizedBox(height: AppSpacing.base),
             ],
-
-            // Save button
-            SizedBox(
-              width: double.infinity,
-              child: PrimaryButton(
-                text: _saving ? 'Menyimpan...' : 'Simpan',
-                onPressed: _save,
-                isLoading: _saving,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.base),
-          ],
+          ),
         ),
       ),
     );

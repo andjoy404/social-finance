@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/models/role.dart';
@@ -8,11 +9,18 @@ import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
-class ProfileScreen extends ConsumerWidget {
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  DateTime? _lastBackPressTime;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final authState = ref.watch(authRepositoryProvider);
     final authRepo = ref.read(authRepositoryProvider.notifier);
@@ -25,77 +33,108 @@ class ProfileScreen extends ConsumerWidget {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Profil')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 24),
-            // Avatar
-            CircleAvatar(
-              radius: 40,
-              backgroundColor: theme.colorScheme.primary.withValues(
-                alpha: isDark ? 0.25 : 0.15,
-              ),
-              child: Icon(
-                Icons.person,
-                size: 40,
-                color: theme.colorScheme.primary,
-              ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).removeCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Tekan sekali lagi untuk keluar dari aplikasi'),
+              duration: const Duration(seconds: 2),
             ),
-            const SizedBox(height: 16),
-            // Identity
-            Text(userName, style: theme.textTheme.headlineSmall),
-            const SizedBox(height: 8),
-            AppBadge(
-              label: appRoleDisplayName(role),
-              isNeonStyle: isDark,
-              backgroundColor: isDark
-                  ? null
-                  : theme.colorScheme.primary.withValues(alpha: 0.12),
-            ),
-            const SizedBox(height: 4),
-            Text('RT $rt / RW $rw', style: theme.textTheme.bodySmall),
-            const SizedBox(height: 32),
+          );
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Profil')),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            children: [
+              const SizedBox(height: 24),
+              // Avatar
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: theme.colorScheme.primary.withValues(
+                  alpha: isDark ? 0.25 : 0.15,
+                ),
+                child: Icon(
+                  Icons.person,
+                  size: 40,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Identity
+              Text(userName, style: theme.textTheme.headlineSmall),
+              const SizedBox(height: 8),
+              AppBadge(
+                label: appRoleDisplayName(role),
+                isNeonStyle: isDark,
+                backgroundColor: isDark
+                    ? null
+                    : theme.colorScheme.primary.withValues(alpha: 0.12),
+              ),
+              const SizedBox(height: 4),
+              Text('RT $rt / RW $rw', style: theme.textTheme.bodySmall),
+              const SizedBox(height: 32),
 
-            // Profile items
-            _buildProfileSection(theme, [
-              _ProfileItemData(
-                icon: Icons.home,
-                title: 'RT / RW',
-                subtitle: 'RT $rt / RW $rw',
-              ),
-              _ProfileItemData(
-                icon: Icons.security,
-                title: 'Keamanan',
-                subtitle: 'Ubah kata sandi',
-              ),
-              _ProfileItemData(
-                icon: Icons.info_outline,
-                title: 'Tentang',
-                subtitle: 'Social Finance v1.0.0',
-              ),
-            ], isDark),
-            const SizedBox(height: 40),
-            // Logout
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: OutlinedButton(
-                onPressed: () => authRepo.logout(),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.expense),
-                  foregroundColor: AppColors.expense,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
+              // Profile items
+              _buildProfileSection(theme, [
+                _ProfileItemData(
+                  icon: Icons.home,
+                  title: 'RT / RW',
+                  subtitle: 'RT $rt / RW $rw',
+                ),
+                _ProfileItemData(
+                  icon: Icons.security,
+                  title: 'Keamanan',
+                  subtitle: 'Ubah kata sandi',
+                ),
+                _ProfileItemData(
+                  icon: Icons.info_outline,
+                  title: 'Tentang',
+                  subtitle: 'Social Finance v1.0.0',
+                ),
+              ], isDark),
+              const SizedBox(height: 40),
+              // Logout
+              Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.expense.withValues(alpha: 0.15),
+                      blurRadius: 8,
+                      offset: const Offset(0, 0),
+                    ),
+                  ],
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: () => authRepo.logout(),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.expense),
+                      foregroundColor: AppColors.expense,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    child: const Text('Keluar'),
                   ),
                 ),
-                child: const Text('Keluar'),
               ),
-            ),
-            const SizedBox(height: 16),
-          ],
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );
