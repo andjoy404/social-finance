@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dio/dio.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
 import 'package:social_finance/features/warga/data/warga_repository.dart';
@@ -402,10 +403,10 @@ void main() {
         ));
         await tester.pumpAndSettle();
 
-        expect(find.text('Warga'), findsOneWidget);
+        expect(find.text('WARGA'), findsWidgets);
         expect(
-          find.text('Daftar warga dan kepala keluarga di lingkungan RT.'),
-          findsOneWidget,
+          find.textContaining('Lingkungan RT'),
+          findsWidgets,
         );
         expect(find.byType(TextField), findsOneWidget);
       },
@@ -435,7 +436,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Bambang Sutrisno'), findsOneWidget);
-      expect(find.text('RT 03 · RW 16 · Wisma Rukun Tunggal'), findsOneWidget);
+      // RT and Alamat RT removed from card per Part 4
+      expect(find.text('RT 03 · RW 16 · Wisma Rukun Tunggal'), findsNothing);
       expect(find.text('Blok A1 No. 12'), findsOneWidget);
       expect(find.textContaining('NIK'), findsNothing);
       expect(find.text('Pemilik'), findsOneWidget);
@@ -535,7 +537,7 @@ void main() {
   });
 
   group('Relationship Badge Color', () {
-    test('Kepala Keluarga has violet color', () {
+    test('Kepala Keluarga has accent color', () {
       const resident = MappedResident(
         id: 'r1',
         name: 'Bapak',
@@ -544,10 +546,10 @@ void main() {
         relationship: 'HEAD',
       );
       expect(resident.displayRelationship, equals('Kepala Keluarga'));
-      expect(resident.relationshipColor, const Color(0xFF8B5CF6));
+      expect(resident.relationshipColor, AppColors.accent);
     });
 
-    test('Keluarga has blue color', () {
+    test('Keluarga has accent color', () {
       const resident = MappedResident(
         id: 'r2',
         name: 'Ibu',
@@ -556,10 +558,10 @@ void main() {
         relationship: 'SPOUSE',
       );
       expect(resident.displayRelationship, equals('Keluarga'));
-      expect(resident.relationshipColor, const Color(0xFF3B82F6));
+      expect(resident.relationshipColor, AppColors.accent);
     });
 
-    test('Kerabat has violet-blue color', () {
+    test('Kerabat has accent color', () {
       const resident = MappedResident(
         id: 'r3',
         name: 'Anak',
@@ -568,10 +570,10 @@ void main() {
         relationship: 'CHILD',
       );
       expect(resident.displayRelationship, equals('Kerabat'));
-      expect(resident.relationshipColor, const Color(0xFF6366C0));
+      expect(resident.relationshipColor, AppColors.accent);
     });
 
-    test('Unknown relationship defaults to blue', () {
+    test('Unknown relationship defaults to accent', () {
       const resident = MappedResident(
         id: 'r4',
         name: 'Tetangga',
@@ -579,7 +581,7 @@ void main() {
         isHeadOfHousehold: false,
         relationship: '',
       );
-      expect(resident.relationshipColor, const Color(0xFF3B82F6));
+      expect(resident.relationshipColor, AppColors.accent);
     });
   });
 }

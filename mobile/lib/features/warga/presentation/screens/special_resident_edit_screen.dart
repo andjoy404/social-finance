@@ -354,7 +354,7 @@ class _SpecialResidentEditScreenState
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   DropdownButtonFormField<String>(
-                    value: _jabatan,
+                    initialValue: _jabatan,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(AppRadius.base),

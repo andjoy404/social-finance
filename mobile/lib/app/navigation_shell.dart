@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 
 class MainNavigationShell extends StatefulWidget {
   final Widget child;
@@ -71,20 +72,22 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: widget.child,
-      ),
-      bottomNavigationBar: BottomAppBar(
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: List.generate(
-            _tabs.length,
-            (index) => _NavRailItem(
-              tab: _tabs[index],
-              isSelected: index == _currentIndex,
-              onTap: () => _onTabTapped(index),
+    return DoubleBackExitScope(
+      child: Scaffold(
+        body: SafeArea(
+          bottom: false,
+          child: widget.child,
+        ),
+        bottomNavigationBar: BottomAppBar(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(
+              _tabs.length,
+              (index) => _NavRailItem(
+                tab: _tabs[index],
+                isSelected: index == _currentIndex,
+                onTap: () => _onTabTapped(index),
+              ),
             ),
           ),
         ),

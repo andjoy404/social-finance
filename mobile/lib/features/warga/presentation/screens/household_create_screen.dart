@@ -321,7 +321,7 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
                       vertical: AppSpacing.sm,
                     ),
                   ),
-                  value: _selectedRtId,
+                  initialValue: _selectedRtId,
                   hint: const Text('Pilih RT'),
                   items: _rtOptions.map((rt) {
                     final rtNum = ((rt['rt'] as String?) ?? '').padLeft(3, '0');

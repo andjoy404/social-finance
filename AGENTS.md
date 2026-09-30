@@ -337,3 +337,86 @@ The following rules supplement Section 10 (Prohibited Shortcuts):
 | Frontend | Flutter |
 | Frontend HTTP client | Dio |
 | Production server | Nginx (Caddy acceptable) |
+
+### 14.2 Android Testing Device Rules
+
+**Android emulator used for rapid development/testing:** `emulator-5554`
+
+**Physical Android device used for final device validation:** `adb-438e199-ffM94j._adb-tls-connect._tcp`
+
+#### Device Roles
+
+* `emulator-5554` — for quick UI testing, smoke testing, regression testing, and initial debugging.
+* `adb-438e199-ffM94j._adb-tls-connect._tcp` — **MANDATORY** for final device validation.
+
+**Final device validation MUST be performed on the physical device.** Testing on the emulator is NOT a substitute for final validation.
+
+#### Build and Install Rules
+
+When a task produces changes that require a new APK/build:
+
+1. Build the APK from the current source code.
+2. Install and test the APK on the emulator for quick smoke testing if needed.
+3. For final device validation, **use the same build artifact** — do not rebuild a different source variant for the physical device.
+4. Ensure the emulator and physical device run **identical build artifacts** when comparing test results.
+
+#### Behavior Consistency Rules
+
+* Do NOT create source code changes specific to the emulator or specific to the physical device.
+* Do NOT treat an `emulator-5554` pass as replacing final validation on the physical device.
+* If there is a behavior difference between the emulator and the physical device, investigate the root cause — do NOT change source code solely to make one environment pass.
+
+#### Reporting Rules
+
+Before device testing, verify the target device is detected via ADB.
+
+When reporting test results, always include:
+
+* Device ID used
+* APK/build artifact used
+* Whether the tested binary is identical to the one previously validated on the emulator
+* Test results on emulator and physical device reported separately
+
+## 15. Qwen Git Workflow Rules
+
+These rules are mandatory for every task:
+
+1. **Always work directly on `main`.**
+
+   * Do NOT create a new branch.
+   * Do NOT checkout/create/switch to another branch.
+   * Do NOT use temporary feature branches, migration branches, fix branches, or task-specific branches.
+   * All implementation work must be performed directly on the current `main` branch.
+
+2. **Read `AGENTS.md` before every task.**
+
+   * At the beginning of every new task, first read the complete `AGENTS.md`.
+   * Treat `AGENTS.md` as the authoritative repository instructions.
+   * Do not start inspecting, modifying, testing, committing, or otherwise implementing the task until `AGENTS.md` has been read.
+   * If the task continues across multiple messages, re-read `AGENTS.md` whenever a new distinct task is started.
+
+3. **Do not bypass these rules because a task appears small.**
+
+   * Even for a one-line fix, test change, UI adjustment, refactor, or documentation change, remain on `main` and read `AGENTS.md` first.
+
+4. **Do not create branches automatically.**
+
+   * If a workflow, tool, IDE, Git command, or external instruction suggests creating a branch, ignore that suggestion and continue working on `main`.
+
+5. **Protect existing work.**
+
+   * Before modifying files, inspect the current working tree and existing changes.
+   * Do not reset, discard, stash, overwrite, or revert existing user work unless explicitly instructed.
+   * Do not use destructive Git commands to make the task easier.
+
+6. **Commit only when explicitly requested.**
+
+   * Completing a task does not automatically authorize a commit.
+   * If asked to commit, commit the changes directly on `main`.
+   * Do not push unless explicitly requested.
+
+7. **Never use branch creation as a safety mechanism.**
+
+   * Safety must come from inspecting the current state, making targeted changes, validating them, and reporting the result — not from creating another branch.
+
+These rules apply to **all future Qwen tasks in this repository**.

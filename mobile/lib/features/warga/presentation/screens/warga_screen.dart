@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,10 +9,11 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
+import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
-import '../../data/warga_providers.dart';
+import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import '../../data/api_warga_models.dart';
-import '../../data/warga_repository.dart';
+import '../../data/warga_providers.dart';
 import '../dialogs/data_choice_dialog.dart';
 import 'package:social_finance/core/models/role.dart';
 import '../../../auth/data/mock_auth_repository.dart';
@@ -93,12 +95,14 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final isWeb = kIsWeb;
     final wargaState = ref.watch(wargaListProvider);
     final currentQuery = ref.watch(wargaSearchQueryProvider);
     final residents = ref.watch(filteredWargaListProvider);
     final canWrite = _hasWargaWriteAccess(ref);
-    final authState = ref.read(authRepositoryProvider);
-    final systemRole = authState?.valueOrNull?['system_role'] as String?;
+    final authState = ref.watch(authRepositoryProvider);
+    final user = authState?.valueOrNull;
+    final systemRole = user?['system_role'] as String?;
     final isSuperAdmin = systemRole == 'super_admin';
 
     final errorMessage = switch (wargaState) {
@@ -109,55 +113,53 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
       _ => '',
     };
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Warga')),
-      floatingActionButton: canWrite
-          ? FloatingActionButton.extended(
-              onPressed: () => _handleFabPressed(context, ref, isSuperAdmin),
-              icon: const Icon(Icons.person_add, size: 18),
-              label: const Text('Tambah'),
-              backgroundColor: AppColors.accent,
-            )
-          : null,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Search & Header Section ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.base,
-              AppSpacing.sm,
-              AppSpacing.base,
-              AppSpacing.sm,
+    final accentSoft = AppColors.accentSoftColor(context);
+    final fabSize = isWeb ? 48.0 : 36.0;
+    final fabIconSize = isWeb ? 20.0 : 16.0;
+    final fabLabelSize = isWeb ? 13.0 : 11.0;
+
+    final void Function()? onFabPressed = canWrite
+        ? () => _handleFabPressed(context, ref, isSuperAdmin)
+        : null;
+
+    return DoubleBackExitScope(
+      child: Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Warga'),
+        ),
+        floatingActionButton: canWrite
+            ? isWeb
+                ? _buildWebFab(context, fabIconSize, fabLabelSize, accentSoft, onFabPressed!)
+                : _buildAndroidFab(context, fabSize, fabIconSize, fabLabelSize, accentSoft, onFabPressed!)
+            : null,
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Search Section ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.base,
+                AppSpacing.sm,
+                AppSpacing.base,
+                AppSpacing.sm,
+              ),
+              child: AppTextField(
+                controller: _searchController,
+                hintText: 'Cari nama, alamat, atau nomor rumah...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 20),
+                        onPressed: _clearSearch,
+                      )
+                    : null,
+                onChanged: (value) {
+                  ref.read(wargaSearchQueryProvider.notifier).state = value;
+                  setState(() {});
+                },
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Daftar warga dan kepala keluarga di lingkungan RT.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                AppTextField(
-                  controller: _searchController,
-                  hintText: 'Cari nama, alamat, atau nomor rumah...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: _clearSearch,
-                        )
-                      : null,
-                  onChanged: (value) {
-                    ref.read(wargaSearchQueryProvider.notifier).state = value;
-                    setState(() {});
-                  },
-                ),
-              ],
-            ),
-          ),
 
           // ── Summary Count ──
           Padding(
@@ -203,9 +205,29 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
                         style: theme.textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _retry,
-                        child: const Text('Coba Lagi'),
+                      SizedBox(
+                        height: 36,
+                        child: ElevatedButton(
+                          onPressed: _retry,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
+                            foregroundColor: theme.colorScheme.primary,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                              side: BorderSide(
+                                color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.01,
+                            ),
+                          ),
+                          child: const Text('Coba Lagi'),
+                        ),
                       ),
                     ],
                   ),
@@ -255,6 +277,90 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
             },
           ),
         ],
+      ),
+    ),
+  );
+}
+  Widget _buildWebFab(
+    BuildContext context,
+    double iconSize,
+    double labelSize,
+    Color accentSoft,
+    VoidCallback onFabPressed,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: accentSoft,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.accent, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.accent.withValues(alpha: 0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 0),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onFabPressed,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.person_add, size: iconSize, color: AppColors.accent),
+                const SizedBox(width: 6),
+                Text(
+                  'Tambah',
+                  style: TextStyle(
+                    fontSize: labelSize,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAndroidFab(
+    BuildContext context,
+    double fabSize,
+    double iconSize,
+    double labelSize,
+    Color accentSoft,
+    VoidCallback onFabPressed,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: accentSoft,
+        borderRadius: BorderRadius.circular(fabSize / 2),
+        border: Border.all(color: AppColors.accent, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.accent.withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 0),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onFabPressed,
+          borderRadius: BorderRadius.circular(fabSize / 2),
+          child: SizedBox(
+            width: fabSize,
+            height: fabSize,
+            child: Icon(Icons.person_add, size: iconSize, color: AppColors.accent),
+          ),
+        ),
       ),
     );
   }
@@ -358,7 +464,6 @@ class _ResidentCard extends StatelessWidget {
     // TENANT ('Penyewa'): blue info
     final isOwner = resident.occupancyStatus == 'Pemilik';
     final occupancyColor = isOwner ? AppColors.accent : AppColors.info;
-    final rtRwAlamat = resident.formattedRtRwAlamat ?? resident.formattedRtRw;
 
     // Determine if this resident qualifies as Petugas Khusus for edit routing.
     // Only 'keamanan' and 'kebersihan_pembangunan' get the edit-petugas button;
@@ -446,32 +551,31 @@ class _ResidentCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (canWrite &&
+                  !kIsWeb &&
+                  (isPetugasKhusus || resident.householdId != null))
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 20),
+                  tooltip: 'Ubah',
+                  color: AppColors.accent,
+                  onPressed: () {
+                    if (isPetugasKhusus) {
+                      context.push('/home/warga/edit/petugas/${resident.id}');
+                    } else if (resident.householdId != null) {
+                      context.push(
+                        '/home/warga/edit/household/${resident.householdId}',
+                      );
+                    }
+                  },
+                ),
             ],
           ),
           const Divider(height: 20),
 
           // Details in exact order:
-          // 1. RT . RW . Alamat
-          // 2. Nomor Rumah
-          // 3. Nomor Telepon
-          // 4. Email
-          if (rtRwAlamat != null && rtRwAlamat.isNotEmpty) ...[
-            Row(
-              children: [
-                Icon(Icons.location_on_outlined, size: 16, color: iconColor),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    rtRwAlamat,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-          ],
+          // 1. Nomor Rumah
+          // 2. Nomor Telepon
+          // 3. Email
           if (resident.houseNumber.isNotEmpty) ...[
             Row(
               children: [
@@ -522,60 +626,99 @@ class _ResidentCard extends StatelessWidget {
             ),
           ],
 
-          // ── Ubah Action ──
-          // Only Petugas Khusus (keamanan, kebersihan_pembangunan) get edit
-          // petugas button. Pengurus RT (ketua, wakil_ketua, sekretaris,
-          // bendahara, sosial) and warga biasa use edit warga (household).
-          // isPetugasKhusus already computed above
-          // Petugas Khusus → edit petugas (mutual exclusion: warga biasa tidak kena)
-          if (isPetugasKhusus)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  context.push('/home/warga/edit/petugas/${resident.id}');
-                },
-                icon: const Icon(Icons.edit_outlined, size: 16),
-                label: const Text('Ubah', style: TextStyle(fontSize: 12)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.xxs,
-                    horizontal: AppSpacing.sm,
-                  ),
-                  foregroundColor: AppColors.accent,
-                  side: BorderSide(color: AppColors.accent),
-                  shape: RoundedRectangleBorder(
+          // ── Ubah Action (Web only, mobile uses header IconButton) ──
+          if (canWrite && kIsWeb) ...[
+            if (isPetugasKhusus)
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                  border: Border.all(color: AppColors.accent, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.accent.withValues(alpha: 0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 0),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      context.push('/home/warga/edit/petugas/${resident.id}');
+                    },
                     borderRadius: BorderRadius.circular(AppRadius.xs),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.xxs,
+                        horizontal: AppSpacing.sm,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.edit_outlined, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Ubah',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.accent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-
-          // Warga biasa (punya householdId, TIDAK qualifies sebagai petugas khusus)
-          if (resident.householdId != null && !isPetugasKhusus)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  context.push(
-                    '/home/warga/edit/household/${resident.householdId}',
-                  );
-                },
-                icon: const Icon(Icons.edit_outlined, size: 16),
-                label: const Text('Ubah', style: TextStyle(fontSize: 12)),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.xxs,
-                    horizontal: AppSpacing.sm,
-                  ),
-                  foregroundColor: AppColors.accent,
-                  side: BorderSide(color: AppColors.accent),
-                  shape: RoundedRectangleBorder(
+            if (resident.householdId != null && !isPetugasKhusus)
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                  border: Border.all(color: AppColors.accent, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.accent.withValues(alpha: 0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 0),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      context.push(
+                        '/home/warga/edit/household/${resident.householdId}',
+                      );
+                    },
                     borderRadius: BorderRadius.circular(AppRadius.xs),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.xxs,
+                        horizontal: AppSpacing.sm,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.edit_outlined, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Ubah',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.accent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+          ],
         ],
       ),
     );

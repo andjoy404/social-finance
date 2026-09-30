@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/models/role.dart';
@@ -7,20 +6,15 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
+import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
-class ProfileScreen extends ConsumerStatefulWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
-  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
-}
-
-class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-  DateTime? _lastBackPressTime;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final authState = ref.watch(authRepositoryProvider);
     final authRepo = ref.read(authRepositoryProvider.notifier);
@@ -33,27 +27,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        final now = DateTime.now();
-        if (_lastBackPressTime == null ||
-            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
-          _lastBackPressTime = now;
-          ScaffoldMessenger.of(context).removeCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Tekan sekali lagi untuk keluar dari aplikasi'),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        } else {
-          SystemNavigator.pop();
-        }
-      },
+    return DoubleBackExitScope(
       child: Scaffold(
-        appBar: AppBar(title: const Text('Profil')),
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Profil'),
+        ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
           child: Column(

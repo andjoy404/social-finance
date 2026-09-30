@@ -72,6 +72,9 @@ Widget _dashboardViaMaterialApp() {
           'rw': '016',
         });
       })),
+      wargaListProvider.overrideWith(
+        () => _MockWargaNotifierForLaunch(),
+      ),
     ],
     child: MaterialApp(home: const DashboardScreen()),
   );
@@ -290,6 +293,9 @@ void main() {
               'rw': '016',
             });
           })),
+          wargaListProvider.overrideWith(
+            () => _MockWargaNotifierForLaunch(),
+          ),
         ],
         child: MaterialApp(
           home: SizedBox(width: 360, child: const DashboardScreen()),
@@ -373,15 +379,15 @@ void main() {
   });
 
   test('Primary brand seed color is violet', () {
-    expect(AppColors.seed, const Color(0xFF7C5FCE));
+    expect(AppColors.seed, const Color(0xFFA970FF));
   });
 
   test('Income semantic color remains green', () {
-    expect(AppColors.income, const Color(0xFF2E7D32));
+    expect(AppColors.income, const Color(0xFF73BF69));
   });
 
   test('Expense semantic color remains red', () {
-    expect(AppColors.expense, const Color(0xFFC62828));
+    expect(AppColors.expense, const Color(0xFFF2495C));
   });
 
   testWidgets('FinancialChart Y-axis renders compact million labels', (
@@ -484,6 +490,9 @@ void main() {
               'rw': '016',
             });
           })),
+          wargaListProvider.overrideWith(
+            () => _MockWargaNotifierForLaunch(),
+          ),
         ],
         child: MaterialApp(
           theme: isDarkTest,

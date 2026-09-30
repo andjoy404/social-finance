@@ -1,40 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import '../../../../core/widgets/empty_state.dart';
 
-class DuesScreen extends StatefulWidget {
+import '../../../../core/widgets/double_back_exit_scope.dart';
+import '../../../../core/widgets/empty_state.dart';
+import '../../../../core/widgets/menu_app_bar_title.dart';
+
+class DuesScreen extends StatelessWidget {
   const DuesScreen({super.key});
 
   @override
-  State<DuesScreen> createState() => _DuesScreenState();
-}
-
-class _DuesScreenState extends State<DuesScreen> {
-  DateTime? _lastBackPressTime;
-
-  @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        final now = DateTime.now();
-        if (_lastBackPressTime == null ||
-            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
-          _lastBackPressTime = now;
-          ScaffoldMessenger.of(context).removeCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Tekan sekali lagi untuk keluar dari aplikasi'),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        } else {
-          SystemNavigator.pop();
-        }
-      },
+    return DoubleBackExitScope(
       child: Scaffold(
-        appBar: AppBar(title: const Text('Iuran')),
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Iuran'),
+        ),
         body: const Center(
           child: EmptyState(
             icon: Icons.receipt_long_outlined,

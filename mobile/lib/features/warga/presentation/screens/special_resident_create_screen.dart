@@ -160,16 +160,6 @@ class _SpecialResidentCreateScreenState
     }
   }
 
-  String _getJabatanLabel(String value) {
-    switch (value) {
-      case 'keamanan':
-        return 'Keamanan';
-      case 'kebersihan_pembangunan':
-        return 'Kebersihan & Pembangunan';
-      default:
-        return value;
-    }
-  }
 
   /// Show confirmation dialog before canceling the form.
   /// Used by AppBar back, Android system back, and the Batal button.
@@ -300,7 +290,7 @@ class _SpecialResidentCreateScreenState
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   DropdownButtonFormField<String>(
-                    value: _jabatan,
+                    initialValue: _jabatan,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(AppRadius.base),
@@ -458,7 +448,7 @@ class _SpecialResidentCreateScreenState
                         vertical: AppSpacing.sm,
                       ),
                     ),
-                    value: _selectedRtId,
+                    initialValue: _selectedRtId,
                     hint: const Text('Pilih RT'),
                     items: _rtOptions.map((rt) {
                       final rtNum = ((rt['rt'] as String?) ?? '').padLeft(3, '0');

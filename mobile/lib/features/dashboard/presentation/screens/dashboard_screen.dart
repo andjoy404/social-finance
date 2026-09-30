@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/models/role.dart';
@@ -10,6 +9,8 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
+import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/core/widgets/summary_card.dart';
 import '../../data/mock_dashboard_data.dart';
@@ -39,8 +40,6 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  DateTime? _lastBackPressTime;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -56,29 +55,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        debugPrint('BACK_DIAG: DASHBOARD PopScope invoked didPop=$didPop');
-        if (didPop) return;
-        final now = DateTime.now();
-        if (_lastBackPressTime == null ||
-            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
-          _lastBackPressTime = now;
-          ScaffoldMessenger.of(context).removeCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Tekan sekali lagi untuk keluar dari aplikasi',
-              ),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        } else {
-          SystemNavigator.pop();
-        }
-      },
+    return DoubleBackExitScope(
       child: Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Beranda'),
+          actions: [
+            _ThemeActionButton(
+              onSelected: (mode) {
+                ref.read(themeProvider.notifier).setMode(mode);
+              },
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
         body: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
             AppSpacing.base,
@@ -108,17 +98,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _ThemeActionButton(
-                        onSelected: (mode) {
-                          ref.read(themeProvider.notifier).setMode(mode);
-                        },
-                      ),
-                    ],
                   ),
                 ],
               ),
