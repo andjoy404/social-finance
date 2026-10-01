@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/AuthContext'
+import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import {
   getHousehold,
   deactivateHousehold,
@@ -65,6 +66,8 @@ export function HouseholdDetail() {
   if (!id) {
     return <div style={{ flex: 1, padding: 'var(--sp-md) var(--sp-xl)' }}>ID tidak valid</div>
   }
+
+  const canWrite = hasWargaWriteAccess(user)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<ApiError | null>(null)
@@ -243,67 +246,68 @@ export function HouseholdDetail() {
             </div>
           </div>
 
-          {/* Actions */}
-          <div style={{
-            display: 'flex',
-            gap: '8px',
-            flexWrap: 'wrap',
-            marginBottom: 'var(--sp-md)',
-            paddingBottom: 'var(--sp-md)',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}>
-            {household.is_active && (
-              <>
-                <Link
-                  to={`/warga/${household.id}/edit`}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: 'var(--text-primary)',
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 'var(--radius-sm)',
-                    textDecoration: 'none',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Edit
-                </Link>
-                <Link
-                  to={`/warga/${household.id}/pindah`}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: 'var(--text-primary)',
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: 'var(--radius-sm)',
-                    textDecoration: 'none',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Pindah
-                </Link>
-                <button
-                  onClick={() => setConfirmDeactivate(true)}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: 'var(--color-expense)',
-                    background: 'transparent',
-                    border: '1px solid var(--color-expense)',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Nonaktifkan
-                </button>
-              </>
-            )}
-          </div>
+          {/* Actions — gated by write authorization */}
+          {canWrite && household.is_active && (
+            <>
+              <Link
+                to={`/warga/${household.id}/edit`}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: 'var(--text-primary)',
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-sm)',
+                  textDecoration: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Edit
+              </Link>
+              <Link
+                to={`/warga/${household.id}/pindah`}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: 'var(--text-primary)',
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-sm)',
+                  textDecoration: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Pindah
+              </Link>
+              <button
+                onClick={() => setConfirmDeactivate(true)}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: 'var(--color-expense)',
+                  background: 'transparent',
+                  border: '1px solid var(--color-expense)',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                }}
+              >
+                Nonaktifkan
+              </button>
+            </>
+          )}
+          {/* Non-active household always shows status badge (read-only) */}
+          {!canWrite && (
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--text-muted)',
+              fontStyle: 'italic',
+            }}>
+              Halaman ini hanya untuk menampilkan informasi. Anda tidak memiliki akses untuk mengedit.
+            </div>
+          )}
 
           {/* Deactivate confirmation modal */}
           {confirmDeactivate && (

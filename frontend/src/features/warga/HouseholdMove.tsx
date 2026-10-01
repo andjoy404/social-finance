@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/AuthContext'
+import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import {
   getHousehold,
   moveHousehold,
@@ -24,6 +25,29 @@ export function HouseholdMove() {
   if (!id) {
     navigate('/warga', { replace: true })
     return null
+  }
+
+  const canWrite = hasWargaWriteAccess(user)
+
+  if (!canWrite) {
+    return (
+      <div style={{ flex: 1, padding: 'var(--sp-md) var(--sp-xl)' }}>
+        <div style={{ marginBottom: 'var(--sp-md)' }}>
+          <Link to="/warga" style={{
+            fontSize: '13px', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-xs)',
+          }}>
+            ← Kembali ke Daftar Warga
+          </Link>
+        </div>
+        <AppCard>
+          <div style={{
+            fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: 'var(--sp-xl) 0',
+          }}>
+            Halaman ini hanya untuk pengurus yang berwenang.
+          </div>
+        </AppCard>
+      </div>
+    )
   }
 
   const [loading, setLoading] = useState(true)

@@ -12,6 +12,7 @@ export interface ApiUser {
   email: string
   system_role?: string
   role: string
+  jabatan?: string | null
   rt: { id: string; name: string } | null
 }
 

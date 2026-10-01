@@ -9,6 +9,7 @@ export interface AuthUser {
   email: string
   systemRole: string | null
   role: string
+  jabatan: string | null
   rt: { id: string; name: string } | null
 }
 
@@ -19,6 +20,7 @@ function mapUser(raw: ApiUser): AuthUser {
     email: raw.email,
     systemRole: raw.system_role ?? null,
     role: raw.role,
+    jabatan: raw.jabatan ?? null,
     rt: raw.rt ?? null,
   }
 }

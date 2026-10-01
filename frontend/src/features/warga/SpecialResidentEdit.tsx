@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/AuthContext'
+import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import {
   getResident,
   updateSpecialResident,
@@ -37,6 +38,30 @@ export function SpecialResidentEdit() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   if (!user || !id) return null
+
+  const canWrite = hasWargaWriteAccess(user)
+
+  if (!canWrite) {
+    return (
+      <Modal open onClose={() => navigate('/warga')} width={560}>
+        <ModalHeader
+          title="Akses Ditolak"
+          subtitle="Halaman ini hanya untuk pengurus yang berwenang"
+          onClose={() => navigate('/warga')}
+        />
+        <ModalBody>
+          <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', textAlign: 'center', padding: '24px 0' }}>
+            Anda tidak memiliki izin untuk mengubah data petugas khusus ini.
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="sf-btn-ghost" onClick={() => navigate('/warga')}>
+            Kembali
+          </button>
+        </ModalFooter>
+      </Modal>
+    )
+  }
 
   const [loadingData, setLoadingData] = useState(true)
   const [saving, setSaving] = useState(false)

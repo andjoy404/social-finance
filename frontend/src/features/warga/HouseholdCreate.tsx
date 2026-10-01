@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/app/AuthContext'
+import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import {
   createHousehold,
   getHousehold,
@@ -280,7 +281,30 @@ export function HouseholdCreate() {
 
   if (!user) return null
 
+  const canWrite = hasWargaWriteAccess(user)
   const adminMode = isSuperAdmin(user.systemRole)
+
+  if (!canWrite) {
+    return (
+      <Modal open onClose={() => navigate('/warga')} width={560}>
+        <ModalHeader
+          title="Akses Ditolak"
+          subtitle="Halaman ini hanya untuk pengurus yang berwenang"
+          onClose={() => navigate('/warga')}
+        />
+        <ModalBody>
+          <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', textAlign: 'center', padding: '24px 0' }}>
+            Anda tidak memiliki izin untuk menambah rumah tangga.
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="sf-btn-ghost" onClick={() => navigate('/warga')}>
+            Kembali
+          </button>
+        </ModalFooter>
+      </Modal>
+    )
+  }
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<ApiErrorType | null>(null)

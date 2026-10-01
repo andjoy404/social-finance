@@ -510,7 +510,6 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequirePermission(pool, "warga.create"))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
-		r.Use(auth.RequirePermission(pool, "warga.import"))
 		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/households", hh.CreateHousehold)
 		r.Post("/api/v1/households/{id}/move", hh.MoveHousehold)
@@ -522,6 +521,15 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
 		r.Post("/api/v1/residents/special", hh.CreateSpecialResident)
 		r.Patch("/api/v1/residents/special/{id}", hh.UpdateSpecialResident)
+	})
+
+	// Warga import requires additional warga.import permission (only ketua).
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequirePermission(pool, "warga.create"))
+		r.Use(auth.RequirePermission(pool, "warga.update"))
+		r.Use(auth.RequirePermission(pool, "warga.import"))
+		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
 		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
 		r.Post("/api/v1/warga/import/preview/xlsx", household.HandleWargaImportPreviewXLSX(pool))

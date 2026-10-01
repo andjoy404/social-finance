@@ -7,6 +7,7 @@ import {
   getSessionPair,
   type ApiResident,
 } from '@/app/api'
+import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
@@ -160,9 +161,8 @@ export function ResidentList() {
 
   const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
   const isPengurus = user.role === 'pengurus'
-  const isReadOnly = user.role === 'warga' && !isSuperAdmin
+  const canWrite = hasWargaWriteAccess(user)
   const showNik = isPengurus || isSuperAdmin
-  const showAksi = !isReadOnly
 
   const [choiceOpen, setChoiceOpen] = useState(false)
 
@@ -434,8 +434,8 @@ export function ResidentList() {
             />
           </div>
 
-          {/* Create button — hidden for warga (read-only) */}
-          {!isReadOnly && (
+          {/* Create button — hidden for unauthorized users */}
+          {canWrite && (
             <button className="sf-create-btn" onClick={() => setChoiceOpen(true)}>
               + Tambah
             </button>
@@ -484,7 +484,7 @@ export function ResidentList() {
                   <th className="col-end-date" style={colStyles.endDate}>TANGGAL SELESAI</th>
                   <th className="col-jabatan" style={colStyles.jabatan}>JABATAN</th>
                   <th className="col-status" style={colStyles.status}>STATUS</th>
-                  {showAksi && <th className="col-action" style={colStyles.action}>AKSI</th>}
+                  {canWrite && <th className="col-action" style={colStyles.action}>AKSI</th>}
                 </tr>
               </thead>
               <tbody>
@@ -493,7 +493,7 @@ export function ResidentList() {
                     key={resident.id}
                     resident={resident}
                     showNik={showNik}
-                    showAksi={showAksi}
+                    showAksi={canWrite}
                     onDetail={handleDetail}
                     onEdit={handleEdit}
                     onEditSpecial={handleEditSpecial}
