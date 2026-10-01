@@ -77,10 +77,16 @@ func TestRequireAuthMalformedBearerFormat(t *testing.T) {
 func TestRequireAuthValidTokenSetsContext(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-0@example.com", RoleBendahara)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID: "user-uuid-test",
-		MID:    "member-uuid-test",
-		RTID:   "rt-uuid-test",
+		UserID: userID,
+		MID:    memberID,
+		RTID:   rtID,
 		Role:   "bendahara",
 	}
 
@@ -106,14 +112,14 @@ func TestRequireAuthValidTokenSetsContext(t *testing.T) {
 	if receivedAuthContext == nil {
 		t.Fatal("expected AuthContext to be set for valid token")
 	}
-	if receivedAuthContext.UserID != "user-uuid-test" {
-		t.Errorf("expected UserID=user-uuid-test, got %s", receivedAuthContext.UserID)
+	if receivedAuthContext.UserID != userID {
+		t.Errorf("expected UserID=%s, got %s", userID, receivedAuthContext.UserID)
 	}
-	if receivedAuthContext.MembershipID != "member-uuid-test" {
-		t.Errorf("expected MembershipID=member-uuid-test, got %s", receivedAuthContext.MembershipID)
+	if receivedAuthContext.MembershipID != memberID {
+		t.Errorf("expected MembershipID=%s, got %s", memberID, receivedAuthContext.MembershipID)
 	}
-	if receivedAuthContext.RTID != "rt-uuid-test" {
-		t.Errorf("expected RTID=rt-uuid-test, got %s", receivedAuthContext.RTID)
+	if receivedAuthContext.RTID != rtID {
+		t.Errorf("expected RTID=%s, got %s", rtID, receivedAuthContext.RTID)
 	}
 	if receivedAuthContext.TenantRole != Role("bendahara") {
 		t.Errorf("expected TenantRole=bendahara, got %s", receivedAuthContext.TenantRole)
@@ -202,10 +208,16 @@ func TestRequireAuthInvalidSignatureRejected(t *testing.T) {
 func TestRequireRolePermittedRole(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-2@example.com", RoleBendahara)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID: "user-uuid-test",
-		MID:    "member-uuid-test",
-		RTID:   "rt-uuid-test",
+		UserID: userID,
+		MID:    memberID,
+		RTID:   rtID,
 		Role:   "bendahara",
 	}
 
@@ -233,10 +245,16 @@ func TestRequireRolePermittedRole(t *testing.T) {
 func TestRequireRoleForbiddenRole(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-3@example.com", RoleWarga)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID: "user-uuid-test",
-		MID:    "member-uuid-test",
-		RTID:   "rt-uuid-test",
+		UserID: userID,
+		MID:    memberID,
+		RTID:   rtID,
 		Role:   "warga",
 	}
 
@@ -278,11 +296,17 @@ func TestRequireRoleUnauthenticated(t *testing.T) {
 func TestRequireRoleMultipleRoles(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-4@example.com", RolePengurus)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	for _, role := range []Role{RolePengurus, RoleBendahara} {
 		claims := TokenClaims{
-			UserID: "user-uuid-test",
-			MID:    "member-uuid-test",
-			RTID:   "rt-uuid-test",
+			UserID: userID,
+			MID:    memberID,
+			RTID:   rtID,
 			Role:   string(role),
 		}
 		tokenStr, err := GenerateAccessToken(claims)
@@ -313,9 +337,9 @@ func TestRequireRoleMultipleRoles(t *testing.T) {
 
 	// Test non-authorized role is rejected
 	claims := TokenClaims{
-		UserID: "user-uuid-test",
-		MID:    "member-uuid-test",
-		RTID:   "rt-uuid-test",
+		UserID: userID,
+		MID:    memberID,
+		RTID:   rtID,
 		Role:   "warga",
 	}
 	tokenStr, err := GenerateAccessToken(claims)
@@ -349,10 +373,16 @@ func TestGetAuthContextMissing(t *testing.T) {
 // TestRequireAuthValidTokenSucceeds checks that a valid token reaches the handler.
 func TestRequireAuthValidTokenSucceeds(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-1@example.com", RoleWarga)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID: "user-uuid-test",
-		MID:    "member-uuid-test",
-		RTID:   "rt-uuid-test",
+		UserID: userID,
+		MID:    memberID,
+		RTID:   rtID,
 		Role:   "warga",
 	}
 	tokenStr, err := GenerateAccessToken(claims)
@@ -382,8 +412,12 @@ func TestRequireAuthValidTokenSucceeds(t *testing.T) {
 func TestRequireSystemRolePermitted(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupSystemOnlyIdentity(t, "user-uuid-test", "test-13@example.com")
+
+	userID := testUUID("user-uuid-test")
+
 	claims := TokenClaims{
-		UserID:  "user-uuid-test",
+		UserID:  userID,
 		SysRole: "super_admin",
 	}
 
@@ -414,10 +448,16 @@ func TestRequireSystemRolePermitted(t *testing.T) {
 func TestRequireSystemRoleForbiddenForTenantOnlyUser(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-5@example.com", RolePengurus)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID:  "user-uuid-test",
-		MID:     "member-uuid-test",
-		RTID:    "rt-uuid-test",
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
 		Role:    "pengurus",
 		SysRole: "",
 	}
@@ -465,8 +505,12 @@ func TestRequireSystemRoleUnauthenticated(t *testing.T) {
 func TestRequireRoleSystemOnlyAdminPasses(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupSystemOnlyIdentity(t, "user-uuid-test", "test-14@example.com")
+
+	userID := testUUID("user-uuid-test")
+
 	claims := TokenClaims{
-		UserID:  "user-uuid-test",
+		UserID:  userID,
 		SysRole: "super_admin",
 		// No MID, RTID, or Role — system-only user
 	}
@@ -501,10 +545,16 @@ func TestRequireRoleSystemOnlyAdminPasses(t *testing.T) {
 func TestRequireRoleAdminWithMembershipAsWarga(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-6@example.com", RoleWarga)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID:  "user-uuid-test",
-		MID:     "member-uuid-test",
-		RTID:    "rt-uuid-test",
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
 		Role:    "warga",
 		SysRole: "super_admin",
 	}
@@ -538,10 +588,16 @@ func TestRequireRoleAdminWithMembershipAsWarga(t *testing.T) {
 func TestRequireRoleAdminWithMembershipAsBendahara(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-7@example.com", RoleBendahara)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID:  "user-uuid-test",
-		MID:     "member-uuid-test",
-		RTID:    "rt-uuid-test",
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
 		Role:    "bendahara",
 		SysRole: "super_admin",
 	}
@@ -576,10 +632,16 @@ func TestRequireSystemRoleTenantAdminDeniedSystemAccess(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
 	// Token for a pure tenant-user (pengurus), NOT super_admin
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-8@example.com", RolePengurus)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID:  "user-uuid-test",
-		MID:     "member-uuid-test",
-		RTID:    "rt-uuid-test",
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
 		Role:    "pengurus",
 		SysRole: "",
 	}
@@ -613,9 +675,13 @@ func TestRequireSystemRoleTenantAdminDeniedSystemAccess(t *testing.T) {
 func TestRequireSystemRoleMultiRole(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupSystemOnlyIdentity(t, "user-uuid-test", "test-15@example.com")
+
+	userID := testUUID("user-uuid-test")
+
 	for _, sysRole := range []SystemRole{SystemRoleSuperAdmin} {
 		claims := TokenClaims{
-			UserID:  "user-uuid-test",
+			UserID:  userID,
 			SysRole: string(sysRole),
 		}
 
@@ -649,10 +715,16 @@ func TestRequireSystemRoleMultiRole(t *testing.T) {
 func TestSystemRoleAndTenantRoleAreDistinct(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-9@example.com", RoleBendahara)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID:  "user-uuid-test",
-		MID:     "member-uuid-test",
-		RTID:    "rt-uuid-test",
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
 		Role:    "bendahara",
 		SysRole: "super_admin",
 	}
@@ -694,47 +766,71 @@ func TestRequireRoleEmptyContextFields(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		claim    TokenClaims
+		setup    func(t *testing.T) TokenClaims
 		expected int
 		recv     bool
 	}{
 		{
 			name: "empty MembershipID",
-			claim: TokenClaims{
-				UserID: "user-uuid",
-				MID:    "",
-				RTID:   "rt-uuid",
-				Role:   "bendahara",
+			setup: func(t *testing.T) TokenClaims {
+				setupSystemOnlyIdentity(t, "user-uuid", "test-12a@example.com")
+				userID := testUUID("user-uuid")
+				return TokenClaims{
+					UserID: userID,
+					MID:    "",
+					RTID:   "rt-uuid",
+					Role:   "bendahara",
+				}
 			},
 			expected: http.StatusForbidden,
 			recv:     false,
 		},
 		{
 			name: "empty RTID",
-			claim: TokenClaims{
-				UserID: "user-uuid",
-				MID:    "member-uuid",
-				RTID:   "",
-				Role:   "bendahara",
+			setup: func(t *testing.T) TokenClaims {
+				setupTenantIdentity(t, "user-uuid", "member-uuid", "rt-uuid", "test-12b@example.com", RolePengurus)
+				userID := testUUID("user-uuid")
+				memberID := testUUID("member-uuid")
+				return TokenClaims{
+					UserID: userID,
+					MID:    memberID,
+					RTID:   "",
+					Role:   "bendahara",
+				}
 			},
 			expected: http.StatusForbidden,
 			recv:     false,
 		},
 		{
 			name: "empty TenantRole",
-			claim: TokenClaims{
-				UserID:  "user-uuid",
-				SysRole: "super_admin",
-				MID:     "member-uuid",
-				RTID:    "rt-uuid",
-				Role:    "",
+			setup: func(t *testing.T) TokenClaims {
+				setupTenantIdentity(t, "user-uuid", "member-uuid", "rt-uuid", "test-12c@example.com", RolePengurus)
+				userID := testUUID("user-uuid")
+				memberID := testUUID("member-uuid")
+				rtID := testUUID("rt-uuid")
+				return TokenClaims{
+					UserID:  userID,
+					SysRole: "super_admin",
+					MID:     memberID,
+					RTID:    rtID,
+					Role:    "",
+				}
 			},
 			expected: http.StatusOK,
 			recv:     true,
 		},
 		{
 			name:     "all empty",
-			claim:    TokenClaims{UserID: "user-uuid"},
+			setup: func(t *testing.T) TokenClaims {
+				setupSystemOnlyIdentity(t, "user-uuid", "test-12d@example.com")
+				userID := testUUID("user-uuid")
+				return TokenClaims{
+					UserID: userID,
+					MID:    "",
+					RTID:   "",
+					Role:   "",
+				}
+			},
 			expected: http.StatusForbidden,
 			recv:     false,
 		},
@@ -742,7 +838,8 @@ func TestRequireRoleEmptyContextFields(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tokenStr, err := GenerateAccessToken(tc.claim)
+			claim := tc.setup(t)
+			tokenStr, err := GenerateAccessToken(claim)
 			if err != nil {
 				t.Fatalf("GenerateAccessToken failed: %v", err)
 			}
@@ -774,10 +871,16 @@ func TestRequireSystemRoleAndRequireRoleTogether(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
 	// A tenant-user (pengurus, NOT super_admin) hitting BOTH checks
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-10@example.com", RolePengurus)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID:  "user-uuid-test",
-		MID:     "member-uuid-test",
-		RTID:    "rt-uuid-test",
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
 		Role:    "pengurus",
 		SysRole: "",
 	}
@@ -814,10 +917,16 @@ func TestRequireSystemRoleAndRequireRoleTogether(t *testing.T) {
 func TestRequireRoleEmptyAllowedList(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	setupTenantIdentity(t, "user-uuid-test", "member-uuid-test", "rt-uuid-test", "test-11@example.com", RolePengurus)
+
+	userID := testUUID("user-uuid-test")
+	memberID := testUUID("member-uuid-test")
+	rtID := testUUID("rt-uuid-test")
+
 	claims := TokenClaims{
-		UserID: "user-uuid-test",
-		MID:    "member-uuid-test",
-		RTID:   "rt-uuid-test",
+		UserID: userID,
+		MID:    memberID,
+		RTID:   rtID,
 		Role:   "pengurus",
 	}
 

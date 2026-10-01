@@ -208,10 +208,17 @@ func TestRequireRoleNeverReadsClientRTID(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
 	// Authenticated principal: user in RT A with bendahara role.
+	// Create valid DB identity so RequireAuth passes.
+	setupTenantIdentity(t, "user-uuid-a", "member-uuid-a", "rt-a-uuid", "security-1@example.com", RoleBendahara)
+
+	userUUID := testUUID("user-uuid-a")
+	memberUUID := testUUID("member-uuid-a")
+	rtUUID := testUUID("rt-a-uuid")
+
 	claims := TokenClaims{
-		UserID: "user-uuid-a",
-		MID:    "member-uuid-a",
-		RTID:   "rt-a-uuid",
+		UserID: userUUID,
+		MID:    memberUUID,
+		RTID:   rtUUID,
 		Role:   "bendahara",
 	}
 	tokenStr, err := GenerateAccessToken(claims)
@@ -272,11 +279,11 @@ func TestRequireRoleNeverReadsClientRTID(t *testing.T) {
 				t.Errorf("expected 200, got %d", rec.Code)
 			}
 			// The RTID must come from the JWT, never from client request.
-			if receivedRTID != "rt-a-uuid" {
-				t.Errorf("expected RTID=rt-a-uuid (from JWT), got %s", receivedRTID)
+			if receivedRTID != rtUUID {
+				t.Errorf("expected RTID=%s (from JWT), got %s", rtUUID, receivedRTID)
 			}
-			if receivedMID != "member-uuid-a" {
-				t.Errorf("expected MID=member-uuid-a (from JWT), got %s", receivedMID)
+			if receivedMID != memberUUID {
+				t.Errorf("expected MID=%s (from JWT), got %s", memberUUID, receivedMID)
 			}
 		})
 	}
@@ -287,10 +294,17 @@ func TestAuthContextTenantFieldsAreIsolatedFromRequest(t *testing.T) {
 	// values are derived solely from the JWT token.
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	// Create valid DB identity so RequireAuth passes.
+	setupTenantIdentity(t, "user-uuid-x", "member-uuid-x", "actual-rt-uuid", "security-2@example.com", RoleWarga)
+
+	userUUID := testUUID("user-uuid-x")
+	memberUUID := testUUID("member-uuid-x")
+	rtUUID := testUUID("actual-rt-uuid")
+
 	claims := TokenClaims{
-		UserID: "user-uuid-x",
-		MID:    "member-uuid-x",
-		RTID:   "actual-rt-uuid",
+		UserID: userUUID,
+		MID:    memberUUID,
+		RTID:   rtUUID,
 		Role:   "warga",
 	}
 	tokenStr, err := GenerateAccessToken(claims)
@@ -319,14 +333,14 @@ func TestAuthContextTenantFieldsAreIsolatedFromRequest(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	if acRTID != "actual-rt-uuid" {
-		t.Errorf("AuthContext.RTID was overridden by query param: expected actual-rt-uuid, got %s", acRTID)
+	if acRTID != rtUUID {
+		t.Errorf("AuthContext.RTID was overridden by query param: expected %s, got %s", rtUUID, acRTID)
 	}
-	if acMID != "member-uuid-x" {
-		t.Errorf("AuthContext.MembershipID was overridden by query param: expected member-uuid-x, got %s", acMID)
+	if acMID != memberUUID {
+		t.Errorf("AuthContext.MembershipID was overridden by query param: expected %s, got %s", memberUUID, acMID)
 	}
-	if acUserID != "user-uuid-x" {
-		t.Errorf("AuthContext.UserID was overridden by query param: expected user-uuid-x, got %s", acUserID)
+	if acUserID != userUUID {
+		t.Errorf("AuthContext.UserID was overridden by query param: expected %s, got %s", userUUID, acUserID)
 	}
 }
 
@@ -339,16 +353,23 @@ func TestCrossRTTenantIsolation(t *testing.T) {
 
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
 
+	// Create valid DB identity so RequireAuth passes for both tokens below.
+	setupTenantIdentity(t, "user-a-uuid", "member-a-uuid", "rt-a-uuid", "security-3@example.com", RoleBendahara)
+
+	userUUID := testUUID("user-a-uuid")
+	memberUUID := testUUID("member-a-uuid")
+	rtUUID := testUUID("rt-a-uuid")
+
 	rtABendaharaClaims := TokenClaims{
-		UserID: "user-a-uuid",
-		MID:    "member-a-uuid",
-		RTID:   "rt-a-uuid",
+		UserID: userUUID,
+		MID:    memberUUID,
+		RTID:   rtUUID,
 		Role:   "bendahara", // RT A: bendahara
 	}
 	rtAWargaClaims := TokenClaims{
-		UserID: "user-a-uuid",
-		MID:    "member-a-uuid",
-		RTID:   "rt-a-uuid",
+		UserID: userUUID,
+		MID:    memberUUID,
+		RTID:   rtUUID,
 		Role:   "warga", // RT A: warga
 	}
 
