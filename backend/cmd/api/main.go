@@ -92,6 +92,9 @@ func main() {
 	if cfg.JWTExpiry > 0 {
 		auth.DefaultAccessTokenLifetime = time.Duration(cfg.JWTExpiry) * time.Second
 	}
+	// Wire database pool for RequireAuth identity validation.
+	// Must be set after pool creation succeeds and before any HTTP requests.
+	auth.AuthDBPool = pool
 	authSvc := auth.NewService(auth.ServiceOptions{
 		RefreshLifetime: time.Duration(cfg.RefreshExpiry) * time.Second,
 	})

@@ -217,6 +217,13 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 		return nil, fmt.Errorf("find membership: %w", err)
 	}
 
+	// Validate the authenticated identity still exists and is active.
+	// This prevents stale refresh tokens from issuing new access tokens
+	// for deactivated users or memberships.
+	if err := ValidateIdentity(ctx, tx, m.UserID, membershipID); err != nil {
+		return nil, fmt.Errorf("identity invalid during refresh: %w", err)
+	}
+
 	// Load user for system_role.
 	user, err := UsersFindByID(ctx, tx, m.UserID)
 	if err != nil {

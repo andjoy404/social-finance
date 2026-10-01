@@ -43,6 +43,38 @@ func RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		// Validate the authenticated identity still exists and is active.
+		// This closes the stale-jwt gap: JWT signature verification is
+		// cryptographic only — it does not check whether the user or their
+		// membership still exists in the database.
+		validateCtx, validateCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer validateCancel()
+
+		// Fail-closed: if AuthDBPool is nil, block the request instead of
+		// trusting the JWT blindly. In production AuthDBPool is always set
+		// during startup before ListenAndServe() begins; in tests that do not
+		// wire the pool, this guard prevents a nil-panic.
+		if AuthDBPool == nil {
+			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "identity validation unavailable")
+			return
+		}
+
+		tx, err := AuthDBPool.BeginTx(validateCtx)
+		if err != nil {
+			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+			return
+		}
+		if err := ValidateIdentity(validateCtx, tx, claims.UserID, claims.MID); err != nil {
+			tx.Rollback()
+			if err == ErrNotAuthorized {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "identity_invalid", "user not found or inactive")
+			} else {
+				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "identity validation failed")
+			}
+			return
+		}
+		tx.Rollback()
+
 		ctx := context.WithValue(r.Context(), AuthContextKey, &AuthContext{
 			UserID:       claims.UserID,
 			MembershipID: claims.MID,
@@ -139,10 +171,13 @@ func RequireRole(allowed ...Role) func(http.Handler) http.Handler {
 }
 
 // RequirePermission returns a middleware that enforces position-based permissions
-// for jabatan-based users. Role-based users (no jabatan) and super_admin always pass.
+// for jabatan-based users. Super admin always passes.
 //
-// The middleware queries permission_types and position_permissions via the database
-// pool, scoped to the authenticated user's RTID from JWT claims.
+// Users WITH a jabatan are evaluated against position_permissions via the
+// database pool, scoped to the authenticated user's RTID from JWT claims.
+// Users WITHOUT a jabatan pass through without DB query — their access is
+// enforced solely by RequireRole middleware, which is stacked after
+// RequirePermission on each route.
 //
 // Usage:
 //
@@ -166,13 +201,10 @@ func RequirePermission(pool *database.Pool, permission string) func(http.Handler
 				return
 			}
 
-			// Role-based users (no jabatan) pass through — RequireRole enforces their access.
-			if ac.Jabatan == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// jabatan-based user: resolve permission from DB.
+			// All users (jabatan-based and role-based without jabatan) are
+			// evaluated by PermissionResolver.HasPermission:
+			//   - jabatan-based: checked against position_permissions DB table
+			//   - no jabatan: passes through (RequireRole enforces role access)
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			defer cancel()
 

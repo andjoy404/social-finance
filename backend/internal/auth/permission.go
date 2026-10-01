@@ -22,11 +22,10 @@ func NewPermissionResolver(pool *database.Pool) *PermissionResolver {
 }
 
 // HasPermission checks whether the authenticated user has the given permission.
-// It only enforces permission checks for jabatan-based users.
-// Role-based users (no jabatan) pass through without DB query.
-// Super admin always passes.
-// The resolver uses the AuthContext RTID to validate the user has the jabatan
-// in the correct RT (tenant isolation).
+// System-level super_admin always passes.
+// jabatan-based users are evaluated against the position_permissions table.
+// Role-based users (no jabatan) pass through without DB query — their access
+// is enforced by RequireRole middleware on each route.
 func (pr *PermissionResolver) HasPermission(ctx context.Context, tx *sql.Tx, ac *AuthContext, permission string) (bool, error) {
 	// 1. System-level super_admin always passes.
 	if ac.SystemRole == SystemRoleSuperAdmin {

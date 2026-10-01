@@ -279,6 +279,54 @@ func RTMembershipFindByID(ctx context.Context, tx *sql.Tx, id string) (*Membersh
 	return &m, nil
 }
 
+// ValidateIdentity verifies that an authenticated user and their membership
+// still exist and are active. It is designed to run inside RequireAuth after
+// JWT verification — a lightweight gate that rejects deleted or deactivated
+// identities with a clear sentinel error.
+//
+// For tenant users (membershipID != "") it checks:
+//   - users.id exists AND users.is_active = true
+//   - user_rt_memberships.id exists AND user_rt_memberships.is_active = true
+//   - membership belongs to the user AND its RT is active
+//
+// For system-only users (membershipID == "") it only checks:
+//   - users.id exists AND users.is_active = true
+func ValidateIdentity(ctx context.Context, tx *sql.Tx, userID, membershipID string) error {
+	if membershipID == "" {
+		// System-only user (e.g. super_admin with no RT membership).
+		var isActive bool
+		err := tx.QueryRowContext(ctx,
+			`SELECT is_active FROM users WHERE id = $1 LIMIT 1`, userID).Scan(&isActive)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return ErrNotAuthorized
+			}
+			return fmt.Errorf("validate identity (system user): %w", err)
+		}
+		if !isActive {
+			return ErrNotAuthorized
+		}
+		return nil
+	}
+
+	// Tenant user: validate user + membership + RT in a single query.
+	var count int
+	err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users u
+		 JOIN user_rt_memberships urm ON urm.id = $2
+		 JOIN rts rt ON rt.id = urm.rt_id
+		 WHERE u.id = $1 AND urm.user_id = $1 AND u.is_active = true
+		   AND urm.is_active = true AND rt.is_active = true
+		 LIMIT 1`, userID, membershipID).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("validate identity: %w", err)
+	}
+	if count == 0 {
+		return ErrNotAuthorized
+	}
+	return nil
+}
+
 // CreateNewUser inserts a new user and returns the generated ID.
 func CreateNewUser(ctx context.Context, tx *sql.Tx, email string, phone *string, passwordHash, fullname, systemRole string) (string, error) {
 	query := `

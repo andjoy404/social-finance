@@ -1,5 +1,7 @@
 package auth
 
+import "social-finance/internal/database"
+
 // SystemRole represents a global-level role (not tied to an RT).
 type SystemRole string
 
@@ -74,3 +76,9 @@ type AuthContext struct {
 	TenantRole   Role       // empty for system-only auth
 	Jabatan      Jabatan    // empty if no position assigned
 }
+
+// AuthDBPool is the database pool used by RequireAuth for identity validation.
+// It is set once during application startup (before the HTTP server starts).
+// This is needed because RequireAuth cannot accept a pool parameter — it is
+// wired to all routes as a plain chi middleware (http.Handler).
+var AuthDBPool *database.Pool
