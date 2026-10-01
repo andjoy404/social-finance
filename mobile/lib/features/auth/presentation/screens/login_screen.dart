@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/constants/app_constants.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/one_shot_animated_gif.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
@@ -359,45 +361,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Widget _buildSubmitButton(bool isLoading) {
     final isDisabled = isLoading;
-    return SizedBox(
-      width: double.infinity,
-      height: 36,
-      child: ElevatedButton(
-        onPressed: isDisabled ? null : _handleLogin,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: isDisabled ? const Color(0x387C5AC7) : null,
-          foregroundColor: isDisabled
-              ? const Color(0x73C8C8EB)
-              : const Color(0xFFF8F5FD),
-          elevation: 0,
-          padding: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(7),
-            side: BorderSide(
-              color: isDisabled
-                  ? const Color(0x2DA970FF)
-                  : const Color(0x73A970FF),
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.accent.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 0),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: OutlinedButton(
+          onPressed: isDisabled ? null : _handleLogin,
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: AppColors.accent),
+            foregroundColor: AppColors.accent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.base),
             ),
           ),
-          textStyle: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.01,
-          ),
-        ),
-        child: isLoading
-            ? SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  backgroundColor: Colors.transparent,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    const Color(0xFFF8F5FD),
+          child: isLoading
+              ? SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    backgroundColor: Colors.transparent,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.accent,
+                    ),
                   ),
-                ),
-              )
-            : Text(isLoading ? 'Memproses...' : 'Masuk'),
+                )
+              : const Text('Masuk'),
+        ),
       ),
     );
   }

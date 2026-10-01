@@ -7,7 +7,6 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
-import 'package:social_finance/core/widgets/primary_button.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
 import '../../data/warga_providers.dart';
@@ -182,15 +181,29 @@ class _SpecialResidentCreateScreenState
             ),
             child: const Text('Tidak, Tetap di Halaman'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.accent,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.base),
+          Container(
+            decoration: BoxDecoration(
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.danger.withValues(alpha: 0.15),
+                  blurRadius: 8,
+                  offset: const Offset(0, 0),
+                ),
+              ],
+            ),
+            child: SizedBox(
+              height: 48,
+              child: FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                ),
+                child: const Text('Ya, Batalkan'),
               ),
             ),
-            child: const Text('Ya, Batalkan'),
           ),
         ],
       ),
@@ -476,28 +489,83 @@ class _SpecialResidentCreateScreenState
               Row(
                 children: [
                   Expanded(
-                    child: PrimaryButton(
-                      text: _saving ? 'Menyimpan...' : 'Simpan',
-                      onPressed: _save,
-                      isLoading: _saving,
-                      icon: _saving ? null : Icons.save_outlined,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.accent.withValues(alpha: 0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 0),
+                          ),
+                        ],
+                      ),
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _saving ? null : _save,
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.accent),
+                            foregroundColor: AppColors.accent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.base),
+                            ),
+                          ),
+                          child: _saving
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    backgroundColor: Colors.transparent,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      AppColors.accent,
+                                    ),
+                                  ),
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.save_outlined, size: 18),
+                                    SizedBox(width: 6),
+                                    Text('Simpan'),
+                                  ],
+                                ),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: OutlinedButton(
-                      onPressed: _confirmCancel,
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                        side: BorderSide(color: AppColors.lightBorder),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.close, size: 18),
-                          const SizedBox(width: 6),
-                          const Text('Batal'),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.danger.withValues(alpha: 0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 0),
+                          ),
                         ],
+                      ),
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _saving ? null : _confirmCancel,
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: AppColors.danger),
+                            foregroundColor: AppColors.danger,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppRadius.base),
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.close, size: 18),
+                              SizedBox(width: 6),
+                              Text('Batal'),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),

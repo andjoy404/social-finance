@@ -303,6 +303,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
       ),
       child: Material(
         color: Colors.transparent,
+        clipBehavior: Clip.none,
         child: InkWell(
           onTap: onFabPressed,
           borderRadius: BorderRadius.circular(24),
@@ -352,6 +353,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
       ),
       child: Material(
         color: Colors.transparent,
+        clipBehavior: Clip.none,
         child: InkWell(
           onTap: onFabPressed,
           borderRadius: BorderRadius.circular(fabSize / 2),
@@ -643,6 +645,7 @@ class _ResidentCard extends StatelessWidget {
                 ),
                 child: Material(
                   color: Colors.transparent,
+                  clipBehavior: Clip.none,
                   child: InkWell(
                     onTap: () {
                       context.push('/home/warga/edit/petugas/${resident.id}');
@@ -687,6 +690,7 @@ class _ResidentCard extends StatelessWidget {
                 ),
                 child: Material(
                   color: Colors.transparent,
+                  clipBehavior: Clip.none,
                   child: InkWell(
                     onTap: () {
                       context.push(
