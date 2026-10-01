@@ -32,9 +32,37 @@ const Set<String> kPetugasKhususJabatan = {
   'kebersihan_pembangunan',
 };
 
+/// Jabatan pengurus RT yang memiliki akses tulis warga (position_permissions).
+/// Must not include AppRole.petugas or kPetugasKhususJabatan entries.
+const Set<String> kWargaWriteJabatans = {
+  'ketua',
+  'wakil_ketua',
+  'sekretaris',
+  'bendahara',
+};
+
 /// Whether the current user has write access to warga data.
+///
+/// Evaluation order:
+/// 1. If system_role == 'super_admin' → always allowed.
+/// 2. If jabatan is non-empty → only allowed when jabatan is in
+///    [kWargaWriteJabatans].
+/// 3. Otherwise fall through to the existing role-based check
+///    ([kWargaWriteRoles]).
 bool _hasWargaWriteAccess(WidgetRef ref) {
   final authState = ref.read(authRepositoryProvider);
+  final systemRole = authState?.valueOrNull?['system_role'] as String?;
+
+  // 1. SUPER_ADMIN always has write access.
+  if (systemRole == 'super_admin') return true;
+
+  // 2. Check jabatan-based authorization first.
+  final jabatan = authState?.valueOrNull?['jabatan'] as String?;
+  if (jabatan != null && jabatan.isNotEmpty) {
+    return kWargaWriteJabatans.contains(jabatan);
+  }
+
+  // 3. Fallback: role-based authorization (empty/null jabatan).
   final role = authState?.valueOrNull?['role'] as AppRole?;
   return (role != null && kWargaWriteRoles.contains(role));
 }

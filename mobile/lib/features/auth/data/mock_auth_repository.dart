@@ -79,6 +79,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
           systemRoleStr: response.user.systemRole,
         ),
         'system_role': response.user.systemRole,
+        'jabatan': response.user.jabatan,
         'rt_id': response.user.rtId,
         'rt': null,
         'rw': null,
@@ -104,6 +105,8 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   }
 
   AppRole get currentRole => _currentUser?['role'] as AppRole? ?? AppRole.warga;
+
+  String? get currentJabatan => _currentUser?['jabatan'] as String?;
 
   Map<String, dynamic>? get currentUser => _currentUser;
 

@@ -5,6 +5,7 @@ class AuthUser {
   final String role;
   final String? rtId;
   final String? systemRole;
+  final String? jabatan;
 
   const AuthUser({
     required this.id,
@@ -13,6 +14,7 @@ class AuthUser {
     required this.role,
     this.rtId,
     this.systemRole,
+    this.jabatan,
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
@@ -25,6 +27,7 @@ class AuthUser {
           json['rt_id'] as String? ??
           (json['rt'] is Map ? json['rt']['id'] as String? : null),
       systemRole: json['system_role'] as String?,
+      jabatan: json['jabatan'] as String?,
     );
   }
 
@@ -35,6 +38,7 @@ class AuthUser {
     'role': role,
     if (rtId != null) 'rt_id': rtId,
     if (systemRole != null) 'system_role': systemRole,
+    if (jabatan != null) 'jabatan': jabatan,
   };
 }
 

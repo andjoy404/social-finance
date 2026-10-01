@@ -438,6 +438,7 @@ type UserForMe struct {
 	Phone      *string `json:"phone,omitempty"`
 	TenantRole Role    `json:"role"`
 	SystemRole string  `json:"system_role,omitempty"` // "super_admin" if present
+	Jabatan    *string `json:"jabatan"`                 // RT organizational position, null if not assigned
 	RTID       string  `json:"rt_id"`
 	RTName     string  `json:"rt_name"`
 	RT_rw      int     `json:"rt_rw"`
@@ -448,7 +449,7 @@ type UserForMe struct {
 func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*UserForMe, error) {
 	query := `
 		SELECT u.id, u.full_name, u.email, u.phone, u.system_role, urm.role,
-			rt.id, rt.name, rt.rw, rt.rt
+			urm.jabatan, rt.id, rt.name, rt.rw, rt.rt
 		FROM users u
 		JOIN user_rt_memberships urm ON urm.id = $2
 		JOIN rts rt ON rt.id = urm.rt_id
@@ -458,10 +459,11 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	`
 	var u UserForMe
 	var sysRole sql.NullString
+	var jabatanStr sql.NullString
 	var roleStr string
 	err := tx.QueryRowContext(ctx, query, userID, membershipID).Scan(
 		&u.ID, &u.Fullname, &u.Email, &u.Phone, &sysRole,
-		&roleStr, &u.RTID, &u.RTName, &u.RT_rw, &u.RT_rt,
+		&roleStr, &jabatanStr, &u.RTID, &u.RTName, &u.RT_rw, &u.RT_rt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -473,6 +475,10 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 		u.SystemRole = sysRole.String
 	}
 	u.TenantRole = Role(roleStr)
+	if jabatanStr.Valid {
+		j := jabatanStr.String
+		u.Jabatan = &j
+	}
 	return &u, nil
 }
 
