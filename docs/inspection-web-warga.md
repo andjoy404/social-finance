@@ -417,13 +417,13 @@ Uses a `useToast()` hook for global toast notifications. Validation errors appea
   {/* Summary cards */}
   <SummaryCard title="Status" value="Aktif" icon={<User size={20} />} variant="success" />
   <SummaryCard title="NIK" value={resident.nik} icon={<IdCard size={20} />} variant="info" />
-  
+
   {/* Detail sections */}
   <AppCard>
     <SectionHeader title="Informasi Pribadi" />
     {/* Field rows: Nama, NIK, Tempat/Tgl Lahir, etc. */}
   </AppCard>
-  
+
   <AppCard>
     <SectionHeader title="Informasi Keluarga" />
     {/* Field rows */}
@@ -589,7 +589,7 @@ All components are custom-built (no external UI library like MUI, Ant Design, or
 ```tsx
 <Route path="/home" element={<AppLayout>...<Sidebar>...</Sidebar></AppLayout>}>
   <Route path="home" element={<Dashboard />} />
-  
+
   {/* Warga routes — under /home prefix (ShellRoute) */}
   <Route element={<WargaLayout />}>
     <Route path="warga" element={<ResidentList />} />
@@ -603,7 +603,7 @@ All components are custom-built (no external UI library like MUI, Ant Design, or
     <Route path="special-resident/:id" element={<SpecialResidentDetail />} />
     <Route path="special-resident/:id/edit" element={<SpecialResidentEdit />} />
   </Route>
-  
+
   {/* Other feature routes... */}
 </Route>
 ```

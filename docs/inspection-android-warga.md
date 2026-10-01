@@ -282,16 +282,16 @@ Dialog(
 bool _hasWargaWriteAccess(WidgetRef ref) {
   final authState = ref.read(authRepositoryProvider);
   final systemRole = authState?.valueOrNull?['system_role'] as String?;
-  
+
   // 1. SUPER_ADMIN always has write access
   if (systemRole == 'super_admin') return true;
-  
+
   // 2. Check jabatan-based authorization first
   final jabatan = authState?.valueOrNull?['jabatan'] as String?;
   if (jabatan != null && jabatan.isNotEmpty) {
     return kWargaWriteJabatans.contains(jabatan);
   }
-  
+
   // 3. Fallback: role-based authorization
   final role = authState?.valueOrNull?['role'] as AppRole?;
   return (role != null && kWargaWriteRoles.contains(role));
