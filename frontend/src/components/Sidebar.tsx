@@ -7,6 +7,8 @@ import {
   DashboardOutlined,
   UserOutlined,
   ApartmentOutlined,
+  AccountBookOutlined,
+  DollarOutlined,
 } from '@ant-design/icons'
 
 function isActive(route: string, pathname: string): boolean {
@@ -48,6 +50,8 @@ export function Sidebar() {
   const items: NavItem[] = [
     { to: '/', label: 'Beranda', icon: <DashboardOutlined />, id: 'dashboard' },
     { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+    { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
+    { to: '/kas', label: 'KAS', icon: <DollarOutlined />, id: 'kas' },
   ]
 
   if (isSuperAdmin) {

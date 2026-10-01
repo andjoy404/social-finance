@@ -8,6 +8,8 @@ import { RtDetail } from '@/features/rt/RtDetail'
 import { RtCreate } from '@/features/rt/RtCreate'
 import { RtEdit } from '@/features/rt/RtEdit'
 import { WargaLayout } from '@/features/warga/WargaLayout'
+import { IuranRoutes } from '@/features/iuran/iuranRoutes'
+import { KasRoutes } from '@/features/kas/kasRoutes'
 import { ResidentDetail } from '@/features/warga/ResidentDetail'
 import { HouseholdCreate } from '@/features/warga/HouseholdCreate'
 import { HouseholdEdit } from '@/features/warga/HouseholdEdit'
@@ -120,6 +122,8 @@ export function App() {
             element={<SpecialResidentEdit />}
           />
         </Route>
+        <Route path="iuran" element={<IuranRoutes />} />
+        <Route path="kas" element={<KasRoutes />} />
       </Route>
 
       <Route path="*" element={<Navigate to={isAuthenticated ? "/" : "/login"} replace />} />

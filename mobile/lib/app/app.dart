@@ -18,6 +18,16 @@ import '../features/warga/presentation/screens/household_create_screen.dart';
 import '../features/warga/presentation/screens/household_edit_screen.dart';
 import '../features/warga/presentation/screens/special_resident_create_screen.dart';
 import '../features/warga/presentation/screens/special_resident_edit_screen.dart';
+import '../features/iuran/presentation/screens/iuran_screen.dart';
+import '../features/iuran/presentation/screens/iuran_detail_screen.dart';
+import '../features/iuran/presentation/screens/iuran_payment_screen.dart';
+import '../features/iuran/presentation/screens/iuran_arrears_screen.dart';
+import '../features/iuran/presentation/screens/iuran_report_screen.dart';
+import '../features/kas/presentation/screens/kas_screen.dart';
+import '../features/kas/presentation/screens/kas_detail_screen.dart';
+import '../features/kas/presentation/screens/kas_masuk_screen.dart';
+import '../features/kas/presentation/screens/kas_keluar_screen.dart';
+import '../features/kas/presentation/screens/kas_report_screen.dart';
 
 class App extends ConsumerStatefulWidget {
   const App({super.key});
@@ -104,6 +114,98 @@ class _AppState extends ConsumerState<App> {
                   path: 'dues',
                   name: 'dues',
                   builder: (context, state) => const DuesScreen(),
+                ),
+                GoRoute(
+                  path: 'iuran',
+                  name: 'iuran',
+                  builder: (context, state) => const IuranScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'detail/:billId',
+                      name: 'iuran_detail',
+                      builder: (context, state) {
+                        final billId = state.pathParameters['billId']!;
+                        return IuranDetailScreen(billId: billId);
+                      },
+                    ),
+                    GoRoute(
+                      path: 'pembayaran/:billId',
+                      name: 'iuran_payment',
+                      builder: (context, state) {
+                        final billId = state.pathParameters['billId']!;
+                        return IuranPaymentScreen(billId: billId);
+                      },
+                    ),
+                    GoRoute(
+                      path: 'tunggakan',
+                      name: 'iuran_arrears',
+                      builder: (context, state) => const IuranArrearsScreen(),
+                    ),
+                    GoRoute(
+                      path: 'laporan',
+                      name: 'iuran_report',
+                      builder: (context, state) => const IuranReportScreen(),
+                    ),
+                    GoRoute(
+                      path: 'form',
+                      name: 'iuran_form',
+                      builder: (context, state) => Scaffold(
+                        appBar: AppBar(
+                          title: const Text('Buat Tagihan'),
+                          leading: IconButton(
+                            icon: const Icon(Icons.arrow_back),
+                            onPressed: () => context.pop(),
+                          ),
+                        ),
+                        body: const Center(
+                          child: Text(
+                            'Halaman pembuatan tagihan akan segera tersedia.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                GoRoute(
+                  path: 'kas',
+                  name: 'kas',
+                  builder: (context, state) => const KasScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'masuk',
+                      name: 'kas_masuk',
+                      builder: (context, state) => const KasMasukScreen(),
+                    ),
+                    GoRoute(
+                      path: 'keluar',
+                      name: 'kas_keluar',
+                      builder: (context, state) => const KasKeluarScreen(),
+                    ),
+                    GoRoute(
+                      path: ':id',
+                      name: 'kas_detail',
+                      builder: (context, state) {
+                        final txId = state.pathParameters['id']!;
+                        return KasDetailScreen(
+                          transaction: KasTransaction(
+                            id: txId,
+                            tanggal: DateTime.now(),
+                            jenis: KasJenis.masuk,
+                            kategori: KasCategory.iuranWarga,
+                            keterangan: 'Detail Transaksi',
+                            nominal: 0,
+                            saldo: 0,
+                          ),
+                        );
+                      },
+                    ),
+                    GoRoute(
+                      path: 'laporan',
+                      name: 'kas_report',
+                      builder: (context, state) => const KasReportScreen(),
+                    ),
+                  ],
                 ),
                 GoRoute(
                   path: 'warga',
