@@ -373,7 +373,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ),
       child: SizedBox(
         width: double.infinity,
-        height: 48,
+        height: 36,
         child: OutlinedButton(
           onPressed: isDisabled ? null : _handleLogin,
           style: OutlinedButton.styleFrom(
@@ -390,9 +390,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     backgroundColor: Colors.transparent,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.accent,
-                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
                   ),
                 )
               : const Text('Masuk'),

@@ -100,9 +100,9 @@ class _SpecialResidentCreateScreenState
     }
     if (_emailCtrl.text.trim().isEmpty) {
       errors.add('Email harus diisi.');
-    } else if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(
-      _emailCtrl.text.trim(),
-    )) {
+    } else if (!RegExp(
+      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+    ).hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
     if (widget.isSuperAdmin && _selectedRtId == null) {
@@ -159,7 +159,6 @@ class _SpecialResidentCreateScreenState
     }
   }
 
-
   /// Show confirmation dialog before canceling the form.
   /// Used by AppBar back, Android system back, and the Batal button.
   Future<void> _confirmCancel() async {
@@ -167,41 +166,55 @@ class _SpecialResidentCreateScreenState
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text(
-          'Perubahan yang belum disimpan akan hilang.',
-        ),
+        content: const Text('Perubahan yang belum disimpan akan hilang.'),
         actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: AppColors.accent),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.base),
-              ),
-            ),
-            child: const Text('Tidak, Tetap di Halaman'),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.danger.withValues(alpha: 0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 0),
-                ),
-              ],
-            ),
+          Align(
+            alignment: Alignment.center,
             child: SizedBox(
               height: 48,
-              child: FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.danger,
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.accent),
+                  backgroundColor: AppColors.accentSoftColor(context),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
                 ),
-                child: const Text('Ya, Batalkan'),
+                child: const Text('Tidak, Tetap di Halaman'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.center,
+            child: Container(
+              decoration: BoxDecoration(
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.danger.withValues(alpha: 0.15),
+                    blurRadius: 8,
+                    offset: const Offset(0, 0),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                height: 48,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.danger),
+                    backgroundColor:
+                        Theme.of(dialogContext).brightness == Brightness.dark
+                        ? AppColors.darkDangerSoft
+                        : AppColors.danger.withValues(alpha: 0.20),
+                    foregroundColor: AppColors.danger,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
+                  ),
+                  child: const Text('Ya, Batalkan'),
+                ),
               ),
             ),
           ),
@@ -243,10 +256,14 @@ class _SpecialResidentCreateScreenState
                 Container(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   decoration: BoxDecoration(
-                    color: AppColors.danger.withValues(alpha: isDark ? 0.2 : 0.1),
+                    color: AppColors.danger.withValues(
+                      alpha: isDark ? 0.2 : 0.1,
+                    ),
                     borderRadius: BorderRadius.circular(AppRadius.base),
                     border: Border.all(
-                      color: AppColors.danger.withValues(alpha: isDark ? 0.4 : 0.2),
+                      color: AppColors.danger.withValues(
+                        alpha: isDark ? 0.4 : 0.2,
+                      ),
                     ),
                   ),
                   child: Text(
@@ -263,7 +280,9 @@ class _SpecialResidentCreateScreenState
                 Container(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   decoration: BoxDecoration(
-                    color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
+                    color: AppColors.danger.withValues(
+                      alpha: isDark ? 0.15 : 0.08,
+                    ),
                     borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
                   child: Column(
@@ -277,16 +296,18 @@ class _SpecialResidentCreateScreenState
                         ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      ..._validationErrors.map((e) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('• ', style: TextStyle(fontSize: 16)),
-                            Expanded(child: Text(e)),
-                          ],
+                      ..._validationErrors.map(
+                        (e) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('• ', style: TextStyle(fontSize: 16)),
+                              Expanded(child: Text(e)),
+                            ],
+                          ),
                         ),
-                      )),
+                      ),
                     ],
                   ),
                 ),
@@ -347,33 +368,25 @@ class _SpecialResidentCreateScreenState
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // NIK + Telepon
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: AppTextField(
-                      controller: _nikCtrl,
-                      label: 'NIK',
-                      hintText: '16 digit',
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(16),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    flex: 3,
-                    child: AppTextField(
-                      controller: _phoneCtrl,
-                      label: 'Telepon',
-                      hintText: '08123456789',
-                      keyboardType: TextInputType.phone,
-                    ),
-                  ),
+              // NIK
+              AppTextField(
+                controller: _nikCtrl,
+                label: 'NIK',
+                hintText: '16 digit',
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(16),
                 ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Telepon
+              AppTextField(
+                controller: _phoneCtrl,
+                label: 'Telepon',
+                hintText: '08123456789',
+                keyboardType: TextInputType.phone,
               ),
               const SizedBox(height: AppSpacing.lg),
 
@@ -464,8 +477,16 @@ class _SpecialResidentCreateScreenState
                     initialValue: _selectedRtId,
                     hint: const Text('Pilih RT'),
                     items: _rtOptions.map((rt) {
-                      final rtNum = ((rt['rt'] as String?) ?? '').padLeft(3, '0');
-                      final rwNum = ((rt['rw'] as num?)?.toInt().toString().padLeft(3, '0')) ?? '';
+                      final rtNum = ((rt['rt'] as String?) ?? '').padLeft(
+                        3,
+                        '0',
+                      );
+                      final rwNum =
+                          ((rt['rw'] as num?)?.toInt().toString().padLeft(
+                            3,
+                            '0',
+                          )) ??
+                          '';
                       final name = (rt['name'] as String?) ?? 'RT tanpa nama';
                       return DropdownMenuItem(
                         value: rt['id'] as String?,
@@ -476,7 +497,8 @@ class _SpecialResidentCreateScreenState
                         ? (value) => setState(() => _selectedRtId = value)
                         : null,
                     validator: (value) {
-                      if (widget.isSuperAdmin && (value == null || value.isEmpty)) {
+                      if (widget.isSuperAdmin &&
+                          (value == null || value.isEmpty)) {
                         return 'RT Tujuan harus dipilih.';
                       }
                       return null;
@@ -507,7 +529,9 @@ class _SpecialResidentCreateScreenState
                             side: const BorderSide(color: AppColors.accent),
                             foregroundColor: AppColors.accent,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(AppRadius.base),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
+                              ),
                             ),
                           ),
                           child: _saving
@@ -554,7 +578,9 @@ class _SpecialResidentCreateScreenState
                             side: BorderSide(color: AppColors.danger),
                             foregroundColor: AppColors.danger,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(AppRadius.base),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
+                              ),
                             ),
                           ),
                           child: const Row(

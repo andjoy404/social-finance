@@ -87,10 +87,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Selamat datang,',
-                          style: theme.textTheme.bodyMedium,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Selamat datang,',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            const Spacer(),
+                            AppBadge(
+                              label: appRoleDisplayName(roleUser),
+                              isNeonStyle: isDark,
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 4),
                         Text(userName, style: theme.textTheme.headlineMedium),
                         Text(
                           'RT $rt / RW $rw',
@@ -100,18 +111,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ),
                 ],
-              ),
-
-              // ── Badge → Saldo Kas ──
-              const SizedBox(height: _panelGap),
-
-              // ── Role badge ──
-              Align(
-                alignment: Alignment.centerLeft,
-                child: AppBadge(
-                  label: appRoleDisplayName(roleUser),
-                  isNeonStyle: isDark,
-                ),
               ),
 
               // ── Saldo Kas ──
@@ -186,9 +185,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   Expanded(
                     child: SummaryCard(
                       title: 'Pemasukan Bulan Ini',
-                      value: RupiahFormatter.format(
-                        summary.pemasukanBulanIni,
-                      ),
+                      value: RupiahFormatter.format(summary.pemasukanBulanIni),
                       icon: Icons.arrow_downward,
                       accentColor: AppColors.income,
                     ),

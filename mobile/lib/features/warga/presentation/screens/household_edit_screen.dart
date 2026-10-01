@@ -98,7 +98,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       setState(() {
         _houseNumberCtrl.text = resident.houseNumber;
         _headNameCtrl.text = resident.name;
-        _occupancyStatus = resident.occupancyStatus == 'Pemilik' ? 'OWNER' : 'TENANT';
+        _occupancyStatus = resident.occupancyStatus == 'Pemilik'
+            ? 'OWNER'
+            : 'TENANT';
         _addressCtrl.text = resident.address ?? '';
         _nikCtrl.text = resident.nik ?? '';
         _phoneCtrl.text = resident.phoneNumber ?? '';
@@ -144,9 +146,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     }
     if (_emailCtrl.text.trim().isEmpty) {
       errors.add('Email harus diisi.');
-    } else if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(
-      _emailCtrl.text.trim(),
-    )) {
+    } else if (!RegExp(
+      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+    ).hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
 
@@ -211,41 +213,55 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text(
-          'Perubahan yang belum disimpan akan hilang.',
-        ),
+        content: const Text('Perubahan yang belum disimpan akan hilang.'),
         actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: AppColors.accent),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.base),
-              ),
-            ),
-            child: const Text('Tidak, Tetap di Halaman'),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.danger.withValues(alpha: 0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 0),
-                ),
-              ],
-            ),
+          Align(
+            alignment: Alignment.center,
             child: SizedBox(
               height: 48,
-              child: FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.danger,
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.accent),
+                  backgroundColor: AppColors.accentSoftColor(context),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
                 ),
-                child: const Text('Ya, Batalkan'),
+                child: const Text('Tidak, Tetap di Halaman'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.center,
+            child: Container(
+              decoration: BoxDecoration(
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.danger.withValues(alpha: 0.15),
+                    blurRadius: 8,
+                    offset: const Offset(0, 0),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                height: 48,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.danger),
+                    backgroundColor:
+                        Theme.of(dialogContext).brightness == Brightness.dark
+                        ? AppColors.darkDangerSoft
+                        : AppColors.danger.withValues(alpha: 0.20),
+                    foregroundColor: AppColors.danger,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
+                  ),
+                  child: const Text('Ya, Batalkan'),
+                ),
               ),
             ),
           ),
@@ -319,365 +335,373 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
             children: [
               // Error message
               if (_error != null)
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.danger.withValues(alpha: isDark ? 0.2 : 0.1),
-                  borderRadius: BorderRadius.circular(AppRadius.base),
-                  border: Border.all(
-                    color: AppColors.danger.withValues(alpha: isDark ? 0.4 : 0.2),
-                  ),
-                ),
-                child: Text(
-                  _error!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppColors.danger,
-                  ),
-                ),
-              ),
-            if (_error != null) const SizedBox(height: AppSpacing.md),
-
-            // Validation errors
-            if (_validationErrors.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
-                  borderRadius: BorderRadius.circular(AppRadius.base),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Data belum lengkap:',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.danger,
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(
+                      alpha: isDark ? 0.2 : 0.1,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(
+                      color: AppColors.danger.withValues(
+                        alpha: isDark ? 0.4 : 0.2,
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.sm),
-                    ..._validationErrors.map((e) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('• ', style: TextStyle(fontSize: 16)),
-                          Expanded(child: Text(e)),
-                        ],
-                      ),
-                    )),
-                  ],
-                ),
-              ),
-
-            // Nomor Rumah + Status Hunian
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: AppTextField(
-                    controller: _houseNumberCtrl,
-                    label: 'Nomor Rumah',
-                    hintText: 'Contoh: 001',
-                    keyboardType: TextInputType.text,
+                  ),
+                  child: Text(
+                    _error!,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: AppColors.danger,
+                    ),
                   ),
                 ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  flex: 3,
+              if (_error != null) const SizedBox(height: AppSpacing.md),
+
+              // Validation errors
+              if (_validationErrors.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(
+                      alpha: isDark ? 0.15 : 0.08,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Status Hunian',
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        'Data belum lengkap:',
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w600,
+                          color: AppColors.danger,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      SegmentedButton<String>(
-                        segments: [
-                          ButtonSegment(
-                            value: 'OWNER',
-                            label: const Text('Pemilik', style: TextStyle(fontSize: 12)),
-                            icon: const Icon(Icons.home, size: 16),
+                      ..._validationErrors.map(
+                        (e) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('• ', style: TextStyle(fontSize: 16)),
+                              Expanded(child: Text(e)),
+                            ],
                           ),
-                          ButtonSegment(
-                            value: 'TENANT',
-                            label: const Text('Penyewa', style: TextStyle(fontSize: 12)),
-                            icon: const Icon(Icons.hail, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Nomor Rumah + Status Hunian
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: AppTextField(
+                      controller: _houseNumberCtrl,
+                      label: 'Nomor Rumah',
+                      hintText: 'Contoh: 001',
+                      keyboardType: TextInputType.text,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Status Hunian',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        SegmentedButton<String>(
+                          segments: [
+                            ButtonSegment(
+                              value: 'OWNER',
+                              label: const Text(
+                                'Pemilik',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              icon: const Icon(Icons.home, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: 'TENANT',
+                              label: const Text(
+                                'Penyewa',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              icon: const Icon(Icons.hail, size: 16),
+                            ),
+                          ],
+                          selected: {_occupancyStatus},
+                          onSelectionChanged: (selected) {
+                            setState(() => _occupancyStatus = selected.first);
+                          },
+                          style: SegmentedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            backgroundColor: isDark
+                                ? AppColors.darkSurface
+                                : AppColors.lightSurface,
+                            foregroundColor: isDark
+                                ? AppColors.darkText
+                                : AppColors.lightText,
+                            selectedForegroundColor: AppColors.accent,
+                            selectedBackgroundColor: AppColors.accentSoftColor(
+                              context,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Nama Kepala Keluarga
+              AppTextField(
+                controller: _headNameCtrl,
+                label: 'Nama Kepala Keluarga',
+                hintText: 'Nama lengkap',
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // NIK
+              AppTextField(
+                controller: _nikCtrl,
+                label: 'NIK',
+                hintText: '16 digit',
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(16),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Nomor Telepon
+              AppTextField(
+                controller: _phoneCtrl,
+                label: 'Nomor Telepon',
+                hintText: '08123456789',
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Email
+              AppTextField(
+                controller: _emailCtrl,
+                label: 'Email',
+                hintText: 'nama@email.com',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Alamat (optional)
+              AppTextField(
+                controller: _addressCtrl,
+                label: 'Alamat (opsional)',
+                hintText: 'Jl. Mawar No. 1',
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Tanggal Mulai Hunian (READ-ONLY display)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tanggal Mulai Hunian',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.lightBorder),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      color: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurface.withValues(alpha: 0.5),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 20,
+                          color: AppColors.accent,
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Text(
+                          _startDate ?? '-',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: isDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Status Aktif/Tidak Aktif
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Status',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SegmentedButton<bool>(
+                    segments: [
+                      ButtonSegment(
+                        value: true,
+                        label: const Text('Aktif'),
+                        icon: const Icon(Icons.check_circle, size: 18),
+                      ),
+                      ButtonSegment(
+                        value: false,
+                        label: const Text('Tidak Aktif'),
+                        icon: const Icon(Icons.cancel, size: 18),
+                      ),
+                    ],
+                    selected: {_isActive},
+                    onSelectionChanged: (selected) {
+                      setState(() => _isActive = selected.first);
+                    },
+                    style: SegmentedButton.styleFrom(
+                      backgroundColor: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurface,
+                      foregroundColor: isDark
+                          ? AppColors.darkText
+                          : AppColors.lightText,
+                      selectedForegroundColor: AppColors.accent,
+                      selectedBackgroundColor: AppColors.accentSoftColor(
+                        context,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xxl),
+
+              // Horizontal buttons: Simpan + Batal
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.accent.withValues(alpha: 0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 0),
                           ),
                         ],
-                        selected: {_occupancyStatus},
-                        onSelectionChanged: (selected) {
-                          setState(() => _occupancyStatus = selected.first);
-                        },
-                        style: SegmentedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          backgroundColor: isDark
-                              ? AppColors.darkSurface
-                              : AppColors.lightSurface,
-                          foregroundColor: isDark
-                              ? AppColors.darkText
-                              : AppColors.lightText,
-                          selectedForegroundColor: AppColors.accent,
-                          selectedBackgroundColor: AppColors.accentSoftColor(
-                            context,
-                          ),
-                        ),
                       ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Nama Kepala Keluarga
-            AppTextField(
-              controller: _headNameCtrl,
-              label: 'Nama Kepala Keluarga',
-              hintText: 'Nama lengkap',
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // NIK + Nomor Telepon
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: AppTextField(
-                    controller: _nikCtrl,
-                    label: 'NIK',
-                    hintText: '16 digit',
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(16),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  flex: 3,
-                  child: AppTextField(
-                    controller: _phoneCtrl,
-                    label: 'Nomor Telepon',
-                    hintText: '08123456789',
-                    keyboardType: TextInputType.phone,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Email
-            AppTextField(
-              controller: _emailCtrl,
-              label: 'Email',
-              hintText: 'nama@email.com',
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Alamat (optional)
-            AppTextField(
-              controller: _addressCtrl,
-              label: 'Alamat (opsional)',
-              hintText: 'Jl. Mawar No. 1',
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Tanggal Mulai Hunian (READ-ONLY display)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Tanggal Mulai Hunian',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: AppColors.lightBorder,
-                    ),
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    color: isDark
-                        ? AppColors.darkSurface
-                        : AppColors.lightSurface.withValues(alpha: 0.5),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.calendar_today,
-                        size: 20,
-                        color: AppColors.accent,
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Text(
-                        _startDate ?? '-',
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: isDark
-                              ? AppColors.darkTextMuted
-                              : AppColors.lightTextMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Status Aktif/Tidak Aktif
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Status',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                SegmentedButton<bool>(
-                  segments: [
-                    ButtonSegment(
-                      value: true,
-                      label: const Text('Aktif'),
-                      icon: const Icon(Icons.check_circle, size: 18),
-                    ),
-                    ButtonSegment(
-                      value: false,
-                      label: const Text('Tidak Aktif'),
-                      icon: const Icon(Icons.cancel, size: 18),
-                    ),
-                  ],
-                  selected: {_isActive},
-                  onSelectionChanged: (selected) {
-                    setState(() => _isActive = selected.first);
-                  },
-                  style: SegmentedButton.styleFrom(
-                    backgroundColor: isDark
-                        ? AppColors.darkSurface
-                        : AppColors.lightSurface,
-                    foregroundColor: isDark
-                        ? AppColors.darkText
-                        : AppColors.lightText,
-                    selectedForegroundColor: AppColors.accent,
-                    selectedBackgroundColor: AppColors.accentSoftColor(
-                      context,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.xxl),
-
-            // Horizontal buttons: Simpan + Batal
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.accent.withValues(alpha: 0.15),
-                          blurRadius: 8,
-                          offset: const Offset(0, 0),
-                        ),
-                      ],
-                    ),
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: _saving ? null : _save,
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppColors.accent),
-                          foregroundColor: AppColors.accent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _saving ? null : _save,
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.accent),
+                            foregroundColor: AppColors.accent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
+                              ),
+                            ),
                           ),
-                        ),
-                        child: _saving
-                            ? SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  backgroundColor: Colors.transparent,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    AppColors.accent,
-                                  ),
-                                ),
-                              )
-                            : const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.save_outlined, size: 18),
-                                  SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      'Simpan Perubahan',
-                                      overflow: TextOverflow.ellipsis,
+                          child: _saving
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    backgroundColor: Colors.transparent,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      AppColors.accent,
                                     ),
                                   ),
-                                ],
-                              ),
+                                )
+                              : const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.save_outlined, size: 18),
+                                    SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        'Simpan Perubahan',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.danger.withValues(alpha: 0.15),
-                          blurRadius: 8,
-                          offset: const Offset(0, 0),
-                        ),
-                      ],
-                    ),
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: _saving ? null : _confirmCancel,
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: AppColors.danger),
-                          foregroundColor: AppColors.danger,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.danger.withValues(alpha: 0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 0),
+                          ),
+                        ],
+                      ),
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _saving ? null : _confirmCancel,
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: AppColors.danger),
+                            foregroundColor: AppColors.danger,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
+                              ),
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.close, size: 18),
+                              SizedBox(width: 6),
+                              Text('Batal'),
+                            ],
                           ),
                         ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.close, size: 18),
-                            SizedBox(width: 6),
-                            Text('Batal'),
-                          ],
-                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.base),
-          ],
+                ],
+              ),
+              const SizedBox(height: AppSpacing.base),
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 }

@@ -107,9 +107,9 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
     }
     if (_emailCtrl.text.trim().isEmpty) {
       errors.add('Email harus diisi.');
-    } else if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(
-      _emailCtrl.text.trim(),
-    )) {
+    } else if (!RegExp(
+      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+    ).hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
     if (_startDate.isEmpty) {
@@ -141,7 +141,9 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
         email: _emailCtrl.text.trim(),
         occupancyStatus: _occupancyStatus,
         startDate: _startDate,
-        address: _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
+        address: _addressCtrl.text.trim().isEmpty
+            ? null
+            : _addressCtrl.text.trim(),
         isActive: _isActive,
       );
 
@@ -179,41 +181,55 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text(
-          'Perubahan yang belum disimpan akan hilang.',
-        ),
+        content: const Text('Perubahan yang belum disimpan akan hilang.'),
         actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: AppColors.accent),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.base),
-              ),
-            ),
-            child: const Text('Tidak, Tetap di Halaman'),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.danger.withValues(alpha: 0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 0),
-                ),
-              ],
-            ),
+          Align(
+            alignment: Alignment.center,
             child: SizedBox(
               height: 48,
-              child: FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.danger,
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.accent),
+                  backgroundColor: AppColors.accentSoftColor(context),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
                 ),
-                child: const Text('Ya, Batalkan'),
+                child: const Text('Tidak, Tetap di Halaman'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.center,
+            child: Container(
+              decoration: BoxDecoration(
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.danger.withValues(alpha: 0.15),
+                    blurRadius: 8,
+                    offset: const Offset(0, 0),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                height: 48,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.danger),
+                    backgroundColor:
+                        Theme.of(dialogContext).brightness == Brightness.dark
+                        ? AppColors.darkDangerSoft
+                        : AppColors.danger.withValues(alpha: 0.20),
+                    foregroundColor: AppColors.danger,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
+                  ),
+                  child: const Text('Ya, Batalkan'),
+                ),
               ),
             ),
           ),
@@ -250,437 +266,452 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.base),
             children: [
-            // Error message
-            if (_error != null)
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.danger.withValues(alpha: isDark ? 0.2 : 0.1),
-                  borderRadius: BorderRadius.circular(AppRadius.base),
-                  border: Border.all(
-                    color: AppColors.danger.withValues(alpha: isDark ? 0.4 : 0.2),
-                  ),
-                ),
-                child: Text(
-                  _error!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: AppColors.danger,
-                  ),
-                ),
-              ),
-            if (_error != null) const SizedBox(height: AppSpacing.md),
-
-            // Validation errors
-            if (_validationErrors.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: AppColors.danger.withValues(alpha: isDark ? 0.15 : 0.08),
-                  borderRadius: BorderRadius.circular(AppRadius.base),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Data belum lengkap:',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.danger,
+              // Error message
+              if (_error != null)
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(
+                      alpha: isDark ? 0.2 : 0.1,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(
+                      color: AppColors.danger.withValues(
+                        alpha: isDark ? 0.4 : 0.2,
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.sm),
-                    ..._validationErrors.map((e) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('• ', style: TextStyle(fontSize: 16)),
-                          Expanded(child: Text(e)),
-                        ],
-                      ),
-                    )),
-                  ],
-                ),
-              ),
-
-            // RT selector for superadmin
-            if (widget.isSuperAdmin) ...[
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'RT Tujuan',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              if (_rtLoading)
-                const Center(child: CircularProgressIndicator())
-              else if (_rtOptions.isEmpty)
-                Text(
-                  'Tidak ada RT yang tersedia.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                )
-              else
-                DropdownButtonFormField<String>(
-                  decoration: InputDecoration(
-                    labelText: 'Pilih RT',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
+                  child: Text(
+                    _error!,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: AppColors.danger,
                     ),
                   ),
-                  initialValue: _selectedRtId,
-                  hint: const Text('Pilih RT'),
-                  items: _rtOptions.map((rt) {
-                    final rtNum = ((rt['rt'] as String?) ?? '').padLeft(3, '0');
-                    final rwNum = ((rt['rw'] as num?)?.toInt().toString().padLeft(3, '0')) ?? '';
-                    final name = (rt['name'] as String?) ?? 'RT tanpa nama';
-                    return DropdownMenuItem(
-                      value: rt['id'] as String?,
-                      child: Text('RT $rtNum / RW $rwNum — $name'),
-                    );
-                  }).toList(),
-                  onChanged: widget.isSuperAdmin
-                      ? (value) => setState(() => _selectedRtId = value)
-                      : null,
-                  validator: (value) {
-                    if (widget.isSuperAdmin && (value == null || value.isEmpty)) {
-                      return 'RT Tujuan harus dipilih.';
-                    }
-                    return null;
-                  },
                 ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
+              if (_error != null) const SizedBox(height: AppSpacing.md),
 
-            // Nomor Rumah + Status Hunian
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: AppTextField(
-                    controller: _houseNumberCtrl,
-                    label: 'Nomor Rumah',
-                    hintText: 'Contoh: 001',
-                    keyboardType: TextInputType.text,
+              // Validation errors
+              if (_validationErrors.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(
+                      alpha: isDark ? 0.15 : 0.08,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  flex: 3,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Status Hunian',
-                        style: theme.textTheme.titleMedium?.copyWith(
+                        'Data belum lengkap:',
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w600,
+                          color: AppColors.danger,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      SegmentedButton<String>(
-                        segments: [
-                          ButtonSegment(
-                            value: 'OWNER',
-                            label: const Text('Pemilik', style: TextStyle(fontSize: 12)),
-                            icon: const Icon(Icons.home, size: 16),
+                      ..._validationErrors.map(
+                        (e) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('• ', style: TextStyle(fontSize: 16)),
+                              Expanded(child: Text(e)),
+                            ],
                           ),
-                          ButtonSegment(
-                            value: 'TENANT',
-                            label: const Text('Penyewa', style: TextStyle(fontSize: 12)),
-                            icon: const Icon(Icons.hail, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // RT selector for superadmin
+              if (widget.isSuperAdmin) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  'RT Tujuan',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                if (_rtLoading)
+                  const Center(child: CircularProgressIndicator())
+                else if (_rtOptions.isEmpty)
+                  Text(
+                    'Tidak ada RT yang tersedia.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  )
+                else
+                  DropdownButtonFormField<String>(
+                    decoration: InputDecoration(
+                      labelText: 'Pilih RT',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
+                    ),
+                    initialValue: _selectedRtId,
+                    hint: const Text('Pilih RT'),
+                    items: _rtOptions.map((rt) {
+                      final rtNum = ((rt['rt'] as String?) ?? '').padLeft(
+                        3,
+                        '0',
+                      );
+                      final rwNum =
+                          ((rt['rw'] as num?)?.toInt().toString().padLeft(
+                            3,
+                            '0',
+                          )) ??
+                          '';
+                      final name = (rt['name'] as String?) ?? 'RT tanpa nama';
+                      return DropdownMenuItem(
+                        value: rt['id'] as String?,
+                        child: Text('RT $rtNum / RW $rwNum — $name'),
+                      );
+                    }).toList(),
+                    onChanged: widget.isSuperAdmin
+                        ? (value) => setState(() => _selectedRtId = value)
+                        : null,
+                    validator: (value) {
+                      if (widget.isSuperAdmin &&
+                          (value == null || value.isEmpty)) {
+                        return 'RT Tujuan harus dipilih.';
+                      }
+                      return null;
+                    },
+                  ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
+
+              // Nomor Rumah + Status Hunian
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: AppTextField(
+                      controller: _houseNumberCtrl,
+                      label: 'Nomor Rumah',
+                      hintText: 'Contoh: 001',
+                      keyboardType: TextInputType.text,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Status Hunian',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        SegmentedButton<String>(
+                          segments: [
+                            ButtonSegment(
+                              value: 'OWNER',
+                              label: const Text(
+                                'Pemilik',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              icon: const Icon(Icons.home, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: 'TENANT',
+                              label: const Text(
+                                'Penyewa',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              icon: const Icon(Icons.hail, size: 16),
+                            ),
+                          ],
+                          selected: {_occupancyStatus},
+                          onSelectionChanged: (selected) {
+                            setState(() => _occupancyStatus = selected.first);
+                          },
+                          style: SegmentedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            backgroundColor: isDark
+                                ? AppColors.darkSurface
+                                : AppColors.lightSurface,
+                            foregroundColor: isDark
+                                ? AppColors.darkText
+                                : AppColors.lightText,
+                            selectedForegroundColor: AppColors.accent,
+                            selectedBackgroundColor: AppColors.accentSoftColor(
+                              context,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Nama Kepala Keluarga
+              AppTextField(
+                controller: _headNameCtrl,
+                label: 'Nama Kepala Keluarga',
+                hintText: 'Nama lengkap',
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // NIK
+              AppTextField(
+                controller: _nikCtrl,
+                label: 'NIK',
+                hintText: '16 digit',
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(16),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Nomor Telepon
+              AppTextField(
+                controller: _phoneCtrl,
+                label: 'Nomor Telepon',
+                hintText: '08123456789',
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Email
+              AppTextField(
+                controller: _emailCtrl,
+                label: 'Email',
+                hintText: 'nama@email.com',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Tanggal Mulai Hunian
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tanggal Mulai Hunian',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          _startDate = picked.toLocal().toString().split(
+                            ' ',
+                          )[0];
+                        });
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.lightBorder),
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        color: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            size: 20,
+                            color: AppColors.accent,
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          Text(
+                            _startDate.isEmpty ? 'Pilih tanggal' : _startDate,
+                            style: theme.textTheme.bodyLarge,
+                          ),
+                          const Spacer(),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: Colors.grey,
                           ),
                         ],
-                        selected: {_occupancyStatus},
-                        onSelectionChanged: (selected) {
-                          setState(() => _occupancyStatus = selected.first);
-                        },
-                        style: SegmentedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          backgroundColor: isDark
-                              ? AppColors.darkSurface
-                              : AppColors.lightSurface,
-                          foregroundColor: isDark
-                              ? AppColors.darkText
-                              : AppColors.lightText,
-                          selectedForegroundColor: AppColors.accent,
-                          selectedBackgroundColor: AppColors.accentSoftColor(
-                            context,
-                          ),
-                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Alamat (optional)
+              AppTextField(
+                controller: _addressCtrl,
+                label: 'Alamat (opsional)',
+                hintText: 'Jl. Mawar No. 1',
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Status
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Status',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SegmentedButton<bool>(
+                    segments: [
+                      ButtonSegment(
+                        value: true,
+                        label: const Text('Aktif'),
+                        icon: const Icon(Icons.check_circle, size: 18),
+                      ),
+                      ButtonSegment(
+                        value: false,
+                        label: const Text('Tidak Aktif'),
+                        icon: const Icon(Icons.cancel, size: 18),
                       ),
                     ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Nama Kepala Keluarga
-            AppTextField(
-              controller: _headNameCtrl,
-              label: 'Nama Kepala Keluarga',
-              hintText: 'Nama lengkap',
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // NIK + Nomor Telepon
-            Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: AppTextField(
-                    controller: _nikCtrl,
-                    label: 'NIK',
-                    hintText: '16 digit',
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(16),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  flex: 3,
-                  child: AppTextField(
-                    controller: _phoneCtrl,
-                    label: 'Nomor Telepon',
-                    hintText: '08123456789',
-                    keyboardType: TextInputType.phone,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Email
-            AppTextField(
-              controller: _emailCtrl,
-              label: 'Email',
-              hintText: 'nama@email.com',
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Tanggal Mulai Hunian
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Tanggal Mulai Hunian',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                InkWell(
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now(),
-                      firstDate: DateTime(2000),
-                      lastDate: DateTime.now().add(
-                        const Duration(days: 365),
-                      ),
-                    );
-                    if (picked != null) {
-                      setState(() {
-                        _startDate = picked.toLocal().toString().split(' ')[0];
-                      });
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: AppColors.lightBorder,
-                      ),
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      color: isDark
+                    selected: {_isActive},
+                    onSelectionChanged: (selected) {
+                      setState(() => _isActive = selected.first);
+                    },
+                    style: SegmentedButton.styleFrom(
+                      backgroundColor: isDark
                           ? AppColors.darkSurface
                           : AppColors.lightSurface,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 20,
-                          color: AppColors.accent,
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Text(
-                          _startDate.isEmpty
-                              ? 'Pilih tanggal'
-                              : _startDate,
-                          style: theme.textTheme.bodyLarge,
-                        ),
-                        const Spacer(),
-                        const Icon(
-                          Icons.arrow_forward_ios,
-                          size: 16,
-                          color: Colors.grey,
-                        ),
-                      ],
+                      foregroundColor: isDark
+                          ? AppColors.darkText
+                          : AppColors.lightText,
+                      selectedForegroundColor: AppColors.accent,
+                      selectedBackgroundColor: AppColors.accentSoftColor(
+                        context,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xxl),
 
-            // Alamat (optional)
-            AppTextField(
-              controller: _addressCtrl,
-              label: 'Alamat (opsional)',
-              hintText: 'Jl. Mawar No. 1',
-            ),
-            const SizedBox(height: AppSpacing.lg),
-
-            // Status
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Status',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                SegmentedButton<bool>(
-                  segments: [
-                    ButtonSegment(
-                      value: true,
-                      label: const Text('Aktif'),
-                      icon: const Icon(Icons.check_circle, size: 18),
-                    ),
-                    ButtonSegment(
-                      value: false,
-                      label: const Text('Tidak Aktif'),
-                      icon: const Icon(Icons.cancel, size: 18),
-                    ),
-                  ],
-                  selected: {_isActive},
-                  onSelectionChanged: (selected) {
-                    setState(() => _isActive = selected.first);
-                  },
-                  style: SegmentedButton.styleFrom(
-                    backgroundColor: isDark
-                        ? AppColors.darkSurface
-                        : AppColors.lightSurface,
-                    foregroundColor: isDark
-                        ? AppColors.darkText
-                        : AppColors.lightText,
-                    selectedForegroundColor: AppColors.accent,
-                    selectedBackgroundColor: AppColors.accentSoftColor(
-                      context,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.xxl),
-
-            // Horizontal buttons: Simpan + Batal
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.accent.withValues(alpha: 0.15),
-                          blurRadius: 8,
-                          offset: const Offset(0, 0),
-                        ),
-                      ],
-                    ),
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: _saving ? null : _save,
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppColors.accent),
-                          foregroundColor: AppColors.accent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
+              // Horizontal buttons: Simpan + Batal
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.accent.withValues(alpha: 0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 0),
                           ),
-                        ),
-                        child: _saving
-                            ? SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  backgroundColor: Colors.transparent,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    AppColors.accent,
-                                  ),
-                                ),
-                              )
-                            : const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.save_outlined, size: 18),
-                                  SizedBox(width: 6),
-                                  Text('Simpan'),
-                                ],
+                        ],
+                      ),
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _saving ? null : _save,
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.accent),
+                            foregroundColor: AppColors.accent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
                               ),
+                            ),
+                          ),
+                          child: _saving
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    backgroundColor: Colors.transparent,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      AppColors.accent,
+                                    ),
+                                  ),
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.save_outlined, size: 18),
+                                    SizedBox(width: 6),
+                                    Text('Simpan'),
+                                  ],
+                                ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.danger.withValues(alpha: 0.15),
-                          blurRadius: 8,
-                          offset: const Offset(0, 0),
-                        ),
-                      ],
-                    ),
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: _saving ? null : _confirmCancel,
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: AppColors.danger),
-                          foregroundColor: AppColors.danger,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.danger.withValues(alpha: 0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 0),
+                          ),
+                        ],
+                      ),
+                      child: SizedBox(
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _saving ? null : _confirmCancel,
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: AppColors.danger),
+                            foregroundColor: AppColors.danger,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
+                              ),
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.close, size: 18),
+                              SizedBox(width: 6),
+                              Text('Batal'),
+                            ],
                           ),
                         ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.close, size: 18),
-                            SizedBox(width: 6),
-                            Text('Batal'),
-                          ],
-                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.base),
-          ],
+                ],
+              ),
+              const SizedBox(height: AppSpacing.base),
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 }
