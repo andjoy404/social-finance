@@ -14,6 +14,10 @@ export interface ApiUser {
   role: string
   jabatan?: string | null
   rt: { id: string; name: string } | null
+  rt_id?: string
+  rt_name?: string
+  rt_rw?: number
+  rt_rt?: string
 }
 
 export interface ApiRefreshResponse {

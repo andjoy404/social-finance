@@ -14,6 +14,7 @@ const mockUser = {
   email: 'test@example.com',
   systemRole: null,
   role: 'pengurus',
+  jabatan: null,
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 
@@ -398,5 +399,91 @@ describe('W4.2C — Aksi row navigation', () => {
     await waitFor(() => {
       expect(screen.getByTestId('location')).toHaveTextContent('/warga/hh-1/edit')
     })
+  })
+})
+
+describe('W4.2C — Authorization write action visibility', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    persistSessionPair({ accessToken: 'test-jwt-token', refreshToken: 'refresh-token' })
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('hides Tambah and Ubah for read-only position keamanan', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        jabatan: 'keamanan',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    // Tambah button must NOT be present
+    expect(screen.queryByRole('button', { name: /\+ Tambah/i })).not.toBeInTheDocument()
+
+    // Open Aksi menu
+    const aksiBtn = screen.getByRole('button', { name: /Aksi/i })
+    fireEvent.click(aksiBtn)
+
+    // Detail must be present, Ubah must NOT be present
+    expect(screen.getByRole('menuitem', { name: 'Detail' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Ubah' })).not.toBeInTheDocument()
+  })
+
+  it('shows Tambah and Ubah for authorized position ketua', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        jabatan: 'ketua',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    // Tambah button MUST be present
+    expect(screen.getByRole('button', { name: /\+ Tambah/i })).toBeInTheDocument()
+
+    // Open Aksi menu
+    const aksiBtn = screen.getByRole('button', { name: /Aksi/i })
+    fireEvent.click(aksiBtn)
+
+    // Both Detail and Ubah must be present
+    expect(screen.getByRole('menuitem', { name: 'Detail' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Ubah' })).toBeInTheDocument()
   })
 })

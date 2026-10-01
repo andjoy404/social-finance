@@ -484,7 +484,7 @@ export function ResidentList() {
                   <th className="col-end-date" style={colStyles.endDate}>TANGGAL SELESAI</th>
                   <th className="col-jabatan" style={colStyles.jabatan}>JABATAN</th>
                   <th className="col-status" style={colStyles.status}>STATUS</th>
-                  {canWrite && <th className="col-action" style={colStyles.action}>AKSI</th>}
+                  <th className="col-action" style={colStyles.action}>AKSI</th>
                 </tr>
               </thead>
               <tbody>
@@ -493,7 +493,7 @@ export function ResidentList() {
                     key={resident.id}
                     resident={resident}
                     showNik={showNik}
-                    showAksi={canWrite}
+                    canWrite={canWrite}
                     onDetail={handleDetail}
                     onEdit={handleEdit}
                     onEditSpecial={handleEditSpecial}
@@ -524,13 +524,13 @@ export function ResidentList() {
 interface ResidentRowProps {
   resident: ApiResident
   showNik: boolean
-  showAksi: boolean
+  canWrite: boolean
   onDetail: (id: string) => void
   onEdit: (id: string) => void
   onEditSpecial: (id: string) => void
 }
 
-function ResidentRow({ resident, showNik, showAksi, onDetail, onEdit, onEditSpecial }: ResidentRowProps) {
+function ResidentRow({ resident, showNik, canWrite, onDetail, onEdit, onEditSpecial }: ResidentRowProps) {
   const startDate = formatStrictDate(resident.start_date)
   const endDate = formatStrictDate(resident.end_date)
 
@@ -609,20 +609,20 @@ function ResidentRow({ resident, showNik, showAksi, onDetail, onEdit, onEditSpec
       </td>
 
       {/* 13. AKSI */}
-      {showAksi && (
-        <td className="col-action" style={colStyles.action}>
-          <RowActionMenu
-            items={[
-              { label: 'Detail', onClick: () => onDetail(resident.id) },
-              ...(resident.household_id
+      <td className="col-action" style={colStyles.action}>
+        <RowActionMenu
+          items={[
+            { label: 'Detail', onClick: () => onDetail(resident.id) },
+            ...(canWrite
+              ? (resident.household_id
                 ? [{ label: 'Ubah', onClick: () => onEdit(resident.household_id!) }]
                 : isSpecialResident(resident)
                   ? [{ label: 'Ubah', onClick: () => onEditSpecial(resident.id) }]
-                  : []),
-            ]}
-          />
-        </td>
-      )}
+                  : [])
+              : []),
+          ]}
+        />
+      </td>
     </tr>
   )
 }

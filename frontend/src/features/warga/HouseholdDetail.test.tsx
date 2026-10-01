@@ -13,6 +13,7 @@ const mockUser = {
   email: 'test@example.com',
   systemRole: null,
   role: 'warga',
+  jabatan: null,
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 

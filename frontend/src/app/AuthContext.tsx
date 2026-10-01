@@ -21,7 +21,7 @@ function mapUser(raw: ApiUser): AuthUser {
     systemRole: raw.system_role ?? null,
     role: raw.role,
     jabatan: raw.jabatan ?? null,
-    rt: raw.rt ?? null,
+    rt: raw.rt ?? (raw.rt_id ? { id: raw.rt_id, name: raw.rt_name ?? '' } : null),
   }
 }
 
@@ -118,8 +118,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const resp = await apiLogin(email, password)
-    setUser(mapUser(resp.user))
     persistSessionPair({ accessToken: resp.access_token, refreshToken: resp.refresh_token })
+    try {
+      const me = await apiMe(resp.access_token)
+      setUser(mapUser(me))
+    } catch {
+      setUser(mapUser(resp.user))
+    }
   }, [])
 
   const logout = useCallback(async () => {

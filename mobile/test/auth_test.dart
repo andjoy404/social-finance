@@ -511,8 +511,16 @@ void main() {
         final client = ApiClient(baseUrl: 'http://test.local');
         var attempts = 0;
         client.dio.httpClientAdapter = MockAdapter((options) async {
+          if (options.path.contains('/auth/me')) {
+            return _jsonResponse({
+              'id': 'uuid-1',
+              'full_name': 'Budi',
+              'email': 'user@example.com',
+              'role': 'warga',
+            }, 200);
+          }
           attempts++;
-          if (options.data['password'] == 'wrongpassword') {
+          if (options.data is Map && options.data['password'] == 'wrongpassword') {
             return _jsonResponse({
               'error': {
                 'code': 'unauthorized',

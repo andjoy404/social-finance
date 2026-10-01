@@ -8,16 +8,32 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
 import 'package:social_finance/features/warga/data/warga_repository.dart';
+import 'package:social_finance/core/api/auth_service.dart';
+import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/warga/presentation/screens/warga_screen.dart';
+
+class _MockAuthRepo extends AuthRepository {
+  _MockAuthRepo(Map<String, dynamic>? user)
+      : super(
+          authService: AuthService(ApiClient(baseUrl: 'http://test.local')),
+          apiClient: ApiClient(baseUrl: 'http://test.local'),
+        ) {
+    state = AsyncData(user);
+  }
+}
 
 Widget _createWargaTestApp({
   required List<MappedResident> residents,
   String initialQuery = '',
+  Map<String, dynamic>? currentUser,
 }) {
   return ProviderScope(
     overrides: [
       wargaListProvider.overrideWith(() => _TestNotifier(residents)),
       wargaSearchQueryProvider.overrideWith((_) => initialQuery),
+      if (currentUser != null)
+        authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(currentUser)),
     ],
     child: const MaterialApp(home: WargaScreen()),
   );
@@ -582,6 +598,56 @@ void main() {
         relationship: '',
       );
       expect(resident.relationshipColor, AppColors.accent);
+    });
+  });
+
+  group('WargaScreen write action authorization', () {
+    const testResident = MappedResident(
+      id: 'res-auth-1',
+      name: 'Ahmad Dahlan',
+      householdId: 'hh-1',
+      isHeadOfHousehold: true,
+      relationship: 'Kepala Keluarga',
+    );
+
+    testWidgets('hides FAB and edit icon for read-only jabatan (keamanan)', (tester) async {
+      await tester.pumpWidget(
+        _createWargaTestApp(
+          residents: [testResident],
+          currentUser: {
+            'id': 'user-keamanan',
+            'email': 'keamanan@example.com',
+            'role': AppRole.pengurus,
+            'system_role': null,
+            'jabatan': 'keamanan',
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ahmad Dahlan'), findsOneWidget);
+      expect(find.byIcon(Icons.person_add), findsNothing);
+      expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    });
+
+    testWidgets('shows FAB and edit icon for authorized jabatan (ketua)', (tester) async {
+      await tester.pumpWidget(
+        _createWargaTestApp(
+          residents: [testResident],
+          currentUser: {
+            'id': 'user-ketua',
+            'email': 'ketua@example.com',
+            'role': AppRole.pengurus,
+            'system_role': null,
+            'jabatan': 'ketua',
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ahmad Dahlan'), findsOneWidget);
+      expect(find.byIcon(Icons.person_add), findsOneWidget);
+      expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
     });
   });
 }

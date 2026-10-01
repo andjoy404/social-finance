@@ -14,6 +14,7 @@ const mockWargaUser: AuthUser = {
   email: 'test@example.com',
   systemRole: null,
   role: 'warga',
+  jabatan: null,
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 
@@ -23,6 +24,7 @@ const mockPengurusUser: AuthUser = {
   email: 'pengurus@example.com',
   systemRole: null,
   role: 'pengurus',
+  jabatan: null,
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 
@@ -32,6 +34,7 @@ const mockSuperAdminUser: AuthUser = {
   email: 'admin@example.com',
   systemRole: 'super_admin',
   role: '',
+  jabatan: null,
   rt: null,
 }
 

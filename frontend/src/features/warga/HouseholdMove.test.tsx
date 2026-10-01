@@ -15,6 +15,7 @@ function renderHouseholdMove(householdId: string = 'hh-1') {
       email: 'test@example.com',
       systemRole: null,
       role: 'pengurus',
+      jabatan: null,
       rt: { id: 'rt-1', name: 'RT 001' },
     },
     isAuthenticated: true,

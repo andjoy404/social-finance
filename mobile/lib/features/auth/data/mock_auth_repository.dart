@@ -68,19 +68,25 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
 
     try {
       final response = await authService.login(trimmedEmail, password);
+      var effectiveUser = response.user;
+      try {
+        effectiveUser = await authService.getMe();
+      } catch (_) {
+        // Fall back to login response user if /auth/me fails
+      }
       _currentUser = {
-        'id': response.user.id,
-        'email': response.user.email,
-        'name': response.user.name.isNotEmpty
-            ? response.user.name
-            : response.user.email,
+        'id': effectiveUser.id,
+        'email': effectiveUser.email,
+        'name': effectiveUser.name.isNotEmpty
+            ? effectiveUser.name
+            : effectiveUser.email,
         'role': mapStringToAppRole(
-          response.user.role,
-          systemRoleStr: response.user.systemRole,
+          effectiveUser.role,
+          systemRoleStr: effectiveUser.systemRole,
         ),
-        'system_role': response.user.systemRole,
-        'jabatan': response.user.jabatan,
-        'rt_id': response.user.rtId,
+        'system_role': effectiveUser.systemRole,
+        'jabatan': effectiveUser.jabatan,
+        'rt_id': effectiveUser.rtId,
         'rt': null,
         'rw': null,
         'access_token': response.accessToken,

@@ -31,6 +31,15 @@ class AuthService {
       client.clearToken();
     }
   }
+
+  Future<AuthUser> getMe() async {
+    final response = await client.dio.get('/api/v1/auth/me');
+    final data = response.data;
+    if (data is! Map) {
+      throw const FormatException('Expected JSON object in /auth/me response');
+    }
+    return AuthUser.fromJson(data.cast<String, dynamic>());
+  }
 }
 
 final authServiceProvider = Provider<AuthService>((ref) {

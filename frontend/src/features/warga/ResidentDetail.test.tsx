@@ -15,6 +15,7 @@ const mockPengurusUser = {
   email: 'pengurus@example.com',
   systemRole: null,
   role: 'pengurus',
+  jabatan: null,
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 
@@ -24,6 +25,7 @@ const mockWargaUser = {
   email: 'warga@example.com',
   systemRole: null,
   role: 'warga',
+  jabatan: null,
   rt: { id: 'rt-1', name: 'RT 001' },
 }
 
