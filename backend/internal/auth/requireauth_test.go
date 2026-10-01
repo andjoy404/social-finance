@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
@@ -124,4 +126,169 @@ func setupSystemOnlyIdentity(t *testing.T, userID, email string) {
 	t.Cleanup(func() {
 		AuthDBPool = oldPool
 	})
+}
+
+// setupCrossUserIdentity creates two distinct active users (UserA, UserB),
+// each with their own membership in the same RT, for testing cross-user
+// membership swap rejection. UUIDs are exported via t.Setenv for test use.
+func setupCrossUserIdentity(t *testing.T) {
+	t.Helper()
+	pool := testutil.GetTestPool(t)
+	db := pool.Raw()
+
+	uuidUserA := testUUID("cross-user-a-user")
+	uuidUserB := testUUID("cross-user-b-user")
+	uuidMemberA := testUUID("cross-user-a-member")
+	uuidMemberB := testUUID("cross-user-b-member")
+	uuidRT := testUUID("cross-user-rt")
+
+	var rtIDActual string
+	err := db.QueryRowContext(context.Background(),
+		`INSERT INTO rts (id, name, rw, rt, address, head_name, is_active)
+		 VALUES ($1, 'cross-user-rt', 99, '99', 'Test Address', 'Test Head', true)
+		 ON CONFLICT (id) DO UPDATE SET is_active = true
+		 RETURNING id`,
+		uuidRT,
+	).Scan(&rtIDActual)
+	if err != nil {
+		t.Fatalf("insert cross-user RT: %v", err)
+	}
+
+	var userIDAActual string
+	err = db.QueryRowContext(context.Background(),
+		`INSERT INTO users (id, email, phone, password_hash, full_name, system_role, is_active)
+		 VALUES ($1, $2, NULL, 'dummy', 'User A', NULL, true)
+		 ON CONFLICT (id) DO UPDATE SET system_role = NULL, is_active = true
+		 RETURNING id`,
+		uuidUserA, "cross-user-a-0@test.com",
+	).Scan(&userIDAActual)
+	if err != nil {
+		t.Fatalf("insert cross-user A: %v", err)
+	}
+
+	var userIDBActual string
+	err = db.QueryRowContext(context.Background(),
+		`INSERT INTO users (id, email, phone, password_hash, full_name, system_role, is_active)
+		 VALUES ($1, $2, NULL, 'dummy', 'User B', NULL, true)
+		 ON CONFLICT (id) DO UPDATE SET system_role = NULL, is_active = true
+		 RETURNING id`,
+		uuidUserB, "cross-user-b-0@test.com",
+	).Scan(&userIDBActual)
+	if err != nil {
+		t.Fatalf("insert cross-user B: %v", err)
+	}
+
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
+		 VALUES ($1, $2, $3, $4, true)
+		 ON CONFLICT (id) DO UPDATE SET role = $4, is_active = true`,
+		uuidMemberA, userIDAActual, rtIDActual, RoleBendahara,
+	)
+	if err != nil {
+		t.Fatalf("insert membership A: %v", err)
+	}
+
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
+		 VALUES ($1, $2, $3, $4, true)
+		 ON CONFLICT (id) DO UPDATE SET role = $4, is_active = true`,
+		uuidMemberB, userIDBActual, rtIDActual, RoleBendahara,
+	)
+	if err != nil {
+		t.Fatalf("insert membership B: %v", err)
+	}
+
+	oldPool := AuthDBPool
+	AuthDBPool = pool
+	t.Cleanup(func() {
+		AuthDBPool = oldPool
+	})
+
+	t.Setenv("crossUserA_user", userIDAActual)
+	t.Setenv("crossUserA_member", uuidMemberA)
+	t.Setenv("crossUserB_member", uuidMemberB)
+}
+
+// TestValidateIdentityCrossUserSwapRejected verifies that a tenant user
+// cannot authenticate by presenting a valid JWT whose membershipID belongs to
+// another user.  UserA+MembershipB must be rejected even though both the user
+// and the membership are individually active.
+func TestValidateIdentityCrossUserSwapRejected(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+
+	setupCrossUserIdentity(t)
+
+	userAID := testUUID("cross-user-a-user")
+	memberBID := testUUID("cross-user-b-member")
+
+	claims := TokenClaims{
+		UserID: userAID,
+		MID:    memberBID,
+		RTID:   testUUID("cross-user-rt"),
+		Role:   "bendahara",
+	}
+
+	tokenStr, err := GenerateAccessToken(claims)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	received := false
+	handler := RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/api/v1/me", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for cross-user swap, got %d", rec.Code)
+	}
+	if received {
+		t.Error("handler should NOT be reached for cross-user swap")
+	}
+}
+
+// TestValidateIdentityCorrectMembershipAllowed verifies that UserA + their own
+// Membership A is authenticated successfully.
+func TestValidateIdentityCorrectMembershipAllowed(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+
+	setupCrossUserIdentity(t)
+
+	userAID := testUUID("cross-user-a-user")
+	memberAID := testUUID("cross-user-a-member")
+
+	claims := TokenClaims{
+		UserID: userAID,
+		MID:    memberAID,
+		RTID:   testUUID("cross-user-rt"),
+		Role:   "bendahara",
+	}
+
+	tokenStr, err := GenerateAccessToken(claims)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	received := false
+	handler := RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/api/v1/me", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for correct membership, got %d", rec.Code)
+	}
+	if !received {
+		t.Error("handler should be reached for correct membership")
+	}
 }

@@ -21,14 +21,18 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
+  final _emailFocus = FocusNode();
   final _passwordController = TextEditingController();
+  final _passwordFocus = FocusNode();
   bool _obscurePassword = true;
   String _error = '';
 
   @override
   void dispose() {
     _emailController.dispose();
+    _emailFocus.dispose();
     _passwordController.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
@@ -219,8 +223,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               context,
               label: 'Email',
               controller: _emailController,
+              focusNode: _emailFocus,
               hintText: 'Masukkan email',
               keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              onFieldSubmitted: (value) {
+                FocusScope.of(context).requestFocus(_passwordFocus);
+              },
               prefixIcon: Icons.email_outlined,
               autoFocus: !isLoading,
             ),
@@ -231,8 +240,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               context,
               label: 'Kata Sandi',
               controller: _passwordController,
+              focusNode: _passwordFocus,
               hintText: 'Masukkan kata sandi',
               obscureText: _obscurePassword,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (value) {
+                _handleLogin();
+              },
               prefixIcon: Icons.lock_outline,
               suffixIcon: _buildPasswordToggle(),
             ),
@@ -259,7 +273,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     required String label,
     required TextEditingController controller,
     required String hintText,
+    FocusNode? focusNode,
     TextInputType? keyboardType,
+    TextInputAction textInputAction = TextInputAction.next,
+    void Function(String)? onFieldSubmitted,
     bool obscureText = false,
     IconData? prefixIcon,
     Widget? suffixIcon,
@@ -282,8 +299,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           height: 36,
           child: TextField(
             controller: controller,
+            focusNode: focusNode,
             obscureText: obscureText,
             keyboardType: keyboardType,
+            textInputAction: textInputAction,
+            onSubmitted: onFieldSubmitted,
             autofocus: autoFocus,
             enabled: enabled,
             style: const TextStyle(
