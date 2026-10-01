@@ -478,8 +478,11 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 	hh := household.NewHandler(pool)
 
 	// Read access: warga, bendahara, pengurus.
+	// jabatan-based users evaluated via position_permissions;
+	// role-based users still pass through RequireRole.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequirePermission(pool, "warga.read"))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/households", hh.ListHouseholds)
 		r.Get("/api/v1/households/{id}", hh.GetHousehold)
@@ -491,6 +494,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 	// Management read access: bendahara, pengurus (warga denied). Super admin allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequirePermission(pool, "warga.export"))
 		r.Use(auth.RequireRole(auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/warga/template", household.HandleWargaTemplateXLSX(pool))
 		r.Get("/api/v1/warga/export/xlsx", household.HandleWargaExportXLSX(pool))
@@ -498,8 +502,12 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 
 	// Write access: pengurus only. System-level SUPER_ADMIN can access and
 	// will derive target RT from existing resources (not from auth context).
+	// jabatan-based users evaluated via position_permissions for warga.create / warga.update.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequirePermission(pool, "warga.create"))
+		r.Use(auth.RequirePermission(pool, "warga.update"))
+		r.Use(auth.RequirePermission(pool, "warga.import"))
 		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/households", hh.CreateHousehold)
 		r.Post("/api/v1/households/{id}/move", hh.MoveHousehold)
@@ -522,8 +530,11 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 	finH := finance.NewHandler(pool, finSvc)
 
 	// Financial read access & warga payments: warga, bendahara, pengurus
+	// jabatan-based users evaluated via position_permissions for finance.read.
+	// Self-submitted payments by warga/staff use finance.create permission.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequirePermission(pool, "finance.read"))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/categories", finH.ListCategories)
 		r.Get("/api/v1/dues", finH.ListDues)
@@ -540,6 +551,12 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 	})
 
 	// Master categories management: pengurus only (Bendahara cannot delete categories)
+	//
+	// NOTE: The seed data has NO category-specific permissions (no "category.manage").
+	// Adding RequirePermission here would block ALL jabatan-based users
+	// (including ketua) because the position_permissions table has no mapping for it.
+	// This route group intentionally stays on RequireRole only until the permission
+	// model includes a category permission code. See audit report for details.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRole(auth.RolePengurus))
@@ -549,8 +566,12 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 	})
 
 	// Financial operations: bendahara & pengurus
+	// jabatan-based users evaluated via position_permissions for finance.create, finance.update, finance.approve.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequirePermission(pool, "finance.create"))
+		r.Use(auth.RequirePermission(pool, "finance.update"))
+		r.Use(auth.RequirePermission(pool, "finance.approve"))
 		r.Use(auth.RequireRole(auth.RoleBendahara, auth.RolePengurus))
 		r.Post("/api/v1/dues", finH.CreateDue)
 		r.Patch("/api/v1/dues/{id}", finH.UpdateDue)
