@@ -124,7 +124,8 @@ export function IuranList() {
 
       const response = await apiListBills(token, params)
 
-      let bills = response.data.map(mapBill)
+      const data = response?.data ?? []
+      let bills = data.map(mapBill)
 
       // Load payments for all visible bills to calculate paidAmount
       // Only load for first page to avoid excessive API calls

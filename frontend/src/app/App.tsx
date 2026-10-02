@@ -122,7 +122,7 @@ export function App() {
             element={<SpecialResidentEdit />}
           />
         </Route>
-        <Route path="iuran" element={<IuranRoutes />} />
+        <Route path="iuran/*" element={<IuranRoutes />} />
         <Route path="kas" element={<KasRoutes />} />
       </Route>
 
