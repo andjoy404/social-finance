@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeftOutlined } from '@ant-design/icons'
 import {
   KAS_TRANSACTIONS,
   getTotalKasMasuk,
@@ -8,7 +7,6 @@ import {
   getFilteredTransactions,
 } from './kasMockData'
 import {
-  KAS_KATEGORI_OPTIONS,
   formatRupiah,
   formatTanggal,
   getJenisVariant,

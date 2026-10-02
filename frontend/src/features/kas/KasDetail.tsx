@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeftOutlined, ArrowUpOutlined, ArrowDownOutlined, CalendarOutlined, TagOutlined, FileTextOutlined, LinkOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CalendarOutlined, TagOutlined, FileTextOutlined, LinkOutlined } from '@ant-design/icons'
 import { useAuth } from '@/app/AuthContext'
 import { KAS_TRANSACTIONS } from './kasMockData'
 import type { KasTransaction } from './kasTypes'

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Link, useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeftOutlined,
   CheckCircleOutlined,
@@ -34,7 +34,6 @@ function formatDate(iso: string): string {
 
 export function IuranDetail() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
 
   const navigateBack = () => {
     window.history.back()

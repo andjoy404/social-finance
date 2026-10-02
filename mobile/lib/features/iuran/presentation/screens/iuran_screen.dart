@@ -88,8 +88,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
         title: const MenuAppBarTitle(title: 'Iuran'),
       ),
       floatingActionButton: kIsWeb
-          ? _buildWebFab(context, accentSoft)
-          : _buildAndroidFab(context, accentSoft),
+          ? _buildWebFab(accentSoft)
+          : _buildAndroidFab(accentSoft),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

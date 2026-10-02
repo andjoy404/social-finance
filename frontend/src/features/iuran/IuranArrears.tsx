@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   WarningOutlined,
   DownOutlined,
+  CloseOutlined,
 } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
@@ -12,7 +12,6 @@ import {
   BILL_DATA,
   formatRupiah,
   formatPeriodeLabel,
-  getStatusVariant,
   getStatusLabel,
 } from './iuranTypes'
 import type { IuranBill } from './iuranTypes'
@@ -28,8 +27,6 @@ const colStyles = {
 }
 
 export function IuranArrears() {
-  const navigate = useNavigate()
-
   const arrearsBills = useMemo(() => {
     return BILL_DATA.filter((b) => b.status === 'belum_bayar' || b.status === 'sebagian')
   }, [])

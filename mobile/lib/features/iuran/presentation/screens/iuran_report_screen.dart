@@ -270,7 +270,7 @@ class IuranReportScreen extends StatelessWidget {
                           bill.status == IuranStatus.lunas
                               ? Icons.check_circle
                               : bill.status == IuranStatus.sebagian
-                                  ? Icons.partially_checked
+                                  ? Icons.star_half
                                   : Icons.warning,
                           size: 18,
                           color: _reportStatusColor(

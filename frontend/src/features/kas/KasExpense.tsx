@@ -11,7 +11,6 @@ import {
 import type { KasTransaction } from './kasTypes'
 import {
   KAS_KATEGORI_OPTIONS,
-  formatRupiah,
 } from './kasTypes'
 
 interface FormState {

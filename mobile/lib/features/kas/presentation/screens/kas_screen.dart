@@ -180,7 +180,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                 ),
                 SizedBox(
                   height: 32,
-                  child: ListView.horizontal(
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
                     children: [
                       _filterChip('Semua', _selectedJenis == 'semua', () {
@@ -214,7 +215,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                 ),
                 SizedBox(
                   height: 32,
-                  child: ListView.horizontal(
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
                     children: _kategoriOptions.map((kategori) {
                       final isSelected = _selectedKategori == kategori;

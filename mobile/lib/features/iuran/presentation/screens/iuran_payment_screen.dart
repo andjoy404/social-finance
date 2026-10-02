@@ -73,7 +73,7 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
       if (amount == null || amount <= 0) {
         errors.add('Nominal harus berupa angka yang valid.');
       }
-      if (_selectedBill != null && amount > _selectedBill!.remainingAmount) {
+      if (_selectedBill != null && amount != null && amount > _selectedBill!.remainingAmount) {
         errors.add('Nominal melebihi sisa tagihan.');
       }
     }

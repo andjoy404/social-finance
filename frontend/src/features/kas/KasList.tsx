@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { UserOutlined, PlusOutlined, ArrowUpOutlined, ArrowDownOutlined, WalletOutlined } from '@ant-design/icons'
+import { PlusOutlined, WalletOutlined } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
@@ -15,7 +15,6 @@ import {
   getTotalKasKeluar,
   getFilteredTransactions,
 } from './kasMockData'
-import type { KasTransaction, KasJenis, KategoriKas } from './kasTypes'
 import { formatRupiah, formatTanggal, getJenisVariant, getJenisLabel, formatKeteranganKas } from './kasTypes'
 
 type FilterType = 'semua' | 'periode' | 'jenis' | 'kategori'

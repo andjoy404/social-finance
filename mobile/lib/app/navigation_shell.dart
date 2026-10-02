@@ -24,13 +24,13 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       activeIcon: Icons.home,
     ),
     _NavRoute(
-      path: '/home/cash',
+      path: '/home/kas',
       label: 'Kas',
       icon: Icons.account_balance_wallet_outlined,
       activeIcon: Icons.account_balance_wallet,
     ),
     _NavRoute(
-      path: '/home/dues',
+      path: '/home/iuran',
       label: 'Iuran',
       icon: Icons.receipt_long_outlined,
       activeIcon: Icons.receipt_long,

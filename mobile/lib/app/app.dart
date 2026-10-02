@@ -28,6 +28,7 @@ import '../features/kas/presentation/screens/kas_detail_screen.dart';
 import '../features/kas/presentation/screens/kas_masuk_screen.dart';
 import '../features/kas/presentation/screens/kas_keluar_screen.dart';
 import '../features/kas/presentation/screens/kas_report_screen.dart';
+import '../features/kas/data/kas_models.dart';
 
 class App extends ConsumerStatefulWidget {
   const App({super.key});

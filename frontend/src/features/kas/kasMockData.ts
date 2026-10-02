@@ -1,7 +1,4 @@
-import type { KasTransaction, KasJenis, KategoriKas } from './kasTypes'
-
-const KATEGORI_MASUK: KategoriKas[] = ['Iuran Warga', 'Iuran Paksa']
-const KATEGORI_KELUAR: KategoriKas[] = ['Perbaikan Fasilitas', 'Kebersihan', 'Keamanan', 'Konsumsi Rapat', 'Perlengkapan', 'Lainnya']
+import type { KasTransaction } from './kasTypes'
 
 const REFERENSI_MASUK = [
   'Pembayaran Iuran Okt 2026 - KK Budi Santoso',
@@ -43,7 +40,7 @@ const REFERENSI_KELUAR = [
   'Pembelian tisu dan sabun untuk WC umum',
 ]
 
-function generateSaldo(transactions: KasTransaction[]): KasTransaction[] {
+function generateSaldo(transactions: Omit<KasTransaction, 'saldo'>[]): KasTransaction[] {
   let saldo = 5000000
   const result: KasTransaction[] = []
   for (const t of transactions) {
@@ -129,7 +126,6 @@ export function getFilteredTransactions(
     if (jenisFilter && t.jenis !== jenisFilter) return false
     if (kategoriFilter && t.kategori !== kategoriFilter) return false
     if (periodeFilter) {
-      const [year, month] = periodeFilter.split('-')
       const tMonth = t.tanggal.substring(0, 7)
       if (tMonth !== periodeFilter) return false
     }

@@ -1,5 +1,4 @@
-import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
 import {
   FundOutlined,
   CheckCircleOutlined,
@@ -29,8 +28,6 @@ const colStyles = {
 }
 
 export function IuranReport() {
-  const navigate = useNavigate()
-
   const allBills = BILL_DATA
 
   // Summary stats
@@ -222,10 +219,8 @@ export function IuranReport() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentBills.map((bill, idx) => {
-                    const sisa = bill.nominal - bill.paidAmount
-                    return (
-                      <tr key={bill.id}>
+                  {recentBills.map((bill, idx) => (
+                    <tr key={bill.id}>
                         <td style={colStyles.no}>{idx + 1}</td>
                         <td style={colStyles.household}>
                           <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
@@ -244,8 +239,7 @@ export function IuranReport() {
                           </Badge>
                         </td>
                       </tr>
-                    )
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>

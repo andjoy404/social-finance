@@ -7,6 +7,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
+import 'package:social_finance/core/widgets/section_header.dart';
 
 import '../../data/iuran_models.dart';
 import '../../data/iuran_mock_data.dart';
@@ -83,7 +84,7 @@ class IuranDetailScreen extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
 
             // ── Bill Details ──
-            const SectionHeader(title: 'Informasi Tagihan'),
+            SectionHeader(title: 'Informasi Tagihan'),
             const SizedBox(height: AppSpacing.sm),
 
             AppCard(
@@ -125,7 +126,7 @@ class IuranDetailScreen extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
 
             // ── Payment Details ──
-            const SectionHeader(title: 'Detail Pembayaran'),
+            SectionHeader(title: 'Detail Pembayaran'),
             const SizedBox(height: AppSpacing.sm),
 
             AppCard(
@@ -174,7 +175,7 @@ class IuranDetailScreen extends StatelessWidget {
             // ── Progress Bar for Partial Payment ──
             if (bill.status == IuranStatus.sebagian) ...[
               const SizedBox(height: AppSpacing.lg),
-              const SectionHeader(title: 'Progress Pembayaran'),
+              SectionHeader(title: 'Progress Pembayaran'),
               const SizedBox(height: AppSpacing.sm),
               AppCard(
                 padding: const EdgeInsets.all(AppSpacing.base),

@@ -13,10 +13,6 @@ const HOUSEHOLDS = [
   { householdId: 'h010', name: 'Lina Marlina', rt: 'RT 03' },
 ]
 
-const TYPES = ['Keamanan', 'Kebersihan', 'Pembangunan'] as const
-
-const PERIODS = ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10']
-
 const NOMINALS: Record<string, number> = {
   Keamanan: 50000,
   Kebersihan: 30000,
