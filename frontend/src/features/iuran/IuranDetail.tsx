@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeftOutlined,
@@ -11,17 +11,18 @@ import {
 import { AppCard } from '@/components/AppCard'
 import { Badge } from '@/components/Badge'
 import {
-  BILL_DATA,
+  BACKEND_STATUS_MAP,
   formatRupiah,
   formatFullPeriodeLabel,
   getStatusVariant,
   getStatusLabel,
+  getPaymentStatusLabel,
+  getPaymentStatusVariant,
+  parseMoney,
   type IuranBill,
+  type PaymentStatusDisplay,
 } from './iuranTypes'
-
-function findBill(id: string): IuranBill | undefined {
-  return BILL_DATA.find((b) => b.id === id)
-}
+import { apiGetBill, apiListPayments, getSessionPair } from '@/app/api'
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
@@ -44,23 +45,97 @@ export function IuranDetail() {
   const [bill, setBill] = useState<IuranBill | null>(null)
   const [notFound, setNotFound] = useState(false)
 
+  // Load bill data
   useEffect(() => {
-    setLoading(true)
-    setTimeout(() => {
+    let cancelled = false
+    async function loadBill() {
+      setLoading(true)
+      setError(null)
+      setNotFound(false)
+
       if (!id) {
         setError('ID tagihan tidak valid')
         setLoading(false)
         return
       }
-      const found = findBill(id)
-      if (!found) {
-        setNotFound(true)
-      } else {
-        setBill(found)
+
+      try {
+        const token = getSessionPair()?.accessToken
+        if (!token) {
+          setError('Sesi Anda telah berakhir. Silakan login ulang.')
+          setLoading(false)
+          return
+        }
+
+        const apiBill = await apiGetBill(token, id)
+
+        if (cancelled) return
+
+        // Map backend bill to frontend format
+        const mappedBill: IuranBill = {
+          id: apiBill.id,
+          householdId: apiBill.household_occupancy_id,
+          householdName: apiBill.head_name ?? apiBill.house_number ?? 'Unknown',
+          rt: apiBill.rt_id ?? 'RT',
+          iuranType: apiBill.due_name ?? 'Iuran',
+          periode: apiBill.period,
+          nominal: parseMoney(apiBill.amount),
+          paidAmount: 0, // will be calculated from payments
+          status: BACKEND_STATUS_MAP[apiBill.status] ?? 'belum_bayar',
+          payments: [], // will be loaded separately
+        }
+
+        // Load payments for this bill
+        const paymentsResponse = await apiListPayments(token, { bill_id: id })
+        if (cancelled) return
+
+        // Calculate paidAmount from APPROVED payments only
+        const approvedPayments = paymentsResponse.data.filter(
+          (p) => p.status === 'APPROVED'
+        )
+        const paidAmount = approvedPayments.reduce(
+          (sum, p) => sum + parseMoney(p.amount),
+          0
+        )
+
+        // Map payments to frontend format
+        const paymentRecords = paymentsResponse.data.map((p) => ({
+          id: p.id,
+          nominal: parseMoney(p.amount),
+          paidDate: p.paid_at,
+          catatan: p.notes ?? undefined,
+          status: p.status as PaymentStatusDisplay,
+          method: p.method,
+        }))
+
+        setBill({
+          ...mappedBill,
+          paidAmount,
+          payments: paymentRecords,
+        })
+      } catch (err) {
+        if (cancelled) return
+        const apiErr = err as { code?: string }
+        if (apiErr.code === 'not_found') {
+          setNotFound(true)
+        } else {
+          setError(err instanceof Error ? err.message : 'Gagal memuat data')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      setLoading(false)
-    }, 400)
+    }
+
+    loadBill()
+    return () => {
+      cancelled = true
+    }
   }, [id])
+
+  const remaining = useMemo(() => {
+    if (!bill) return 0
+    return bill.nominal - bill.paidAmount
+  }, [bill])
 
   return (
     <div style={{ flex: 1, padding: 'var(--sp-md) var(--sp-xl)' }}>
@@ -275,21 +350,21 @@ export function IuranDetail() {
                   textTransform: 'uppercase',
                   letterSpacing: '0.03em',
                 }}>
-                  <WarningOutlined style={{ marginRight: 4, color: bill.paidAmount >= bill.nominal ? 'var(--sf-success)' : 'var(--sf-warning)' }} />
+                  <WarningOutlined style={{ marginRight: 4, color: remaining <= 0 ? 'var(--sf-success)' : 'var(--sf-warning)' }} />
                   Sisa Tagihan
                 </div>
                 <div style={{
                   fontSize: '14px',
-                  color: bill.paidAmount >= bill.nominal ? 'var(--sf-success)' : 'var(--sf-warning)',
+                  color: remaining <= 0 ? 'var(--sf-success)' : 'var(--sf-warning)',
                   fontWeight: 600,
                 }}>
-                  {formatRupiah(bill.nominal - bill.paidAmount)}
+                  {formatRupiah(remaining)}
                 </div>
               </div>
             </div>
 
             {/* Actions */}
-            {bill.paidAmount < bill.nominal && (
+            {remaining > 0 && (
               <div style={{ marginTop: 'var(--sp-lg)', display: 'flex', gap: '8px' }}>
                 <Link
                   to={`/iuran/${bill.id}/pembayaran`}
@@ -336,6 +411,8 @@ export function IuranDetail() {
                   <tr>
                     <th>Tanggal</th>
                     <th>Nominal</th>
+                    <th>Status</th>
+                    <th>Metode</th>
                     <th>Catatan</th>
                   </tr>
                 </thead>
@@ -345,6 +422,14 @@ export function IuranDetail() {
                       <td>{formatDate(payment.paidDate)}</td>
                       <td style={{ fontFamily: 'monospace', textAlign: 'right' }}>
                         {formatRupiah(payment.nominal)}
+                      </td>
+                      <td>
+                        <Badge variant={getPaymentStatusVariant(payment.status!)}>
+                          {getPaymentStatusLabel(payment.status!)}
+                        </Badge>
+                      </td>
+                      <td style={{ color: 'var(--sf-text-muted)' }}>
+                        {payment.method === 'TRANSFER' ? 'Transfer' : 'Cash'}
                       </td>
                       <td style={{ color: 'var(--sf-text-muted)' }}>
                         {payment.catatan || '\u2014'}

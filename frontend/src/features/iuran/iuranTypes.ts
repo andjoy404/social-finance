@@ -1,4 +1,28 @@
-export type IuranStatus = 'belum_bayar' | 'sebagian' | 'lunas'
+export type IuranStatus = 'belum_bayar' | 'sebagian' | 'lunas' | 'dibatalkan'
+
+// Backend BillStatus → Frontend IuranStatus mapping
+export const BACKEND_STATUS_MAP: Record<string, IuranStatus> = {
+  unpaid: 'belum_bayar',
+  partial: 'sebagian',
+  paid: 'lunas',
+  cancelled: 'dibatalkan',
+}
+
+// Backend status to display variant
+export function getStatusVariant(status: IuranStatus): 'red' | 'amber' | 'green' | 'default' {
+  switch (status) {
+    case 'belum_bayar':
+      return 'red'
+    case 'sebagian':
+      return 'amber'
+    case 'lunas':
+      return 'green'
+    case 'dibatalkan':
+      return 'default'
+    default:
+      return 'default'
+  }
+}
 
 // Re-export BILL_DATA from mock data so components can import everything from here
 export { BILL_DATA } from './iuranMockData'
@@ -8,6 +32,8 @@ export interface IuranPaymentRecord {
   nominal: number
   paidDate: string
   catatan?: string
+  status?: PaymentStatusDisplay
+  method?: 'CASH' | 'TRANSFER'
 }
 
 export interface IuranBill {
@@ -36,17 +62,6 @@ export function getIuranTypeLabel(value: string): string {
   return IURAN_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value
 }
 
-export function getStatusVariant(status: IuranStatus): 'red' | 'amber' | 'green' {
-  switch (status) {
-    case 'belum_bayar':
-      return 'red'
-    case 'sebagian':
-      return 'amber'
-    case 'lunas':
-      return 'green'
-  }
-}
-
 export function getStatusLabel(status: IuranStatus): string {
   switch (status) {
     case 'belum_bayar':
@@ -55,11 +70,49 @@ export function getStatusLabel(status: IuranStatus): string {
       return 'Sebagian'
     case 'lunas':
       return 'Lunas'
+    case 'dibatalkan':
+      return 'Dibatalkan'
+    default:
+      return status
   }
 }
 
 export function formatRupiah(n: number): string {
   return new Intl.NumberFormat('id-ID').format(n)
+}
+
+// Payment status display helpers
+export type PaymentStatusDisplay = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export function getPaymentStatusLabel(status: PaymentStatusDisplay): string {
+  switch (status) {
+    case 'PENDING':
+      return 'Menunggu Verifikasi'
+    case 'APPROVED':
+      return 'Terverifikasi'
+    case 'REJECTED':
+      return 'Ditolak'
+    default:
+      return status
+  }
+}
+
+export function getPaymentStatusVariant(status: PaymentStatusDisplay): 'default' | 'green' | 'red' {
+  switch (status) {
+    case 'PENDING':
+      return 'default'
+    case 'APPROVED':
+      return 'green'
+    case 'REJECTED':
+      return 'red'
+    default:
+      return 'default'
+  }
+}
+
+export function parseMoney(value: string): number {
+  const num = parseInt(value, 10)
+  return isNaN(num) ? 0 : num
 }
 
 export function formatPeriodeLabel(periode: string): string {

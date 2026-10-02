@@ -11,28 +11,31 @@ import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
 import { RowActionMenu } from '@/components/RowActionMenu'
 import {
-  BILL_DATA,
+  BACKEND_STATUS_MAP,
   formatRupiah,
   formatPeriodeLabel,
   getStatusVariant,
   getStatusLabel,
   IURAN_TYPE_OPTIONS,
+  parseMoney,
 } from './iuranTypes'
 import type { IuranBill, IuranStatus } from './iuranTypes'
+import { apiListBills, apiListPayments, type ApiBill, getSessionPair } from '@/app/api'
 
 type FilterType = 'semua' | 'status' | 'periode' | 'jenis'
+
+const STATUS_OPTIONS: { value: IuranStatus; label: string }[] = [
+  { value: 'belum_bayar', label: 'Belum Bayar' },
+  { value: 'sebagian', label: 'Sebagian' },
+  { value: 'lunas', label: 'Lunas' },
+  { value: 'dibatalkan', label: 'Dibatalkan' },
+]
 
 const statusFilterOptions: { value: FilterType; label: string }[] = [
   { value: 'semua', label: 'Semua' },
   { value: 'status', label: 'Status' },
   { value: 'periode', label: 'Periode' },
   { value: 'jenis', label: 'Jenis Iuran' },
-]
-
-const STATUS_OPTIONS: { value: IuranStatus; label: string }[] = [
-  { value: 'belum_bayar', label: 'Belum Bayar' },
-  { value: 'sebagian', label: 'Sebagian' },
-  { value: 'lunas', label: 'Lunas' },
 ]
 
 const colStyles = {
@@ -52,7 +55,7 @@ export function IuranList() {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [allBills] = useState<IuranBill[]>(BILL_DATA)
+  const [backendBills, setBackendBills] = useState<ApiBill[]>([])
 
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [search, setSearch] = useState('')
@@ -66,43 +69,119 @@ export function IuranList() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
+  // Map backend bill to frontend IuranBill format
+  const mapBill = useCallback((b: ApiBill): IuranBill => {
+    const iuranType = b.due_name ?? 'Iuran'
+    const householdName = b.head_name ?? b.house_number ?? 'Unknown'
+    const rtParts = b.rt_id.split('-')
+    const rt = rtParts.length > 0 ? `RT ${rtParts[0]}` : 'RT'
+    return {
+      id: b.id,
+      householdId: b.household_occupancy_id,
+      householdName,
+      rt,
+      iuranType,
+      periode: b.period,
+      nominal: parseMoney(b.amount),
+      paidAmount: 0, // calculated separately from payments
+      status: BACKEND_STATUS_MAP[b.status] ?? 'belum_bayar',
+      paidDate: undefined,
+      payments: [], // populated in IuranDetail
+    }
+  }, [])
+
   const loadData = useCallback(async (p: number, size: number) => {
     setLoading(true)
     setError(null)
-    await new Promise((r) => setTimeout(r, 400))
 
-    let filtered = allBills
+    try {
+      const token = getSessionPair()?.accessToken
+      if (!token) {
+        setError('Sesi Anda telah berakhir. Silakan login ulang.')
+        setLoading(false)
+        return
+      }
 
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      filtered = filtered.filter(
-        (b) => b.householdName.toLowerCase().includes(q) || b.rt.toLowerCase().includes(q)
-      )
+      const params: Record<string, string> = {
+        page: String(p),
+        page_size: String(size),
+      }
+
+      // Apply server-side filters
+      if (statusValue) {
+        // Map frontend status back to backend status
+        const statusMap: Record<string, string> = {
+          belum_bayar: 'unpaid',
+          sebagian: 'partial',
+          lunas: 'paid',
+          dibatalkan: 'cancelled',
+        }
+        params.status = statusMap[statusValue] ?? ''
+      }
+      if (periodeValue) {
+        params.period = periodeValue
+      }
+
+      const response = await apiListBills(token, params)
+
+      let bills = response.data.map(mapBill)
+
+      // Load payments for all visible bills to calculate paidAmount
+      // Only load for first page to avoid excessive API calls
+      if (p === 1 && bills.length > 0) {
+        try {
+          // Load payments for each bill to calculate paidAmount
+          if (token) {
+            const paymentsPromises = bills.map((b: IuranBill) =>
+              apiListPayments(token, { bill_id: b.id }).catch(() => null)
+            )
+            const paymentsResults = await Promise.all(paymentsPromises)
+
+            paymentsResults.forEach((res: { data: { status: string; amount: string }[] } | null, idx: number) => {
+              if (res && res.data.length > 0) {
+                const approvedPayments = res.data.filter(
+                  (p: { status: string; amount: string }) => p.status === 'APPROVED'
+                )
+                const paidAmount = approvedPayments.reduce(
+                  (sum: number, p: { amount: string }) => sum + parseMoney(p.amount),
+                  0
+                )
+                bills[idx] = { ...bills[idx], paidAmount }
+              }
+            })
+          }
+        } catch {
+          // Silent fail - show paidAmount=0 if payments cannot be loaded
+        }
+      }
+
+      // Client-side search filter (backend doesn't support search)
+      if (search.trim()) {
+        const q = search.trim().toLowerCase()
+        bills = bills.filter(
+          (b) => b.householdName.toLowerCase().includes(q) || b.rt.toLowerCase().includes(q)
+        )
+      }
+
+      // Client-side jenis filter (backend doesn't support it)
+      if (jenisValue) {
+        bills = bills.filter((b) => b.iuranType === jenisValue)
+      }
+
+      const totalPages = Math.max(1, Math.ceil(bills.length / size))
+
+      setBackendBills(response.data)
+      setFilteredBills(bills)
+      setTotal(bills.length)
+      setTotalPages(totalPages)
+      setPage(p)
+      setPageSize(size)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memuat data')
+    } finally {
+      setLoading(false)
     }
-
-    if (filterType === 'status' && statusValue) {
-      filtered = filtered.filter((b) => b.status === statusValue)
-    }
-
-    if (filterType === 'periode' && periodeValue) {
-      filtered = filtered.filter((b) => b.periode === periodeValue)
-    }
-
-    if (filterType === 'jenis' && jenisValue) {
-      filtered = filtered.filter((b) => b.iuranType === jenisValue)
-    }
-
-    const start = (p - 1) * size
-    const paginated = filtered.slice(start, start + size)
-    const totalPages = Math.max(1, Math.ceil(filtered.length / size))
-
-    setFilteredBills(paginated)
-    setTotal(filtered.length)
-    setTotalPages(totalPages)
-    setPage(p)
-    setPageSize(size)
-    setLoading(false)
-  }, [allBills, filterType, statusValue, search, periodeValue, jenisValue])
+  }, [mapBill, statusValue, periodeValue, search, jenisValue])
 
   useEffect(() => {
     loadData(1, 10)
@@ -156,9 +235,9 @@ export function IuranList() {
     : null
 
   const uniquePeriodes = useMemo(() => {
-    const s = new Set(allBills.map((b) => b.periode))
+    const s = new Set(backendBills.map((b: ApiBill) => b.period))
     return Array.from(s).sort().reverse()
-  }, [allBills])
+  }, [backendBills])
 
   const uniquePeriodesOptions = useMemo(
     () => uniquePeriodes.map((p) => ({ value: p, label: formatPeriodeLabel(p) })),

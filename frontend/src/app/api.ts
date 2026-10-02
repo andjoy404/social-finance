@@ -665,3 +665,147 @@ export async function updateSpecialResident(
   if (!data) throw new ApiError('unexpected', 'Response data missing')
   return data
 }
+
+// ── Finance (Bills & Payments) ──────────────────────────────────────────────────
+
+export interface ApiBill {
+  id: string
+  rt_id: string
+  household_occupancy_id: string
+  due_id: string
+  amount: string
+  period: string
+  due_date: string
+  status: 'unpaid' | 'partial' | 'paid' | 'cancelled'
+  created_at: string
+  updated_at: string
+  due_name?: string | null
+  house_number?: string | null
+  head_name?: string | null
+}
+
+export interface ApiPayment {
+  id: string
+  rt_id: string
+  bill_id: string
+  amount: string
+  method: 'CASH' | 'TRANSFER'
+  origin: 'SELF_SUBMITTED' | 'STAFF_RECORDED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  proof_path?: string | null
+  paid_at: string
+  verified_by?: string | null
+  verified_at?: string | null
+  rejection_reason?: string | null
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiCreatePaymentBody {
+  bill_id: string
+  amount: string
+  method: 'CASH' | 'TRANSFER'
+  proof_path?: string | null
+  notes?: string | null
+}
+
+export async function apiListBills(
+  token: string,
+  params?: {
+    page?: number
+    page_size?: number
+    household_occupancy_id?: string
+    due_id?: string
+    status?: string
+    period?: string
+  },
+): Promise<ApiPaginated<ApiBill>> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  if (params?.household_occupancy_id) q.set('household_occupancy_id', params.household_occupancy_id)
+  if (params?.due_id) q.set('due_id', params.due_id)
+  if (params?.status) q.set('status', params.status)
+  if (params?.period) q.set('period', params.period)
+  const res = await authenticatedApiRequest(BASE + '/bills?' + q.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiPaginated<ApiBill>>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetBill(token: string, id: string): Promise<ApiBill> {
+  const res = await authenticatedApiRequest(BASE + '/bills/' + id, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiBill>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiListPayments(
+  token: string,
+  params?: {
+    page?: number
+    page_size?: number
+    bill_id?: string
+    status?: string
+  },
+): Promise<ApiPaginated<ApiPayment>> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  if (params?.bill_id) q.set('bill_id', params.bill_id)
+  if (params?.status) q.set('status', params.status)
+  const res = await authenticatedApiRequest(BASE + '/payments?' + q.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiPaginated<ApiPayment>>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetPayment(token: string, id: string): Promise<ApiPayment> {
+  const res = await authenticatedApiRequest(BASE + '/payments/' + id, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiPayment>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreatePayment(
+  token: string,
+  body: ApiCreatePaymentBody,
+): Promise<ApiPayment> {
+  const idempotencyKey = crypto.randomUUID()
+  const res = await authenticatedApiRequest(BASE + '/payments', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'Idempotency-Key': idempotencyKey,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiPayment>(res)
+  if (!res.ok || !data) {
+    const body = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && body?.code) {
+      throw new ApiError(body.code, body.message)
+    }
+    throw new ApiError('unexpected', 'Unexpected response')
+  }
+  return data
+}
