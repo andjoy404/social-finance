@@ -404,6 +404,61 @@ func BillUpdateStatus(ctx context.Context, tx *sql.Tx, id, rtID string, status B
 	return nil
 }
 
+// BillGetByIDForUpdate retrieves a bill and locks the row FOR UPDATE.
+// Use this when the caller intends to modify the bill or compute derived values
+// under a transaction (e.g., payment approval with overpayment validation).
+func BillGetByIDForUpdate(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error) {
+	var b Bill
+	var dueDate time.Time
+
+	err := tx.QueryRowContext(ctx,
+		`SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at
+		 FROM bills b
+		 WHERE b.id = $1 AND b.rt_id = $2 LIMIT 1 FOR UPDATE`,
+		id, rtID,
+	).Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get bill by id for update: %w", err)
+	}
+	b.DueDate = dueDate.Format("2006-01-02")
+	return &b, nil
+}
+
+// GetApprovedPaymentTotal returns the sum of APPROVED payments for a bill.
+// Returns "0" when no approved payments exist.
+func GetApprovedPaymentTotal(ctx context.Context, tx *sql.Tx, billID string) (string, error) {
+	var totalStr string
+	err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(amount), 0)::text
+		 FROM payments
+		 WHERE bill_id = $1 AND status = 'APPROVED'`,
+		billID,
+	).Scan(&totalStr)
+	if err != nil {
+		return "0", fmt.Errorf("get approved payment total: %w", err)
+	}
+	return totalStr, nil
+}
+
+// GetApprovedPaymentCount returns the number of APPROVED payments for a bill.
+// Returns 0 when no approved payments exist.
+func GetApprovedPaymentCount(ctx context.Context, tx *sql.Tx, billID string) (int, error) {
+	var count int
+	err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		 FROM payments
+		 WHERE bill_id = $1 AND status = 'APPROVED'`,
+		billID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("get approved payment count: %w", err)
+	}
+	return count, nil
+}
+
 // GetActiveCurrentOccupancyIDs returns all active current household occupancies for an RT.
 func GetActiveCurrentOccupancyIDs(ctx context.Context, tx *sql.Tx, rtID string) ([]string, error) {
 	rows, err := tx.QueryContext(ctx,

@@ -658,6 +658,14 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.svc.CreatePayment(r.Context(), tx, ac.RTID, ac.UserID, string(ac.TenantRole), in)
 	if err != nil {
+		if errors.Is(err, ErrBillAlreadyPaid) {
+			httpx.WriteConflict(targetW, "bill is already paid")
+			return
+		}
+		if errors.Is(err, ErrBillCancelled) {
+			httpx.WriteConflict(targetW, "bill is cancelled")
+			return
+		}
 		httpx.WriteValidationError(targetW, err.Error(), nil)
 		return
 	}
@@ -695,13 +703,30 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	p, err := h.svc.VerifyPayment(r.Context(), tx, ac.RTID, ac.UserID, id, in)
+	res, err := h.svc.VerifyPayment(r.Context(), tx, ac.RTID, ac.UserID, id, in)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			httpx.WriteNotFound(w, "payment not found")
 			return
 		}
+		if errors.Is(err, ErrBillAlreadyPaid) {
+			httpx.WriteConflict(w, "bill is already paid")
+			return
+		}
+		if errors.Is(err, ErrBillCancelled) {
+			httpx.WriteConflict(w, "bill is cancelled")
+			return
+		}
 		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	if res.OverpaymentRejected {
+		if err := tx.Commit(); err != nil {
+			httpx.WriteInternalServerError(w, "commit error")
+			return
+		}
+		httpx.WriteValidationError(w, "payment amount exceeds remaining balance", nil)
 		return
 	}
 
@@ -710,7 +735,7 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, res.Payment)
 }
 
 // --- Transactions & Balance Handlers ---
@@ -930,4 +955,43 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (h *Handler) CancelBill(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	if err := h.svc.CancelBill(r.Context(), tx, id, ac.RTID, ac.UserID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "bill not found")
+			return
+		}
+		if errors.Is(err, ErrBillCannotCancel) {
+			httpx.WriteConflict(w, "bill cannot be cancelled: has approved payments")
+			return
+		}
+		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteInternalServerError(w, "commit error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

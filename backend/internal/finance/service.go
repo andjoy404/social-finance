@@ -216,7 +216,7 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		return nil, err
 	}
 
-	bill, err := BillGetByID(ctx, tx, in.BillID, rtID)
+	bill, err := BillGetByIDForUpdate(ctx, tx, in.BillID, rtID)
 	if err != nil {
 		return nil, fmt.Errorf("bill not found in this RT: %w", err)
 	}
@@ -255,18 +255,52 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		verifiedAt = &now
 	}
 
-	payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
-	if err != nil {
-		return nil, err
-	}
-
-	// If approved immediately (staff-recorded):
+	// --- APPROVED (staff-recorded): validate BEFORE insert ---
 	if status == PaymentStatusApproved {
-		if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPaid); err != nil {
-			return nil, err
+		// Compute approved total BEFORE inserting this payment
+		approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
+		if err != nil {
+			return nil, fmt.Errorf("compute approved payment total: %w", err)
 		}
 
-		// Automatically post income transaction into ledger
+		// Parse money strings
+		billCents, _, err := ParseMoney(bill.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("parse bill amount: %w", err)
+		}
+		paymentCents, _, err := ParseMoney(in.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("parse payment amount: %w", err)
+		}
+		approvedCents, _, err := ParseMoney(approvedTotal)
+		if err != nil {
+			return nil, fmt.Errorf("parse approved total: %w", err)
+		}
+
+		remaining := billCents - approvedCents
+		if paymentCents > remaining {
+			return nil, fmt.Errorf("payment amount %s exceeds remaining balance %s", in.Amount, FormatMoney(remaining))
+		}
+
+		// Insert payment NOW (validation passed)
+		payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
+		if err != nil {
+			return nil, fmt.Errorf("create payment: %w", err)
+		}
+
+		// Update bill status
+		newTotal := approvedCents + paymentCents
+		if newTotal >= billCents {
+			if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPaid); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPartial); err != nil {
+				return nil, err
+			}
+		}
+
+		// Post income transaction into ledger
 		catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
 		if err != nil {
 			return nil, err
@@ -282,6 +316,24 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		if err != nil {
 			return nil, fmt.Errorf("post ledger transaction for payment: %w", err)
 		}
+
+		auditPayload, _ := json.Marshal(payment)
+		_ = AuditLogInsert(ctx, tx, AuditLog{
+			RTID:       rtID,
+			UserID:     &userID,
+			Action:     "create_payment",
+			EntityType: "payment",
+			EntityID:   payment.ID,
+			NewValues:  auditPayload,
+		})
+
+		return payment, nil
+	}
+
+	// --- PENDING (warga-submitted): insert and return ---
+	payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
+	if err != nil {
+		return nil, err
 	}
 
 	auditPayload, _ := json.Marshal(payment)
@@ -297,7 +349,7 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	return payment, nil
 }
 
-func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierID, paymentID string, in VerifyPaymentInput) (*Payment, error) {
+func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierID, paymentID string, in VerifyPaymentInput) (*VerifyPaymentResult, error) {
 	payment, err := PaymentGetByID(ctx, tx, paymentID, rtID)
 	if err != nil {
 		return nil, err
@@ -311,50 +363,134 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		return nil, errors.New("action must be 'approve' or 'reject'")
 	}
 
-	bill, err := BillGetByID(ctx, tx, payment.BillID, rtID)
+	bill, err := BillGetByIDForUpdate(ctx, tx, payment.BillID, rtID)
 	if err != nil {
 		return nil, fmt.Errorf("bill not found: %w", err)
 	}
-
-	var newStatus PaymentStatus
-	var reason *string
-	if action == "approve" {
-		newStatus = PaymentStatusApproved
-	} else {
-		newStatus = PaymentStatusRejected
-		if in.RejectionReason != nil && strings.TrimSpace(*in.RejectionReason) != "" {
-			trimmed := strings.TrimSpace(*in.RejectionReason)
-			reason = &trimmed
-		}
+	if bill.Status == BillStatusPaid {
+		return nil, ErrBillAlreadyPaid
+	}
+	if bill.Status == BillStatusCancelled {
+		return nil, ErrBillCancelled
 	}
 
-	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, newStatus, verifierID, reason)
+	if action == "reject" {
+		reason := in.RejectionReason
+		var reasonPtr *string
+		if reason != nil && strings.TrimSpace(*reason) != "" {
+			trimmed := strings.TrimSpace(*reason)
+			reasonPtr = &trimmed
+		}
+
+		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, PaymentStatusRejected, verifierID, reasonPtr)
+		if err != nil {
+			return nil, err
+		}
+
+		auditPayload, _ := json.Marshal(verifiedPayment)
+		_ = AuditLogInsert(ctx, tx, AuditLog{
+			RTID:       rtID,
+			UserID:     &verifierID,
+			Action:     "verify_payment",
+			EntityType: "payment",
+			EntityID:   verifiedPayment.ID,
+			NewValues:  auditPayload,
+		})
+
+		return &VerifyPaymentResult{Payment: verifiedPayment}, nil
+	}
+
+	// action == "approve"
+	// Validate overpayment BEFORE approving payment.
+	// approved_total_before does NOT include this payment yet (still PENDING).
+	approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
+	if err != nil {
+		return nil, fmt.Errorf("compute approved payment total: %w", err)
+	}
+
+	// Parse money strings to compare amounts
+	billCents, _, err := ParseMoney(bill.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("parse bill amount: %w", err)
+	}
+	paymentCents, _, err := ParseMoney(payment.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("parse payment amount: %w", err)
+	}
+	approvedCents, _, err := ParseMoney(approvedTotal)
+	if err != nil {
+		return nil, fmt.Errorf("parse approved total: %w", err)
+	}
+
+	remaining := billCents - approvedCents
+	if paymentCents > remaining {
+		// Overpayment detected — reject the payment atomically.
+		// The REJECTED state must persist so the handler commits (not rolls back)
+		// the transaction while returning HTTP 400.
+		var rejectionReason string
+		if in.RejectionReason != nil && strings.TrimSpace(*in.RejectionReason) != "" {
+			rejectionReason = strings.TrimSpace(*in.RejectionReason)
+		} else {
+			rejectionReason = "Payment amount exceeds remaining balance"
+		}
+		verifiedPayment, _ := PaymentVerify(ctx, tx, paymentID, rtID, PaymentStatusRejected, verifierID, &rejectionReason)
+
+		auditPayload, _ := json.Marshal(verifiedPayment)
+		_ = AuditLogInsert(ctx, tx, AuditLog{
+			RTID:       rtID,
+			UserID:     &verifierID,
+			Action:     "verify_payment",
+			EntityType: "payment",
+			EntityID:   verifiedPayment.ID,
+			NewValues:  auditPayload,
+		})
+
+		return &VerifyPaymentResult{
+			Payment:             verifiedPayment,
+			OverpaymentRejected: true,
+		}, nil
+	}
+
+	// Overpayment check passed — approve the payment
+	reason := in.RejectionReason
+	var reasonPtr *string
+	if reason != nil && strings.TrimSpace(*reason) != "" {
+		trimmed := strings.TrimSpace(*reason)
+		reasonPtr = &trimmed
+	}
+
+	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, PaymentStatusApproved, verifierID, reasonPtr)
 	if err != nil {
 		return nil, err
 	}
 
-	if newStatus == PaymentStatusApproved {
-		// Update bill status to paid
+	// Update bill status based on new total (this payment + previously approved)
+	newTotal := approvedCents + paymentCents
+	if newTotal >= billCents {
 		if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPaid); err != nil {
 			return nil, err
 		}
-
-		// Automatically post income transaction into ledger
-		catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
-		if err != nil {
+	} else {
+		if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPartial); err != nil {
 			return nil, err
 		}
-		desc := fmt.Sprintf("Payment for bill %s (Period: %s)", bill.ID, bill.Period)
-		now := time.Now()
-		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
-			CategoryID:  catID,
-			Amount:      verifiedPayment.Amount,
-			Type:        TransactionTypeIncome,
-			Description: desc,
-		}, TransactionStatusPosted, nil, &verifiedPayment.ID, now)
-		if err != nil {
-			return nil, fmt.Errorf("post ledger transaction for approved payment: %w", err)
-		}
+	}
+
+	// Automatically post income transaction into ledger
+	catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
+	if err != nil {
+		return nil, err
+	}
+	desc := fmt.Sprintf("Payment for bill %s (Period: %s)", bill.ID, bill.Period)
+	now := time.Now()
+	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
+		CategoryID:  catID,
+		Amount:      verifiedPayment.Amount,
+		Type:        TransactionTypeIncome,
+		Description: desc,
+	}, TransactionStatusPosted, nil, &verifiedPayment.ID, now)
+	if err != nil {
+		return nil, fmt.Errorf("post ledger transaction for approved payment: %w", err)
 	}
 
 	auditPayload, _ := json.Marshal(verifiedPayment)
@@ -367,7 +503,7 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		NewValues:  auditPayload,
 	})
 
-	return verifiedPayment, nil
+	return &VerifyPaymentResult{Payment: verifiedPayment}, nil
 }
 
 // --- Transactions Ledger & Reversals ---
@@ -480,4 +616,42 @@ func (s *Service) ReverseTransaction(ctx context.Context, tx *sql.Tx, rtID, user
 	})
 
 	return reversal, nil
+}
+
+// CancelBill cancels a bill only if it has no approved payments.
+// Bills with approved payments (partial or paid status) cannot be cancelled.
+func (s *Service) CancelBill(ctx context.Context, tx *sql.Tx, id, rtID, userID string) error {
+	// Lock the bill row
+	bill, err := BillGetByIDForUpdate(ctx, tx, id, rtID)
+	if err != nil {
+		return err
+	}
+
+	// Only unpaid bills without approved payments can be cancelled
+	if bill.Status != BillStatusUnpaid {
+		return ErrBillCannotCancel
+	}
+
+	// Check for approved payments
+	approvedCount, err := GetApprovedPaymentCount(ctx, tx, bill.ID)
+	if err != nil {
+		return fmt.Errorf("check approved payments: %w", err)
+	}
+	if approvedCount > 0 {
+		return ErrBillCannotCancel
+	}
+
+	if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusCancelled); err != nil {
+		return fmt.Errorf("cancel bill: %w", err)
+	}
+
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &userID,
+		Action:     "cancel_bill",
+		EntityType: "bill",
+		EntityID:   bill.ID,
+	})
+
+	return nil
 }

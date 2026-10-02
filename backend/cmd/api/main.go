@@ -589,6 +589,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Delete("/api/v1/dues/{id}", finH.DeactivateDue)
 		r.Post("/api/v1/bills", finH.CreateBill)
 		r.Post("/api/v1/bills/generate", finH.GenerateBills)
+		r.Delete("/api/v1/bills/{id}", finH.CancelBill)
 		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
 		r.Post("/api/v1/transactions", finH.CreateTransaction)
 		r.Post("/api/v1/transactions/{id}/reverse", finH.ReverseTransaction)

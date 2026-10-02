@@ -14,6 +14,7 @@ var (
 	ErrDuplicateBill        = errors.New("bill already exists for this occupancy, due, and period")
 	ErrBillAlreadyPaid      = errors.New("bill is already paid")
 	ErrBillCancelled        = errors.New("bill is cancelled")
+	ErrBillCannotCancel     = errors.New("bill cannot be cancelled: has approved payments")
 	ErrInvalidStatus        = errors.New("invalid status transition")
 	ErrTransactionPosted    = errors.New("transaction is already posted and immutable")
 	ErrAlreadyReversed      = errors.New("transaction is already reversed")
@@ -21,6 +22,7 @@ var (
 	ErrInvalidDuePeriod     = errors.New("invalid period_type: must be monthly, yearly, or one_time")
 	ErrInvalidCategoryType  = errors.New("invalid category type: must be income or expense")
 	ErrInvalidAmount        = errors.New("amount must be greater than zero")
+	ErrOverpayment          = errors.New("payment amount exceeds remaining balance")
 )
 
 // CategoryType represents income or expense.
@@ -91,6 +93,7 @@ type BillStatus string
 
 const (
 	BillStatusUnpaid    BillStatus = "unpaid"
+	BillStatusPartial   BillStatus = "partial"
 	BillStatusPaid      BillStatus = "paid"
 	BillStatusCancelled BillStatus = "cancelled"
 )
@@ -183,6 +186,16 @@ type CreatePaymentInput struct {
 type VerifyPaymentInput struct {
 	Action          string  `json:"action"` // "approve" or "reject"
 	RejectionReason *string `json:"rejection_reason,omitempty"`
+}
+
+// VerifyPaymentResult carries the outcome of VerifyPayment.
+// OverpaymentRejected is true when the bendahara tried to approve
+// a payment that would exceed the remaining balance.  The payment
+// row is already updated to REJECTED; the handler must COMMIT the
+// transaction (not roll back) and return HTTP 400.
+type VerifyPaymentResult struct {
+	Payment             *Payment
+	OverpaymentRejected bool
 }
 
 // TransactionType represents ledger entry type.
