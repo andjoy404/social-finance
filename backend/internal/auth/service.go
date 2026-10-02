@@ -143,7 +143,7 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 		refreshHash := refreshToken
 		expiresAt := time.Now().Add(s.refreshLifetime)
 
-		if err := CreateRefreshToken(ctx, tx, user.ID, m.ID, refreshHash, expiresAt); err != nil {
+		if err := CreateRefreshToken(ctx, tx, user.ID, &m.ID, refreshHash, expiresAt); err != nil {
 			return nil, fmt.Errorf("create refresh token: %w", err)
 		}
 
@@ -174,9 +174,20 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 		return nil, fmt.Errorf("generate access token: %w", err)
 	}
 
+	refreshToken, err := GenerateRefreshToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate refresh token: %w", err)
+	}
+	refreshHash := refreshToken
+	expiresAt := time.Now().Add(s.refreshLifetime)
+
+	if err := CreateRefreshToken(ctx, tx, user.ID, nil, refreshHash, expiresAt); err != nil {
+		return nil, fmt.Errorf("create refresh token: %w", err)
+	}
+
 	return &LoginResult{
 		AccessToken:  accessToken,
-		RefreshToken: "", // no refresh token for system-only login
+		RefreshToken: refreshToken,
 		ExpiresIn:    int(DefaultAccessTokenLifetime.Seconds()),
 		User: &UserInfo{
 			ID:         user.ID,
@@ -193,7 +204,7 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 // The old token is immediately invalid (rotation).
 func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*LoginResult, error) {
 	hash := rawToken // raw token is looked up by its stored hash (caller hashes before passing)
-	_, membershipID, expiresAt, revoked, err := FindRefreshTokenByHash(ctx, tx, hash)
+	userID, membershipIDPtr, expiresAt, revoked, err := FindRefreshTokenByHash(ctx, tx, hash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrInvalidRefreshToken
@@ -211,7 +222,56 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 		return nil, fmt.Errorf("revoke old token: %w", err)
 	}
 
-	// Load membership for claims.
+	// Load user for system_role (common to both paths).
+	user, err := UsersFindByID(ctx, tx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("find user: %w", err)
+	}
+
+	// Branch based on whether the refresh token has a membership.
+	if membershipIDPtr == nil {
+		// --- System-only path: no membership claims ---
+		if err := ValidateIdentity(ctx, tx, userID, ""); err != nil {
+			return nil, fmt.Errorf("identity invalid during refresh: %w", err)
+		}
+		accessToken, err := GenerateAccessToken(TokenClaims{
+			UserID:  userID,
+			SysRole: string(user.SystemRole),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("generate access token: %w", err)
+		}
+
+		newToken, err := GenerateRefreshToken()
+		if err != nil {
+			return nil, fmt.Errorf("generate refresh token: %w", err)
+		}
+		newHash := newToken
+		newExpires := time.Now().Add(s.refreshLifetime)
+
+		// Update replaced_by pointer on the old token (best-effort).
+		tx.ExecContext(ctx, `UPDATE refresh_tokens SET replaced_by_hash = $1 WHERE token_hash = $2`, newHash, hash)
+
+		if err := CreateRefreshToken(ctx, tx, userID, nil, newHash, newExpires); err != nil {
+			return nil, fmt.Errorf("create new refresh token: %w", err)
+		}
+
+		return &LoginResult{
+			AccessToken:  accessToken,
+			RefreshToken: newToken,
+			ExpiresIn:    int(DefaultAccessTokenLifetime.Seconds()),
+			User: &UserInfo{
+				ID:         userID,
+				Name:       user.Fullname,
+				Email:      user.Email,
+				SystemRole: string(user.SystemRole),
+				Role:       "", // no tenant role
+			},
+		}, nil
+	}
+
+	// --- Member path: existing behavior unchanged ---
+	membershipID := *membershipIDPtr
 	m, err := RTMembershipFindByID(ctx, tx, membershipID)
 	if err != nil {
 		return nil, fmt.Errorf("find membership: %w", err)
@@ -225,7 +285,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 	}
 
 	// Load user for system_role.
-	user, err := UsersFindByID(ctx, tx, m.UserID)
+	user, err = UsersFindByID(ctx, tx, m.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("find user: %w", err)
 	}
@@ -257,7 +317,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 		newHash, hash,
 	)
 
-	if err := CreateRefreshToken(ctx, tx, m.UserID, m.ID, newHash, newExpires); err != nil {
+	if err := CreateRefreshToken(ctx, tx, m.UserID, &m.ID, newHash, newExpires); err != nil {
 		return nil, fmt.Errorf("create new refresh token: %w", err)
 	}
 

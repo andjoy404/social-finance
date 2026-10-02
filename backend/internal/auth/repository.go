@@ -355,7 +355,9 @@ func CreateMembership(ctx context.Context, tx *sql.Tx, userID, rtID string, role
 }
 
 // CreateRefreshToken stores a new refresh token hash.
-func CreateRefreshToken(ctx context.Context, tx *sql.Tx, userID, membershipID string, tokenHash string, expiresAt time.Time) error {
+// membershipID is *string: nil for system-only tokens (SQL NULL),
+// non-nil for member tokens (actual user_rt_memberships.id).
+func CreateRefreshToken(ctx context.Context, tx *sql.Tx, userID string, membershipID *string, tokenHash string, expiresAt time.Time) error {
 	_, err := tx.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (user_id, membership_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
 		userID, membershipID, tokenHash, expiresAt,
@@ -367,8 +369,10 @@ func CreateRefreshToken(ctx context.Context, tx *sql.Tx, userID, membershipID st
 }
 
 // FindRefreshTokenByHash looks up a refresh token by its hash.
-// Returns the DB row or sql.ErrNoRows.
-func FindRefreshTokenByHash(ctx context.Context, tx *sql.Tx, tokenHash string) (userID, membershipID string, expiresAt time.Time, revoked bool, err error) {
+// Returns membershipID as *string: nil for system-only tokens (SQL NULL),
+// non-nil for member tokens (actual user_rt_memberships.id).
+func FindRefreshTokenByHash(ctx context.Context, tx *sql.Tx, tokenHash string) (userID string, membershipID *string, expiresAt time.Time, revoked bool, err error) {
+	var rawMembershipID sql.NullString
 	query := `
 		SELECT user_id, membership_id, expires_at,
 			CASE WHEN revoked_at IS NOT NULL THEN true ELSE false END
@@ -376,14 +380,18 @@ func FindRefreshTokenByHash(ctx context.Context, tx *sql.Tx, tokenHash string) (
 		WHERE token_hash = $1
 		LIMIT 1
 	`
-	err = tx.QueryRowContext(ctx, query, tokenHash).Scan(&userID, &membershipID, &expiresAt, &revoked)
+	err = tx.QueryRowContext(ctx, query, tokenHash).Scan(&userID, &rawMembershipID, &expiresAt, &revoked)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", "", time.Time{}, false, sql.ErrNoRows
+			return "", nil, time.Time{}, false, sql.ErrNoRows
 		}
-		return "", "", time.Time{}, false, fmt.Errorf("find refresh token: %w", err)
+		return "", nil, time.Time{}, false, fmt.Errorf("find refresh token: %w", err)
 	}
-	return userID, membershipID, expiresAt, revoked, nil
+	if rawMembershipID.Valid {
+		mid := rawMembershipID.String
+		return userID, &mid, expiresAt, revoked, nil
+	}
+	return userID, nil, expiresAt, revoked, nil
 }
 
 // RevokeRefreshTokenByHash marks a refresh token as revoked.
@@ -438,7 +446,7 @@ type UserForMe struct {
 	Phone      *string `json:"phone,omitempty"`
 	TenantRole Role    `json:"role"`
 	SystemRole string  `json:"system_role,omitempty"` // "super_admin" if present
-	Jabatan    *string `json:"jabatan"`                 // RT organizational position, null if not assigned
+	Jabatan    *string `json:"jabatan"`               // RT organizational position, null if not assigned
 	RTID       string  `json:"rt_id"`
 	RTName     string  `json:"rt_name"`
 	RT_rw      int     `json:"rt_rw"`
