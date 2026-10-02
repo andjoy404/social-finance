@@ -1,470 +1,705 @@
-# Iuran & KAS Module Plan
+# Iuran & KAS Module — Blueprint
+
+> **Status:** UI Phase Complete · Backend Not Started · Iuran Subject Model: Physical House/Occupancy
+> **Created:** 2026-10-02
+> **Last Updated:** 2026-10-02
+
+---
 
 ## 1. Status Dokumen
 
 | Field | Value |
 |-------|-------|
-| **Status** | Planning — Not Implemented |
+| **Status** | Blueprint — UI Phase Complete, Backend Not Started |
 | **Created** | 2026-10-02 |
-| **Scope** | Modul Iuran (RT Dues) + Modul KAS (Cash Management) |
-| **Non-goals** | Migration, API implementation, Web/Android UI, permission finalization |
+| **Last Updated** | 2026-10-02 |
+| **Scope** | Modul Iuran (RT Dues) + Modul KAS (Cash Management) — planning, architecture, blueprint |
+| **Non-goals (this document)** | Database schema, migrations, repository, service, handler, API implementation, source code changes |
+
+### Iuran Subject Decision
+
+**Business decision:** Iuran **tidak ditujukan kepada KK/Household**.
+
+Iuran ditujukan kepada: **pemilik atau penyewa rumah**.
+
+This means Iuran bills target **occupancy + house**, not `householdId`/`householdName`.
+
+The existing `households` model may continue to exist as part of the Warga module, but **Iuran must not use `householdId`/`householdName` as its billing subject**. UI labels such as `KK`, `Kepala Keluarga`, or `WARGA/KK` must not be used for Iuran billing subject.
+
+If a technical relationship to households is needed for resolving Warga data, document it as a **technical relationship**, not as a billing subject.
 
 ---
 
 ## 2. Goals
 
 - Menyediakan struktur iuran yang dapat didefinisikan per RT, dengan jenis iuran, periode, dan nominal yang dapat dikelola.
-- Mencatat tagihan iuran per rumah tangga (atau per warga, TBD) dan melacak status pembayarannya.
+- Mencatat tagihan iuran kepada **pemilik atau penyewa rumah** dan melacak status pembayarannya.
 - Menyediakan modul Kas untuk mencatat pemasukan dan pengeluaran kas RT secara umum.
 - Mengintegrasikan pembayaran iuran ke dalam transaksi Kas Masuk tanpa menyebabkan double-entry.
 - Memastikan semua transaksi keuangan mengikuti prinsip immutability dan audit trail yang sama dengan Financial Ledger yang sudah ada.
 
 ---
 
-## 3. Modul Iuran
+## 3. Current Implementation Status
 
-### 3.1 Master Jenis Iuran
+### 3.1 UI Phase — COMPLETE
 
-- Setiap RT dapat mendefinisikan jenis-jenis iuran yang berlaku.
-- Setiap jenis iuran memiliki: nama, deskripsi (opsional), nominal default, periode (minimal bulanan).
-- Jenis iuran bersifat per-RT (isolasi tenant).
+| Platform | Feature | Status | Data |
+|----------|---------|--------|------|
+| **Web (React)** | Iuran — list, detail, payment, arrears, report | ✅ Implemented | Mock / local |
+| **Web (React)** | KAS — list, income, expense, report | ✅ Implemented | Mock / local |
+| **Android (Flutter)** | Iuran — list, detail, payment, arrears, report | ✅ Implemented | Mock / local |
+| **Android (Flutter)** | KAS — list, income, expense, report | ✅ Implemented | Mock / local |
+| **Web** | Navigation — sidebar/menu wiring | ✅ Implemented | — |
+| **Android** | Navigation — bottom bar, routes, shells | ✅ Implemented | — |
 
-### 3.2 Tagihan Iuran
+**Validation results:**
+- `flutter analyze`: 0 errors
+- `flutter test`: 111 passed
+- `flutter build apk --debug`: success
+- Web build: success
 
-- Tagihan dihasilkan berdasarkan jenis iuran dan periode.
-- Setiap tagihan terikat pada: jenis iuran, periode, rumah tangga/warga, nominal.
-- Tagihan yang belum dibayar menjadi tunggakan.
+### 3.2 Backend Phase — NOT STARTED
 
-### 3.3 Pembayaran Iuran
+**Nothing has been implemented on the backend:**
 
-- Perekaman pembayaran yang merujuk pada satu atau lebih tagihan.
-- Status pembayaran per tagihan: `belum_bayar`, `sebagian`, `lunas`.
-- Riwayat pembayaran tercatat sebagai audit trail.
+- ❌ No database migrations
+- ❌ No schema implementation
+- ❌ No repository layer
+- ❌ No service layer
+- ❌ No handler / API routes
+- ❌ No authorization integration
+- ❌ No frontend API integration (both Web and Android use mock data)
 
-### 3.4 Periode Iuran
-
-- Minimal periode: bulanan.
-- Periode ditandai dengan tahun dan bulan.
-- Mendukung pembayaran untuk periode sebelumnya (tunggakan).
-
-### 3.5 Nominal Iuran
-
-- Nominal default dari jenis iuran.
-- Nominal dapat disesuaikan per tagihan (TBD: apakah boleh).
-- Nominal selalu positif; jenis menentukan income atau expense.
-
-### 3.6 Tunggakan
-
-- Daftar tagihan yang belum lunas.
-- Dapat difilter berdasarkan: RT, periode, status, jenis iuran.
-- Rekap total tunggakan per RT atau per jenis iuran.
-
-### 3.7 Riwayat Pembayaran
-
-- Log semua pembayaran yang tercatat.
-- Dapat difilter berdasarkan: periode, RT, status, jenis iuran.
-- Rekap pemasukan iuran per periode.
-
-### 3.8 Laporan / Rekap
-
-- Rekap tunggakan per RT / per jenis iuran.
-- Rekap pemasukan iuran per periode.
-- Export (v2+): PDF, CSV.
+Backend implementation must follow the phases in Section 11. No phase may begin until the business rules required for that phase are finalized.
 
 ---
 
-## 4. Modul KAS
+## 3.3 Existing House/Occupancy Model — Evidence from Inspection
 
-### 4.1 Kas Masuk
+The backend already has a complete house/occupancy/owner/tenant model. This is **existing Warga infrastructure**, not new Iuran design.
 
-- Mencatat setiap pemasukan kas.
-- Field: tanggal, nominal, kategori, keterangan, referensi transaksi.
-- Referensi transaksi: opsional, dapat merujuk ke transaksi iuran atau transaksi lainnya.
-
-### 4.2 Kas Keluar
-
-- Mencatat setiap pengeluaran kas.
-- Field: tanggal, nominal, kategori, keterangan, referensi transaksi.
-- Referensi transaksi: opsional.
-
-### 4.3 Kategori Kas
-
-- Kategori untuk klasifikasi transaksi kas (masuk & keluar).
-- Contoh: "Iuran Warga", "Iuran Paksa", "Perlengkapan", "Konsumsi Rapat", "Perbaikan Fasilitas".
-- CRUD kategori kas.
-
-### 4.4 Saldo Berjalan
-
-- Saldo = Total Kas Masuk − Total Kas Keluar.
-- Saldo dihitung dari ledger, tidak disimpan sebagai derived value.
-- Dapat ditampilkan per periode.
-
-### 4.5 Ledger Kas
-
-- Setiap transaksi kas masuk/keluar merupakan entri ledger yang immutable.
-- Tidak ada edit atau delete pada transaksi yang sudah diposting.
-- Koreksi dilakukan melalui reversal (transaksi pembalik).
-
-### 4.6 Laporan Kas
-
-- Ringkasan kas masuk dan kas keluar per periode.
-- Saldo berjalan.
-- Export (v2+).
-
----
-
-## 5. Integrasi Iuran → KAS
-
-### 5.1 Alur Pembayaran Iuran → Kas Masuk
+### Entity Chain
 
 ```
-Pembayaran Iuran (Rp50.000)
-  → Transaksi Kas Masuk +Rp50.000
-  → Kategori: "Iuran Warga"
-  → Referensi: ID pembayaran iuran
+physical_houses
+    ↓ (via physical_house_id)
+household_occupancies
+    ↓ (via household_id)
+households
+    ↓ (via residency_periods)
+residency_periods
+    ↓ (via resident_id)
+residents
 ```
 
-### 5.2 Aturan Integrasi
+### physical_houses
 
-- Setiap pembayaran iuran yang tercatat otomatis menghasilkan transaksi Kas Masuk.
-- Transaksi Kas Masuk harus memiliki `reference_id` yang merujuk ke pembayaran iuran.
-- **Dilarang** mencatat transaksi Kas Masuk dengan kategori iuran tanpa referensi ke pembayaran iuran yang valid — untuk mencegah double-entry.
-- Transaksi kas umum (perlengkapan, konsumsi rapat, perbaikan fasilitas) **tidak harus** berasal dari modul Iuran.
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | uuid | Primary key |
+| `rt_id` | uuid | FK → rts |
+| `house_number` | text | Unique per RT (where is_active = true) |
+| `address` | text | Free text |
+| `is_active` | boolean | Soft delete |
 
-### 5.3 Pencegahan Double Posting
+### household_occupancies
 
-- Setiap pembayaran iuran hanya dapat menghasilkan satu transaksi Kas Masuk.
-- `reference_id` pada transaksi Kas Masuk harus unique per pembayaran.
-- Idempotency pada endpoint pembayaran: jika `Idempotency-Key` sama, tidak membuat transaksi baru.
-- Konfirmasi/manual override oleh Bendahara untuk kasus khusus (TBD).
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | uuid | Primary key |
+| `physical_house_id` | uuid | FK → physical_houses |
+| `household_id` | uuid | FK → households |
+| `occupancy_status` | text | `OWNER` or `TENANT` (CHECK constraint) |
+| `start_date` | date | Nullable (NULL = legacy unknown start) |
+| `end_date` | date | Nullable (NULL = current/ongoing) |
 
----
+Unique index on `(physical_house_id) WHERE end_date IS NULL` — only one current occupant per physical house.
 
-## 6. Authorization
+EXCLUDE constraint using GIST on `(physical_house_id, daterange(start_date, end_date))` — prevents temporal overlap.
 
-### 6.1 Prinsip Existing
+### residency_periods
 
-Authorization untuk modul Iuran dan KAS harus mengikuti prinsip yang sudah ada:
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | uuid | Primary key |
+| `resident_id` | uuid | FK → residents |
+| `household_occupancy_id` | uuid | FK → household_occupancies |
+| `relationship_to_head` | text | Head/Spouse/Child/etc. |
+| `start_date` | date | Nullable |
+| `end_date` | date | Nullable (NULL = current) |
 
-1. **Backend adalah enforcement utama.** Semua permission dicek di backend middleware.
-2. **Frontend Web/Android hanya melakukan visibility/action gating.** UI menyembunyikan tombol/fitur jika user tidak memiliki izin, tetapi backend tetap enforce.
-3. **Permission berbasis permission code.** Tidak hardcoded role check di handler.
-4. **Position-based permission via jabatan.** Pengguna dengan jabatan tertentu (ketua, wakil_ketua, sekretaris, bendahara) memiliki akses berbeda.
-5. **Legacy role-based compatibility.** Pengguna pengurus tanpa jabatan tetap mengikuti authorization berbasis role seperti sebelumnya.
+Unique index on `(resident_id) WHERE end_date IS NULL` — one current residency per resident.
 
-### 6.2 Permission Matrix — To Be Confirmed
+### Key Finding: Simultaneous Owner + Tenant is NOT Supported
 
-| Action | Super Admin | Ketua RT | Wakil Ketua | Sekretaris | Bendahara | Keamanan | Sosial | Kebersihan | Warga |
-|--------|-------------|----------|-------------|------------|-----------|----------|--------|------------|-------|
-| Melihat modul Iuran | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| Melihat modul KAS | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| Membuat jenis iuran | ? | ? | ? | ? | ? | - | - | - | - |
-| Mengubah jenis iuran | ? | ? | ? | ? | ? | - | - | - | - |
-| Menghapus jenis iuran | ? | ? | ? | ? | ? | - | - | - | - |
-| Membuat/mengubah tagihan | ? | ? | ? | ? | ? | - | - | - | - |
-| Merekam pembayaran | ? | ? | ? | ? | ? | - | - | - | ? |
-| Melihat riwayat pembayaran | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| Melihat tunggakan | ? | ? | ? | ? | ? | - | - | - | ? |
-| Membuat Kas Masuk | ? | ? | ? | ? | ? | - | - | - | - |
-| Membuat Kas Keluar | ? | ? | ? | ? | ? | - | - | - | - |
-| Menghapus transaksi kas | ? | ? | ? | ? | ? | - | - | - | - |
-
-**Catatan:** Tandai `?` = perlu diputuskan. Tandai `-` = tidak relevan (posisi tertentu tidak memiliki akses warga-level).
-
-### 6.3 Pertanyaan Authorization
-
-1. Siapa yang boleh melihat modul Iuran? (Hanya Bendahara? Atau semua pengurus?)
-2. Siapa yang boleh membuat/mengubah tagihan iuran?
-3. Siapa yang boleh mencatat pembayaran iuran? (Apakah warga dapat mencatat pembayaran mereka sendiri?)
-4. Siapa yang boleh melihat modul KAS?
-5. Siapa yang boleh membuat transaksi Kas Masuk?
-6. Siapa yang boleh membuat transaksi Kas Keluar?
-7. Apakah Bendahara memiliki kontrol penuh terhadap KAS (termasuk menghapus/merevisi)?
-8. Apakah Ketua memerlukan approval untuk transaksi Kas Keluar tertentu?
-9. Apakah transaksi yang berasal dari pembayaran Iuran dapat diedit, atau harus immutable/reversal?
-10. Apakah permission bersifat per-RT atau global untuk SUPER_ADMIN?
-
----
-
-## 7. Candidate Domain Model
-
-> **Ini hanya candidate entities. Bukan schema final. Bukan migration.**
-
-### 7.1 Iuran
-
-| Entity | Purpose | Key Relationships |
-|--------|---------|-------------------|
-| `iuran_type` | Jenis iuran (e.g., "Iuran Keamanan", "Iuran Kebersihan") | 1 RT → N jenis iuran |
-| `iuran_bill` | Tagihan iuran per periode per KK/warga | N IuranBill → 1 IuranType, N IuranBill → 1 Household |
-| `iuran_payment` | Pembayaran yang merujuk ke satu atau lebih tagihan | N IuranPayment → N IuranBill (many-to-many via junction) |
-| `iuran_payment_status` | Status pembayaran per tagihan | 1 IuranBill → 1 Status (belum_bayar / sebagian / lunas) |
-
-### 7.2 KAS
-
-| Entity | Purpose | Key Relationships |
-|--------|---------|-------------------|
-| `kas_category` | Kategori transaksi kas | 1 RT → N kategori |
-| `kas_transaction` | Transaksi kas masuk/keluar | N KasTransaction → 1 KasCategory |
-| `kas_reference` | Referensi ke sumber transaksi | Optional: merujuk ke iuran_payment atau null |
-
-### 7.3 Hubungan Antar Modul
+The EXCLUDE constraint prevents two household occupancies from overlapping on the same physical house. Therefore:
 
 ```
-iuran_type (1) ──< iuran_bill (N) ──< iuran_payment (M) >── iuran_bill (N)
-                                                      │
-                                                      │ reference_id
-                                                      ▼
-                                              kas_transaction (Kas Masuk)
-                                                      │
-                                                      │ kas_category
-                                                      ▼
-                                                 kas_category
+House A1
+ ├── OWNER → current ← NOT POSSIBLE simultaneously
+ └── TENANT → current ← NOT POSSIBLE simultaneously
 ```
 
----
-
-## 8. Draft API — Not Implemented
-
-> Semua endpoint di bawah ini adalah **proposal draft**. Belum diimplementasi.
-
-### 8.1 Iuran
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/rt/:id/iuran-types` | Daftar jenis iuran per RT (Draft) |
-| `POST` | `/api/v1/rt/:id/iuran-types` | Membuat jenis iuran (Draft) |
-| `GET` | `/api/v1/rt/:id/iuran-types/:id` | Detail jenis iuran (Draft) |
-| `PUT` | `/api/v1/rt/:id/iuran-types/:id` | Mengubah jenis iuran (Draft) |
-| `DELETE` | `/api/v1/rt/:id/iuran-types/:id` | Menghapus jenis iuran (Draft) |
-| `GET` | `/api/v1/rt/:id/iuran-bills` | Daftar tagihan (filter: periode, status, RT) (Draft) |
-| `GET` | `/api/v1/rt/:id/iuran-bills/:id` | Detail tagihan (Draft) |
-| `POST` | `/api/v1/rt/:id/iuran-bills` | Membuat tagihan (Draft) |
-| `PUT` | `/api/v1/rt/:id/iuran-bills/:id` | Mengubah tagihan (Draft) |
-| `GET` | `/api/v1/rt/:id/iuran-payments` | Daftar pembayaran (Draft) |
-| `POST` | `/api/v1/rt/:id/iuran-payments` | Merekam pembayaran (Draft) |
-| `GET` | `/api/v1/rt/:id/iuran-overdue` | Daftar tunggakan (Draft) |
-| `GET` | `/api/v1/rt/:id/iuran-summary` | Rekap pemasukan iuran per periode (Draft) |
-
-### 8.2 KAS
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/v1/rt/:id/kas-categories` | Daftar kategori kas (Draft) |
-| `POST` | `/api/v1/rt/:id/kas-categories` | Membuat kategori kas (Draft) |
-| `GET` | `/api/v1/rt/:id/kas-transactions` | Daftar transaksi kas (Draft) |
-| `GET` | `/api/v1/rt/:id/kas-transactions/:id` | Detail transaksi kas (Draft) |
-| `POST` | `/api/v1/rt/:id/kas-transactions` | Membuat transaksi kas masuk (Draft) |
-| `GET` | `/api/v1/rt/:id/kas-summary` | Ringkasan saldo kas per periode (Draft) |
-
-### 8.3 Notes
-
-- Semua endpoint memerlukan `rt_id` dari JWT (tenant isolation).
-- SUPER_ADMIN endpoint tidak memerlukan `rt_id` di JWT, tetapi `rt_id` sebagai path parameter.
-- Endpoint pembayaran menerima `Idempotency-Key` header untuk mencegah duplikasi.
-- Semua transaksi kas masuk/keluar immutable setelah posting.
-
----
-
-## 9. Web & Android Navigation Plan
-
-### 9.1 Web (React)
+Only sequential (non-overlapping) periods are supported:
 
 ```
-Menu Utama
-├── Iuran
-│   ├── Daftar Tagihan          → /iuran/bills
-│   ├── Pembayaran              → /iuran/payments
-│   ├── Tunggakan               → /iuran/overdue
-│   └── Laporan                 → /iuran/reports
-└── KAS
-    ├── Kas Masuk               → /kas/income
-    ├── Kas Keluar              → /kas/expense
-    ├── Saldo                   → /kas/balance
-    └── Laporan                 → /kas/reports
+House A1
+ ├── OWNER → 2020-01-01 → 2024-01-01
+ └── TENANT → 2024-01-01 → current
 ```
 
-### 9.2 Android (Flutter)
+This is **a database constraint decision**, not a business assumption. Any future need for simultaneous owner+tenant occupancy requires changing the EXCLUDE constraint.
+
+---
+
+## 3.4 Current Iuran Mock Model — Legacy (To Be Replaced)
+
+The current Web Iuran mock uses a **household-based billing subject**. This is documented here as legacy only and **must be replaced** when backend implementation begins.
+
+### Legacy IuranBill Type
+
+```typescript
+interface IuranBill {
+  householdId: string      // ← TO BE REPLACED
+  householdName: string    // ← TO BE REPLACED
+  rt: string
+  iuranType: string
+  periode: string
+  nominal: number
+  paidAmount: number
+  status: IuranStatus
+  payments?: IuranPaymentRecord[]
+}
+```
+
+### Legacy Mock Data Structure
+
+```typescript
+const HOUSEHOLDS = [
+  { householdId: 'h001', name: 'Budi Santoso', rt: 'RT 03' },
+  // ... 10 households total
+]
+```
+
+### Legacy UI Labels (To Be Replaced)
+
+| Location | Current Label | Replacement |
+|----------|--------------|-------------|
+| `IuranList.tsx` table header | `WARGA/KK` | House/Occupant name |
+| `IuranPayment.tsx` form label | `Informasi Warga/KK` | House/Occupant info |
+| All bill references | `householdName` | Occupant/house name |
+
+These labels and fields are **prototype artifacts**. They must not be carried forward into the final Iuran design.
+
+---
+
+## 3.5 KAS UI Design Decisions
+
+### Web — Git Diff Style Split Ledger
+
+KAS Web uses a two-column split ledger presentation:
 
 ```
-Bottom Navigation / Menu
-├── Iuran
-│   ├── Daftar Tagihan
-│   ├── Pembayaran
-│   ├── Tunggakan
-│   └── Laporan
-└── KAS
-    ├── Kas Masuk
-    ├── Kas Keluar
-    ├── Saldo
-    └── Laporan
+┌──────────────────────────────┬──────────────────────────────┐
+│ + 02 Okt 2026                │ - 02 Okt 2026                │
+│   Iuran Keamanan             │   Pembelian Lampu            │
+│   Rp 500.000                 │   Rp 350.000                 │
+├──────────────────────────────┼──────────────────────────────┤
+│ + 01 Okt 2026                │                              │
+│   Donasi                     │                              │
+│   Rp 1.000.000               │                              │
+├──────────────────────────────┼──────────────────────────────┤
+│                              │ - 30 Sep 2026                │
+│                              │   Perbaikan Pos              │
+│                              │   Rp 750.000                 │
+└──────────────────────────────┴──────────────────────────────┘
 ```
 
-**Catatan:** Routing dan UI belum diimplementasi. Ini hanya rencana struktur navigasi.
+**Rules:**
+- Left column = Kas Masuk (income)
+- Right column = Kas Keluar (expense)
+- Both columns are independent vertical streams
+- Entries do NOT need to be aligned horizontally
+- Do NOT create dummy/blank transactions just to align rows
+- Vertical position represents order within each stream only
+- Latest transaction is at the top
+- Split is a **presentation layer only**
+- Backend remains a single `kas_transactions` ledger
+
+### Android — Single Chronological List
+
+KAS Android uses a single chronological list due to screen width constraints:
+
+```
+02 Okt 2026  Kas Masuk   + Rp500.000
+02 Okt 2026  Kas Keluar  - Rp350.000
+01 Okt 2026  Kas Masuk   + Rp1.000.000
+30 Sep 2026  Kas Keluar  - Rp750.000
+```
+
+**Rules:**
+- All transactions in one list
+- Global order: newest → oldest
+- Do NOT group "Kas Masuk" separately from "Kas Keluar"
+- No two-column split on Android
 
 ---
 
-## 10. Business Rules — To Be Confirmed
+## 4. Backend Architecture Plan
 
-### 10.1 Per KK vs Per Warga
+### 4.1 Layered Architecture
 
-- Apakah iuran dihitung per rumah tangga (KK) atau per warga?
-- Jika per KK, apakah semua anggota rumah tangga mendapat tagihan yang sama?
-- Jika per warga, apakah ada batasan jumlah warga per tagihan?
+```
+HTTP Handler
+   ↓
+Service (business logic)
+   ↓
+Repository (data access)
+   ↓
+PostgreSQL
+```
 
-### 10.2 Nominal Iuran
+Each layer has a single responsibility. Handlers do not contain business logic. Services do not directly access the database. Repositories do not contain business rules.
 
-- Apakah nominal dapat berbeda antar rumah tangga untuk jenis iuran yang sama?
-- Apakah ada jenis iuran yang wajib dan jenis yang opsional?
-- Apakah nominal dapat disesuaikan per periode?
+### 4.2 Iuran Payment → KAS Integration Flow
 
-### 10.3 Pembayaran
+```
+POST /api/v1/iuran/payments
+        ↓
+   Handler (validation, auth)
+        ↓
+   IuranService.CreatePayment()
+        ↓
+   BEGIN TRANSACTION
+        ↓
+   Create Iuran Payment record
+   ↓
+   Create KAS Income record (reference_id → payment)
+   ↓
+   COMMIT
+```
 
-- Apakah pembayaran sebagian (partial payment) diperbolehkan untuk satu tagihan?
-- Bagaimana menangani pembayaran untuk bulan/periode sebelumnya (tunggakan)?
-- Apakah satu pembayaran dapat mencakup beberapa tagihan dari periode berbeda?
-- Apakah pembayaran dapat dibatalkan setelah dikonfirmasi?
-- Jika dibatalkan, apakah memerlukan approval?
+**If any operation fails:**
 
-### 10.4 Reversal & Correction
+```
+   ROLLBACK
+```
 
-- Bagaimana reversal dilakukan untuk pembayaran yang salah?
-- Apakah transaksi kas harus immutable setelah posting?
-- Bagaimana menangani koreksi transaksi kas yang sudah diposting?
-- Apakah reversal membuat entri baru atau menandai entri lama sebagai "reversed"?
+This prevents conditions such as:
+- Iuran marked as paid but KAS balance unchanged
+- KAS increased but Iuran payment not recorded
 
-### 10.5 Ledger & Saldo
+### 4.3 Idempotency
 
-- Apakah saldo kas dihitung dari ledger (kalkulasi) atau disimpan sebagai derived value?
-- Bagaimana menangani transaksi kas yang belum diposting vs sudah diposting?
-- Apakah perlu status "draft" untuk transaksi kas sebelum diposting?
-
-### 10.6 Posting Otomatis vs Manual
-
-- Apakah pembayaran iuran otomatis langsung masuk ke Kas Masuk?
-- Atau memerlukan konfirmasi/posting oleh Bendahara?
-- Bagaimana menangani pembayaran yang diterima secara manual (tidak melalui sistem)?
-
-### 10.7 Double Posting Prevention
-
-- Bagaimana mencegah pembayaran iuran yang sama tercatat dua kali?
-- Apakah menggunakan `Idempotency-Key` pada endpoint pembayaran?
-- Apakah ada validasi di level database untuk mencegah duplikasi?
-
-### 10.8 Approval
-
-- Apakah transaksi Kas Keluar memerlukan approval dari Ketua?
-- Apakah ada threshold nominal yang memerlukan approval?
-- Apakah SUPER_ADMIN dapat override approval?
-
-### 10.9 Attachment / Bukti
-
-- Apakah satu transaksi kas dapat memiliki attachment (foto kwitansi, foto bukti transfer)?
-- Apakah pembayaran iuran memerlukan bukti pembayaran (fotografi)?
-- Jika ya, bagaimana penyimpanan file (v2+)?
+Critical write endpoints accept an `Idempotency-Key` header. Duplicate keys within the configured window return the original response without re-executing the operation.
 
 ---
 
-## 11. Implementation Roadmap
+## 5. Iuran Domain Design
 
-### Phase A: Requirements & Business Rules
+> **Candidate design only. Not a schema. Not final.**
 
-Finalisasi business rules (Section 10) dan permission matrix (Section 6.2). Approval dari stakeholder.
+### 5.1 Iuran Type / Master
 
-### Phase B: Database Schema & Migration
+Defines the recurring types of dues an RT collects.
 
-Desain table schema berdasarkan candidate domain model (Section 7). Menulis migration files (up/down). Menjalankan migration di environment development. Validasi schema constraints (FK, CHECK, UNIQUE).
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | uuid | Primary key |
+| `rt_id` | uuid | Tenant isolation |
+| `name` | text | E.g., "Iuran Keamanan" |
+| `description` | text | Optional |
+| `default_amount` | numeric(15,2) | Default nominal |
+| `frequency` | text | E.g., "monthly" |
+| `is_active` | boolean | Soft delete |
+| `created_at` | timestamptz | — |
+| `updated_at` | timestamptz | — |
 
-### Phase C: Backend Repository & Service
+### 5.2 Iuran Bill — Billing Subject
 
-Domain model Go structs. Repository methods untuk CRUD `iuran_type`, `iuran_bill`, `iuran_payment`, `kas_transaction`, `kas_category`. Service layer dengan business logic. Unit tests untuk service layer.
+> **Business decision:** Iuran bills target **pemilik atau penyewa rumah** (owner or tenant), not household/KK.
 
-### Phase D: Permission Enforcement
+The billing subject chain:
 
-Menambah permission codes ke `position_permissions`. Menambah middleware permission checks ke handler. Menguji authorization matrix.
+```
+physical_house → household_occupancy (OWNER/TENANT) → residents
+```
 
-### Phase E: API
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | uuid | Primary key |
+| `rt_id` | uuid | Tenant isolation |
+| `iuran_type_id` | uuid | FK → iuran_type |
+| `period` | text | E.g., "2026-10" |
+| `amount` | numeric(15,2) | Always positive |
+| `paid_amount` | numeric(15,2) | Running total of payments |
+| `status` | text | `unpaid`, `partial`, `paid`, `cancelled` |
+| `due_date` | date | Optional |
+| `created_at` | timestamptz | — |
+| `updated_at` | timestamptz | — |
 
-Handler HTTP untuk semua endpoint (Section 8). Validation, error handling, pagination. Integration tests untuk API endpoints.
+**Foreign key decision TBD:**
+The bill must reference the billing subject. Potential references:
 
-### Phase F: Web UI
+| Option | FK | Pros | Cons |
+|--------|-----|------|------|
+| A | `physical_house_id` | Stable across household moves | House may be vacant |
+| B | `household_occupancy_id` | Includes ownership status | New table needed |
+| C | Other | TBD | TBD |
 
-Navigasi menu Iuran & KAS di sidebar. Halaman daftar, detail, create, edit. Rekap/laporan (basic tables). Test authorization gates di UI.
+This is a business rule decision. Do NOT choose until BR-01 is finalized.
 
-### Phase G: Android UI
+**What the bill represents:** A bill targets a **house occupancy** (owner or tenant), not a household per se. Even if the same household moves houses, the bill follows the occupancy, not the household.
 
-Navigasi menu Iuran & KAS. Halaman daftar, detail, create, edit. Rekap/laporan. Test authorization gates di UI.
+### 5.3 Iuran Payment
 
-### Phase H: Integration Test & E2E
+A payment record referencing one or more bills. Payment history must be stored as separate records, not just via `paid_amount` on the bill.
 
-Test alur lengkap: buat jenis iuran → buat tagihan → bayar → kas masuk → laporan. Test tenant isolation. Test authorization (warga tidak dapat akses, bendahara dapat akses penuh). Test idempotency: duplicate payment tidak membuat double transaction.
-
-### Phase I: Audit & Checkpoint Commit
-
-Final audit: compare implementation vs design doc. Commit checkpoint. Update documentation.
-
----
-
-## 12. Risks & Design Considerations
-
-### 12.1 Financial Data Integrity
-
-- **Risiko:** Pembayaran iuran tercatat sebagai transaksi kas ganda (double posting).
-- **Mitigasi:** `reference_id` unique constraint pada `kas_transaction` yang merujuk ke `iuran_payment`. Idempotency key pada endpoint pembayaran.
-
-### 12.2 Duplicate Payment
-
-- **Risiko:** Warga membayar iuran yang sama dua kali (misalnya via transfer bank dua kali).
-- **Mitigasi:** Validasi manual oleh Bendahara untuk konfirmasi pembayaran. `Idempotency-Key` pada API. Flag "pending_verification" untuk pembayaran yang perlu dikonfirmasi.
-
-### 12.3 Duplicate Cash Posting
-
-- **Risiko:** Transaksi kas masuk tercatat tanpa merujuk ke pembayaran iuran yang valid.
-- **Mitigasi:** Validasi `reference_id` harus pointing ke record yang ada di `iuran_payment`. Error jika tidak ditemukan.
-
-### 12.4 Reversal & Correction
-
-- **Risiko:** Mengedit transaksi kas yang sudah diposting mengubah ledger history.
-- **Mitigasi:** Transaksi kas immutable setelah posting. Koreksi只能通过 reversal (transaksi pembalik dengan jenis berlawanan).
-
-### 12.5 Audit Trail
-
-- **Risiko:** Kehilangan jejak audit untuk pembayaran iuran dan transaksi kas.
-- **Mitigasi:** Semua entri (iuran_bill, iuran_payment, kas_transaction) memiliki `created_at`, `updated_at`, `is_active`. Tidak ada DELETE fisik. Soft delete via `is_active`.
-
-### 12.6 Concurrency & Idempotency
-
-- **Risiko:** Dua request pembayaran iuran yang sama diproses secara concurrent.
-- **Mitigasi:** `Idempotency-Key` header. Database-level unique constraint pada kombinasi `payment_id + period`.
-
-### 12.7 Authorization
-
-- **Risiko:** Warga mengakses endpoint pembayaran dan membuat pembayaran palsu.
-- **Mitigasi:** Semua endpoint memerlukan permission code. Backend middleware enforce. Frontend hanya visibility gate.
-
-### 12.8 Historical Data
-
-- **Risiko:** Migrasi data dari sistem lama ke format iuran baru.
-- **Mitigasi:** Script migration khusus untuk memetakan data lama ke `iuran_type`, `iuran_bill`, `iuran_payment`. (Jika diperlukan.)
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | uuid | Primary key |
+| `rt_id` | uuid | Tenant isolation |
+| `bill_id` | uuid | FK → iuran_bill |
+| `amount` | numeric(15,2) | Always positive |
+| `paid_at` | timestamptz | When payment was recorded |
+| `payment_method` | text | E.g., "cash", "transfer" |
+| `reference` | text | External reference (bank ref, etc.) |
+| `notes` | text | Optional notes |
+| `created_by` | uuid | FK → users |
+| `created_at` | timestamptz | — |
 
 ---
 
-## 13. Explicit Non-Changes
+## 6. KAS Domain Design
 
-Dokumentasi ini **tidak mengubah** hal-hal berikut:
+> **Candidate design only. Not a schema. Not final.**
+
+KAS is designed as a **transaction ledger**, not a mutable balance field.
+
+### 6.1 KAS Transaction
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | uuid | Primary key |
+| `rt_id` | uuid | Tenant isolation |
+| `jenis` | text | `income`, `expense` |
+| `category_id` | uuid | FK → kas_category |
+| `amount` | numeric(15,2) | Always positive |
+| `transaction_date` | timestamptz | — |
+| `description` | text | — |
+| `reference` | text | External reference |
+| `source_type` | text | `IURAN_PAYMENT`, `MANUAL`, etc. |
+| `source_id` | uuid | Reference ID from source, nullable |
+| `created_by` | uuid | FK → users |
+| `created_at` | timestamptz | — |
+
+**Jenis values:**
+- `income` — pemasukan kas
+- `expense` — pengeluaran kas
+
+### 6.2 Balance Calculation (Conceptual)
+
+```
+Saldo = SUM(jenis = 'income' ∧ rt_id = ?) − SUM(jenis = 'expense' ∧ rt_id = ?)
+```
+
+Balance is **never stored** as a derived value. It is always calculated from the ledger.
+
+### 6.3 KAS Transaction Sources
+
+KAS transactions can come from:
+
+**Automatic source:**
+- Iuran Payment (auto-created when a payment is recorded)
+
+**Manual source:**
+- Donations, contributions
+- Interest
+- Any other income transactions
+- Office supplies (ATK)
+- Cleanliness/maintenance
+- Security
+- Repairs
+- Any other expense transactions
+
+**Not all KAS transactions originate from Iuran.** KAS is a general-purpose financial ledger.
+
+---
+
+## 7. Iuran → KAS Integration
+
+### 7.1 Principle
+
+Every successful Iuran payment must produce exactly one KAS `income` transaction.
+
+### 7.2 Source/Reference Relationship
+
+```
+source_type = 'IURAN_PAYMENT'
+source_id   = <payment_id>
+```
+
+A database or application-level mechanism must guarantee that one payment cannot produce two KAS income records.
+
+### 7.3 Idempotency / Duplicate Posting Prevention
+
+```
+Iuran Payment ABC
+       ↓
+KAS Income ABC (source_id = ABC)
+
+Retry request for same payment
+       ↓
+No second KAS Income created
+```
+
+Mechanisms to prevent duplicate posting:
+- Unique constraint on `source_type + source_id` in `kas_transaction`
+- `Idempotency-Key` header on payment endpoints
+- Application-level check before creating KAS income from payment
+
+---
+
+## 8. Business Rules To Be Finalized
+
+> **Status: OPEN / TBD**
+>
+> Do NOT make assumptions or choose answers for these decisions. These must be finalized before database schema and migration work begins.
+
+### BR-01 — Billing Subject
+
+**Question:** Is Iuran billed per household (KK) or per individual resident?
+
+| Option | Description |
+|--------|-------------|
+| A | Per KK — one bill per household |
+| B | Per warga — one bill per resident |
+
+### BR-02 — Nominal
+
+**Question:** Is the nominal fixed or can it differ per household?
+
+| Option | Description |
+|--------|-------------|
+| A | Fixed nominal per iuran type (same for all households) |
+| B | Variable nominal — can differ per household |
+
+### BR-03 — Partial Payment
+
+**Question:** Is partial payment allowed for a single bill?
+
+```
+Bill        = Rp50,000
+Payment 1   = Rp20,000
+Remaining   = Rp30,000
+Status      = PARTIAL
+```
+
+| Option | Description |
+|--------|-------------|
+| A | Allowed — bill status transitions: `unpaid` → `partial` → `paid` |
+| B | Not allowed — must pay full amount |
+
+### BR-04 — Multi-Period Payment
+
+**Question:** Can a single payment cover multiple periods at once?
+
+| Option | Description |
+|--------|-------------|
+| A | Allowed — one payment can pay multiple bills across periods |
+| B | Not allowed — one payment per bill |
+
+### BR-05 — Cancellation / Correction
+
+**Question:** How to handle cancellation or correction of an Iuran payment?
+
+| Option | Description |
+|--------|-------------|
+| A | Reversal transaction (new entry, opposite sign, references original) |
+| B | Direct edit/delete of original (only if not yet posted) |
+
+### BR-06 — KAS Correction
+
+**Question:** Can an existing KAS transaction be edited, or must it use a reversal/correction transaction?
+
+| Option | Description |
+|--------|-------------|
+| A | Immutable after posting — corrections via reversal only |
+| B | Editable if status is "draft", immutable if "posted" |
+
+### BR-07 — Authorization
+
+**Question:** Who is authorized to:
+- View Iuran module?
+- Create/modify Iuran master?
+- Create bills?
+- Record payments?
+- View arrears?
+- View KAS?
+- Create income/expense transactions?
+- Correct/reverse transactions?
+- View reports?
+
+**Authorization must follow the existing permission architecture**, but the specific Iuran/KAS permission matrix is TBD.
+
+---
+
+## 9. Proposed Backend Implementation Phases
+
+> **Phase ordering is mandatory.** No phase may begin until the business rules required for that phase are finalized.
+
+| Phase | Name | Description | Blocked By |
+|-------|------|-------------|------------|
+| **BE-01** | Business rules finalization | Document final decisions for BR-01 through BR-07. Stakeholder approval. | — |
+| **BE-02** | Existing DB/schema/architecture inspection | Audit current database, schema, and backend architecture for compatibility with Iuran/KAS. | BE-01 |
+| **BE-03** | Database migration/schema | Write migration files (up/down) for `iuran_type`, `iuran_bill`, `iuran_payment`, `kas_transaction`, `kas_category`. | BE-02 |
+| **BE-04** | Models + repositories | Go domain structs. Repository methods for CRUD. | BE-03 |
+| **BE-05** | Iuran service | Business logic for Iuran: bill generation, payment recording, arrears calculation. | BE-04 |
+| **BE-06** | KAS service | Business logic for KAS: income/expense recording, balance calculation, reports. | BE-04 |
+| **BE-07** | Iuran → KAS atomic integration | Transactional flow: payment → KAS income. Idempotency enforcement. | BE-05, BE-06 |
+| **BE-08** | Authorization | Permission codes for Iuran/KAS actions. Middleware enforcement. | BE-01, BE-07 |
+| **BE-09** | API handlers/routes | HTTP handlers, validation, error handling, pagination. | BE-05, BE-06, BE-07, BE-08 |
+| **BE-10** | Backend automated tests | Unit tests for service layer. Integration tests for API endpoints. | BE-09 |
+| **BE-11** | Web API integration | Replace mock data with real API calls in Web Iuran/KAS screens. | BE-10 |
+| **BE-12** | Android API integration | Replace mock data with real API calls in Android Iuran/KAS screens. | BE-10 |
+| **BE-13** | E2E validation | Full flow: create iuran type → generate bills → pay → KAS income → reports. Tenant isolation. Authorization gates. Idempotency. | BE-11, BE-12 |
+| **BE-14** | Final checkpoint/audit | Compare implementation vs. blueprint. Commit checkpoint. Update documentation. | BE-13 |
+
+---
+
+## 10. API Draft — DRAFT / NOT FINAL
+
+> All endpoints below are **conceptual proposals only**. Not implemented. Subject to change based on business rules (Section 8).
+
+### 10.1 Iuran
+
+```
+GET    /api/v1/rt/:id/iuran/types          — List Iuran types per RT
+POST   /api/v1/rt/:id/iuran/types          — Create Iuran type
+PATCH  /api/v1/rt/:id/iuran/types/{id}     — Update Iuran type
+DELETE /api/v1/rt/:id/iuran/types/{id}     — Deactivate Iuran type
+
+GET    /api/v1/rt/:id/iuran/bills          — List bills (filter: period, status)
+GET    /api/v1/rt/:id/iuran/bills/{id}     — Bill detail
+POST   /api/v1/rt/:id/iuran/bills/generate — Generate bills (bulk)
+
+GET    /api/v1/rt/:id/iuran/payments       — List payments
+POST   /api/v1/rt/:id/iuran/payments       — Record payment (idempotent)
+
+GET    /api/v1/rt/:id/iuran/arrears        — Overdue bills
+GET    /api/v1/rt/:id/iuran/reports        — Iuran summary/report
+```
+
+### 10.2 KAS
+
+```
+GET    /api/v1/rt/:id/kas/categories       — List KAS categories
+POST   /api/v1/rt/:id/kas/categories       — Create KAS category
+
+GET    /api/v1/rt/:id/kas/transactions     — List transactions
+GET    /api/v1/rt/:id/kas/transactions/{id} — Transaction detail
+
+POST   /api/v1/rt/:id/kas/income           — Record income
+POST   /api/v1/rt/:id/kas/expense          — Record expense
+
+GET    /api/v1/rt/:id/kas/balance          — Current balance (calculated)
+GET    /api/v1/rt/:id/kas/reports          — KAS summary/report
+```
+
+### 10.3 Notes
+
+- All endpoints require `rt_id` from JWT claims (tenant isolation).
+- SUPER_ADMIN endpoints do not require `rt_id` in JWT, but `rt_id` as path parameter.
+- Payment endpoint accepts `Idempotency-Key` header to prevent duplicates.
+- All KAS transactions are immutable after posting. Corrections use reversal.
+
+---
+
+## 11. Testing Strategy
+
+> Target test cases for backend implementation. Not implemented yet.
+
+### 11.1 Iuran
+
+| Test | Description |
+|------|-------------|
+| Create Iuran Type | Valid create returns 201 |
+| Duplicate Iuran Type | Same name+rt rejected |
+| Create Bill | Valid bill creation |
+| Duplicate Bill | Same type+household+period rejected |
+| Payment | Payment records, bill status updates |
+| Partial Payment | Bill transitions to PARTIAL |
+| Full Payment | Bill transitions to PAID |
+| Overpayment | Behavior when payment > bill amount |
+| Cancellation/Correction | Reversal preserves audit trail |
+
+### 11.2 KAS
+
+| Test | Description |
+|------|-------------|
+| Income | Valid income recording |
+| Expense | Valid expense recording |
+| Balance | Calculated balance matches ledger |
+| Invalid Amount | Zero/negative amount rejected |
+| Invalid Category | Unknown category rejected |
+| Correction/Reversal | Reversal creates opposite entry |
+
+### 11.3 Integration
+
+| Test | Description |
+|------|-------------|
+| Payment Creates KAS Income | One payment → exactly one KAS income |
+| Retry No Duplicate | Duplicate payment request does not create second KAS income |
+| KAS Failure Rolls Back | If KAS creation fails, Iuran payment also rolled back |
+| Atomic Transaction | Payment + KAS income are in same DB transaction |
+
+---
+
+## 12. Important Design Principles
+
+1. **Iuran = obligation/payment domain.** Iuran tracks who owes what, when, and what has been paid.
+2. **KAS = financial ledger.** KAS records actual financial movements. It is a ledger, not a bank balance sheet.
+3. **Iuran payment → KAS income must be atomic.** Both succeed or both fail. No partial commits.
+4. **Payment history is stored as transaction/record.** Not just a `paid_amount` field on the bill.
+5. **KAS transaction must not depend on a mutable balance field as source of truth.** Balance is always calculated from the ledger.
+6. **Duplicate posting must be prevented.** Unique constraints, idempotency keys, and application-level checks.
+7. **Auditability must be maintained.** All financial records have `created_at`, `updated_at`, `is_active`. No physical DELETE.
+8. **Authorization must follow existing authorization architecture.** No parallel permission system for Iuran/KAS.
+9. **Business rules must be finalized before schema/migration is created.** Do not design database tables without confirmed business rules.
+10. **Tenant isolation is mandatory.** Every query on tenant-scoped data includes `rt_id` filter. `rt_id` is derived from JWT, never from client input.
+
+---
+
+## 13. Existing Content Preserved
+
+The following sections from the original planning document have been retained where relevant:
+
+- **Section 2 (Goals):** Unchanged — still valid.
+- **Section 6 (Authorization):** Existing principles retained. Specific permission matrix still TBD (see BR-07).
+- **Section 7 (Candidate Domain Model):** Retained as reference. Replaced by more detailed domain designs in Sections 5-6.
+- **Section 9 (Web & Android Navigation):** Retained as reference.
+- **Section 12 (Risks & Design Considerations):** Retained as reference.
+
+---
+
+## 14. Explicit Non-Changes
+
+This documentation update **does not change** any of the following:
 
 | Item | Status |
 |------|--------|
-| Warga module | Tidak diubah |
-| Existing authorization system | Tidak diubah |
-| Database schema / migration | Tidak dibuat |
-| API implementation | Tidak dibuat |
-| Web UI (React) | Tidak dibuat |
-| Android UI (Flutter) | Tidak dibuat |
-| Permission codes | Tidak ditentukan (To Be Confirmed) |
-| Existing financial ledger | Tidak diubah |
-| Production source code | Tidak diubah |
+| Backend source code | Unchanged |
+| Database / schema | Unchanged |
+| Migrations | Unchanged |
+| Repository / service / handler | Unchanged |
+| API implementation | Unchanged |
+| Web source code | Unchanged |
+| Android source code | Unchanged |
+| Test code | Unchanged |
+| Authorization implementation | Unchanged |
 
-**Ini adalah dokumen perencanaan. Semua konten di atas adalah kandidat dan belum final.**
+**This is a planning and blueprint document. All content is candidate and not final.**
 
 ---
 
