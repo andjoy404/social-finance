@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -902,4 +903,450 @@ func AuditLogInsert(ctx context.Context, tx *sql.Tx, log AuditLog) error {
 		return fmt.Errorf("insert audit log: %w", err)
 	}
 	return nil
+}
+
+// ============================================================================
+// System-wide (cross-RT) repository methods — SUPER_ADMIN only
+// ============================================================================
+
+// --- Categories ---
+
+func CategoryListAll(ctx context.Context, tx *sql.Tx, isActive *bool) ([]*FinancialCategory, error) {
+	query := `SELECT id, rt_id, name, type, is_active, created_at, updated_at
+	          FROM financial_categories`
+	var args []interface{}
+	if isActive != nil {
+		query += ` WHERE is_active = $1`
+		args = append(args, *isActive)
+	}
+	query += ` ORDER BY rt_id, name ASC`
+
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list all categories: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*FinancialCategory
+	for rows.Next() {
+		var c FinancialCategory
+		if err := rows.Scan(&c.ID, &c.RTID, &c.Name, &c.Type, &c.IsActive, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan category: %w", err)
+		}
+		list = append(list, &c)
+	}
+	return list, nil
+}
+
+// --- Dues ---
+
+func DueListAll(ctx context.Context, tx *sql.Tx, isActive *bool) ([]*Due, error) {
+	query := `SELECT id, rt_id, name, amount::text, period_type, is_active, created_at, updated_at
+	          FROM dues`
+	var args []interface{}
+	if isActive != nil {
+		query += ` WHERE is_active = $1`
+		args = append(args, *isActive)
+	}
+	query += ` ORDER BY rt_id, name ASC`
+
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list all dues: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*Due
+	for rows.Next() {
+		var d Due
+		if err := rows.Scan(&d.ID, &d.RTID, &d.Name, &d.Amount, &d.PeriodType, &d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan due: %w", err)
+		}
+		list = append(list, &d)
+	}
+	return list, nil
+}
+
+// --- Bills ---
+
+func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
+	var b Bill
+	var dueDate time.Time
+	var dueName, houseNum, headName sql.NullString
+
+	err := tx.QueryRowContext(ctx,
+		`SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
+		        d.name as due_name, ph.house_number, h.head_name
+		 FROM bills b
+		 JOIN dues d ON b.due_id = d.id
+		 JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+		 JOIN households h ON ho.household_id = h.id
+		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+		 WHERE b.id = $1 LIMIT 1`,
+		id,
+	).Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
+		&dueName, &houseNum, &headName)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get bill by id (all RTs): %w", err)
+	}
+	b.DueDate = dueDate.Format("2006-01-02")
+	if dueName.Valid {
+		b.DueName = &dueName.String
+	}
+	if houseNum.Valid {
+		b.HouseNumber = &houseNum.String
+	}
+	if headName.Valid {
+		b.HeadName = &headName.String
+	}
+	return &b, nil
+}
+
+func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period *string, offset, limit int) ([]*Bill, error) {
+	query := `SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
+	                 d.name as due_name, ph.house_number, h.head_name
+	          FROM bills b
+	          JOIN dues d ON b.due_id = d.id
+	          JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+	          JOIN households h ON ho.household_id = h.id
+	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id`
+
+	var whereParts []string
+	var args []interface{}
+	pos := 1
+
+	if occupancyID != nil && *occupancyID != "" {
+		whereParts = append(whereParts, fmt.Sprintf("b.household_occupancy_id = $%d", pos))
+		args = append(args, *occupancyID)
+		pos++
+	}
+	if dueID != nil && *dueID != "" {
+		whereParts = append(whereParts, fmt.Sprintf("b.due_id = $%d", pos))
+		args = append(args, *dueID)
+		pos++
+	}
+	if status != nil && *status != "" {
+		whereParts = append(whereParts, fmt.Sprintf("b.status = $%d", pos))
+		args = append(args, *status)
+		pos++
+	}
+	if period != nil && *period != "" {
+		whereParts = append(whereParts, fmt.Sprintf("b.period = $%d", pos))
+		args = append(args, *period)
+		pos++
+	}
+
+	query += " WHERE 1=1"
+	if len(whereParts) > 0 {
+		query += " AND " + strings.Join(whereParts, " AND ")
+	}
+	query += fmt.Sprintf(" ORDER BY b.created_at DESC OFFSET $%d LIMIT $%d", pos, pos+1)
+	args = append(args, offset, limit)
+
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list all bills: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*Bill
+	for rows.Next() {
+		var b Bill
+		var dueDate time.Time
+		var dueName, houseNum, headName sql.NullString
+		if err := rows.Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
+			&dueName, &houseNum, &headName); err != nil {
+			return nil, fmt.Errorf("scan bill: %w", err)
+		}
+		b.DueDate = dueDate.Format("2006-01-02")
+		if dueName.Valid {
+			b.DueName = &dueName.String
+		}
+		if houseNum.Valid {
+			b.HouseNumber = &houseNum.String
+		}
+		if headName.Valid {
+			b.HeadName = &headName.String
+		}
+		list = append(list, &b)
+	}
+	return list, nil
+}
+
+func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period *string) (int, error) {
+	query := `SELECT COUNT(*) FROM bills b WHERE 1=1`
+	var args []interface{}
+	pos := 1
+
+	if occupancyID != nil && *occupancyID != "" {
+		query += fmt.Sprintf(" AND b.household_occupancy_id = $%d", pos)
+		args = append(args, *occupancyID)
+		pos++
+	}
+	if dueID != nil && *dueID != "" {
+		query += fmt.Sprintf(" AND b.due_id = $%d", pos)
+		args = append(args, *dueID)
+		pos++
+	}
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND b.status = $%d", pos)
+		args = append(args, *status)
+		pos++
+	}
+	if period != nil && *period != "" {
+		query += fmt.Sprintf(" AND b.period = $%d", pos)
+		args = append(args, *period)
+		pos++
+	}
+
+	var count int
+	err := tx.QueryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+// --- Payments ---
+
+func PaymentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Payment, error) {
+	var p Payment
+	err := tx.QueryRowContext(ctx,
+		`SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
+		        verified_by, verified_at, rejection_reason, notes, created_at, updated_at
+		 FROM payments WHERE id = $1 LIMIT 1`,
+		id,
+	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
+		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get payment by id (all RTs): %w", err)
+	}
+	return &p, nil
+}
+
+func PaymentListAll(ctx context.Context, tx *sql.Tx, billID, status *string, offset, limit int) ([]*Payment, error) {
+	query := `SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
+	                 verified_by, verified_at, rejection_reason, notes, created_at, updated_at
+	          FROM payments WHERE 1=1`
+	var args []interface{}
+	pos := 1
+
+	if billID != nil && *billID != "" {
+		query += fmt.Sprintf(" AND bill_id = $%d", pos)
+		args = append(args, *billID)
+		pos++
+	}
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND status = $%d", pos)
+		args = append(args, *status)
+		pos++
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC OFFSET $%d LIMIT $%d", pos, pos+1)
+	args = append(args, offset, limit)
+
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list all payments: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*Payment
+	for rows.Next() {
+		var p Payment
+		if err := rows.Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
+			&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan payment: %w", err)
+		}
+		list = append(list, &p)
+	}
+	return list, nil
+}
+
+func PaymentCountAll(ctx context.Context, tx *sql.Tx, billID, status *string) (int, error) {
+	query := `SELECT COUNT(*) FROM payments WHERE 1=1`
+	var args []interface{}
+	pos := 1
+
+	if billID != nil && *billID != "" {
+		query += fmt.Sprintf(" AND bill_id = $%d", pos)
+		args = append(args, *billID)
+		pos++
+	}
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND status = $%d", pos)
+		args = append(args, *status)
+		pos++
+	}
+
+	var count int
+	err := tx.QueryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+// --- Transactions ---
+
+func TransactionGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Transaction, error) {
+	var t Transaction
+	var catName sql.NullString
+	err := tx.QueryRowContext(ctx,
+		`SELECT t.id, t.rt_id, t.category_id, t.amount::text, t.type, t.status,
+		        t.reverses_transaction_id, t.payment_id, t.description, t.occurred_at, t.created_at, t.updated_at,
+		        fc.name as category_name
+		 FROM transactions t
+		 JOIN financial_categories fc ON t.category_id = fc.id
+		 WHERE t.id = $1 LIMIT 1`,
+		id,
+	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
+		&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
+		&catName)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get transaction by id (all RTs): %w", err)
+	}
+	if catName.Valid {
+		t.CategoryName = &catName.String
+	}
+	return &t, nil
+}
+
+func TransactionListAll(ctx context.Context, tx *sql.Tx, categoryID, transType, status, startDate, endDate *string, offset, limit int) ([]*Transaction, error) {
+	query := `SELECT t.id, t.rt_id, t.category_id, t.amount::text, t.type, t.status,
+	                 t.reverses_transaction_id, t.payment_id, t.description, t.occurred_at, t.created_at, t.updated_at,
+	                 fc.name as category_name
+	          FROM transactions t
+	          JOIN financial_categories fc ON t.category_id = fc.id
+	          WHERE 1=1`
+	var args []interface{}
+	pos := 1
+
+	if categoryID != nil && *categoryID != "" {
+		query += fmt.Sprintf(" AND t.category_id = $%d", pos)
+		args = append(args, *categoryID)
+		pos++
+	}
+	if transType != nil && *transType != "" {
+		query += fmt.Sprintf(" AND t.type = $%d", pos)
+		args = append(args, *transType)
+		pos++
+	}
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND t.status = $%d", pos)
+		args = append(args, *status)
+		pos++
+	}
+	if startDate != nil && *startDate != "" {
+		query += fmt.Sprintf(" AND t.occurred_at >= $%d", pos)
+		args = append(args, *startDate)
+		pos++
+	}
+	if endDate != nil && *endDate != "" {
+		query += fmt.Sprintf(" AND t.occurred_at <= $%d", pos)
+		args = append(args, *endDate)
+		pos++
+	}
+
+	query += fmt.Sprintf(" ORDER BY t.occurred_at DESC, t.created_at DESC OFFSET $%d LIMIT $%d", pos, pos+1)
+	args = append(args, offset, limit)
+
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list all transactions: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*Transaction
+	for rows.Next() {
+		var t Transaction
+		var catName sql.NullString
+		if err := rows.Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
+			&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
+			&catName); err != nil {
+			return nil, fmt.Errorf("scan transaction: %w", err)
+		}
+		if catName.Valid {
+			t.CategoryName = &catName.String
+		}
+		list = append(list, &t)
+	}
+	return list, nil
+}
+
+func TransactionCountAll(ctx context.Context, tx *sql.Tx, categoryID, transType, status, startDate, endDate *string) (int, error) {
+	query := `SELECT COUNT(*) FROM transactions t WHERE 1=1`
+	var args []interface{}
+	pos := 1
+
+	if categoryID != nil && *categoryID != "" {
+		query += fmt.Sprintf(" AND t.category_id = $%d", pos)
+		args = append(args, *categoryID)
+		pos++
+	}
+	if transType != nil && *transType != "" {
+		query += fmt.Sprintf(" AND t.type = $%d", pos)
+		args = append(args, *transType)
+		pos++
+	}
+	if status != nil && *status != "" {
+		query += fmt.Sprintf(" AND t.status = $%d", pos)
+		args = append(args, *status)
+		pos++
+	}
+	if startDate != nil && *startDate != "" {
+		query += fmt.Sprintf(" AND t.occurred_at >= $%d", pos)
+		args = append(args, *startDate)
+		pos++
+	}
+	if endDate != nil && *endDate != "" {
+		query += fmt.Sprintf(" AND t.occurred_at <= $%d", pos)
+		args = append(args, *endDate)
+		pos++
+	}
+
+	var count int
+	err := tx.QueryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+// --- Balance ---
+
+// CalculateBalanceAll derives total balance across ALL RTs: Total Posted Income - Total Posted Expense.
+func CalculateBalanceAll(ctx context.Context, tx *sql.Tx) (*BalanceSummary, error) {
+	var incomeStr, expenseStr string
+	var count int
+
+	err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text as total_income,
+		        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text as total_expense,
+		        COUNT(*) as tx_count
+		 FROM transactions
+		 WHERE status = 'posted'`,
+	).Scan(&incomeStr, &expenseStr, &count)
+	if err != nil {
+		return nil, fmt.Errorf("derive balance (all RTs): %w", err)
+	}
+
+	incCents, incCanon, err := ParseMoney(incomeStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse income: %w", err)
+	}
+	expCents, expCanon, err := ParseMoney(expenseStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse expense: %w", err)
+	}
+
+	netCents := incCents - expCents
+	netCanon := FormatMoney(netCents)
+
+	return &BalanceSummary{
+		TotalIncome:      incCanon,
+		TotalExpense:     expCanon,
+		NetBalance:       netCanon,
+		TransactionCount: count,
+	}, nil
 }

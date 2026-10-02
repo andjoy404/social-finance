@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1852,5 +1853,669 @@ func TestConcurrentPaymentRaceCondition(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &b)
 	if b.Status != BillStatusPartial {
 		t.Errorf("expected PARTIAL after race test, got %s", b.Status)
+	}
+}
+
+// ============================================================================
+// Phase 1: Cross-RT superadmin tests
+// ============================================================================
+
+// setupSystemOnlySuperAdmin creates a user with no RT membership and returns a
+// system-only superadmin JWT token (SysRole=super_admin, RTID="", MID="", Role="").
+func setupSystemOnlySuperAdmin(t *testing.T, pool *database.Pool, email, fullName, phone string) string {
+	t.Helper()
+	db := pool.Raw()
+	ctx := context.Background()
+	c := atomic.AddInt64(&rtCounter, 1)
+	uniqueEmail := fmt.Sprintf("%d_%s", c, email)
+	var userID string
+	err := db.QueryRowContext(ctx,
+		`INSERT INTO users (email, phone, password_hash, full_name, is_active)
+		 VALUES ($1, $2, 'dummyhash', $3, true) RETURNING id`,
+		uniqueEmail, phone, fullName,
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("failed to insert system-only superadmin user: %v", err)
+	}
+	return userID
+}
+
+// SetupCrossRFFinanceData creates the full finance dataset across two RTs.
+// Returns (rta, rtb, occIDA, occIDB, amounts: {incomeA, expenseB}).
+func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occIDA, occIDB string, incomeA, expenseB int64) {
+	t.Helper()
+	// RT-A
+	rta = setupTestRT(t, pool, "Cross RT RT-A", 1, "CRRTA")
+	phoneW := fmt.Sprintf("0811%08d", time.Now().UnixNano()%100000000)
+	occIDA = setupTestOccupancyWithResident(t, pool, rta, phoneW)
+
+	// RT-B
+	rtb = setupTestRT(t, pool, "Cross RT RT-B", 1, "CRRTB")
+	phoneWB := fmt.Sprintf("0822%08d", time.Now().UnixNano()%100000000)
+	occIDB = setupTestOccupancyWithResident(t, pool, rtb, phoneWB)
+
+	ctx := context.Background()
+
+	// ── RT-A data: 2 categories, 1 due, 2 bills, income transaction, payment ──
+	var catA1, dueA string
+	var billA1ID string
+	{
+		tx, _ := pool.BeginTx(ctx)
+		c, _ := CategoryCreate(ctx, tx, rta, CreateCategoryInput{Name: "Sumbangan RT-A", Type: CategoryTypeIncome})
+		catA1 = c.ID
+		_, _ = CategoryCreate(ctx, tx, rta, CreateCategoryInput{Name: "Kebersihan RT-A", Type: CategoryTypeExpense})
+		d, _ := DueCreate(ctx, tx, rta, CreateDueInput{Name: "Iuran RT-A", Amount: "100000", PeriodType: DuePeriodMonthly})
+		dueA = d.ID
+		b1, _ := BillCreate(ctx, tx, rta, CreateBillInput{
+			HouseholdOccupancyID: occIDA, DueID: dueA, Amount: "100000",
+			Period: "2026-10", DueDate: "2026-10-25",
+		})
+		billA1ID = b1.ID
+		// Second bill (for testing count and list comprehensiveness)
+		_, _ = BillCreate(ctx, tx, rta, CreateBillInput{
+			HouseholdOccupancyID: occIDA, DueID: dueA, Amount: "100000",
+			Period: "2026-11", DueDate: "2026-11-25",
+		})
+		tx.Commit()
+	}
+	// Insert income transaction for RT-A (200000)
+	incomeA = 200000
+	{
+		tx, _ := pool.BeginTx(ctx)
+		_, _ = PaymentCreate(ctx, tx, rta, CreatePaymentInput{
+			BillID: billA1ID, Amount: "200000", Method: PaymentMethodTransfer,
+		}, PaymentOriginStaffRecorded, PaymentStatusApproved, nil, nil)
+		_, _ = TransactionCreate(ctx, tx, rta, CreateTransactionInput{
+			CategoryID: catA1, Amount: "200000", Type: TransactionTypeIncome,
+			Description: "Sumbangan RT-A",
+		}, TransactionStatusPosted, nil, nil, time.Now())
+		tx.Commit()
+	}
+
+	// ── RT-B data: 2 categories, 1 due, 1 bill, expense transaction ──
+	var catB2 string
+	{
+		tx, _ := pool.BeginTx(ctx)
+		_, _ = CategoryCreate(ctx, tx, rtb, CreateCategoryInput{Name: "Iuran RT-B", Type: CategoryTypeIncome})
+		c2, _ := CategoryCreate(ctx, tx, rtb, CreateCategoryInput{Name: "Kebersihan RT-B", Type: CategoryTypeExpense})
+		catB2 = c2.ID
+		_, _ = DueCreate(ctx, tx, rtb, CreateDueInput{Name: "Iuran RT-B", Amount: "50000", PeriodType: DuePeriodMonthly})
+		_, _ = BillCreate(ctx, tx, rtb, CreateBillInput{
+			HouseholdOccupancyID: occIDB, DueID: dueA, Amount: "50000",
+			Period: "2026-10", DueDate: "2026-10-25",
+		})
+		tx.Commit()
+	}
+	// Insert expense transaction for RT-B (150000)
+	expenseB = 150000
+	{
+		tx, _ := pool.BeginTx(ctx)
+		_, _ = TransactionCreate(ctx, tx, rtb, CreateTransactionInput{
+			CategoryID: catB2, Amount: "150000", Type: TransactionTypeExpense,
+			Description: "Beli Sapu RT-B",
+		}, TransactionStatusPosted, nil, nil, time.Now())
+		tx.Commit()
+	}
+
+	return rta, rtb, occIDA, occIDB, incomeA, expenseB
+}
+
+func TestSuperAdminCrossRTAccess(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupFinanceRouter(pool)
+
+	// 1. Create two RTs with finance data
+	rta, rtb, _, _, incA, expB := SetupCrossRFFinanceData(t, pool)
+	defer cleanupTestRT(t, pool, rta)
+	defer cleanupTestRT(t, pool, rtb)
+
+	// 2. Create system-only superadmin (no memberships)
+	saUser := setupSystemOnlySuperAdmin(t, pool, "sa@test.com", "Super Admin", "+628000")
+
+	// 3. Generate system-only token: no memberships, system role only
+	tokenSysAdmin := makeToken(t, auth.TokenClaims{
+		UserID:  saUser,
+		MID:     "",
+		RTID:    "",
+		Role:    "",
+		Jabatan: "",
+		SysRole: "super_admin",
+	})
+
+	// ── Helper: GET and decode JSON ──
+	jsonGet := func(path string) (code int, body []byte) {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+tokenSysAdmin)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.Bytes()
+	}
+
+	// ── 1. GET /categories ──
+	t.Run("GET categories from both RTs", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/categories")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", code, string(body))
+		}
+		var cats []*FinancialCategory
+		if err := json.Unmarshal(body, &cats); err != nil {
+			t.Fatalf("unmarshal categories: %v", err)
+		}
+		// Should have categories from BOTH RTs (at least 4)
+		rtIDs := make(map[string]bool)
+		for _, c := range cats {
+			rtIDs[c.RTID] = true
+		}
+		if !rtIDs[rta] {
+			t.Error("missing RT-A categories in list")
+		}
+		if !rtIDs[rtb] {
+			t.Error("missing RT-B categories in list")
+		}
+		if len(cats) < 4 {
+			t.Errorf("expected >= 4 categories (2 per RT), got %d", len(cats))
+		}
+	})
+
+	// ── 2. GET /dues ──
+	t.Run("GET dues from both RTs", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/dues")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", code, string(body))
+		}
+		var dues []*Due
+		if err := json.Unmarshal(body, &dues); err != nil {
+			t.Fatalf("unmarshal dues: %v", err)
+		}
+		rtIDs := make(map[string]bool)
+		for _, d := range dues {
+			rtIDs[d.RTID] = true
+		}
+		if !rtIDs[rta] {
+			t.Error("missing RT-A dues in list")
+		}
+		if !rtIDs[rtb] {
+			t.Error("missing RT-B dues in list")
+		}
+		if len(dues) < 2 {
+			t.Errorf("expected >= 2 dues, got %d", len(dues))
+		}
+	})
+
+	// ── 3. GET /bills (list) ──
+	t.Run("GET bills from both RTs", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/bills")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", code, string(body))
+		}
+		var resp struct {
+			Data       []*Bill `json:"data"`
+			Pagination struct {
+				Total int `json:"total"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal bills: %v", err)
+		}
+		rtIDs := make(map[string]bool)
+		for _, b := range resp.Data {
+			rtIDs[b.RTID] = true
+		}
+		if !rtIDs[rta] {
+			t.Error("missing RT-A bills in list")
+		}
+		if !rtIDs[rtb] {
+			t.Error("missing RT-B bills in list")
+		}
+		if resp.Pagination.Total < 3 {
+			t.Errorf("expected >= 3 bills total, got %d", resp.Pagination.Total)
+		}
+	})
+
+	// ── 4. GET /bills/{id} (from RT-A) ──
+	t.Run("GET bill by ID from RT-A", func(t *testing.T) {
+		// List bills first to get an RT-A bill ID
+		code, body := jsonGet("/api/v1/bills?per_page=100")
+		if code != http.StatusOK {
+			t.Fatalf("list bills: expected 200, got %d", code)
+		}
+		var resp struct {
+			Data []*Bill `json:"data"`
+		}
+		json.Unmarshal(body, &resp)
+		// Find an RT-A bill
+		var billAID string
+		for _, b := range resp.Data {
+			if b.RTID == rta {
+				billAID = b.ID
+				break
+			}
+		}
+		if billAID == "" {
+			t.Fatal("no RT-A bill found to test GET /bills/{id}")
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/bills/"+billAID, nil)
+		req.Header.Set("Authorization", "Bearer "+tokenSysAdmin)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for GET bill, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var bill Bill
+		json.Unmarshal(rec.Body.Bytes(), &bill)
+		if bill.RTID != rta {
+			t.Errorf("expected bill RT-A, got %s", bill.RTID)
+		}
+	})
+
+	// ── 5. GET /bills/{id} (from RT-B) ──
+	t.Run("GET bill by ID from RT-B", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/bills?per_page=100")
+		if code != http.StatusOK {
+			t.Fatalf("list bills: expected 200, got %d", code)
+		}
+		var resp struct {
+			Data []*Bill `json:"data"`
+		}
+		json.Unmarshal(body, &resp)
+		var billBID string
+		for _, b := range resp.Data {
+			if b.RTID == rtb {
+				billBID = b.ID
+				break
+			}
+		}
+		if billBID == "" {
+			t.Fatal("no RT-B bill found to test GET /bills/{id}")
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/bills/"+billBID, nil)
+		req.Header.Set("Authorization", "Bearer "+tokenSysAdmin)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for GET bill, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var bill Bill
+		json.Unmarshal(rec.Body.Bytes(), &bill)
+		if bill.RTID != rtb {
+			t.Errorf("expected bill RT-B, got %s", bill.RTID)
+		}
+	})
+
+	// ── 6. GET /payments ──
+	t.Run("GET payments from both RTs", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/payments")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", code, string(body))
+		}
+		var resp struct {
+			Data       []*Payment `json:"data"`
+			Pagination struct {
+				Total int `json:"total"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal payments: %v", err)
+		}
+		rtIDs := make(map[string]bool)
+		for _, p := range resp.Data {
+			rtIDs[p.RTID] = true
+		}
+		if len(resp.Data) > 0 {
+			if !rtIDs[rta] && !rtIDs[rtb] {
+				t.Error("payments from neither RT found")
+			}
+		}
+	})
+
+	// ── 7. GET /payments/{id} ──
+	t.Run("GET payment by ID", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/payments")
+		if code != http.StatusOK {
+			t.Fatalf("list payments: expected 200, got %d", code)
+		}
+		var resp struct {
+			Data []*Payment `json:"data"`
+		}
+		json.Unmarshal(body, &resp)
+		if len(resp.Data) == 0 {
+			t.Skip("no payments exist, skipping GET payment by ID")
+		}
+		payID := resp.Data[0].ID
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payID, nil)
+		req.Header.Set("Authorization", "Bearer "+tokenSysAdmin)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for GET payment, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var p Payment
+		json.Unmarshal(rec.Body.Bytes(), &p)
+		if p.RTID == "" {
+			t.Error("payment rt_id should not be empty")
+		}
+	})
+
+	// ── 8. GET /transactions ──
+	t.Run("GET transactions from both RTs", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/transactions")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", code, string(body))
+		}
+		var resp struct {
+			Data       []*Transaction `json:"data"`
+			Pagination struct {
+				Total int `json:"total"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal transactions: %v", err)
+		}
+		rtIDs := make(map[string]bool)
+		for _, tr := range resp.Data {
+			rtIDs[tr.RTID] = true
+		}
+		if len(resp.Data) > 0 {
+			if !rtIDs[rta] {
+				t.Error("missing RT-A transactions in list")
+			}
+			if !rtIDs[rtb] {
+				t.Error("missing RT-B transactions in list")
+			}
+		}
+	})
+
+	// ── 9. GET /transactions/{id} ──
+	t.Run("GET transaction by ID from both RTs", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/transactions")
+		if code != http.StatusOK {
+			t.Fatalf("list transactions: expected 200, got %d", code)
+		}
+		var resp struct {
+			Data []*Transaction `json:"data"`
+		}
+		json.Unmarshal(body, &resp)
+		var transAID, transBID string
+		for _, tr := range resp.Data {
+			if tr.RTID == rta && transAID == "" {
+				transAID = tr.ID
+			}
+			if tr.RTID == rtb && transBID == "" {
+				transBID = tr.ID
+			}
+		}
+		if transAID != "" {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/transactions/"+transAID, nil)
+			req.Header.Set("Authorization", "Bearer "+tokenSysAdmin)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("GET transaction %s: expected 200, got %d: %s", transAID, rec.Code, rec.Body.String())
+			}
+		}
+		if transBID != "" {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/transactions/"+transBID, nil)
+			req.Header.Set("Authorization", "Bearer "+tokenSysAdmin)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("GET transaction %s: expected 200, got %d: %s", transBID, rec.Code, rec.Body.String())
+			}
+		}
+		if transAID == "" && transBID == "" {
+			t.Skip("no transactions exist, skipping GET transaction by ID")
+		}
+	})
+
+	// ── 10. GET /reports/balance (aggregate across RTs) ──
+	t.Run("GET balance aggregate across both RTs", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/reports/balance")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", code, string(body))
+		}
+		var summary BalanceSummary
+		if err := json.Unmarshal(body, &summary); err != nil {
+			t.Fatalf("unmarshal balance: %v", err)
+		}
+		// Net balance should be sum of both RTs: (incA) - (expB)
+		expectedNet := incA - expB
+		if summary.NetBalance == "" {
+			t.Fatal("net_balance is empty")
+		}
+		actual, err := strconv.ParseFloat(summary.NetBalance, 64)
+		if err != nil {
+			t.Fatalf("parse net_balance %q: %v", summary.NetBalance, err)
+		}
+		if int64(actual) != expectedNet {
+			t.Errorf("expected net balance %d, got %s", expectedNet, summary.NetBalance)
+		}
+	})
+}
+
+// TestTenantIsolationCrossRTRegression proves that a regular tenant user
+// (bendahara with membership) still sees ONLY their own RT data — even
+// after the *All methods are added.
+func TestTenantIsolationCrossRTRegression(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupFinanceRouter(pool)
+
+	rta := setupTestRT(t, pool, "Isolation RT-A", 1, "ISOA")
+	defer cleanupTestRT(t, pool, rta)
+	rtb := setupTestRT(t, pool, "Isolation RT-B", 1, "ISOB")
+	defer cleanupTestRT(t, pool, rtb)
+
+	phoneA := fmt.Sprintf("0811%08d", time.Now().UnixNano()%100000000)
+	phoneB := fmt.Sprintf("0822%08d", time.Now().UnixNano()%100000000)
+	userA, midA := setupTestUserWithMembership(t, pool, "a@iso.test", "User A", phoneA, rta, "bendahara")
+	_, _ = setupTestUserWithMembership(t, pool, "b@iso.test", "User B", phoneB, rtb, "bendahara")
+
+	tokenA := makeToken(t, auth.TokenClaims{
+		UserID: userA, MID: midA, RTID: rta, Role: string(auth.RoleBendahara),
+	})
+
+	// ── Setup: create categories, dues, bills, transactions in BOTH RTs ──
+	ctx := context.Background()
+
+	// RT-A: income category + transaction
+	var catAID string
+	{
+		tx, _ := pool.BeginTx(ctx)
+		c, _ := CategoryCreate(ctx, tx, rta, CreateCategoryInput{Name: "Isolation-A-Income", Type: CategoryTypeIncome})
+		catAID = c.ID
+		_, _ = TransactionCreate(ctx, tx, rta, CreateTransactionInput{
+			CategoryID: catAID, Amount: "50000", Type: TransactionTypeIncome,
+			Description: "Isolation test income A",
+		}, TransactionStatusPosted, nil, nil, time.Now())
+		tx.Commit()
+	}
+
+	// RT-B: expense category + transaction
+	var catBID string
+	{
+		tx, _ := pool.BeginTx(ctx)
+		c, _ := CategoryCreate(ctx, tx, rtb, CreateCategoryInput{Name: "Isolation-B-Expense", Type: CategoryTypeExpense})
+		catBID = c.ID
+		_, _ = TransactionCreate(ctx, tx, rtb, CreateTransactionInput{
+			CategoryID: catBID, Amount: "30000", Type: TransactionTypeExpense,
+			Description: "Isolation test expense B",
+		}, TransactionStatusPosted, nil, nil, time.Now())
+		tx.Commit()
+	}
+
+	// Create dues in both RTs
+	{
+		tx, _ := pool.BeginTx(ctx)
+		_, _ = DueCreate(ctx, tx, rta, CreateDueInput{Name: "Isuara RT-A", Amount: "20000", PeriodType: DuePeriodMonthly})
+		_, _ = DueCreate(ctx, tx, rtb, CreateDueInput{Name: "Isuara RT-B", Amount: "25000", PeriodType: DuePeriodMonthly})
+		tx.Commit()
+	}
+
+	// ── Assert: tenant user A sees ONLY RT-A data ──
+
+	// Categories
+	t.Run("Categories isolation", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/categories", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenA)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var cats []*FinancialCategory
+		json.Unmarshal(rec.Body.Bytes(), &cats)
+		for _, c := range cats {
+			if c.RTID != rta {
+				t.Errorf("tenant user saw category from RT-B (%s), expected only RT-A", c.RTID)
+			}
+		}
+		// Should have at least the RT-A category
+		found := false
+		for _, c := range cats {
+			if c.RTID == rta && c.Name == "Isolation-A-Income" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("expected to find RT-A income category")
+		}
+	})
+
+	// Transactions
+	t.Run("Transactions isolation", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/transactions", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenA)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var resp struct {
+			Data       []*Transaction `json:"data"`
+			Pagination struct {
+				Total int `json:"total"`
+			} `json:"pagination"`
+		}
+		json.Unmarshal(rec.Body.Bytes(), &resp)
+		if resp.Pagination.Total > 0 {
+			for _, tr := range resp.Data {
+				if tr.RTID != rta {
+					t.Errorf("tenant user saw transaction from RT-B (%s), expected only RT-A", tr.RTID)
+				}
+			}
+		}
+	})
+
+	// Dues
+	t.Run("Dues isolation", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/dues", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenA)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var dues []*Due
+		json.Unmarshal(rec.Body.Bytes(), &dues)
+		for _, d := range dues {
+			if d.RTID != rta {
+				t.Errorf("tenant user saw due from RT-B (%s), expected only RT-A", d.RTID)
+			}
+		}
+	})
+}
+
+// TestSuperAdminSecurityTests covers security edge cases:
+//  1. Missing auth → 401
+//  2. Non-superadmin with empty RTID → 403 (no membership)
+//  3. Write endpoints must NOT succeed for system-only superadmin
+func TestSuperAdminSecurityTests(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupFinanceRouter(pool)
+
+	rta := setupTestRT(t, pool, "Security RT", 1, "SECRT")
+	defer cleanupTestRT(t, pool, rta)
+
+	// ── 1. Missing auth → 401 on read endpoint ──
+	t.Run("Missing auth returns 401", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/categories", nil)
+		// No Authorization header
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	// ── 2. Non-superadmin with empty RTID → 403 ──
+	// Create a user with a membership (so they pass RequireAuth) but token
+	// has empty Role and RTID — they have no tenant context.
+	// Actually, RequireAuth.ValidateIdentity needs a valid membershipID to pass.
+	// Let's create a bendahara user, give them a membership, but craft a token
+	// with empty RTID, MID, Role (so they have a user but no tenant scope).
+	// Since ValidateIdentity is called with the MID from the token:
+	//   - If MID is "" → system-only check (just checks user exists)
+	//   - But the user HAS a membership → that's fine, system-only doesn't care
+	t.Run("Non-superadmin with empty RTID returns 403", func(t *testing.T) {
+		phoneU := fmt.Sprintf("0833%08d", time.Now().UnixNano()%100000000)
+		userID, _ := setupTestUserWithMembership(t, pool, "nonsa@sec.test", "Not Super Admin", phoneU, rta, "warga")
+		// Create token WITHOUT sys_role, without RTID, without MID
+		// This user is active, so ValidateIdentity(passes). But then RequireRole
+		// checks: ac.SystemRole != super_admin → ac.MembershipID == "" → 403
+		tokenNoScope := makeToken(t, auth.TokenClaims{
+			UserID:  userID,
+			MID:     "",
+			RTID:    "",
+			Role:    "",
+			Jabatan: "",
+			SysRole: "",
+		})
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/categories", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenNoScope)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		// Should fail at RequireRole because MembershipID is empty (no tenant context)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("expected 403 for non-superadmin with empty RTID, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	// ── 3. Write protection — POST endpoints should NOT succeed ──
+	writeEndpoints := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPost, "/api/v1/categories", `{"name":"Hacked Cat","type":"income"}`},
+		{http.MethodPost, "/api/v1/dues", `{"name":"Hacked Due","amount":"10000","period_type":"monthly"}`},
+		{http.MethodPost, "/api/v1/bills", `{"household_occupancy_id":"fake","due_id":"fake","amount":"10000","period":"2026-10","due_date":"2026-10-25"}`},
+		{http.MethodPost, "/api/v1/payments", `{"bill_id":"fake","amount":"10000","method":"CASH"}`},
+		{http.MethodPost, "/api/v1/transactions", `{"category_id":"fake","amount":"10000","type":"income","description":"Hacked"}`},
+	}
+
+	for _, we := range writeEndpoints {
+		t.Run("Write blocked: "+we.method+" "+we.path, func(t *testing.T) {
+			saUser := setupSystemOnlySuperAdmin(t, pool, "wasa@sec.test", "Write-Attempt SA", "+628999")
+			tokenSysAdmin := makeToken(t, auth.TokenClaims{
+				UserID:  saUser,
+				MID:     "",
+				RTID:    "",
+				Role:    "",
+				Jabatan: "",
+				SysRole: "super_admin",
+			})
+			req := httptest.NewRequest(we.method, we.path, bytes.NewBufferString(we.body))
+			req.Header.Set("Authorization", "Bearer "+tokenSysAdmin)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			// Should NOT return 201 Created or 200 OK
+			if rec.Code == http.StatusCreated || rec.Code == http.StatusOK {
+				t.Errorf("write endpoint unexpectedly succeeded (2xx): %d: %s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }

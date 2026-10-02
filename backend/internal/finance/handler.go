@@ -26,7 +26,7 @@ func NewHandler(pool *database.Pool, svc *Service) *Handler {
 
 func getAuthContext(r *http.Request) (*auth.AuthContext, bool) {
 	ac := auth.GetAuthContext(r)
-	if ac == nil || ac.RTID == "" {
+	if ac == nil {
 		return nil, false
 	}
 	return ac, true
@@ -78,6 +78,17 @@ func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+
+	// System-only SUPER_ADMIN: query across all RTs
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		list, err := CategoryListAll(r.Context(), tx, isActive)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, list)
+		return
+	}
 
 	list, err := CategoryList(r.Context(), tx, ac.RTID, isActive)
 	if err != nil {
@@ -219,6 +230,17 @@ func (h *Handler) ListDues(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	// System-only SUPER_ADMIN: query across all RTs
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		list, err := DueListAll(r.Context(), tx, isActive)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, list)
+		return
+	}
+
 	list, err := DueList(r.Context(), tx, ac.RTID, isActive)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
@@ -346,6 +368,66 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// System-only SUPER_ADMIN: query across all RTs with optional filters
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		var dueID *string
+		if d := r.URL.Query().Get("due_id"); d != "" {
+			dueID = &d
+		}
+		var status *string
+		if s := r.URL.Query().Get("status"); s != "" {
+			status = &s
+		}
+		var period *string
+		if p := r.URL.Query().Get("period"); p != "" {
+			period = &p
+		}
+
+		tx, err := h.pool.BeginTx(r.Context())
+		if err != nil {
+			httpx.WriteInternalServerError(w, "transaction error")
+			return
+		}
+		defer tx.Rollback()
+
+		var occupancyID *string
+		if o := r.URL.Query().Get("household_occupancy_id"); o != "" {
+			occupancyID = &o
+		}
+
+		page, pageSize := parsePagination(r)
+		offset := (page - 1) * pageSize
+
+		total, err := BillCountAll(r.Context(), tx, occupancyID, dueID, status, period)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+
+		bills, err := BillListAll(r.Context(), tx, occupancyID, dueID, status, period, offset, pageSize)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+
+		totalPages := 0
+		if total > 0 {
+			totalPages = (total + pageSize - 1) / pageSize
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data": bills,
+			"pagination": map[string]any{
+				"page":        page,
+				"per_page":    pageSize,
+				"total":       total,
+				"total_pages": totalPages,
+			},
+		})
+		return
+	}
+
+	// Tenant user path (unchanged)
 	tx, err := h.pool.BeginTx(r.Context())
 	if err != nil {
 		httpx.WriteInternalServerError(w, "transaction error")
@@ -434,6 +516,21 @@ func (h *Handler) GetBill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+
+	// System-only SUPER_ADMIN: query across all RTs
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		bill, err := BillGetByIDAll(r.Context(), tx, id)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				httpx.WriteNotFound(w, "bill not found")
+				return
+			}
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, bill)
+		return
+	}
 
 	bill, err := BillGetByID(r.Context(), tx, id, ac.RTID)
 	if err != nil {
@@ -546,6 +643,56 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// System-only SUPER_ADMIN: query across all RTs with optional filters
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		var billID *string
+		if b := r.URL.Query().Get("bill_id"); b != "" {
+			billID = &b
+		}
+		var status *string
+		if s := r.URL.Query().Get("status"); s != "" {
+			status = &s
+		}
+
+		tx, err := h.pool.BeginTx(r.Context())
+		if err != nil {
+			httpx.WriteInternalServerError(w, "transaction error")
+			return
+		}
+		defer tx.Rollback()
+
+		page, pageSize := parsePagination(r)
+		offset := (page - 1) * pageSize
+
+		total, err := PaymentCountAll(r.Context(), tx, billID, status)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+
+		payments, err := PaymentListAll(r.Context(), tx, billID, status, offset, pageSize)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+
+		totalPages := 0
+		if total > 0 {
+			totalPages = (total + pageSize - 1) / pageSize
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data": payments,
+			"pagination": map[string]any{
+				"page":        page,
+				"per_page":    pageSize,
+				"total":       total,
+				"total_pages": totalPages,
+			},
+		})
+		return
+	}
+
 	tx, err := h.pool.BeginTx(r.Context())
 	if err != nil {
 		httpx.WriteInternalServerError(w, "transaction error")
@@ -611,6 +758,21 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+
+	// System-only SUPER_ADMIN: query across all RTs
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		p, err := PaymentGetByIDAll(r.Context(), tx, id)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				httpx.WriteNotFound(w, "payment not found")
+				return
+			}
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+		return
+	}
 
 	p, err := PaymentGetByID(r.Context(), tx, id, ac.RTID)
 	if err != nil {
@@ -747,6 +909,64 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// System-only SUPER_ADMIN: query across all RTs with optional filters
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		var categoryID, transType, status, startDate, endDate *string
+		if c := r.URL.Query().Get("category_id"); c != "" {
+			categoryID = &c
+		}
+		if t := r.URL.Query().Get("type"); t != "" {
+			transType = &t
+		}
+		if s := r.URL.Query().Get("status"); s != "" {
+			status = &s
+		}
+		if sd := r.URL.Query().Get("start_date"); sd != "" {
+			startDate = &sd
+		}
+		if ed := r.URL.Query().Get("end_date"); ed != "" {
+			endDate = &ed
+		}
+
+		tx, err := h.pool.BeginTx(r.Context())
+		if err != nil {
+			httpx.WriteInternalServerError(w, "transaction error")
+			return
+		}
+		defer tx.Rollback()
+
+		page, pageSize := parsePagination(r)
+		offset := (page - 1) * pageSize
+
+		total, err := TransactionCountAll(r.Context(), tx, categoryID, transType, status, startDate, endDate)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+
+		transactions, err := TransactionListAll(r.Context(), tx, categoryID, transType, status, startDate, endDate, offset, pageSize)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+
+		totalPages := 0
+		if total > 0 {
+			totalPages = (total + pageSize - 1) / pageSize
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"data": transactions,
+			"pagination": map[string]any{
+				"page":        page,
+				"per_page":    pageSize,
+				"total":       total,
+				"total_pages": totalPages,
+			},
+		})
+		return
+	}
+
 	var categoryID, transType, status, startDate, endDate *string
 	if c := r.URL.Query().Get("category_id"); c != "" {
 		categoryID = &c
@@ -820,6 +1040,21 @@ func (h *Handler) GetTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+
+	// System-only SUPER_ADMIN: query across all RTs
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		trans, err := TransactionGetByIDAll(r.Context(), tx, id)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				httpx.WriteNotFound(w, "transaction not found")
+				return
+			}
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, trans)
+		return
+	}
 
 	trans, err := TransactionGetByID(r.Context(), tx, id, ac.RTID)
 	if err != nil {
@@ -947,6 +1182,17 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+
+	// System-only SUPER_ADMIN: query across all RTs
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		summary, err := CalculateBalanceAll(r.Context(), tx)
+		if err != nil {
+			httpx.WriteInternalServerError(w, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, summary)
+		return
+	}
 
 	summary, err := CalculateBalance(r.Context(), tx, ac.RTID)
 	if err != nil {
