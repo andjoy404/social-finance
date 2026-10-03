@@ -1,360 +1,576 @@
-# Iuran/Household RT Mismatch Audit (2026-10-03)
+# RT Source of Truth Audit — Final (2026-10-04)
 
 ## Problem Statement
 
-Nomor RT yang muncul di modul **Warga** berbeda dengan Nomor RT yang muncul di modul **Iuran** saat melihat data seed.
-
-**Root Cause:** Dua sumber RT berbeda (`households.rt_id` dan `physical_houses.rt_id`), query yang berbeda, dan tidak ada validasi backend yang memastikan keduanya konsisten.
+Dua modul (Warga dan Iuran) menampilkan data yang sama tapi melalui source RT berbeda. Apakah ini menyebabkan mismatch? Audit ini melacak seluruh lifecycle RT dari create hingga display.
 
 ---
 
-## A. RT Architecture — Relationship Lengkap
+## 1. Current Data Flow — Lifecycle Lengkap
 
-### Schema aktual:
+### 1.1 CREATE Household (CreateHousehold)
+
+**Endpoint:** `POST /api/v1/households`
+**File:** `backend/internal/household/handler.go`, line 185
+
+**RTID Source:**
 
 ```
-rts (MASTER DATA RT)
-   │ id, rt, rw, name
-   │
-   ├──────────────────────────────────┬──────────────────────────────────┐
-   │                                  │                                  │
-   ▼                                  ▼                                  ▼
-households.rt_id              physical_houses.rt_id              (bills.rt_id)
-   │                                  │                                  │
-   │ FK to rts(id)                    │ FK to rts(id)                    │ FK to rts(id) (denormalized)
-   │                                  │                                  │
-   ▼                                  ▼                                  ▼
-household_occupancies                ───────────────────────────────────┘
-   │ household_id → households.id
-   │ physical_house_id → physical_houses.id
-   │
-   ▼
-bills.household_occupancy_id → household_occupancies.id
-   │
-   │ (bills.rt_id langsung dari request path, BUKAN dari JOIN)
+SUPER_ADMIN:  req.RequestedRTID (request body) → diverifikasi ke rts table → req.RTID
+Tenant user:  getRTID(r) → JWT claim ac.RTID → req.RTID
+Tenant BLOCK: req.RequestedRTID di-reject → "rt_id is not allowed for tenant users"
 ```
 
-**Kunci:** `households` dan `physical_houses` masing-masing punya `rt_id` sendiri. Keduanya FK ke `rts`, TIDAK ada FK atau constraint yang memastikan keduanya指向 RT yang sama.
+**File:** `backend/internal/household/repository.go`, `HouseholdCreate`, line 188
+
+**4 SQL INSERT dalam satu transaction:**
+
+| # | Tabel | Field rt_id | Source |
+|---|-------|-------------|--------|
+| 1 | `physical_houses` | `physical_houses.rt_id = in.RTID` | Dari handler |
+| 2 | `households` | `households.rt_id = in.RTID` | Dari handler |
+| 3 | `household_occupancies` | **NO rt_id column** | Transitive via FK |
+| 4 | `residents` | `residents.rt_id = in.RTID` | Dari handler |
+
+**CRITICAL:** `household_occupancies` TIDAK punya kolom `rt_id`. RT isolation untuk occupancy enforcement secara transitive:
+
+```
+household_occupancies.physical_house_id → physical_houses.rt_id
+household_occupancies.household_id → households.rt_id
+```
+
+### 1.2 CREATE Physical House
+
+**Physical house TIDAK punya endpoint standalone.** Dibuat otomatis saat `HouseholdCreate` (repository.go line 218):
+
+```sql
+INSERT INTO physical_houses (rt_id, house_number, address, is_active)
+VALUES ($1, $2, $3, true)
+-- $1 = in.RTID (dari auth context)
+```
+
+Atau saat `HouseholdMove` (repository.go line 812):
+
+```sql
+INSERT INTO physical_houses (rt_id, house_number, address, is_active)
+VALUES ($1, $2, $3, true)
+-- $1 = rtID (dari handler resolveRTID)
+```
+
+### 1.3 UPDATE Household (UpdateHousehold)
+
+**Endpoint:** `PATCH /api/v1/households/{id}`
+**File:** `backend/internal/household/handler.go`, line 431
+**Repository:** `backend/internal/household/repository.go`, `HouseholdUpdate`, line 460
+
+**UpdateHouseholdInput** (`backend/internal/household/model.go`, line 147):
+
+```go
+type UpdateHouseholdInput struct {
+    HouseNumber     *string          `json:"house_number,omitempty"`
+    HeadName        *string          `json:"head_name,omitempty"`
+    FullName        *string          `json:"full_name,omitempty"`
+    Nik             *string          `json:"nik,omitempty"`
+    Phone           *string          `json:"phone,omitempty"`
+    Email           *string          `json:"email,omitempty"`
+    Address         *string          `json:"address,omitempty"`
+    OccupancyStatus *OccupancyStatus `json:"occupancy_status,omitempty"`
+    IsActive        *bool            `json:"is_active,omitempty"`
+}
+```
+
+**TIDAK ADA field `rt_id` di `UpdateHouseholdInput`.**
+
+**SQL UPDATE yang dijalankan** (repository.go):
+
+| Step | SQL | Field yang diupdate |
+|------|-----|-------------------|
+| 1 | `UPDATE physical_houses SET house_number = $1...` | house_number, address |
+| 2 | `UPDATE physical_houses SET address = $1...` | address |
+| 3 | `UPDATE household_occupancies SET occupancy_status = $1...` | occupancy_status |
+| 4 | `UPDATE residents SET full_name/phone/nik/email = ...` | resident fields |
+| 5 | `UPDATE households SET head_name/is_active = ...` | head_name, is_active |
+
+**KESIMPULAN: `households.rt_id` TIDAK DIUBAH oleh UpdateHousehold. `physical_houses.rt_id` JUGA TIDAK DIUBAH. RT immutable setelah create.**
+
+### 1.4 MOVE Household (MoveHousehold)
+
+**Endpoint:** `POST /api/v1/households/{id}/move`
+**File:** `backend/internal/household/repository.go`, `HouseholdMove`, line 771
+
+MoveHousehold **TIDAK mengubah RT**. Memindahkan household ke physical house **dalam RT yang sama**:
+
+```sql
+-- Step 2: Cari target house IN THE SAME RT
+SELECT id FROM physical_houses
+WHERE rt_id = $1 AND house_number = $2 AND is_active = true
+-- $1 = rtID (dari handler resolveRTID, sama dengan RT existing)
+```
+
+Tidak ada operasi `MoveHouseholdAcrossRTs`.
+
+### 1.5 CREATE Bill (CreateBill)
+
+**Endpoint:** `POST /api/v1/bills`
+**File:** `backend/internal/finance/handler.go`, `CreateBill`
+**Service:** `backend/internal/finance/service.go`, `CreateBill`
+**Repository:** `backend/internal/finance/repository.go`, `BillCreate`, line 240
+
+**SQL INSERT:**
+
+```sql
+INSERT INTO bills (rt_id, household_occupancy_id, due_id, amount, period, due_date, status)
+VALUES ($1, $2, $3, $4, $5, $6, 'unpaid')
+-- $1 = rtID (dari auth context JWT ac.RTID)
+-- $2 = in.HouseholdOccupancyID (dari request body)
+```
+
+**CRITICAL GAP: Tidak ada validasi bahwa `household_occupancy_id` milik household yang ber-RT sama dengan `rt_id`.**
+
+Namun dalam praktiknya aman karena:
+
+| Method | Safety Net |
+|--------|-----------|
+| `GenerateBills` | Menggunakan `GetActiveCurrentOccupancyIDs(ctx, tx, rtID)` yang JOIN ke `households h WHERE h.rt_id = $1` — hanya occupancy dari RT yang benar dikembalikan |
+| `CreateBill` langsung | **TIDAK ADA validasi cross-RT**. Jika bendahara calling API langsung dengan `household_occupancy_id` dari RT lain, bill akan dibuat dengan `bills.rt_id` = user's RT tapi `bills.household_occupancy_id` → RT lain |
+
+### 1.6 GENERATE Bills (GenerateBills)
+
+**File:** `backend/internal/finance/service.go`, `GenerateBills`, line 139
+
+```go
+occupancyIDs, err := GetActiveCurrentOccupancyIDs(ctx, tx, rtID)
+```
+
+**File:** `backend/internal/finance/repository.go`, `GetActiveCurrentOccupancyIDs`, line 573
+
+```sql
+SELECT ho.id
+FROM household_occupancies ho
+JOIN households h ON ho.household_id = h.id
+WHERE h.rt_id = $1 AND h.is_active = true AND ho.end_date IS NULL
+-- ← FILTER BY households.rt_id!
+```
+
+**Ini adalah safety net utama.** GenerateBills hanya membuat bill untuk occupancy yang household-nya punya `rt_id` yang sama dengan RT user.
 
 ---
 
-## B. Warga RT Source
+## 2. Meaning of Each RT Field
 
-### Query Warga (module.go — fetchHouseholds):
+### `households.rt_id`
 
-```sql
-SELECT h.*, u.full_name as head_user_name
- FROM households h
- LEFT JOIN users u ON h.head_name = u.full_name AND u.system_role IS NULL
- WHERE h.rt_id = $1 AND h.is_active = true
-```
+**Merepresentasikan: "RT tempat warga terdaftar sebagai household"**
 
-**RT berasal langsung dari `households.rt_id`.**
+- Ini adalah master data identitas household
+- FK to `rts(id)`
+- Digunakan untuk tenant isolation di Warga module
+- **Immutable** — tidak bisa diupdate atau di-move antar RT
 
-### Query Warga (module.go — fetchHouseholdOccupancies):
+### `physical_houses.rt_id`
 
-```sql
-SELECT ho.*, ph.house_number, ph.address,
-       h.head_name, u.full_name as head_user_name
- FROM household_occupancies ho
- JOIN physical_houses ph ON ho.physical_house_id = ph.id
- JOIN households h ON ho.household_id = h.id
- JOIN rts rt ON rt.id = h.rt_id
- LEFT JOIN users u ON h.head_name = u.full_name AND u.system_role IS NULL
- WHERE h.rt_id = $1 AND h.is_active = true
-```
+**Merepresentasikan: "RT lokasi fisik rumah"**
 
-**Warga menggunakan `households.rt_id` untuk semua operasi — list, create, edit, search.**
+- Ini adalah master data lokasi fisik
+- FK to `rts(id)`
+- Unique index: `(rt_id, house_number) WHERE is_active = true`
+- **Immutable** — tidak bisa diupdate
+
+### `household_occupancies` (NO rt_id)
+
+- Hanya bridge table: `physical_house_id` + `household_id`
+- RT di-derive secara transitive via join chain
+- Tidak punya kolom rt_id sendiri (by design)
+
+### `bills.rt_id`
+
+**Merepresentasikan: "RT yang memiliki kewajiban iuran"**
+
+- FK to `rts(id)`
+- Diisi dari auth context (JWT claim), bukan dari data referensial
+- **Potential inconsistency**: Tidak ada constraint yang memaksa `bills.rt_id == households.rt_id` via `household_occupancy_id`
+
+### `residents.rt_id`
+
+**Merepresentasikan: "RT tempat warga terdaftar"**
+
+- FK to `rts(id)`
+- Digunakan untuk tenant isolation dan `GetOccupancyIDForUser`
 
 ---
 
-## C. Iuran RT Source
+## 3. Warga RT Source
 
-### Query Iuran (repository.go — BillList):
+### Backend: Query Warga
+
+**File:** `backend/internal/household/repository.go`
+
+`householdBaseSelect` (line 116) — digunakan oleh HouseholdList, HouseholdGetByID:
 
 ```sql
-SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text,
-       b.period, b.due_date, b.status, b.created_at, b.updated_at,
+SELECT h.id, h.rt_id, h.head_name, h.is_active, ...
+       ph.house_number, ph.address, ho.occupancy_status,
+       r.id, r.rt_id, r.full_name, ...
+       r.rt, r.rw, r.rt_name
+FROM households h
+LEFT JOIN household_occupancies ho ON ho.household_id = h.id AND ho.end_date IS NULL
+LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+LEFT JOIN LATERAL (
+    SELECT r.id, r.rt_id, r.full_name, ...,
+           res_rt.rt, res_rt.rw, res_rt.name AS rt_name
+    FROM residency_periods rp
+    JOIN residents r ON r.id = rp.resident_id
+    LEFT JOIN rts res_rt ON r.rt_id = res_rt.id
+    WHERE rp.household_occupancy_id = ho.id AND rp.end_date IS NULL
+      AND (rp.relationship_to_head = 'HEAD' OR ...)
+    ORDER BY rp.created_at ASC LIMIT 1
+) r ON true
+```
+
+**Filter:** `WHERE h.rt_id = $1` (HouseholdList, line 397)
+**RT berasal dari:** `households.rt_id`
+
+### Mobile Warga: API Call
+
+**File:** `mobile/lib/features/warga/data/warga_repository.dart`
+
+| Method | Endpoint | RT Context |
+|--------|----------|-----------|
+| GET | `/api/v1/households` | No rt_id — derived from JWT |
+| GET | `/api/v1/residents` | No rt_id — derived from JWT |
+| POST | `/api/v1/households` | `rt_id` only for super_admin |
+| PATCH | `/api/v1/households/{id}` | No rt_id sent |
+
+**Mobile app mengirim NO rt_id untuk tenant operations.** Server yang filter via JWT.
+
+---
+
+## 4. Iuran RT Source
+
+### Backend: Query Iuran
+
+**File:** `backend/internal/finance/repository.go`
+
+`BillList` (line 282):
+
+```sql
+SELECT b.id, b.rt_id, b.household_occupancy_id, ...
        d.name as due_name, ph.house_number, h.head_name
- FROM bills b
- JOIN dues d ON b.due_id = d.id
- JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
- JOIN households h ON ho.household_id = h.id
- LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
- WHERE b.rt_id = $1
+FROM bills b
+JOIN dues d ON b.due_id = d.id
+JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+JOIN households h ON ho.household_id = h.id
+LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+WHERE b.rt_id = $1
+-- ← FILTER ONLY ON bills.rt_id
+-- ← JOIN ke households dan physical_houses, TAPI tidak pakai rt_id mereka di WHERE
 ```
 
-### Query Iuran (repository.go — BillGetByID):
+`BillGetByID` (line 258):
 
 ```sql
-SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text,
-       b.period, b.due_date, b.status, b.created_at, b.updated_at,
-       d.name as due_name, ph.house_number, h.head_name
- FROM bills b
- JOIN dues d ON b.due_id = d.id
- JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
- JOIN households h ON ho.household_id = h.id
- LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
- WHERE b.id = $1 AND b.rt_id = $2
+SELECT b.id, b.rt_id, ...
+FROM bills b
+JOIN dues d ON b.due_id = d.id
+JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+JOIN households h ON ho.household_id = h.id
+LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+WHERE b.id = $1 AND b.rt_id = $2
+-- ← FILTER ONLY ON b.rt_id
 ```
 
 **Iuran menggunakan `bills.rt_id` untuk filter, BUKAN `households.rt_id`.**
 
-### Field yang ditampilkan Iuran:
+Response fields:
 
-| Field | Sumber | Tabel | Field |
-|-------|--------|-------|-------|
-| `rt_id` (response) | Direct | `bills` | `b.rt_id` |
-| `house_number` | JOIN | `physical_houses` | `ph.house_number` |
-| `head_name` | JOIN | `households` | `h.head_name` |
+| Field | Source Table | Field |
+|-------|-------------|-------|
+| `rt_id` | `bills` | `b.rt_id` |
+| `house_number` | `physical_houses` | `ph.house_number` |
+| `head_name` | `households` | `h.head_name` |
+
+### Mobile Iuran: Mock Data
+
+**File:** `mobile/lib/features/iuran/presentation/screens/iuran_screen.dart`, line 56:
+
+```dart
+final bills = IuranMockData.bills;
+```
+
+**Mobile Iuran menggunakan 100% mock data. Tidak ada API integration.**
 
 ---
 
-## D. Seed Comparison
+## 5. Create Bill Validation
 
-### Seed Warga (CanonicalRTs, CanonicalPhysicalHouses, CanonicalHouseholds):
+### GenerateBills (AMAN)
 
-```go
-// RT 01
-CanonicalRTs[0].ID = "00000000-0000-0000-0000-000000000001"
-CanonicalRTs[0].RT = "01"
-CanonicalRTs[0].RW = 1
+Safety net: `GetActiveCurrentOccupancyIDs` filter by `h.rt_id`:
 
-// Physical House RT 01
-CanonicalPhysicalHouses[0].RTID = "00000000-0000-0000-0000-000000000001"
-
-// Household RT 01
-CanonicalHouseholds[0].RTID = "00000000-0000-0000-0000-000000000001"
-```
-
-**Seed data: `households.rt_id` dan `physical_houses.rt_id` SAMA untuk semua data warga** (tidak ada mismatch di seed).
-
-### Seed Iuran (CanonicalDues, CanonicalBills):
-
-```go
-// Dues — RT 01
-CanonicalDues[0].RTID = "00000000-0000-0000-0000-000000000001"
-
-// Bills — RT 01
-CanonicalBills[0].RTID = "00000000-0000-0000-0000-000000000001"
-CanonicalBills[0].HouseholdOccupancyID = "00000000-0000-0000-0000-000000000013" // HO of HH 01
-```
-
-**Seed data: `bills.rt_id` SAMA dengan `households.rt_id` dan `physical_houses.rt_id`** (tidak ada mismatch di seed).
-
----
-
-## E. Concrete Mismatch Example
-
-### Scenario: User mengedit Household di modul Warga
-
-1. User (Pengurus) membuka **Edit Household** di modul Warga.
-2. Form edit menampilkan dropdown RT (hanya `households.rt_id` yang editable).
-3. User mengubah RT dari **RT 01** ke **RT 02**.
-4. `UPDATE households SET rt_id = 'RT-02-uuid' WHERE id = 'HH-01'`
-5. **TAPI** `physical_houses.rt_id` TIDAK berubah → masih **RT 01**.
-
-### Result setelah edit:
-
-| Table | Field | Value |
-|-------|-------|-------|
-| `households` | `rt_id` | **RT-02-uuid** ← EDITED |
-| `physical_houses` | `rt_id` | **RT-01-uuid** ← UNCHANGED |
-
-### Query Warga (setelah edit):
 ```sql
-WHERE h.rt_id = $1   -- filter berdasarkan households.rt_id = RT-02
-```
-→ Warga melihat household baru di RT 02. ✅
-
-### Query Iuran (setelah bill dibuat):
-```sql
-WHERE b.rt_id = $1   -- filter berdasarkan bills.rt_id = RT-01
-```
-→ Iuran tetap melihat bill lama yang terhubung ke HO dari HH yang physical_housenya masih RT 01. ❌
-
-**Mismatch!** Warga melihat di RT 02, Iuran melihat di RT 01.
-
----
-
-## F. Root Cause
-
-### Root Cause 1: Dua Field `rt_id` Tidak Terkonsisten
-
-```
-households.rt_id            ← FK ke rts, EDITABLE via Warga UI
-physical_houses.rt_id       ← FK ke rts, TIDAK EDITABLE via Warga UI
+SELECT ho.id FROM household_occupancies ho
+JOIN households h ON ho.household_id = h.id
+WHERE h.rt_id = $1 AND h.is_active = true AND ho.end_date IS NULL
 ```
 
-Kedua field ini independen. Tidak ada FK, constraint, atau trigger yang memastikan keduanya指向 RT yang sama.
+Hanya occupancy dari RT yang benar dikembalikan → bills yang dibuat otomatis valid RT.
 
-### Root Cause 2: Query Menggunakan Sumber Berbeda
+### CreateBill (GAP)
 
-| Modul | Field yang Digunakan | Sumber |
-|-------|---------------------|--------|
-| Warga | `households.rt_id` | Langsung dari table households |
-| Iuran | `bills.rt_id` | Denormalized dari request path parameter |
-| Iuran (JOIN) | `ph.house_number`, `h.head_name` | JOIN ke physical_houses + households |
+Tidak ada validasi cross-RT:
 
-Iuran tidak melakukan JOIN ke `rts` sama sekali. Ia hanya membaca `bills.rt_id` yang sudah di-denormalize dari user input.
-
-### Root Cause 3: Tidak Ada Validasi Backend
-
-**Create Bill:**
 ```go
-func (h *Handler) CreateBill(w http.ResponseWriter, r *http.Request) {
-    // ...
-    // Path parameter: rtID from URL
-    // Request body: household_occupancy_id
-
-    // TIDAK ADA validasi:
-    // - Apakah household_occupancy_id milik household di RT yang sama dengan rtID?
-    // - Apakah physical_houses.rt_id == rtID dari path?
+// repository.go line 240
+func BillCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateBillInput) (*Bill, error) {
+    tx.QueryRowContext(ctx,
+        `INSERT INTO bills (rt_id, household_occupancy_id, ...) VALUES ($1, $2, ...)`,
+        rtID, in.HouseholdOccupancyID, ...)  // ← NO cross-validation!
 }
 ```
 
-**Update Household:**
-```go
-func (h *Handler) UpdateHousehold(w http.ResponseWriter, r *http.Request) {
-    // Request: { "rt_id": "new-rt-uuid" }
-    // Query: UPDATE households SET rt_id = $1 WHERE id = $2
-
-    // TIDAK ADA validasi:
-    // - Apakah physical_houses.rt_id harus diupdate sesuai?
-    // - Apakah ada bills/occupancies yang bergantung pada household ini?
-}
-```
-
-### Root Cause 4: Denormalized `bills.rt_id` Tidak Dipaksa Konsisten
-
-Tabel `bills` memiliki `rt_id` yang:
-- Diisi dari path parameter `:id` di endpoint `POST /api/v1/rt/:id/dues/:due_id/bills`
-- Tidak dihitung dari `household_occupancy_id` → `household_occupancies` → `households` → `rt_id`
-- Tidak ada constraint foreign key yang memastikan `bills.rt_id == households.rt_id` (via JOINS)
+Jika seseorang calling `CreateBill` langsung dengan `household_occupancy_id` dari RT lain → bill akan dibuat dengan data tidak konsisten.
 
 ---
 
-## G. Recommended Fix
+## 6. Existing Data Mismatch — Audit Seed
 
-### Fix 1 (Minimal): Tambah Validasi Backend di Create Bill
+### Seed Data Consistency Check
+
+**File:** `backend/internal/devseed/seed.go` dan `data.go`
+
+| Chain | RT Alignment |
+|-------|-------------|
+| `physical_houses.rt_id` → `household_occupancies` | ✓ Same RT |
+| `household_occupancies` → `households.rt_id` | ✓ Same RT |
+| `bills.rt_id` (seeded) → `household_occupancy_id` | ✓ Same RT |
+
+**Semua seed data konsisten.** Tidak ada mismatch di seed.
+
+### Real-world Mismatch Risk
+
+Karena **RT immutable** (tidak bisa diupdate), mismatch hanya bisa terjadi via:
+
+1. **Direct `CreateBill` API call** dengan `household_occupancy_id` dari RT lain — **possible security gap**
+2. **SUPER_ADMIN cross-RT queries** (`BillListAll`, `BillGetByIDAll`) — trust the `rt_id` in the record, no cross-validation
+
+---
+
+## 7. Required Invariant
+
+Berdasarkan business logic yang ditemukan:
+
+### Invariant 1: RT Immutability (ALREADY ENFORCED)
+
+```
+households.rt_id — immutable after creation
+physical_houses.rt_id — immutable after creation
+residents.rt_id — immutable after creation
+```
+
+Tidak ada API endpoint yang mengupdate `rt_id` mana pun. RT determined once at create time. ✅
+
+### Invariant 2: Consistency for Same Location (NOT ENFORCED)
+
+```
+Untuk occupancy yang sama:
+    physical_houses.rt_id == households.rt_id
+```
+
+Secaris bisnis, satu fisik house harus berada di satu RT. Dalam `HouseholdCreate`, keduanya ditulis dari `in.RTID` yang sama → selalu match saat create.
+
+**TAPI** tidak ada constraint yang memaksa ini jika ada future code yang mengubah salah satu secara langsung.
+
+### Invariant 3: Bill RT = Occupancy's Household RT (NOT ENFORCED)
+
+```
+bills.rt_id == (SELECT h.rt_id FROM households h
+                JOIN household_occupancies ho ON h.id = ho.household_id
+                WHERE ho.id = bills.household_occupancy_id)
+```
+
+**Ini adalah invariant yang paling penting dan paling lemah.** GenerateBills menjaga ini via `GetActiveCurrentOccupancyIDs`, tapi `CreateBill` tidak memvalidasi.
+
+---
+
+## 8. Options Comparison
+
+### Option A: Tambah Validasi di CreateBill (RECOMMENDED)
+
+**Perubahan:**
+- `backend/internal/finance/repository.go` — Tambah validasi cross-RT di `BillCreate`
+
+**Kelebihan:**
+- Perubahan minimal (1 fungsi, ~10 baris SQL tambahan)
+- Tidak mengubah schema
+- Tidak breaking API
+- Langsung menutup security gap
+
+**Kekurangan:**
+- `bills.rt_id` tetap denormalized
+- Masih bergantung pada `GenerateBills` yang sudah aman
+
+### Option B: Hapus `bills.rt_id`, Gunakan JOIN
+
+**Perubahan:**
+- Drop column `bills.rt_id`
+- Update semua query Bill untuk JOIN `household_occupancies → households → rt_id`
+- Breaking change di API response
+- Migration data
+
+**Kelebihan:**
+- Source of truth tunggal dari `household_occupancies`
+- Tidak ada duplikasi data
+
+**Kekurangan:**
+- Breaking change besar
+- Semua query Bill harus diubah
+- Migration complex
+- Performance impact (JOIN per query)
+
+### Option C: Sinkronisasi RT Fields
+
+**Perubahan:**
+- Tambah constraint/check untuk ensure `households.rt_id == physical_houses.rt_id` via occupancy chain
+
+**Kelebihan:**
+- Enforce consistency secara database level
+
+**Kekurangan:**
+- Belum ada cara untuk mengubah salah satu RT (immutable), jadi constraint hampir selalu pass
+- Overkill untuk kasus yang tidak mungkin terjadi
+
+---
+
+## 9. Recommended Minimal Fix
+
+### Priority 1: Tambah Validasi Cross-RT di CreateBill
 
 ```go
-// Di repository.go BillCreate atau service layer:
+// backend/internal/finance/repository.go — BillCreate
 func BillCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateBillInput) (*Bill, error) {
     // Validate: household_occupancy must belong to requested RT
-    var occupancyRT string
+    var occupancyHouseholdRT string
     err := tx.QueryRowContext(ctx, `
-        SELECT ho.physical_house_id
+        SELECT h.rt_id
         FROM household_occupancies ho
-        JOIN physical_houses ph ON ho.physical_house_id = ph.id
-        WHERE ho.id = $1
-    `, in.HouseholdOccupancyID).Scan(&physicalHouseID)
+        JOIN households h ON ho.household_id = h.id
+        WHERE ho.id = $1 AND ho.end_date IS NULL
+    `, in.HouseholdOccupancyID).Scan(&occupancyHouseholdRT)
 
     if err != nil {
-        return nil, ErrNotFound
+        if err == sql.ErrNoRows {
+            return nil, errors.New("household_occupancy not found or inactive")
+        }
+        return nil, fmt.Errorf("validate occupancy: %w", err)
     }
 
-    // Check consistency
-    var billRT string
-    err = tx.QueryRowContext(ctx, `
-        SELECT rt_id FROM physical_houses WHERE id = $1
-    `, physicalHouseID).Scan(&billRT)
-
-    if err != nil || billRT != rtID {
+    if occupancyHouseholdRT != rtID {
         return nil, fmt.Errorf("household_occupancy does not belong to requested RT")
     }
 
-    // ... existing bill create logic
+    // ... existing insert logic
 }
 ```
 
-### Fix 2 (Better): Hapus `bills.rt_id` dan Gunakan JOIN
+**Impact:**
+- 1 file changed: `backend/internal/finance/repository.go`
+- ~15 lines added
+- No schema change
+- No API contract change
+- No frontend change needed
 
-```sql
--- Hapus: bills.rt_id
--- Ganti dengan: JOIN ke household_occupancies → physical_houses → rt_id
-```
+### Priority 2 (Low): Tambah Warning di Frontend
 
-**Ini akan memastikan source of truth RT selalu konsisten dari `physical_houses`.**
-
-### Fix 3 (Best): Tambah Validation di Update Household
-
-```go
-// Di UpdateHousehold handler:
-func (h *Handler) UpdateHousehold(w http.ResponseWriter, r *http.Request) {
-    // Jika rt_id berubah, juga update physical_houses.rt_id
-    // ATAU reject jika ada bills/occupancies yang bergantung
-
-    var physicalHouseRT string
-    err := tx.QueryRowContext(ctx, `
-        SELECT ph.rt_id
-        FROM household_occupancies ho
-        JOIN physical_houses ph ON ho.physical_house_id = ph.id
-        WHERE ho.household_id = $1 AND ho.end_date IS NULL
-        LIMIT 1
-    `, householdID).Scan(&physicalHouseRT)
-
-    if err == nil && newRTID != physicalHouseRT {
-        return nil, fmt.Errorf("cannot change household RT when active occupancy exists")
-    }
-}
-```
-
-### Fix 4 (Long-term): Pindahkan Source of Truth ke physical_houses
-
-```sql
--- Arsitektur ideal:
--- households: head_name, kk_number, dll (master data warga)
--- physical_houses: rt_id, house_number, address (source of truth RT)
--- household_occupancies: bridge (household + physical_house)
--- bills: household_occupancy_id (TIDAK punya rt_id sendiri)
-```
-
-Query Iuran jadi:
-```sql
-SELECT b.id, b.household_occupancy_id, b.due_id, b.amount::text,
-       ph.rt_id,  -- ← ambil RT dari physical_houses via JOIN
-       d.name as due_name, ph.house_number, h.head_name
- FROM bills b
- JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
- JOIN physical_houses ph ON ho.physical_house_id = ph.id
- JOIN households h ON ho.household_id = h.id
- JOIN dues d ON b.due_id = d.id
- WHERE ph.rt_id = $1
-```
+Jika ada future feature untuk "Create Bill manually" di UI, tambahkan warning jika RT occupancy berbeda dari user's RT.
 
 ---
 
-## H. Files That Would Need Changing
+## 10. Files That Would Need Changes
 
 | File | Change | Priority |
 |------|--------|----------|
-| `backend/internal/finance/repository.go` | Tambah validasi RT di `BillCreate` | HIGH |
-| `backend/internal/household/handler.go` | Tambah validasi RT di `UpdateHousehold` | HIGH |
-| `backend/internal/finance/model.go` | Consider: remove `rt_id` from Bill struct | MEDIUM (Breaking) |
-| `backend/internal/finance/repository.go` | Update semua query Bill untuk JOIN `physical_houses` | MEDIUM (Breaking) |
-| `frontend/src/features/iuran/DueCreate.tsx` | Tambah warning jika RT mismatch | LOW |
+| `backend/internal/finance/repository.go` | Tambah validasi cross-RT di `BillCreate` | HIGH |
+| `backend/internal/finance/repository.go` (opsional) | Tambah validasi di `BillListAll`/`BillGetByIDAll` untuk SUPER_ADMIN | LOW |
 
 ---
 
 ## Verdict
 
 ### Question A: Untuk Warga, RT berasal dari mana?
-**`households.rt_id`**
+
+**`households.rt_id`** — melalui query `HouseholdList` yang filter `WHERE h.rt_id = $1`.
 
 ### Question B: Untuk Iuran, RT berasal dari mana?
-**`bills.rt_id`** (denormalized dari path parameter, BUKAN dari JOIN ke households/physical_houses)
+
+**`bills.rt_id`** — melalui query `BillList` yang filter `WHERE b.rt_id = $1`.
 
 ### Question C: Apakah keduanya seharusnya sama?
-**YA.** Secara bisnis, satu household/house harus selalu berada di satu RT. Warga dan Iuran harus menampilkan RT yang sama untuk data yang sama.
 
-### Question D: Apakah `bills.rt_id` merupakan legitimate denormalized field atau duplicate yang bisa menyebabkan inconsistency?
-**Duplicate yang berbahaya.** `bills.rt_id` di-fill dari request path parameter, BUKAN dari data referensial. Ini memungkinkan mismatch jika:
-- User mengedit `households.rt_id` tanpa mengupdate `physical_houses.rt_id`
-- Someone membuat bill dengan `household_occupancy_id` yang berasal dari RT berbeda
+**YA.** Satu occupancy hanya bisa terhubung ke satu household → satu RT. Warga filter via `households.rt_id`, Iuran via `bills.rt_id`. Untuk data yang sama, RT harus identik.
+
+### Question D: Apakah `bills.rt_id` merupakan legitimate denormalized field atau duplicate berbahaya?
+
+**Denormalized field yang SAFE dalam praktiknya, tapi ada gap teoretis.** GenerateBills menjaga konsistensi via `GetActiveCurrentOccupancyIDs`. Gap hanya ada jika ada direct `CreateBill` API call dengan cross-RT `occupancy_id`.
 
 ### Question E: Apakah API Create Bill seharusnya memvalidasi `requested RT == household occupancy RT`?
-**YA.** Validasi wajib sebelum bill dibuat.
+
+**YA.** Validasi wajib sebagai defense-in-depth.
+
+---
+
+## RT Architecture Diagram
+
+```
+rts (MASTER)
+ │ id, rt, rw, name
+ │
+ ├── households.rt_id ──────────┐
+ │   └── head_name, is_active   │
+ │                              ├──→ Warga: filter by households.rt_id
+ │                              │
+ ├── physical_houses.rt_id ─────┤
+ │   └── house_number, address  │
+ │                              │
+ ├── residents.rt_id ───────────┤
+ │   └── full_name, phone, nik  │
+ │                              │
+ ├── bills.rt_id ───────────────┤ ← Denormalized from auth context
+ │   └── household_occupancy_id │   (JWT claim ac.RTID)
+ │                              │
+ └── dues.rt_id ────────────────┘
+        │
+        ▼
+household_occupancies (NO rt_id column)
+  │ physical_house_id → physical_houses.id
+  │ household_id → households.id
+  │
+  └── RT derived transitively:
+        household_occupancies.household_id → households.rt_id
+        household_occupancies.physical_house_id → physical_houses.rt_id
+```
+
+### Key Relationships
+
+| Relationship | Enforced | Notes |
+|-------------|----------|-------|
+| `households.rt_id` ↔ `rts(id)` | FK constraint | |
+| `physical_houses.rt_id` ↔ `rts(id)` | FK constraint | |
+| `bills.rt_id` ↔ `rts(id)` | FK constraint | |
+| `occupancy.physical_house_id` ↔ `physical_houses.id` | FK constraint | |
+| `occupancy.household_id` ↔ `households.id` | FK constraint | |
+| `households.rt_id` ↔ `physical_houses.rt_id` (same location) | **NO** | Rely on `HouseholdCreate` to write both from same `in.RTID` |
+| `bills.rt_id` ↔ `occupancy.household_id` (same RT) | **NO** | Only enforced by `GenerateBills` via `GetActiveCurrentOccupancyIDs` |
+
+### Immutability Summary
+
+| Entity | rt_id Field | Can Change? |
+|--------|------------|-------------|
+| `households` | `rt_id` | **NO** — never in any UPDATE |
+| `physical_houses` | `rt_id` | **NO** — never in any UPDATE |
+| `residents` | `rt_id` | **NO** — never in any UPDATE |
+| `bills` | `rt_id` | **NO** — only set at INSERT |
+
+**RT is immutable across the entire system.** Mismatch can only occur if someone crafts a direct API call with cross-RT data.
 
 ---
 
@@ -364,10 +580,12 @@ SELECT b.id, b.household_occupancy_id, b.due_id, b.amount::text,
 git status --short
 # (empty — working tree clean)
 
-git log -3 --oneline
-# 7e8db9d (HEAD -> main, origin/main, origin/HEAD) feat: open iuran payment in modal
+git log -5 --oneline
+# 98d3569 (HEAD -> main) docs: audit Iuran/Household RT mismatch root cause
+# 7e8db9d (origin/main, origin/HEAD) feat: open iuran payment in modal
 # ec73921 feat: open iuran detail in modal
 # 90e3613 fix: return empty payment lists as arrays
+# aac906f fix: resolve iuran frontend build errors
 ```
 
 ✅ Working tree clean
