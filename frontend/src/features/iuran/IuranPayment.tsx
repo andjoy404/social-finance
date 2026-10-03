@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useState, useEffect, useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import {
   CheckCircleOutlined,
   DollarOutlined,
@@ -16,7 +16,7 @@ import {
   parseMoney,
   type IuranBill,
 } from './iuranTypes'
-import { apiGetBill, apiCreatePayment, type ApiPayment, type ApiError, getSessionPair } from '@/app/api'
+import { apiGetBill, apiCreatePayment, apiListPayments, type ApiPayment, type ApiError, getSessionPair } from '@/app/api'
 
 // Payment method options
 const PAYMENT_METHODS = [
@@ -369,29 +369,33 @@ function IuranPaymentContent({
   )
 }
 
-export function IuranPayment() {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
-
-  const handleClose = useCallback(() => navigate('/iuran'), [navigate])
+export function IuranPayment({
+  billId,
+  open: openProp,
+  onClose: onCloseProp,
+}: {
+  billId?: string
+  open?: boolean
+  onClose?: () => void
+} = {}) {
+  const routeId = useParams<{ id: string }>()?.id
+  const effectiveId = billId ?? routeId
+  const isModal = billId !== undefined
+  const open = openProp ?? true
+  const handleClose = onCloseProp ?? (() => window.history.back())
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [bill, setBill] = useState<IuranBill | null>(null)
 
-  const remaining = useMemo(() => {
-    if (!bill) return 0
-    return bill.nominal - bill.paidAmount
-  }, [bill])
-
-  // Load bill data from API
+  // Load bill and payments data from API
   useEffect(() => {
     let cancelled = false
     async function loadBill() {
       setLoading(true)
       setError(null)
 
-      if (!id) {
+      if (!effectiveId) {
         setError('ID tagihan tidak valid')
         setLoading(false)
         return
@@ -405,12 +409,11 @@ export function IuranPayment() {
           return
         }
 
-        const apiBill = await apiGetBill(token, id)
-
+        const apiBill = await apiGetBill(token, effectiveId)
         if (cancelled) return
 
         // Map backend bill to frontend format
-        setBill({
+        const mappedBill: IuranBill = {
           id: apiBill.id,
           householdId: apiBill.household_occupancy_id,
           householdName: apiBill.head_name ?? apiBill.house_number ?? 'Unknown',
@@ -418,10 +421,31 @@ export function IuranPayment() {
           iuranType: apiBill.due_name ?? 'Iuran',
           periode: apiBill.period,
           nominal: parseMoney(apiBill.amount),
-          paidAmount: 0, // will be loaded with payments
+          paidAmount: 0, // will be calculated from payments
           status: 'belum_bayar', // default, will be mapped
           payments: [],
-        })
+        }
+
+        // Load payments for this bill to calculate paidAmount
+        let paidAmount = 0
+        try {
+          const paymentsResponse = await apiListPayments(token, { bill_id: effectiveId })
+          if (cancelled) return
+
+          // Calculate paidAmount from APPROVED payments only
+          const approvedPayments = paymentsResponse.data.filter(
+            (p) => p.status === 'APPROVED'
+          )
+          paidAmount = approvedPayments.reduce(
+            (sum, p) => sum + parseMoney(p.amount),
+            0
+          )
+        } catch {
+          // Silent fail — paidAmount tetap 0 jika payments API gagal
+        }
+        mappedBill.paidAmount = paidAmount
+
+        setBill(mappedBill)
       } catch (err) {
         if (cancelled) return
         const apiErr = err as ApiError
@@ -438,90 +462,161 @@ export function IuranPayment() {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [effectiveId])
 
-  // Handle payment success - refresh bill data
-  const handlePaymentSuccess = useCallback(async (_payment: ApiPayment) => {
-    // Refresh bill data after successful payment to update paidAmount
-    try {
-      const token = getSessionPair()?.accessToken
-      if (token && id) {
-        await apiGetBill(token, id)
-        // We don't update bill state here to avoid UI disruption
-        // The user will see the success modal and close it
-      }
-    } catch {
-      // Silent fail - don't disrupt the success flow
-    }
-  }, [id])
+  const remaining = useMemo(() => {
+    if (!bill) return 0
+    return bill.nominal - bill.paidAmount
+  }, [bill])
 
-  if (loading) {
-    return (
-      <Modal open onClose={handleClose} width={520}>
-        <ModalHeader
-          title="Memuat Form Pembayaran"
-          subtitle=""
-          onClose={handleClose}
-        />
-        <ModalBody>
-          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-            Memuat data tagihan...
-          </div>
-        </ModalBody>
-      </Modal>
-    )
-  }
-
-  if (error && !bill) {
-    return (
-      <Modal open onClose={handleClose} width={520}>
-        <ModalHeader
-          title="Error"
-          subtitle=""
-          onClose={handleClose}
-        />
-        <ModalBody>
-          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-            {error}
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
-            Kembali
-          </button>
-        </ModalFooter>
-      </Modal>
-    )
-  }
-
-  if (!bill) {
-    return (
-      <Modal open onClose={handleClose} width={520}>
-        <ModalHeader
-          title="Tagihan Tidak Ditemukan"
-          subtitle="Data iuran tidak ditemukan"
-          onClose={handleClose}
-        />
-        <ModalBody>
-          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-            Tagihan iuran yang Anda buka tidak ditemukan.
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
-            Kembali
-          </button>
-        </ModalFooter>
-      </Modal>
-    )
-  }
-
-  return (
+  const paymentContent = !error && bill ? (
     <IuranPaymentContent
       bill={bill}
       remaining={remaining}
       handleClose={handleClose}
-      onPaymentSuccess={handlePaymentSuccess}
+      onPaymentSuccess={async (_payment: ApiPayment) => {
+        // Refresh bill data after successful payment to update paidAmount
+        try {
+          const token = getSessionPair()?.accessToken
+          if (token && effectiveId) {
+            const apiBill = await apiGetBill(token, effectiveId)
+            try {
+              const paymentsResponse = await apiListPayments(token, { bill_id: effectiveId })
+              const approvedPayments = paymentsResponse.data.filter(
+                (p) => p.status === 'APPROVED'
+              )
+              const paidAmount = approvedPayments.reduce(
+                (sum, p) => sum + parseMoney(p.amount),
+                0
+              )
+              setBill((prev) =>
+                prev ? {
+                  ...prev,
+                  paidAmount,
+                  status: approvedPayments.length > 0 && paidAmount >= parseMoney(apiBill.amount) ? 'lunas' : 'sebagian',
+                } : prev
+              )
+            } catch {
+              // Silent fail - don't disrupt the success flow
+            }
+          }
+        } catch {
+          // Silent fail - don't disrupt the success flow
+        }
+      }}
     />
+  ) : null
+
+  // Modal mode
+  if (isModal) {
+    return (
+      <Modal
+        open={open}
+        onClose={handleClose}
+        width={520}
+        overlayClassName="sf-modal-overlay-payment"
+      >
+        {loading && (
+          <ModalHeader
+            title="Memuat Form Pembayaran"
+            subtitle=""
+            onClose={handleClose}
+          />
+        )}
+        {error && !bill && (
+          <>
+            <ModalHeader
+              title="Error"
+              subtitle=""
+              onClose={handleClose}
+            />
+            <ModalBody>
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
+                {error}
+              </div>
+            </ModalBody>
+          </>
+        )}
+        {(!loading && !error && !bill) && (
+          <>
+            <ModalHeader
+              title="Tagihan Tidak Ditemukan"
+              subtitle="Data iuran tidak ditemukan"
+              onClose={handleClose}
+            />
+            <ModalBody>
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
+                Tagihan iuran yang Anda buka tidak ditemukan.
+              </div>
+            </ModalBody>
+          </>
+        )}
+        {paymentContent}
+      </Modal>
+    )
+  }
+
+  // Page mode (route: /iuran/:id/pembayaran)
+  return (
+    <div style={{ flex: 1, padding: 'var(--sp-md) var(--sp-xl)' }}>
+      {/* Back button */}
+      <div style={{ marginBottom: 'var(--sp-md)' }}>
+        <a
+          href="/iuran"
+          onClick={(e) => { e.preventDefault(); window.history.back(); }}
+          style={{
+            fontSize: '13px',
+            color: 'var(--sf-accent)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            textDecoration: 'none',
+          }}
+        >
+          ← Kembali ke Daftar Iuran
+        </a>
+      </div>
+
+      {/* Loading */}
+      {loading && (
+        <div style={{
+          textAlign: 'center',
+          padding: '24px 0',
+          color: 'var(--sf-text-muted)',
+          fontSize: 13,
+        }}>
+          Memuat data tagihan...
+        </div>
+      )}
+
+      {/* Error */}
+      {!loading && error && (
+        <div style={{
+          background: 'var(--color-expense-subtle)',
+          color: 'var(--color-expense)',
+          border: '1px solid rgba(255,59,48,0.3)',
+          borderRadius: 'var(--radius-sm)',
+          padding: '10px 14px',
+          fontSize: '13px',
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Not found */}
+      {!loading && !error && !bill && (
+        <div style={{
+          textAlign: 'center',
+          padding: '24px 0',
+          color: 'var(--sf-text-muted)',
+          fontSize: 13,
+        }}>
+          Tagihan iuran yang Anda buka tidak ditemukan.
+        </div>
+      )}
+
+      {/* Payment form */}
+      {paymentContent}
+    </div>
   )
 }

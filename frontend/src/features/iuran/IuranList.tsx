@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   DollarOutlined,
   PlusOutlined,
@@ -22,6 +21,7 @@ import {
 } from './iuranTypes'
 import { DueCreate } from './DueCreate'
 import { IuranDetail } from './IuranDetail'
+import { IuranPayment } from './IuranPayment'
 import type { IuranBill, IuranStatus } from './iuranTypes'
 import { apiListBills, apiListPayments, type ApiBill, getSessionPair } from '@/app/api'
 
@@ -54,7 +54,6 @@ const colStyles = {
 }
 
 export function IuranList() {
-  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [backendBills, setBackendBills] = useState<ApiBill[]>([])
@@ -64,6 +63,9 @@ export function IuranList() {
 
   // Detail modal state
   const [showDetailBillId, setShowDetailBillId] = useState<string | null>(null)
+
+  // Payment modal state
+  const [showPaymentBillId, setShowPaymentBillId] = useState<string | null>(null)
 
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [search, setSearch] = useState('')
@@ -451,6 +453,19 @@ export function IuranList() {
             billId={showDetailBillId}
             open
             onClose={() => setShowDetailBillId(null)}
+            onPayment={(billId) => {
+              setShowDetailBillId(null)
+              setShowPaymentBillId(billId)
+            }}
+          />
+        )}
+
+        {/* Payment Modal */}
+        {showPaymentBillId && (
+          <IuranPayment
+            billId={showPaymentBillId}
+            open={true}
+            onClose={() => setShowPaymentBillId(null)}
           />
         )}
 
@@ -499,7 +514,7 @@ export function IuranList() {
                     bill={bill}
                     idx={idx}
                     onDetail={() => setShowDetailBillId(bill.id)}
-                    onPayment={() => navigate(`/iuran/${bill.id}/pembayaran`)}
+                    onPayment={() => setShowPaymentBillId(bill.id)}
                   />
                 ))}
               </tbody>

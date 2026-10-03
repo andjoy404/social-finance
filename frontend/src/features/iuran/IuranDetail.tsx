@@ -38,10 +38,12 @@ export function IuranDetail({
   billId,
   open: openProp,
   onClose: onCloseProp,
+  onPayment: onPaymentProp,
 }: {
   billId?: string
   open?: boolean
   onClose?: () => void
+  onPayment?: (billId: string) => void
 } = {}) {
   const routeId = useParams<{ id: string }>()?.id
   const effectiveId = billId ?? routeId
@@ -49,6 +51,7 @@ export function IuranDetail({
   const isModal = billId !== undefined
   const open = openProp ?? true
   const handleClose = onCloseProp ?? (() => window.history.back())
+  const onPayment = onPaymentProp ?? (() => { window.history.back(); window.location.href = `/iuran/${effectiveId}/pembayaran` })
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -312,22 +315,41 @@ export function IuranDetail({
         {/* Actions */}
         {remaining > 0 && (
           <div style={{ marginTop: 'var(--sp-lg)', display: 'flex', gap: '8px' }}>
-            <Link
-              to={`/iuran/${bill.id}/pembayaran`}
-              style={{
-                padding: '8px 16px',
-                fontSize: '13px',
-                fontWeight: 500,
-                color: '#fff',
-                background: 'var(--sf-accent)',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                textDecoration: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              Bayar Sekarang
-            </Link>
+            {isModal ? (
+              <button
+                type="button"
+                onClick={() => onPayment(bill.id)}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: '#fff',
+                  background: 'var(--sf-accent)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                }}
+              >
+                Bayar Sekarang
+              </button>
+            ) : (
+              <Link
+                to={`/iuran/${bill.id}/pembayaran`}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: '#fff',
+                  background: 'var(--sf-accent)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  textDecoration: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Bayar Sekarang
+              </Link>
+            )}
           </div>
         )}
       </AppCard>
