@@ -21,6 +21,7 @@ import {
   parseMoney,
 } from './iuranTypes'
 import { DueCreate } from './DueCreate'
+import { IuranDetail } from './IuranDetail'
 import type { IuranBill, IuranStatus } from './iuranTypes'
 import { apiListBills, apiListPayments, type ApiBill, getSessionPair } from '@/app/api'
 
@@ -60,6 +61,9 @@ export function IuranList() {
 
   // Create Due modal state
   const [showCreateDue, setShowCreateDue] = useState(false)
+
+  // Detail modal state
+  const [showDetailBillId, setShowDetailBillId] = useState<string | null>(null)
 
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [search, setSearch] = useState('')
@@ -441,6 +445,15 @@ export function IuranList() {
           />
         )}
 
+        {/* Detail Modal */}
+        {showDetailBillId && (
+          <IuranDetail
+            billId={showDetailBillId}
+            open
+            onClose={() => setShowDetailBillId(null)}
+          />
+        )}
+
         {/* Error */}
         {error && (
           <div className="sf-error-banner" role="alert">
@@ -485,7 +498,7 @@ export function IuranList() {
                     key={bill.id}
                     bill={bill}
                     idx={idx}
-                    onDetail={() => navigate(`/iuran/${bill.id}`)}
+                    onDetail={() => setShowDetailBillId(bill.id)}
                     onPayment={() => navigate(`/iuran/${bill.id}/pembayaran`)}
                   />
                 ))}
