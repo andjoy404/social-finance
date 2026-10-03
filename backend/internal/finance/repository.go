@@ -569,7 +569,7 @@ func PaymentList(ctx context.Context, tx *sql.Tx, rtID string, billID, status *s
 	}
 	defer rows.Close()
 
-	var list []*Payment
+	list := make([]*Payment, 0)
 	for rows.Next() {
 		var p Payment
 		if err := rows.Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
@@ -1154,7 +1154,7 @@ func PaymentListAll(ctx context.Context, tx *sql.Tx, billID, status *string, off
 	}
 	defer rows.Close()
 
-	var list []*Payment
+	list := make([]*Payment, 0)
 	for rows.Next() {
 		var p Payment
 		if err := rows.Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
