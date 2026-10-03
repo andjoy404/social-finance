@@ -58,6 +58,15 @@ export const IURAN_TYPE_OPTIONS: { value: IuranType; label: string }[] = [
   { value: 'Pembangunan', label: 'Iuran Pembangunan' },
 ]
 
+// Backend DuePeriodType → frontend display
+export type DuePeriodType = 'monthly' | 'yearly' | 'one_time'
+
+export const DUE_PERIOD_TYPE_OPTIONS: { value: DuePeriodType; label: string }[] = [
+  { value: 'monthly', label: 'Bulanan' },
+  { value: 'yearly', label: 'Tahunan' },
+  { value: 'one_time', label: 'Sekali Waktu' },
+]
+
 export function getIuranTypeLabel(value: string): string {
   return IURAN_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value
 }

@@ -666,6 +666,58 @@ export async function updateSpecialResident(
   return data
 }
 
+// ── Finance (Dues) ────────────────────────────────────────────────────────
+
+export interface ApiDue {
+  id: string
+  rt_id: string
+  name: string
+  amount: string
+  period_type: 'monthly' | 'yearly' | 'one_time'
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiCreateDueBody {
+  name: string
+  amount: string
+  period_type: 'monthly' | 'yearly' | 'one_time'
+}
+
+export async function apiListDues(
+  token: string,
+  params?: { page?: number; page_size?: number; is_active?: boolean },
+): Promise<ApiPaginated<ApiDue>> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  if (params?.is_active != null) q.set('is_active', String(params.is_active))
+  const res = await authenticatedApiRequest(BASE + '/dues?' + q.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiPaginated<ApiDue>>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateDue(
+  token: string,
+  body: ApiCreateDueBody,
+): Promise<ApiDue> {
+  const res = await authenticatedApiRequest(BASE + '/dues', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiDue>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
 // ── Finance (Bills & Payments) ──────────────────────────────────────────────────
 
 export interface ApiBill {

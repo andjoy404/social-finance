@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   DollarOutlined,
+  PlusOutlined,
   CloseOutlined,
   DownOutlined,
 } from '@ant-design/icons'
@@ -19,6 +19,7 @@ import {
   IURAN_TYPE_OPTIONS,
   parseMoney,
 } from './iuranTypes'
+import { DueCreate } from './DueCreate'
 import type { IuranBill, IuranStatus } from './iuranTypes'
 import { apiListBills, apiListPayments, type ApiBill, getSessionPair } from '@/app/api'
 
@@ -51,11 +52,12 @@ const colStyles = {
 }
 
 export function IuranList() {
-  const navigate = useNavigate()
-
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [backendBills, setBackendBills] = useState<ApiBill[]>([])
+
+  // Create Due modal state
+  const [showCreateDue, setShowCreateDue] = useState(false)
 
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [search, setSearch] = useState('')
@@ -171,7 +173,7 @@ export function IuranList() {
 
       const totalPages = Math.max(1, Math.ceil(bills.length / size))
 
-      setBackendBills(response.data)
+      setBackendBills(response?.data ?? [])
       setFilteredBills(bills)
       setTotal(bills.length)
       setTotalPages(totalPages)
@@ -415,7 +417,27 @@ export function IuranList() {
               }
             />
           </div>
+
+          {/* Create Due button */}
+          <div className="sf-list-toolbar-right">
+            <button
+              type="button"
+              className="sf-btn-primary"
+              onClick={() => setShowCreateDue(true)}
+            >
+              <PlusOutlined style={{ marginRight: 4, fontSize: 12 }} />
+              Tambah Iuran
+            </button>
+          </div>
         </div>
+
+        {/* Create Due Modal */}
+        {showCreateDue && (
+          <DueCreate
+            onClose={() => setShowCreateDue(false)}
+            onSaved={() => loadData(1, pageSize)}
+          />
+        )}
 
         {/* Error */}
         {error && (
