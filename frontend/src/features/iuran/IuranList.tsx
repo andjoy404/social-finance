@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   DollarOutlined,
   PlusOutlined,
@@ -52,6 +53,7 @@ const colStyles = {
 }
 
 export function IuranList() {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [backendBills, setBackendBills] = useState<ApiBill[]>([])

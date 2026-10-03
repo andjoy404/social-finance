@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   apiCreateDue,
@@ -205,7 +205,7 @@ export function DueCreate({
   // Authorization gate
   if (user && !hasFinanceCreateAccess(user)) {
     return (
-      <Modal open onClose={handleClose}>
+      <Modal open={open} onClose={handleClose}>
         <ModalHeader
           title="Akses Ditolak"
           subtitle="Anda tidak memiliki izin untuk menambah iuran."
@@ -221,7 +221,7 @@ export function DueCreate({
   }
 
   return (
-    <Modal open onClose={handleClose} width={520} overlayClassName="sf-modal-overlay-due">
+    <Modal open={open} onClose={handleClose} width={520} overlayClassName="sf-modal-overlay-due">
       <ModalHeader
         title="Tambah Iuran"
         subtitle="Form pembuatan jenis iuran baru"
