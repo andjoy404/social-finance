@@ -13,7 +13,7 @@ import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 
 import '../../data/iuran_models.dart';
-import '../../data/iuran_mock_data.dart';
+import '../../data/iuran_providers.dart';
 
 /// Main Iuran list screen (WargaScreen equivalent).
 class IuranScreen extends ConsumerStatefulWidget {
@@ -24,15 +24,7 @@ class IuranScreen extends ConsumerStatefulWidget {
 }
 
 class _IuranScreenState extends ConsumerState<IuranScreen> {
-  late final TextEditingController _searchController;
-  String _selectedPeriode = '';
-  String _selectedStatus = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController = TextEditingController();
-  }
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void dispose() {
@@ -40,46 +32,23 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
     super.dispose();
   }
 
-  void _clearSearch() {
-    _searchController.clear();
-    setState(() {});
-  }
-
-  void _clearFilters() {
-    setState(() {
-      _selectedPeriode = '';
-      _selectedStatus = '';
-    });
-  }
-
-  List<IuranBill> _getFilteredBills() {
-    final bills = IuranMockData.bills;
-    final query = _searchController.text.trim().toLowerCase();
-
-    return bills.where((bill) {
-      // Search filter
-      final searchMatch = query.isEmpty ||
-          bill.householdName.toLowerCase().contains(query) ||
-          bill.iuranType.toLowerCase().contains(query) ||
-          bill.rt.contains(query);
-
-      // Periode filter
-      final periodeMatch =
-          _selectedPeriode.isEmpty || bill.periode == _selectedPeriode;
-
-      // Status filter
-      final statusMatch =
-          _selectedStatus.isEmpty || bill.status.name == _selectedStatus;
-
-      return searchMatch && periodeMatch && statusMatch;
-    }).toList();
+  /// Sync search controller text to provider.
+  void _syncSearchToProvider() {
+    ref.read(iuranSearchQueryProvider.notifier).state =
+        _searchController.text.trim();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final filtered = _getFilteredBills();
+
+    // Watch providers for data + filtering
+    final billsState = ref.watch(billsProvider);
+    final filtered = ref.watch(filteredBillsProvider);
+    final periode = ref.watch(iuranSelectedPeriodeProvider);
+    final status = ref.watch(iuranSelectedStatusProvider);
+
     final accentSoft = AppColors.accentSoftColor(context);
 
     return Scaffold(
@@ -88,8 +57,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
         title: const MenuAppBarTitle(title: 'Iuran'),
       ),
       floatingActionButton: kIsWeb
-          ? _buildWebFab(accentSoft)
-          : _buildAndroidFab(accentSoft),
+          ? _buildWebFAB(accentSoft)
+          : _buildAndroidFAB(accentSoft),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -108,10 +77,14 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
               suffixIcon: _searchController.text.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear, size: 20),
-                      onPressed: _clearSearch,
+                      onPressed: () {
+                        _searchController.clear();
+                        _syncSearchToProvider();
+                        setState(() {});
+                      },
                     )
                   : null,
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => _syncSearchToProvider(),
             ),
           ),
 
@@ -122,28 +95,27 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
               children: [
                 // Periode chip
                 _buildFilterChip(
-                  label: _selectedPeriode.isEmpty
-                      ? 'Periode'
-                      : _selectedPeriode,
-                  selected: _selectedPeriode.isNotEmpty,
-                  onTap: () => _showPeriodeDialog(),
+                  label: periode.isEmpty ? 'Periode' : periode,
+                  selected: periode.isNotEmpty,
+                  onTap: () => _showPeriodeDialog(context),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 // Status chip
                 _buildFilterChip(
-                  label: _selectedStatus.isEmpty
+                  label: status.isEmpty
                       ? 'Status'
-                      : getStatusLabel(
-                          parseStatus(_selectedStatus),
-                        ),
-                  selected: _selectedStatus.isNotEmpty,
-                  onTap: () => _showStatusDialog(),
+                      : getStatusLabel(parseStatus(status)),
+                  selected: status.isNotEmpty,
+                  onTap: () => _showStatusDialog(context),
                 ),
-                if (_selectedPeriode.isNotEmpty ||
-                    _selectedStatus.isNotEmpty) ...[
+                if (periode.isNotEmpty || status.isNotEmpty) ...[
                   const SizedBox(width: AppSpacing.sm),
                   GestureDetector(
-                    onTap: _clearFilters,
+                    onTap: () {
+                      ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
+                      ref.read(iuranSelectedStatusProvider.notifier).state = '';
+                      setState(() {});
+                    },
                     child: Icon(
                       Icons.close,
                       size: 16,
@@ -172,51 +144,164 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
             ),
           ),
 
-          // ── Content: Empty / List ──
+          // ── Content: Loading / Error / Empty / List ──
           Expanded(
-            child: filtered.isEmpty
-                ? Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: _searchController.text.isNotEmpty ||
-                              _selectedPeriode.isNotEmpty ||
-                              _selectedStatus.isNotEmpty
-                          ? EmptyState(
-                              icon: Icons.receipt_long_outlined,
-                              title: 'Tagihan Tidak Ditemukan',
-                              description:
-                                  'Tidak ada tagihan yang sesuai dengan filter saat ini.',
-                              actionText: 'Reset Filter',
-                              onAction: _clearFilters,
-                            )
-                          : const EmptyState(
-                              icon: Icons.receipt_long_outlined,
-                              title: 'Belum Ada Tagihan',
-                              description:
-                                  'Tagihan iuran RT belum tersedia.',
-                            ),
+            child: switch (billsState) {
+              AsyncLoading() => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              AsyncError(:final error) => Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: EmptyState(
+                      icon: Icons.error_outline,
+                      title: 'Gagal Memuat Data',
+                      description: error.toString(),
+                      actionText: 'Coba Lagi',
+                      onAction: () =>
+                          ref.read(billsProvider.notifier).refresh(),
                     ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.base,
-                      AppSpacing.xs,
-                      AppSpacing.base,
-                      AppSpacing.xl,
-                    ),
-                    itemCount: filtered.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final bill = filtered[index];
-                      return _IuranCard(bill: bill);
-                    },
                   ),
+                ),
+              _ => filtered.isEmpty
+                  ? Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: _searchController.text.trim().isNotEmpty ||
+                                periode.isNotEmpty ||
+                                status.isNotEmpty
+                            ? EmptyState(
+                                icon: Icons.receipt_long_outlined,
+                                title: 'Tagihan Tidak Ditemukan',
+                                description:
+                                    'Tidak ada tagihan yang sesuai dengan filter saat ini.',
+                                actionText: 'Reset Filter',
+                                onAction: () {
+                                  _searchController.clear();
+                                  ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
+                                  ref.read(iuranSelectedStatusProvider.notifier).state = '';
+                                  setState(() {});
+                                },
+                              )
+                            : const EmptyState(
+                                icon: Icons.receipt_long_outlined,
+                                title: 'Belum Ada Tagihan',
+                                description:
+                                    'Tagihan iuran RT belum tersedia.',
+                              ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.base,
+                        AppSpacing.xs,
+                        AppSpacing.base,
+                        AppSpacing.xl,
+                      ),
+                      itemCount: filtered.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (context, index) {
+                        final bill = filtered[index];
+                        return _IuranCard(bill: bill);
+                      },
+                    ),
+            },
           ),
         ],
       ),
     );
   }
+
+  // ── FAB ──
+
+  Widget _buildAndroidFAB(Color accentSoft) {
+    return Container(
+      decoration: BoxDecoration(
+        color: accentSoft,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.accent, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.accent.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 0),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        clipBehavior: Clip.none,
+        child: InkWell(
+          onTap: () => context.push('/home/iuran/form'),
+          borderRadius: BorderRadius.circular(24),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add, size: 20, color: AppColors.accent),
+                SizedBox(width: 6),
+                Text(
+                  'Buat Tagihan',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWebFAB(Color accentSoft) {
+    return Container(
+      decoration: BoxDecoration(
+        color: accentSoft,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.accent, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.accent.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 0),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        clipBehavior: Clip.none,
+        child: InkWell(
+          onTap: () => context.push('/home/iuran/form'),
+          borderRadius: BorderRadius.circular(24),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add, size: 20, color: AppColors.accent),
+                SizedBox(width: 6),
+                Text(
+                  'Buat Tagihan',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Filter Chip ──
 
   Widget _buildFilterChip({
     required String label,
@@ -273,93 +358,10 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
     );
   }
 
-  Widget _buildAndroidFab(Color accentSoft) {
-    return Container(
-      decoration: BoxDecoration(
-        color: accentSoft,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.accent, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 0),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        clipBehavior: Clip.none,
-        child: InkWell(
-          onTap: () => context.push('/home/iuran/form'),
-          borderRadius: BorderRadius.circular(24),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.add, size: 20, color: AppColors.accent),
-                SizedBox(width: 6),
-                Text(
-                  'Buat Tagihan',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.accent,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  // ── Dialogs ──
 
-  Widget _buildWebFab(Color accentSoft) {
-    return Container(
-      decoration: BoxDecoration(
-        color: accentSoft,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.accent, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 0),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        clipBehavior: Clip.none,
-        child: InkWell(
-          onTap: () => context.push('/home/iuran/form'),
-          borderRadius: BorderRadius.circular(24),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.add, size: 20, color: AppColors.accent),
-                SizedBox(width: 6),
-                Text(
-                  'Buat Tagihan',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.accent,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showPeriodeDialog() {
+  void _showPeriodeDialog(BuildContext context) {
+    final periode = ref.read(iuranSelectedPeriodeProvider);
     showDialog<void>(
       context: context,
       builder: (dialogCtx) {
@@ -375,35 +377,43 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                   title: const Text('Semua'),
                   leading: Radio<String>(
                     value: '',
-                    groupValue: _selectedPeriode,
+                    groupValue: periode,
                     onChanged: (value) {
-                      setState(() => _selectedPeriode = value!);
+                      ref
+                          .read(iuranSelectedPeriodeProvider.notifier)
+                          .state = value ?? '';
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
                   onTap: () {
-                    setState(() => _selectedPeriode = '');
+                    ref
+                        .read(iuranSelectedPeriodeProvider.notifier)
+                        .state = '';
                     Navigator.of(dialogCtx).pop();
                   },
                 ),
                 const Divider(),
-                ...IuranMockData.periodeOptions.map((periode) {
-                  return ListTile(
-                    title: Text(periode),
+                // Use unique periode options from data
+                for (final p in _uniquePeriodes())
+                  ListTile(
+                    title: Text(p),
                     leading: Radio<String>(
-                      value: periode,
-                      groupValue: _selectedPeriode,
+                      value: p,
+                      groupValue: periode,
                       onChanged: (value) {
-                        setState(() => _selectedPeriode = value!);
+                        ref
+                            .read(iuranSelectedPeriodeProvider.notifier)
+                            .state = value ?? '';
                         Navigator.of(dialogCtx).pop();
                       },
                     ),
                     onTap: () {
-                      setState(() => _selectedPeriode = periode);
+                      ref
+                          .read(iuranSelectedPeriodeProvider.notifier)
+                          .state = p;
                       Navigator.of(dialogCtx).pop();
                     },
-                  );
-                }),
+                  ),
               ],
             ),
           ),
@@ -412,7 +422,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
     );
   }
 
-  void _showStatusDialog() {
+  void _showStatusDialog(BuildContext context) {
+    final status = ref.read(iuranSelectedStatusProvider);
     showDialog<void>(
       context: context,
       builder: (dialogCtx) {
@@ -428,31 +439,39 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                   title: const Text('Semua'),
                   leading: Radio<String>(
                     value: '',
-                    groupValue: _selectedStatus,
+                    groupValue: status,
                     onChanged: (value) {
-                      setState(() => _selectedStatus = value!);
+                      ref
+                          .read(iuranSelectedStatusProvider.notifier)
+                          .state = value ?? '';
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
                   onTap: () {
-                    setState(() => _selectedStatus = '');
+                    ref
+                        .read(iuranSelectedStatusProvider.notifier)
+                        .state = '';
                     Navigator.of(dialogCtx).pop();
                   },
                 ),
                 const Divider(),
-                for (final status in IuranStatus.values)
+                for (final s in IuranStatus.values)
                   ListTile(
-                    title: Text(getStatusLabel(status)),
+                    title: Text(getStatusLabel(s)),
                     leading: Radio<String>(
-                      value: status.name,
-                      groupValue: _selectedStatus,
+                      value: s.name,
+                      groupValue: status,
                       onChanged: (value) {
-                        setState(() => _selectedStatus = value!);
+                        ref
+                            .read(iuranSelectedStatusProvider.notifier)
+                            .state = value ?? '';
                         Navigator.of(dialogCtx).pop();
                       },
                     ),
                     onTap: () {
-                      setState(() => _selectedStatus = status.name);
+                      ref
+                          .read(iuranSelectedStatusProvider.notifier)
+                          .state = s.name;
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
@@ -462,6 +481,16 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
         );
       },
     );
+  }
+
+  /// Extract unique periods from the current bills list.
+  List<String> _uniquePeriodes() {
+    final billsState = ref.read(billsProvider);
+    return switch (billsState) {
+      AsyncData(:final value) => value.map((b) => b.periode).toSet().toList()
+        ..sort((a, b) => b.compareTo(a)),
+      _ => const [],
+    };
   }
 }
 

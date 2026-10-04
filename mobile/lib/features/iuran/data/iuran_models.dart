@@ -13,7 +13,6 @@ enum IuranStatus {
 class IuranBill {
   final String id;
   final String householdName;
-  final String rt;
   final String iuranType;
   final String periode;
   final int nominal; // amount in rupiah (int, no floating point)
@@ -23,7 +22,6 @@ class IuranBill {
   const IuranBill({
     required this.id,
     required this.householdName,
-    required this.rt,
     required this.iuranType,
     required this.periode,
     required this.nominal,

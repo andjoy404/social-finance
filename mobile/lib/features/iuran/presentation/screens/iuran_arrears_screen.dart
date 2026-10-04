@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
@@ -8,29 +9,22 @@ import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
-import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 
 import '../../data/iuran_models.dart';
-import '../../data/iuran_mock_data.dart';
+import '../../data/iuran_providers.dart';
 
 /// Screen showing arrears (unpaid + partially paid) iuran bills.
-class IuranArrearsScreen extends StatefulWidget {
+class IuranArrearsScreen extends ConsumerStatefulWidget {
   const IuranArrearsScreen({super.key});
 
   @override
-  State<IuranArrearsScreen> createState() => _IuranArrearsScreenState();
+  ConsumerState<IuranArrearsScreen> createState() =>
+      _IuranArrearsScreenState();
 }
 
-class _IuranArrearsScreenState extends State<IuranArrearsScreen> {
-  late final TextEditingController _searchController;
-  String _selectedPeriode = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController = TextEditingController();
-  }
+class _IuranArrearsScreenState extends ConsumerState<IuranArrearsScreen> {
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void dispose() {
@@ -38,44 +32,34 @@ class _IuranArrearsScreenState extends State<IuranArrearsScreen> {
     super.dispose();
   }
 
-  void _clearSearch() {
-    _searchController.clear();
-    setState(() {});
-  }
-
-  List<IuranBill> _getArrearsBills() {
-    final query = _searchController.text.trim().toLowerCase();
-
-    return IuranMockData.bills.where((bill) {
-      // Only unpaid or partially paid
-      if (bill.status == IuranStatus.lunas) return false;
-
-      // Search filter
-      final searchMatch = query.isEmpty ||
-          bill.householdName.toLowerCase().contains(query) ||
-          bill.iuranType.toLowerCase().contains(query) ||
-          bill.rt.contains(query);
-
-      // Periode filter
-      final periodeMatch =
-          _selectedPeriode.isEmpty || bill.periode == _selectedPeriode;
-
-      return searchMatch && periodeMatch;
-    }).toList();
-  }
-
-  /// Calculate total arrears from the arrears list.
-  int _calculateTotalArrears() {
-    final arrears = _getArrearsBills();
-    return arrears.fold(0, (sum, bill) => sum + bill.remainingAmount);
+  void _syncSearch() {
+    ref.read(iuranSearchQueryProvider.notifier).state =
+        _searchController.text.trim();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final arrears = _getArrearsBills();
-    final totalArrears = _calculateTotalArrears();
+    final periode = ref.watch(iuranSelectedPeriodeProvider);
+    final billsState = ref.watch(billsProvider);
+
+    // Derive arrears bills: non-lunas, then filter by search/periode
+    final allBills = switch (billsState) {
+      AsyncData(:final value) => value.where((b) => b.isInArrears).toList(),
+      _ => <IuranBill>[],
+    };
+
+    final arrears = allBills.where((b) {
+      final query = _searchController.text.trim().toLowerCase();
+      final searchMatch = query.isEmpty ||
+          b.householdName.toLowerCase().contains(query) ||
+          b.iuranType.toLowerCase().contains(query);
+      final periodeMatch = periode.isEmpty || b.periode == periode;
+      return searchMatch && periodeMatch;
+    }).toList();
+
+    final totalArrears = arrears.fold(0, (sum, b) => sum + b.remainingAmount);
 
     return Scaffold(
       appBar: AppBar(
@@ -86,141 +70,175 @@ class _IuranArrearsScreenState extends State<IuranArrearsScreen> {
           onPressed: () => context.pop(),
         ),
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Search Section ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.base,
-              AppSpacing.sm,
-              AppSpacing.base,
-              AppSpacing.sm,
-            ),
-            child: AppTextField(
-              controller: _searchController,
-              hintText: 'Cari nama atau jenis iuran...',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 20),
-                      onPressed: _clearSearch,
-                    )
-                  : null,
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-
-          // ── Filter Chip ──
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-            child: Row(
-              children: [
-                _buildFilterChip(
-                  label: _selectedPeriode.isEmpty
-                      ? 'Periode'
-                      : _selectedPeriode,
-                  selected: _selectedPeriode.isNotEmpty,
-                  onTap: _showPeriodeDialog,
-                ),
-              ],
-            ),
-          ),
-
-          // ── Summary Card ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.base,
-              AppSpacing.sm,
-              AppSpacing.base,
-              AppSpacing.xs,
-            ),
-            child: Container(
-              padding: const EdgeInsets.all(AppSpacing.base),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withValues(alpha: isDark ? 0.15 : 0.08),
-                borderRadius: BorderRadius.circular(AppRadius.base),
-                border: Border.all(
-                  color: AppColors.warning.withValues(alpha: isDark ? 0.3 : 0.2),
-                ),
-              ),
-              child: Row(
+      body: switch (billsState) {
+        AsyncLoading() => const Center(child: CircularProgressIndicator()),
+        AsyncError(:final error) => Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    color: AppColors.warning,
-                    size: 20,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      'Total Tunggakan',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.warning,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    formatRupiah(totalArrears),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: AppColors.warning,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Icon(Icons.error_outline,
+                      size: 64, color: AppColors.warning),
+                  const SizedBox(height: AppSpacing.md),
+                  Text('Gagal Memuat Data',
+                      style: theme.textTheme.titleLarge),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(error.toString(),
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant)),
+                  const SizedBox(height: AppSpacing.lg),
+                  ElevatedButton.icon(
+                    onPressed: () => ref
+                        .refresh(billsProvider),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Coba Lagi'),
                   ),
                 ],
               ),
             ),
           ),
-
-          // ── Count ──
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.base,
-              vertical: AppSpacing.xs,
-            ),
-            child: Text(
-              '${arrears.length} tagihan belum terselesaikan',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
+        _ => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Search Section ──
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.base,
+                  AppSpacing.sm,
+                  AppSpacing.base,
+                  AppSpacing.sm,
+                ),
+                child: AppTextField(
+                  controller: _searchController,
+                  hintText: 'Cari nama atau jenis iuran...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 20),
+                          onPressed: () {
+                            _searchController.clear();
+                            _syncSearch();
+                            setState(() {});
+                          },
+                        )
+                      : null,
+                  onChanged: (_) => _syncSearch(),
+                ),
               ),
-            ),
-          ),
 
-          // ── Arrears List ──
-          Expanded(
-            child: arrears.isEmpty
-                ? Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: const EmptyState(
-                        icon: Icons.check_circle_outline,
-                        title: 'Tidak Ada Tunggakan',
-                        description:
-                            'Semua tagihan iuran sudah terselesaikan.',
-                      ),
+              // ── Filter Chip ──
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: AppSpacing.base),
+                child: Row(
+                  children: [
+                    _buildFilterChip(
+                      label: periode.isEmpty ? 'Periode' : periode,
+                      selected: periode.isNotEmpty,
+                      onTap: () => _showPeriodeDialog(context, isDark),
                     ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.base,
-                      AppSpacing.xs,
-                      AppSpacing.base,
-                      AppSpacing.xl,
+                  ],
+                ),
+              ),
+
+              // ── Summary Card ──
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.base,
+                  AppSpacing.sm,
+                  AppSpacing.base,
+                  AppSpacing.xs,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(AppSpacing.base),
+                  decoration: BoxDecoration(
+                    color: AppColors.warning.withValues(
+                        alpha: isDark ? 0.15 : 0.08),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(
+                      color: AppColors.warning
+                          .withValues(alpha: isDark ? 0.3 : 0.2),
                     ),
-                    itemCount: arrears.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final bill = arrears[index];
-                      return _ArrearsCard(bill: bill);
-                    },
                   ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        color: AppColors.warning,
+                        size: 20,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Total Tunggakan',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        formatRupiah(totalArrears),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: AppColors.warning,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ── Count ──
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.base,
+                  vertical: AppSpacing.xs,
+                ),
+                child: Text(
+                  '${arrears.length} tagihan belum terselesaikan',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+
+              // ── Arrears List ──
+              Expanded(
+                child: arrears.isEmpty
+                    ? Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          child: const EmptyState(
+                            icon: Icons.check_circle_outline,
+                            title: 'Tidak Ada Tunggakan',
+                            description:
+                                'Semua tagihan iuran sudah terselesaikan.',
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.base,
+                          AppSpacing.xs,
+                          AppSpacing.base,
+                          AppSpacing.xl,
+                        ),
+                        itemCount: arrears.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: AppSpacing.sm),
+                        itemBuilder: (context, index) {
+                          final bill = arrears[index];
+                          return _ArrearsCard(bill: bill);
+                        },
+                      ),
+              ),
+            ],
           ),
-        ],
-      ),
+      },
     );
   }
 
@@ -279,7 +297,9 @@ class _IuranArrearsScreenState extends State<IuranArrearsScreen> {
     );
   }
 
-  void _showPeriodeDialog() {
+  void _showPeriodeDialog(BuildContext context, bool isDark) {
+    final periode = ref.read(iuranSelectedPeriodeProvider);
+
     showDialog<void>(
       context: context,
       builder: (dialogCtx) {
@@ -294,41 +314,57 @@ class _IuranArrearsScreenState extends State<IuranArrearsScreen> {
                   title: const Text('Semua'),
                   leading: Radio<String>(
                     value: '',
-                    groupValue: _selectedPeriode,
+                    groupValue: periode,
                     onChanged: (value) {
-                      setState(() => _selectedPeriode = value!);
+                      ref
+                          .read(iuranSelectedPeriodeProvider.notifier)
+                          .state = value ?? '';
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
                   onTap: () {
-                    setState(() => _selectedPeriode = '');
+                    ref
+                        .read(iuranSelectedPeriodeProvider.notifier)
+                        .state = '';
                     Navigator.of(dialogCtx).pop();
                   },
                 ),
                 const Divider(),
-                ...IuranMockData.periodeOptions.map((periode) {
-                  return ListTile(
-                    title: Text(periode),
+                for (final p in _uniquePeriodes())
+                  ListTile(
+                    title: Text(p),
                     leading: Radio<String>(
-                      value: periode,
-                      groupValue: _selectedPeriode,
+                      value: p,
+                      groupValue: periode,
                       onChanged: (value) {
-                        setState(() => _selectedPeriode = value!);
+                        ref
+                            .read(iuranSelectedPeriodeProvider.notifier)
+                            .state = value ?? '';
                         Navigator.of(dialogCtx).pop();
                       },
                     ),
                     onTap: () {
-                      setState(() => _selectedPeriode = periode);
+                      ref
+                          .read(iuranSelectedPeriodeProvider.notifier)
+                          .state = p;
                       Navigator.of(dialogCtx).pop();
                     },
-                  );
-                }),
+                  ),
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  List<String> _uniquePeriodes() {
+    final state = ref.read(billsProvider);
+    return switch (state) {
+      AsyncData(:final value) =>
+        value.map((b) => b.periode).toSet().toList()..sort((a, b) => b.compareTo(a)),
+      _ => const [],
+    };
   }
 }
 

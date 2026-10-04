@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
@@ -7,21 +8,25 @@ import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
+import 'package:social_finance/core/widgets/empty_state.dart';
 
+import '../../data/iuran_api_models.dart';
 import '../../data/iuran_models.dart';
-import '../../data/iuran_mock_data.dart';
+import '../../data/iuran_providers.dart';
+import '../../data/iuran_repository.dart';
 
 /// Payment form screen for making iuran payments.
-class IuranPaymentScreen extends StatefulWidget {
+class IuranPaymentScreen extends ConsumerStatefulWidget {
   final String billId;
 
   const IuranPaymentScreen({super.key, required this.billId});
 
   @override
-  State<IuranPaymentScreen> createState() => _IuranPaymentScreenState();
+  ConsumerState<IuranPaymentScreen> createState() =>
+      _IuranPaymentScreenState();
 }
 
-class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
+class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   final _formKey = GlobalKey<FormState>();
   final _tanggalCtrl = TextEditingController();
   final _nominalCtrl = TextEditingController();
@@ -29,27 +34,11 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
 
   bool _saving = false;
   String? _error;
-  String? _selectedBillId;
-  IuranBill? _selectedBill;
 
   @override
   void initState() {
     super.initState();
     _tanggalCtrl.text = DateTime.now().toLocal().toString().split(' ')[0];
-
-    // Auto-select the bill from route parameter
-    _selectedBillId = widget.billId;
-    _selectedBill = IuranMockData.bills.firstWhere(
-      (b) => b.id == widget.billId,
-      orElse: () => IuranMockData.bills.first,
-    );
-
-    // Pre-fill with remaining amount
-    if (_selectedBill != null) {
-      _nominalCtrl.text = (_selectedBill!.remainingAmount > 0)
-          ? (_selectedBill!.remainingAmount).toString()
-          : _selectedBill!.nominal.toString();
-    }
   }
 
   @override
@@ -60,34 +49,6 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
     super.dispose();
   }
 
-  bool _validate() {
-    final errors = <String>[];
-
-    if (_tanggalCtrl.text.isEmpty) {
-      errors.add('Tanggal pembayaran harus diisi.');
-    }
-    if (_nominalCtrl.text.trim().isEmpty) {
-      errors.add('Nominal pembayaran harus diisi.');
-    } else {
-      final amount = int.tryParse(_nominalCtrl.text.trim());
-      if (amount == null || amount <= 0) {
-        errors.add('Nominal harus berupa angka yang valid.');
-      }
-      if (_selectedBill != null && amount != null && amount > _selectedBill!.remainingAmount) {
-        errors.add('Nominal melebihi sisa tagihan.');
-      }
-    }
-    if (_catatanCtrl.text.trim().isEmpty) {
-      errors.add('Catatan pembayaran harus diisi.');
-    }
-
-    if (errors.isNotEmpty) {
-      setState(() => _error = errors.join('\n'));
-      return false;
-    }
-    return true;
-  }
-
   Future<void> _save() async {
     if (!_validate()) return;
 
@@ -96,22 +57,58 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
       _error = null;
     });
 
-    // Simulate API call delay
-    await Future.delayed(const Duration(seconds: 1));
+    try {
+      final amount = int.parse(_nominalCtrl.text.trim());
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Pembayaran berhasil dicatat.'),
-          backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.base),
+      await ref.read(iuranRepositoryProvider).createPayment(
+            billId: widget.billId,
+            amount: amount,
+            method: PaymentMethod.cash,
+            notes: _catatanCtrl.text.trim().isEmpty
+                ? null
+                : _catatanCtrl.text.trim(),
+          );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Pembayaran berhasil dicatat.'),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.base),
+            ),
           ),
-        ),
-      );
-      context.pop();
+        );
+        context.pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _saving = false;
+        });
+      }
     }
+  }
+
+  bool _validate() {
+    if (!_formKey.currentState!.validate()) return false;
+
+    final amount = int.tryParse(_nominalCtrl.text.trim());
+    if (amount != null) {
+      final state = ref.read(billDetailProvider(widget.billId));
+      if (state is AsyncData<IuranBill?> && state.value != null) {
+        final remaining = state.value!.remainingAmount;
+        if (amount > remaining && remaining > 0) {
+          if (mounted) {
+            setState(() => _error = 'Nominal melebihi sisa tagihan.');
+          }
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   Future<void> _confirmCancel() async {
@@ -185,18 +182,23 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    // Watch bill detail from API
+    final billState = ref.watch(billDetailProvider(widget.billId));
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await _confirmCancel();
+        if (!_saving) {
+          await _confirmCancel();
+        }
       },
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Pembayaran Iuran'),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () => _confirmCancel(),
+            onPressed: _saving ? null : () => _confirmCancel(),
           ),
         ),
         body: Form(
@@ -229,129 +231,47 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
               if (_error != null) const SizedBox(height: AppSpacing.md),
 
               // ── Bill Summary ──
-              if (_selectedBill != null)
-                AppCard(
-                  useEmphasis: true,
-                  padding: const EdgeInsets.all(AppSpacing.base),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Ringkasan Tagihan',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.groups_outlined,
-                            size: 18,
-                            color: AppColors.accent,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              'Kepala Keluarga',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            _selectedBill!.householdName,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.receipt_long_outlined,
-                            size: 18,
-                            color: AppColors.accent,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              'Jenis Iuran',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            _selectedBill!.iuranType,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today_outlined,
-                            size: 18,
-                            color: AppColors.accent,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              'Periode',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            _selectedBill!.periode,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.account_balance_wallet_outlined,
-                            size: 18,
-                            color: AppColors.accent,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              'Sisa Tagihan',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            formatRupiah(_selectedBill!.remainingAmount),
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              color: AppColors.accent,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+              switch (billState) {
+                AsyncData(:final value) when value != null => _buildBillSummary(
+                    theme,
+                    isDark,
+                    value,
                   ),
-                ),
+                AsyncData() => Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: EmptyState(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'Tagihan Tidak Ditemukan',
+                        description: 'Detail tagihan tidak tersedia.',
+                        actionText: 'Kembali',
+                        onAction: () => context.pop(),
+                      ),
+                    ),
+                  ),
+                AsyncError() => Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Gagal Memuat Data Tagihan',
+                            style: theme.textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          ElevatedButton.icon(
+                            onPressed: () => ref
+                                .refresh(billDetailProvider(widget.billId)),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Coba Lagi'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                _ => const Center(child: CircularProgressIndicator()),
+              },
 
               const SizedBox(height: AppSpacing.lg),
 
@@ -376,7 +296,7 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
                           const Duration(days: 365),
                         ),
                       );
-                      if (picked != null) {
+                      if (picked != null && mounted) {
                         setState(() {
                           _tanggalCtrl.text = picked
                               .toLocal()
@@ -389,7 +309,8 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
                       padding: const EdgeInsets.all(AppSpacing.md),
                       decoration: BoxDecoration(
                         border: Border.all(color: AppColors.lightBorder),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        borderRadius:
+                            BorderRadius.circular(AppRadius.base),
                         color: isDark
                             ? AppColors.darkSurface
                             : AppColors.lightSurface,
@@ -436,8 +357,13 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
                   if (amount == null || amount <= 0) {
                     return 'Nominal harus berupa angka yang valid.';
                   }
-                  if (_selectedBill != null &&
-                      amount > _selectedBill!.remainingAmount) {
+                  final state = ref.read(
+                    billDetailProvider(widget.billId),
+                  );
+                  if (state is AsyncData<IuranBill?> &&
+                      state.value != null &&
+                      amount > state.value!.remainingAmount &&
+                      state.value!.remainingAmount > 0) {
                     return 'Nominal melebihi sisa tagihan.';
                   }
                   return null;
@@ -549,6 +475,135 @@ class _IuranPaymentScreenState extends State<IuranPaymentScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBillSummary(
+    ThemeData theme,
+    bool isDark,
+    IuranBill bill,
+  ) {
+    return AppCard(
+      useEmphasis: true,
+      padding: const EdgeInsets.all(AppSpacing.base),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Ringkasan Tagihan',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Icon(
+                Icons.groups_outlined,
+                size: 18,
+                color: AppColors.accent,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Kepala Keluarga',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark
+                        ? AppColors.darkTextMuted
+                        : AppColors.lightTextMuted,
+                  ),
+                ),
+              ),
+              Text(
+                bill.householdName,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Icon(
+                Icons.receipt_long_outlined,
+                size: 18,
+                color: AppColors.accent,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Jenis Iuran',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark
+                        ? AppColors.darkTextMuted
+                        : AppColors.lightTextMuted,
+                  ),
+                ),
+              ),
+              Text(
+                bill.iuranType,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Icon(
+                Icons.calendar_today_outlined,
+                size: 18,
+                color: AppColors.accent,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Periode',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark
+                        ? AppColors.darkTextMuted
+                        : AppColors.lightTextMuted,
+                  ),
+                ),
+              ),
+              Text(
+                bill.periode,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+          Row(
+            children: [
+              Icon(
+                Icons.account_balance_wallet_outlined,
+                size: 18,
+                color: AppColors.accent,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Sisa Tagihan',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                formatRupiah(bill.remainingAmount),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: AppColors.accent,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

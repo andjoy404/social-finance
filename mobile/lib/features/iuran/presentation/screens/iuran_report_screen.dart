@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -11,54 +11,152 @@ import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/core/widgets/summary_card.dart';
 
 import '../../data/iuran_models.dart';
-import '../../data/iuran_mock_data.dart';
+import '../../data/iuran_providers.dart';
 
 /// Dashboard/report screen for Iuran feature.
-class IuranReportScreen extends StatelessWidget {
+///
+/// All financial data comes from real API providers.
+class IuranReportScreen extends ConsumerWidget {
   const IuranReportScreen({super.key});
 
-  /// Calculate summary values from all mock bills.
-  Map<String, int> _calculateSummary() {
-    final bills = IuranMockData.bills;
-    int totalTagihan = 0;
-    int totalDibayar = 0;
-    int totalTunggakan = 0;
-
-    for (final bill in bills) {
-      totalTagihan += bill.nominal;
-      totalDibayar += bill.paidAmount;
-      if (bill.isInArrears) {
-        totalTunggakan += bill.remainingAmount;
-      }
-    }
-
-    return {
-      'totalTagihan': totalTagihan,
-      'totalDibayar': totalDibayar,
-      'totalTunggakan': totalTunggakan,
-    };
-  }
-
-  /// Get bills sorted by payment date (most recent first, mock order).
-  List<IuranBill> _getRecentTransactions() {
-    final bills = IuranMockData.bills;
-    // Reverse to show most recent first (mock data is chronological)
-    final sorted = List<IuranBill>.from(bills.reversed);
-    // Limit to 10
-    return sorted.take(10).toList();
-  }
-
-  /// Color for a status icon in the report.
-  Color _reportStatusColor(IuranStatus status, BuildContext context) {
-    return getStatusColor(status, context);
-  }
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final summary = _calculateSummary();
-    final recent = _getRecentTransactions();
+
+    final billsAsync = ref.watch(billsProvider);
+
+    // ─── Loading state ─────────────────────────────────────────────────
+    if (billsAsync.isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Laporan Iuran'),
+        ),
+        body: Center(
+          child: const CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    // ─── Error state ───────────────────────────────────────────────────
+    if (billsAsync.hasError) {
+      final error = billsAsync.error;
+      final errorMessage = switch (error) {
+        String s => s,
+        _ => 'Gagal memuat data laporan. Silakan coba lagi.',
+      };
+      return Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Laporan Iuran'),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: AppColors.danger,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  errorMessage,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyLarge,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                FilledButton.icon(
+                  onPressed: () => ref.refresh(billsProvider),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Coba Lagi'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ─── Extract data ──────────────────────────────────────────────────
+    final bills = switch (billsAsync) {
+      AsyncData(:final value) => value,
+      _ => <IuranBill>[],
+    };
+
+    // ─── Empty state ───────────────────────────────────────────────────
+    if (bills.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Laporan Iuran'),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.receipt_long_outlined,
+                  size: 64,
+                  color: isDark
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Belum ada tagihan iuran.',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: isDark
+                        ? AppColors.darkTextMuted
+                        : AppColors.lightTextMuted,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ─── Compute summary ───────────────────────────────────────────────
+    final totalTagihan = bills.fold<int>(0, (s, b) => s + b.nominal);
+    final totalDibayar = bills.fold<int>(0, (s, b) => s + b.paidAmount);
+    final totalTunggakan = bills
+        .where((b) => b.status != IuranStatus.lunas)
+        .fold<int>(0, (s, b) => s + b.remainingAmount);
+    final collectionRate = totalTagihan > 0
+        ? (totalDibayar / totalTagihan * 100).clamp(0.0, 100.0)
+        : 0.0;
+
+    // ─── Compute breakdown by iuran type ───────────────────────────────
+    final typeGroups = <String, List<IuranBill>>{};
+    for (final bill in bills) {
+      typeGroups.putIfAbsent(bill.iuranType, () => []).add(bill);
+    }
+
+    final typeNames = typeGroups.keys.toList();
+
+    // ─── Recent transactions (most recent period first) ────────────────
+    final sortedBills = List<IuranBill>.from(bills)
+      ..sort((a, b) {
+        final aParts = _parsePeriodForSort(a.periode);
+        final bParts = _parsePeriodForSort(b.periode);
+        // Primary: period descending
+        if (aParts[0] != bParts[0] || aParts[1] != bParts[1]) {
+          if (bParts[0] != aParts[0]) return bParts[0].compareTo(aParts[0]);
+          return bParts[1].compareTo(aParts[1]);
+        }
+        // Secondary: household name ascending
+        return a.householdName.compareTo(b.householdName);
+      });
+
+    final recent = sortedBills.take(10).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -81,7 +179,7 @@ class IuranReportScreen extends StatelessWidget {
                   width: double.infinity,
                   child: SummaryCard(
                     title: 'Total Tagihan',
-                    value: formatRupiah(summary['totalTagihan']!),
+                    value: formatRupiah(totalTagihan),
                     icon: Icons.receipt_long_outlined,
                     accentColor: AppColors.accent,
                   ),
@@ -90,7 +188,7 @@ class IuranReportScreen extends StatelessWidget {
                   width: double.infinity,
                   child: SummaryCard(
                     title: 'Total Dibayar',
-                    value: formatRupiah(summary['totalDibayar']!),
+                    value: formatRupiah(totalDibayar),
                     icon: Icons.check_circle_outline,
                     accentColor: AppColors.success,
                   ),
@@ -99,7 +197,7 @@ class IuranReportScreen extends StatelessWidget {
                   width: double.infinity,
                   child: SummaryCard(
                     title: 'Total Tunggakan',
-                    value: formatRupiah(summary['totalTunggakan']!),
+                    value: formatRupiah(totalTunggakan),
                     icon: Icons.warning_amber_rounded,
                     accentColor: AppColors.warning,
                   ),
@@ -128,7 +226,7 @@ class IuranReportScreen extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '${((summary['totalDibayar']! / summary['totalTagihan']!) * 100).toStringAsFixed(1)}%',
+                        '${collectionRate.toStringAsFixed(1)}%',
                         style: theme.textTheme.headlineSmall?.copyWith(
                           color: AppColors.accent,
                           fontWeight: FontWeight.bold,
@@ -140,8 +238,7 @@ class IuranReportScreen extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(AppRadius.xs),
                     child: LinearProgressIndicator(
-                      value: summary['totalDibayar']! /
-                          summary['totalTagihan']!,
+                      value: collectionRate / 100,
                       minHeight: 12,
                       borderRadius: BorderRadius.circular(AppRadius.xs),
                       backgroundColor: isDark
@@ -157,13 +254,13 @@ class IuranReportScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Dibayar: ${formatRupiah(summary['totalDibayar']!)}',
+                        'Dibayar: ${formatRupiah(totalDibayar)}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: AppColors.success,
                         ),
                       ),
                       Text(
-                        'Belum: ${formatRupiah(summary['totalTunggakan']!)}',
+                        'Belum: ${formatRupiah(totalTunggakan)}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: AppColors.warning,
                         ),
@@ -174,79 +271,82 @@ class IuranReportScreen extends StatelessWidget {
               ),
             ),
 
-            const SizedBox(height: AppSpacing.lg),
-
             // ── Breakdown by Type ──
-            const SectionHeader(title: 'Rincian per Jenis Iuran'),
-            const SizedBox(height: AppSpacing.sm),
-            ...IuranMockData.iuranTypes.map((type) {
-              final typeBills = IuranMockData.bills
-                  .where((b) => b.iuranType == type)
-                  .toList();
-              final typeTotal =
-                  typeBills.fold(0, (s, b) => s + b.nominal);
-              final typePaid =
-                  typeBills.fold(0, (s, b) => s + b.paidAmount);
-              final rate = (typePaid / typeTotal * 100).toStringAsFixed(0);
+            if (typeNames.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              const SectionHeader(title: 'Rincian per Jenis Iuran'),
+              const SizedBox(height: AppSpacing.sm),
+              ...typeNames.map((typeName) {
+                final typeBills = typeGroups[typeName] ?? [];
+                if (typeBills.isEmpty) return const SizedBox.shrink();
 
-              return Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: AppCard(
-                  padding: const EdgeInsets.all(AppSpacing.base),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.receipt_long_outlined,
-                            size: 18,
-                            color: AppColors.accent,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              type,
-                              style: theme.textTheme.titleMedium?.copyWith(
+                final typeTotal =
+                    typeBills.fold<int>(0, (s, b) => s + b.nominal);
+                final typePaid =
+                    typeBills.fold<int>(0, (s, b) => s + b.paidAmount);
+                final rate = typeTotal > 0
+                    ? (typePaid / typeTotal * 100).toStringAsFixed(0)
+                    : '0';
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: AppCard(
+                    padding: const EdgeInsets.all(AppSpacing.base),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.receipt_long_outlined,
+                              size: 18,
+                              color: AppColors.accent,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Text(
+                                typeName,
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '$rate%',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: AppColors.accent,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Tagihan: ${formatRupiah(typeTotal)}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
+                              ),
+                            ),
+                            Text(
+                              'Dibayar: ${formatRupiah(typePaid)}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: AppColors.success,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ),
-                          Text(
-                            '$rate%',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              color: AppColors.accent,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Tagihan: ${formatRupiah(typeTotal)}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: isDark
-                                  ? AppColors.darkTextMuted
-                                  : AppColors.lightTextMuted,
-                            ),
-                          ),
-                          Text(
-                            'Dibayar: ${formatRupiah(typePaid)}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: AppColors.success,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            }),
+                );
+              }),
+            ],
 
             const SizedBox(height: AppSpacing.lg),
 
@@ -262,21 +362,18 @@ class IuranReportScreen extends StatelessWidget {
                     children: [
                       CircleAvatar(
                         radius: 18,
-                        backgroundColor: _reportStatusColor(
+                        backgroundColor: _statusColorWithBackground(
                           bill.status,
-                          context,
-                        ).withValues(alpha: isDark ? 0.2 : 0.12),
+                          isDark,
+                        ),
                         child: Icon(
                           bill.status == IuranStatus.lunas
                               ? Icons.check_circle
                               : bill.status == IuranStatus.sebagian
-                                  ? Icons.star_half
-                                  : Icons.warning,
+                                  ? Icons.star_border
+                                  : Icons.circle_outlined,
                           size: 18,
-                          color: _reportStatusColor(
-                            bill.status,
-                            context,
-                          ),
+                          color: _statusColorForIcon(bill.status, isDark),
                         ),
                       ),
                       const SizedBox(width: AppSpacing.md),
@@ -323,14 +420,14 @@ class IuranReportScreen extends StatelessWidget {
                           const SizedBox(height: 2),
                           AppBadge(
                             label: getStatusLabel(bill.status),
-                            textColor: getStatusColor(
+                            textColor: _statusColorForIcon(
                               bill.status,
-                              context,
+                              isDark,
                             ),
-                            backgroundColor: getStatusColor(
+                            backgroundColor: _statusColorWithBackground(
                               bill.status,
-                              context,
-                            ).withValues(alpha: isDark ? 0.18 : 0.10),
+                              isDark,
+                            ),
                           ),
                         ],
                       ),
@@ -345,5 +442,43 @@ class IuranReportScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Color for status icon background (light tint).
+  Color _statusColorWithBackground(IuranStatus status, bool isDark) {
+    final baseColor = _statusColorForIcon(status, isDark);
+    return baseColor.withValues(alpha: isDark ? 0.2 : 0.12);
+  }
+
+  /// Color for status icon and badge text.
+  Color _statusColorForIcon(IuranStatus status, bool isDark) {
+    return switch (status) {
+      IuranStatus.belumBayar => AppColors.warning,
+      IuranStatus.sebagian => AppColors.warning,
+      IuranStatus.lunas => AppColors.success,
+    };
+  }
+
+  /// Parse a period string like "Oktober 2026" into [year, month] for sorting.
+  static List<int> _parsePeriodForSort(String period) {
+    final parts = period.split(' ');
+    if (parts.length < 2) return [0, 0];
+    final year = int.tryParse(parts[1]) ?? 0;
+    const months = {
+      'januari': 1,
+      'februari': 2,
+      'maret': 3,
+      'april': 4,
+      'mei': 5,
+      'juni': 6,
+      'juli': 7,
+      'agustus': 8,
+      'september': 9,
+      'oktober': 10,
+      'november': 11,
+      'desember': 12,
+    };
+    final month = months[parts[0].toLowerCase()] ?? 0;
+    return [year, month];
   }
 }
