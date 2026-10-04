@@ -484,3 +484,235 @@ func TestSystemOnlyRefresh_RotatedTokenStoredAsNULL(t *testing.T) {
 		t.Fatal("Expected rotated token to have membership_id IS NULL")
 	}
 }
+
+// TestSystemOnlyLogout_RevsAllTokens verifies that a system-only
+// SUPER_ADMIN (membership_id = NULL) can logout and that all active
+// refresh tokens belonging to that user are revoked.  It also verifies
+// that member logout behavior is unaffected.
+func TestSystemOnlyLogout_RevsAllTokens(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ctx := context.Background()
+
+	// ---- Part A: system-only Super Admin logout ----
+	sysUserID := testUUID("sys-logout-user")
+	sysEmail := "syslogout-" + sysUserID[:8] + "@example.com"
+	passwordHash, err := Hash("TestUser123!")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+
+	tx, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	q := `INSERT INTO users (id, email, password_hash, full_name, system_role, is_active) VALUES ($1, $2, $3, $4, 'super_admin', true) ON CONFLICT (id) DO UPDATE SET system_role = 'super_admin', is_active = true`
+	if _, err := tx.ExecContext(ctx, q, sysUserID, sysEmail, passwordHash, "System Logout"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	svc := NewService(ServiceOptions{RefreshLifetime: 7 * 24 * time.Hour})
+	AuthDBPool = pool
+
+	// Login to get refresh tokens.
+	tx1, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin login tx: %v", err)
+	}
+	defer tx1.Rollback()
+
+	loginResult, err := svc.Login(ctx, tx1, sysEmail, "TestUser123!")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if err := tx1.Commit(); err != nil {
+		t.Fatalf("commit login: %v", err)
+	}
+
+	if loginResult.RefreshToken == "" {
+		t.Fatal("expected non-empty refresh_token for system-only superadmin")
+	}
+
+	// Verify the token has NULL membership_id.
+	var mid sql.NullString
+	err = pool.Raw().QueryRowContext(ctx,
+		`SELECT membership_id FROM refresh_tokens WHERE user_id = $1`,
+		sysUserID,
+	).Scan(&mid)
+	if err != nil {
+		t.Fatalf("query token: %v", err)
+	}
+	if mid.Valid {
+		t.Fatal("expected membership_id IS NULL before logout")
+	}
+
+	// Count active tokens before logout.
+	var countBefore int
+	err = pool.Raw().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL`,
+		sysUserID,
+	).Scan(&countBefore)
+	if err != nil {
+		t.Fatalf("count tokens: %v", err)
+	}
+	if countBefore == 0 {
+		t.Fatal("expected at least one active token before logout")
+	}
+
+	// Logout via SystemLogout (simulates handleLogout with membershipID == "").
+	tx2, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin logout tx: %v", err)
+	}
+	defer tx2.Rollback()
+
+	if err := svc.SystemLogout(ctx, tx2, sysUserID); err != nil {
+		t.Fatalf("SystemLogout: %v", err)
+	}
+	if err := tx2.Commit(); err != nil {
+		t.Fatalf("commit logout: %v", err)
+	}
+
+	// All active tokens must now be revoked.
+	var countAfter int
+	err = pool.Raw().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL`,
+		sysUserID,
+	).Scan(&countAfter)
+	if err != nil {
+		t.Fatalf("count tokens after logout: %v", err)
+	}
+	if countAfter != 0 {
+		t.Errorf("expected 0 active tokens after logout, got %d", countAfter)
+	}
+
+	// The old refresh token must be rejected.
+	tx3, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin refresh tx: %v", err)
+	}
+	defer tx3.Rollback()
+
+	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken)
+	if err == nil {
+		t.Fatal("expected error when refreshing revoked token")
+	}
+	if err != ErrInvalidRefreshToken {
+		t.Errorf("expected ErrInvalidRefreshToken, got %v", err)
+	}
+}
+
+// TestMemberLogout_Unaffected verifies that a member (with a valid
+// membership) can logout and only their membership-scoped tokens are
+// revoked — their other memberships' tokens remain valid.
+func TestMemberLogout_Unaffected(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ctx := context.Background()
+
+	// Create a member user with a membership.
+	memberUserID := testUUID("member-logout-user")
+	memberEmail := "memberlogout-" + memberUserID[:8] + "@example.com"
+	passwordHash, err := Hash("TestUser123!")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+
+	tx, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	// We need an RT and a membership to log in as a member.
+	// Use the existing devseed for an RT, or create one.
+	rtID := testUUID("rt-logout-test")
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO rts (id, name, rw, rt, is_active) VALUES ($1, 'Logout Test RT', 1, '01', true) ON CONFLICT DO NOTHING`,
+		rtID,
+	)
+	if err != nil {
+		t.Fatalf("insert RT: %v", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash, full_name, system_role, is_active) VALUES ($1, $2, $3, $4, NULL, true) ON CONFLICT (id) DO UPDATE SET is_active = true`,
+		memberUserID, memberEmail, passwordHash, "Member Logout Test",
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO user_rt_memberships (user_id, rt_id, role, is_active) VALUES ($1, $2, 'bendahara', true) ON CONFLICT DO NOTHING`,
+		memberUserID, rtID,
+	); err != nil {
+		t.Fatalf("insert membership: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	svc := NewService(ServiceOptions{RefreshLifetime: 7 * 24 * time.Hour})
+	AuthDBPool = pool
+
+	// Login as member.
+	tx1, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin login tx: %v", err)
+	}
+	defer tx1.Rollback()
+
+	loginResult, err := svc.Login(ctx, tx1, memberEmail, "TestUser123!")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if err := tx1.Commit(); err != nil {
+		t.Fatalf("commit login: %v", err)
+	}
+
+	if loginResult.RefreshToken == "" {
+		t.Fatal("expected non-empty refresh_token for member")
+	}
+
+	// Logout via the existing Membership-based Logout.
+	tx2, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin logout tx: %v", err)
+	}
+	defer tx2.Rollback()
+
+	// We need the membership ID — fetch it from the DB.
+	var membershipID string
+	err = pool.Raw().QueryRowContext(ctx,
+		`SELECT id FROM user_rt_memberships WHERE user_id = $1 AND rt_id = $2 LIMIT 1`,
+		memberUserID, rtID,
+	).Scan(&membershipID)
+	if err != nil {
+		t.Fatalf("find membership: %v", err)
+	}
+
+	if err := svc.Logout(ctx, tx2, membershipID); err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+	if err := tx2.Commit(); err != nil {
+		t.Fatalf("commit logout: %v", err)
+	}
+
+	// The refresh token must be rejected.
+	tx3, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("begin refresh tx: %v", err)
+	}
+	defer tx3.Rollback()
+
+	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken)
+	if err == nil {
+		t.Fatal("expected error when refreshing revoked token")
+	}
+	if err != ErrInvalidRefreshToken {
+		t.Errorf("expected ErrInvalidRefreshToken, got %v", err)
+	}
+}

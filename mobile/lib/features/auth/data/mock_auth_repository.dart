@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/auth_service.dart';
 import '../../../core/api/client.dart';
 import '../../../core/api/config.dart';
+import '../../../core/api/models.dart';
 import '../../../core/errors/app_errors.dart';
 import '../../../core/models/role.dart';
 
@@ -47,6 +48,15 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   AuthRepository({required this.authService, required this.apiClient})
     : super(null) {
     apiClient.onUnauthorized = _handleUnauthorized;
+    apiClient.onRefreshToken = _refreshTokens;
+  }
+
+  Future<LoginResponse?> _refreshTokens(String refreshToken) async {
+    try {
+      return await authService.refreshToken(refreshToken);
+    } catch (_) {
+      return null;
+    }
   }
 
   void _handleUnauthorized() {
@@ -104,7 +114,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     } catch (_) {
       // Ignored: local session must always be cleared even if remote logout fails.
     } finally {
-      apiClient.clearToken();
+      apiClient.clearAllTokens();
       _currentUser = null;
       state = null;
     }

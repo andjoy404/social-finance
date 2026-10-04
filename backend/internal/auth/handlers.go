@@ -185,9 +185,11 @@ func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLogout processes logout requests.
+// For member users (membershipID != "") it revokes tokens scoped to that membership.
+// For system-only SUPER_ADMIN (membershipID == "") it revokes all tokens for the user.
 func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	ac := GetAuthContext(r)
-	if ac == nil || ac.MembershipID == "" {
+	if ac == nil {
 		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 		return
 	}
@@ -202,9 +204,16 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	if err := h.svc.Logout(ctx, tx, ac.MembershipID); err != nil {
-		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "logout failed")
-		return
+	if ac.MembershipID != "" {
+		if err := h.svc.Logout(ctx, tx, ac.MembershipID); err != nil {
+			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "logout failed")
+			return
+		}
+	} else {
+		if err := h.svc.SystemLogout(ctx, tx, ac.UserID); err != nil {
+			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "logout failed")
+			return
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

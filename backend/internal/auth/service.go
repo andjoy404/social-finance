@@ -353,6 +353,15 @@ func (s *Service) Logout(ctx context.Context, tx *sql.Tx, membershipID string) e
 	return nil
 }
 
+// SystemLogout revokes all refresh tokens for a system-only user (no RT membership).
+// It revokes tokens by user_id, covering both member and system-only tokens.
+func (s *Service) SystemLogout(ctx context.Context, tx *sql.Tx, userID string) error {
+	if err := RevokeRefreshTokensByUserID(ctx, tx, userID); err != nil {
+		return fmt.Errorf("revoke tokens for user: %w", err)
+	}
+	return nil
+}
+
 // GetProfile returns the authenticated user's profile for the /me endpoint.
 func (s *Service) GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*UserForMe, error) {
 	result, err := GetProfile(ctx, tx, userID, membershipID)

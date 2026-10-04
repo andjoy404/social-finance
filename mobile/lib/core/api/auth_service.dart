@@ -21,15 +21,31 @@ class AuthService {
 
     final loginResponse = LoginResponse.fromJson(data.cast<String, dynamic>());
     client.setToken(loginResponse.accessToken);
+    if (loginResponse.refreshToken.isNotEmpty) {
+      client.setRefreshToken(loginResponse.refreshToken);
+    }
     return loginResponse;
   }
 
   Future<void> logout() async {
-    try {
-      await client.dio.post('/api/v1/auth/logout');
-    } finally {
-      client.clearToken();
+    await client.dio.post('/api/v1/auth/logout');
+  }
+
+  Future<LoginResponse> refreshToken(String rawRefreshToken) async {
+    final response = await client.dio.post(
+      '/api/v1/auth/refresh',
+      data: {'refresh_token': rawRefreshToken},
+    );
+    final data = response.data;
+    if (data is! Map) {
+      throw const FormatException('Expected JSON object in refresh response');
     }
+    final result = LoginResponse.fromJson(data.cast<String, dynamic>());
+    client.setToken(result.accessToken);
+    if (result.refreshToken.isNotEmpty) {
+      client.setRefreshToken(result.refreshToken);
+    }
+    return result;
   }
 
   Future<AuthUser> getMe() async {

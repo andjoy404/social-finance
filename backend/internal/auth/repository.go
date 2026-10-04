@@ -424,6 +424,19 @@ func RevokeRefreshTokensByMembership(ctx context.Context, tx *sql.Tx, membership
 	return nil
 }
 
+// RevokeRefreshTokensByUserID revokes all active refresh tokens for a user.
+// This is used for system-only SUPER_ADMIN logout (no RT membership).
+func RevokeRefreshTokensByUserID(ctx context.Context, tx *sql.Tx, userID string) error {
+	_, err := tx.ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = $1 AND revoked_at IS NULL`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("revoke tokens for user: %w", err)
+	}
+	return nil
+}
+
 // FindRTByID finds an RT by UUID.
 // Returns sql.ErrNoRows when not found.
 func FindRTByID(ctx context.Context, tx *sql.Tx, rtID string) (name string, isActive bool, err error) {
