@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
+	"time"
 )
 
 // Helper function to create string pointers.
@@ -119,6 +121,52 @@ type SpecialPositionResidentSeed struct {
 	Email    *string
 }
 
+// FinancialCategorySeed defines data for seeding financial categories.
+type FinancialCategorySeed struct {
+	ID        string
+	RTID      string
+	Name      string
+	Type      string // "income" or "expense"
+	IsActive  bool
+}
+
+// DueSeed defines data for seeding dues.
+type DueSeed struct {
+	ID         string
+	RTID       string
+	Name       string
+	Amount     string // string decimal, e.g. "50000.00"
+	PeriodType string // "monthly", "yearly", "one_time"
+	IsActive   bool
+}
+
+// BillSeed defines data for seeding bills.
+type BillSeed struct {
+	ID                   string
+	RTID                 string
+	HouseholdOccupancyID string
+	DueID                string
+	Amount               string // string decimal
+	Period               string // e.g. "2026-10"
+	DueDate              string // YYYY-MM-DD
+	Status               string // "unpaid", "partial", "paid"
+}
+
+// PaymentSeed defines data for seeding payments.
+type PaymentSeed struct {
+	ID              string
+	RTID            string
+	BillID          string
+	Amount          string // string decimal
+	Method          string // "CASH" or "TRANSFER"
+	Origin          string // "STAFF_RECORDED" or "SELF_SUBMITTED"
+	Status          string // "PENDING", "APPROVED", "REJECTED"
+	VerifiedBy      string // bendahara user ID
+	VerifiedAt      string // RFC3339 timestamp
+	RejectionReason *string
+	Notes           *string
+}
+
 // positionResidentData contains the derived resident records for position users
 // who are eligible (ketua, wakil_ketua, sekretaris, bendahara, sosial).
 var positionResidentData []PositionResidentSeed
@@ -128,6 +176,18 @@ var positionResidentData []PositionResidentSeed
 // These are special residents: linked to their user account, assigned to their RT,
 // but WITHOUT household/occupancy/residency chain.
 var specialPositionResidentData []SpecialPositionResidentSeed
+
+// CanonicalFinancialCategories contains 2 categories per RT (income + expense).
+var CanonicalFinancialCategories []FinancialCategorySeed
+
+// CanonicalDues contains 3 dues per RT (Kebersihan, Keamanan, Kas RT).
+var CanonicalDues []DueSeed
+
+// CanonicalBills contains bill samples linked to existing occupancies + dues.
+var CanonicalBills []BillSeed
+
+// CanonicalPayments contains payment samples linked to bills.
+var CanonicalPayments []PaymentSeed
 
 // CanonicalRTs contains the 5 RTs.
 var CanonicalRTs = []RTSeed{
@@ -515,4 +575,265 @@ func init() {
 			Email:    strPtr(ps.Email),
 		})
 	}
+}
+
+// financialPositions maps RT index to bendahara user ID for payment approval.
+// Bendahara is position index 3 within each RT's position users.
+var financialPositionRTs []string
+var financialBendaharaUIDs map[string]string // rtID -> bendahara user ID
+
+// Financial category IDs: 0=income, 1=expense
+// Due IDs: 0=Kebersihan, 1=Keamanan, 2=Kas RT
+// Occupancy slots: house numbers 01 and 03 (first and third per RT)
+
+func init() {
+	// Financial seed needs RT IDs and bendahara user IDs
+	financialPositionRTs = make([]string, len(positionRTs))
+	copy(financialPositionRTs, positionRTs)
+	financialBendaharaUIDs = make(map[string]string)
+
+	// Find bendahara user IDs from CanonicalPositionUsers
+	for _, ps := range CanonicalPositionUsers {
+		if ps.Jabatan == "bendahara" {
+			financialBendaharaUIDs[ps.RTID] = ps.ID
+		}
+	}
+
+	// --- CanonicalFinancialCategories ---
+	// 2 categories per RT: income + expense
+	for rtIdx, rtID := range financialPositionRTs {
+		// Income category
+		incomeID := fmt.Sprintf("%08x-0000-3000-8000-000000000001", (8000+rtIdx)<<16|(8000+0))
+		CanonicalFinancialCategories = append(CanonicalFinancialCategories, FinancialCategorySeed{
+			ID:        incomeID,
+			RTID:      rtID,
+			Name:      "Iuran Warga",
+			Type:      "income",
+			IsActive:  true,
+		})
+		// Expense category
+		expenseID := fmt.Sprintf("%08x-0000-3000-8000-000000000002", (8000+rtIdx)<<16|(8000+1))
+		CanonicalFinancialCategories = append(CanonicalFinancialCategories, FinancialCategorySeed{
+			ID:        expenseID,
+			RTID:      rtID,
+			Name:      "Operasional RT",
+			Type:      "expense",
+			IsActive:  true,
+		})
+	}
+
+	// --- CanonicalDues ---
+	// 3 dues per RT: Kebersihan (50k), Keamanan (100k), Kas RT (25k)
+	for rtIdx, rtID := range financialPositionRTs {
+		dueName := []string{"Iuran Kebersihan", "Iuran Keamanan", "Iuran Kas RT"}
+		dueAmount := []string{"50000.00", "100000.00", "25000.00"}
+		duePeriodType := []string{"monthly", "monthly", "monthly"}
+
+		for i := 0; i < 3; i++ {
+			dueID := fmt.Sprintf("%08x-0000-3100-8000-00000000000%d", (8000+rtIdx)<<16|(8000+i), i+1)
+			CanonicalDues = append(CanonicalDues, DueSeed{
+				ID:         dueID,
+				RTID:       rtID,
+				Name:       dueName[i],
+				Amount:     dueAmount[i],
+				PeriodType: duePeriodType[i],
+				IsActive:   true,
+			})
+		}
+	}
+
+	// --- CanonicalBills ---
+	// For each RT: pick 2 occupancies (house_number "01" and "03")
+	// For each occupancy: create 3 dues × 2 periods = 6 bills
+	// Total: 2 × 3 × 2 = 12 bills per RT
+	now := time.Now()
+	currentPeriod := now.Format("2006-01")
+	lastMonth := now.AddDate(0, -1, 0).Format("2006-01")
+	periods := []string{lastMonth, currentPeriod}
+
+	// Map of RT label to house numbers we know exist from CanonicalOccupancies
+	// RT 03: house_number "01" (occupancy dddd0001-0001-4e55-8000-000000000001)
+	// RT 04: house_number "01" (occupancy dddd0002-0001-4e55-8000-000000000001)
+	// RT 05: house_number "01" (occupancy dddd0003-0001-4e55-8000-000000000001)
+	// RT 06: house_number "01" (occupancy dddd0004-0001-4e55-8000-000000000001)
+	// RT 002: house_number "U12/12" (occupancy d23353e9-5372-41c6-bf0a-a813f1e683d1)
+	//
+	// We need to look up occupancy IDs by house_number from CanonicalOccupancies.
+	// To avoid hardcoding, we'll use deterministic house numbers that exist.
+	// From CanonicalOccupancies, each RT with house_number "01" has occupancy ID
+	// pattern: "dddd<0001|0002|0003|0004>-0001-4e55-8000-000000000001"
+	//
+	// For simplicity and correctness, we use the known occupancy IDs:
+	// RT 03: "dddd0001-0001-4e55-8000-000000000001" (house 01), "dddd0001-0003-4e55-8000-000000000003" (house 03)
+	// RT 04: "dddd0002-0001-4e55-8000-000000000001" (house 01), "dddd0002-0003-4e55-8000-000000000003" (house 03)
+	// RT 05: "dddd0003-0001-4e55-8000-000000000001" (house 01), "dddd0003-0003-4e55-8000-000000000003" (house 03)
+	// RT 06: "dddd0004-0001-4e55-8000-000000000001" (house 01), "dddd0004-0003-4e55-8000-000000000003" (house 03)
+	// RT 002: "d23353e9-5372-41c6-bf0a-a813f1e683d1" (house U12/12), need second... only 2 houses.
+	//
+	// RT 002 only has houses U12/12 and U12/14, so we use both:
+	// U12/12: "d23353e9-5372-41c6-bf0a-a813f1e683d1", U12/14: "dddd0005-0001-4e55-8000-000000000001"
+	// Wait — let me check: RT 002 (a95c1cb5-2f67-4ea5-9197-bfec537b6d7b) has CanonicalOccupancies:
+	// {ID: "d23353e9-5372-41c6-bf0a-a813f1e683d1", ... HouseNumber "U12/12"}
+	// {ID: "f68449c9-5472-43fb-853e-794887ec43f9", ... HouseNumber "U12/14"}
+	// So RT 002 occupancy IDs are: "d23353e9..." (U12/12) and "f68449c9..." (U12/14)
+
+	type occupancyPair struct {
+		house1 string
+		house2 string
+	}
+	rtOccupancyMap := map[string]occupancyPair{
+		"8dfa1e36-6727-45be-8fea-24d958efc155": {"dddd0001-0001-4e55-8000-000000000001", "dddd0001-0003-4e55-8000-000000000003"},
+		"efb70405-09f5-48a0-ad14-34802cf09e3b": {"dddd0002-0001-4e55-8000-000000000001", "dddd0002-0003-4e55-8000-000000000003"},
+		"5106197a-c4e4-4bbc-8ef7-921d7208717d": {"dddd0003-0001-4e55-8000-000000000001", "dddd0003-0003-4e55-8000-000000000003"},
+		"a3390720-dd56-4b28-92b1-43f384f584cd": {"dddd0004-0001-4e55-8000-000000000001", "dddd0004-0003-4e55-8000-000000000003"},
+		"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b": {"d23353e9-5372-41c6-bf0a-a813f1e683d1", "f68449c9-5472-43fb-853e-794887ec43f9"},
+	}
+
+	for rtIdx, rtID := range financialPositionRTs {
+		pair := rtOccupancyMap[rtID]
+		occupancyIDs := []string{pair.house1, pair.house2}
+
+		// For each dues (0-2)
+		for dueIdx := 0; dueIdx < 3; dueIdx++ {
+			dueID := fmt.Sprintf("%08x-0000-3100-8000-00000000000%d", (8000+rtIdx)<<16|(8000+dueIdx), dueIdx+1)
+			// Amount is same as due amount
+			amounts := []string{"50000.00", "100000.00", "25000.00"}
+
+			// For each period
+			for pIdx, period := range periods {
+				// Parse year-month to get due date: 10 days after period start
+				parts := splitPeriod(period)
+				year, _ := strconv.Atoi(parts[0])
+				month, _ := strconv.Atoi(parts[1])
+				// Due date: 15th of the period month
+				dueDate := fmt.Sprintf("%04d-%02d-15", year, month)
+
+				// For each occupancy
+				for occIdx := 0; occIdx < 2; occIdx++ {
+					billID := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+						(8000+rtIdx)*1000+(dueIdx*100)+(pIdx*10)+occIdx,
+						8000+rtIdx,
+						8000+dueIdx,
+						8000+pIdx*2+occIdx,
+						1)
+					CanonicalBills = append(CanonicalBills, BillSeed{
+						ID:                   billID,
+						RTID:                 rtID,
+						HouseholdOccupancyID: occupancyIDs[occIdx],
+						DueID:                dueID,
+						Amount:               amounts[dueIdx],
+						Period:               period,
+						DueDate:              dueDate,
+						Status:               "unpaid", // default, will be updated by payments
+					})
+				}
+			}
+		}
+	}
+
+	// --- CanonicalPayments ---
+	// Target per RT:
+	//   4 bills → full approved payment → LUNAS (paid)
+	//   2 bills → partial approved payment → SEBAGIAN (partial)
+	//   6 bills → no payment → BELUM BAYAR (unpaid)
+	//
+	// We pick bills sequentially and assign payments:
+	//   Bill 0: full payment (100%)
+	//   Bill 1: full payment (100%)
+	//   Bill 2: partial payment (50%)
+	//   Bill 3: full payment (100%)
+	//   Bill 4: no payment
+	//   Bill 5: no payment
+	//   Bill 6: full payment (100%)
+	//   Bill 7: partial payment (50%)
+	//   Bill 8: no payment
+	//   Bill 9: no payment
+	//   Bill 10: full payment (100%)
+	//   Bill 11: full payment (100%)
+	//
+	// Pattern: [full, full, partial, full, none, none, full, partial, none, none, full, full]
+	// = 6 full, 2 partial, 4 none per RT
+	// Total payments per RT: 8
+	// Total: 6 full approved, 2 partial approved, 16 no-payment bills
+
+	paymentMethod := []string{"CASH", "TRANSFER"}
+	nowStr := now.Format(time.RFC3339)
+
+	for rtIdx := range financialPositionRTs {
+		bendaharaID := financialBendaharaUIDs[financialPositionRTs[rtIdx]]
+		if bendaharaID == "" {
+			// Skip RT if no bendahara found (should not happen)
+			continue
+		}
+
+		// Bills for this RT (12 per RT, sequential in CanonicalBills)
+		rtBillStart := rtIdx * 12
+		rtBillCount := 12
+
+		// Payment pattern: 0=full, 1=partial, 2=none
+		// Target: 4 full + 2 partial + 6 none = 6 payments per RT
+		pattern := []int{0, 0, 1, 2, 2, 2, 0, 1, 2, 2, 2, 0}
+
+		for i := 0; i < rtBillCount; i++ {
+			pType := pattern[i]
+			if pType == 2 {
+				// No payment
+				continue
+			}
+
+			bill := CanonicalBills[rtBillStart+i]
+			billAmount, _ := strconv.ParseFloat(bill.Amount, 64)
+
+			var payAmount string
+			if pType == 0 {
+				// Full payment
+				payAmount = bill.Amount
+			} else {
+				// Partial payment: bill amount / 2
+				half := billAmount / 2.0
+				payAmount = fmt.Sprintf("%.2f", half)
+			}
+
+			payID := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+				(8000+rtIdx)*1000+i,
+				8000+rtIdx,
+				8000+i,
+				8000,
+				1)
+
+			notes := ""
+			if pType == 1 {
+				notes = "Pembayaran sebagian"
+			}
+
+			CanonicalPayments = append(CanonicalPayments, PaymentSeed{
+				ID:         payID,
+				RTID:       bill.RTID,
+				BillID:     bill.ID,
+				Amount:     payAmount,
+				Method:     paymentMethod[i%2],
+				Origin:     "STAFF_RECORDED",
+				Status:     "APPROVED",
+				VerifiedBy: bendaharaID,
+				VerifiedAt: nowStr,
+				Notes:      &notes,
+			})
+		}
+	}
+}
+
+// splitPeriod splits "2026-10" into ["2026", "10"]
+func splitPeriod(period string) []string {
+	parts := []string{}
+	for i, c := range period {
+		if c == '-' {
+			parts = append(parts, period[:i])
+			parts = append(parts, period[i+1:])
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return []string{period, "01"}
+	}
+	return parts
 }
