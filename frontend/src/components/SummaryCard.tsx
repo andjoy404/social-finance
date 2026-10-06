@@ -9,9 +9,9 @@ interface SummaryCardProps {
 
 export function SummaryCard({ label, value, accent = 'default', className = '' }: SummaryCardProps) {
   const colorMap: Record<string, string> = {
-    income: 'var(--color-income)',
-    expense: 'var(--color-expense)',
-    default: 'var(--primary)',
+    income: 'var(--sf-success)',
+    expense: 'var(--sf-danger)',
+    default: 'var(--sf-accent)',
   }
 
   const color = colorMap[accent]
@@ -22,8 +22,8 @@ export function SummaryCard({ label, value, accent = 'default', className = '' }
       <p
         style={{
           fontSize: '13px',
-          color: 'var(--text-secondary)',
-            marginBottom: 'var(--sp-xs)',
+          color: 'var(--sf-text-muted)',
+          marginBottom: 'var(--sf-sp-xs)',
           fontWeight: 500,
         }}
       >

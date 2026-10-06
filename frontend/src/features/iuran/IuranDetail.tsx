@@ -2,15 +2,16 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeftOutlined,
-  CheckCircleOutlined,
   DollarOutlined,
-  CalendarOutlined,
   FileTextOutlined,
-  WarningOutlined,
+  UserOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons'
 import { AppCard } from '@/components/AppCard'
 import { Badge } from '@/components/Badge'
-import { Modal, ModalHeader, ModalBody } from '@/components/Modal'
+import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
+import { SummaryCard } from '@/components/SummaryCard'
+import type { IuranStatus } from './iuranTypes'
 import {
   BACKEND_STATUS_MAP,
   formatRupiah,
@@ -21,6 +22,7 @@ import {
   getPaymentStatusVariant,
   parseMoney,
   type IuranBill,
+  type IuranPaymentRecord,
   type PaymentStatusDisplay,
 } from './iuranTypes'
 import { apiGetBill, apiListPayments, getSessionPair } from '@/app/api'
@@ -29,10 +31,340 @@ function formatDate(iso: string): string {
   const d = new Date(iso)
   return d.toLocaleDateString('id-ID', {
     day: 'numeric',
-    month: 'long',
+    month: 'short',
     year: 'numeric',
   })
 }
+
+/* ─────────────────────────────────────────────
+   Status badge (modal header)
+   ───────────────────────────────────────────── */
+
+function StatusBadge({ status }: { status: string }) {
+  const typed = status as unknown as IuranStatus
+  const variant = getStatusVariant(typed)
+  return (
+    <Badge variant={variant} style={{ fontSize: '12px', padding: '0 12px', height: '26px', fontWeight: 600 }}>
+      {getStatusLabel(typed)}
+    </Badge>
+  )
+}
+
+/* ─────────────────────────────────────────────
+   Progress bar
+   ───────────────────────────────────────────── */
+
+function PaymentProgress({ paid, nominal }: { paid: number; nominal: number }) {
+  const pct = nominal > 0 ? Math.min((paid / nominal) * 100, 100) : 0
+  const isPaid = paid >= nominal
+  const barColor = isPaid
+    ? 'var(--sf-success)'
+    : 'var(--sf-accent)'
+
+  return (
+    <div>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        fontSize: '12px',
+        color: 'var(--sf-text-muted)',
+        marginBottom: '6px',
+      }}>
+        <span>{formatRupiah(paid)} dari {formatRupiah(nominal)}</span>
+        <span style={{ fontWeight: 600, color: isPaid ? 'var(--sf-success)' : 'var(--sf-accent)' }}>
+          {pct.toFixed(0)}%
+        </span>
+      </div>
+      <div style={{
+        height: '6px',
+        background: 'var(--sf-surface-subtle)',
+        borderRadius: '3px',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          height: '100%',
+          width: `${pct}%`,
+          background: barColor,
+          borderRadius: '3px',
+          transition: 'width 400ms ease',
+        }} />
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+   Info row helper
+   ───────────────────────────────────────────── */
+
+function InfoRow({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '28px',
+        height: '28px',
+        borderRadius: '6px',
+        background: 'var(--sf-accent-soft)',
+        color: 'var(--sf-accent)',
+        fontSize: '13px',
+        flexShrink: 0,
+        marginTop: '1px',
+      }}>
+        {icon || <FileTextOutlined />}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{
+          fontSize: '11px',
+          color: 'var(--sf-text-muted)',
+          fontWeight: 500,
+          marginBottom: '2px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.03em',
+        }}>
+          {label}
+        </div>
+        <div style={{
+          fontSize: '13px',
+          color: 'var(--sf-text)',
+          fontWeight: 500,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}>
+          {value}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+   Payment history item
+   ───────────────────────────────────────────── */
+
+function PaymentHistoryItem({ payment }: { payment: IuranPaymentRecord }) {
+  const isApproved = payment.status === 'APPROVED'
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '10px 12px',
+      borderRadius: '8px',
+      border: `1px solid ${isApproved ? 'var(--sf-success)' : 'var(--sf-border)'}`,
+      background: isApproved ? 'var(--sf-success-soft)' : 'transparent',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+        <div style={{
+          width: '36px',
+          height: '36px',
+          borderRadius: '50%',
+          background: 'var(--sf-surface)',
+          border: '1px solid var(--sf-border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--sf-text-muted)',
+          fontSize: '14px',
+          flexShrink: 0,
+        }}>
+          <DollarOutlined />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{
+            fontSize: '13px',
+            fontWeight: 600,
+            fontFamily: 'var(--sf-font-mono)',
+            color: 'var(--sf-text)',
+          }}>
+            {formatRupiah(payment.nominal)}
+          </div>
+          <div style={{
+            fontSize: '11px',
+            color: 'var(--sf-text-muted)',
+            marginTop: '1px',
+          }}>
+            {formatDate(payment.paidDate)}
+            {payment.method ? ' · ' + (payment.method === 'TRANSFER' ? 'Transfer' : 'Cash') : ''}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        {payment.catatan && (
+          <span style={{
+            fontSize: '11px',
+            color: 'var(--sf-text-muted)',
+            fontStyle: 'italic',
+            maxWidth: '120px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
+            {payment.catatan}
+          </span>
+        )}
+        <Badge variant={getPaymentStatusVariant(payment.status!)}>
+          {getPaymentStatusLabel(payment.status!)}
+        </Badge>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+   Shared detail content (used by both modes)
+   ───────────────────────────────────────────── */
+
+function DetailContent({ bill, remaining }: { bill: IuranBill; remaining: number }) {
+  const payments = bill.payments ?? []
+  const hasHistory = payments.length > 0
+
+  return (
+    <>
+      {/* ── Payment summary ── */}
+      <AppCard style={{ padding: '20px 24px' }}>
+        {/* Top row: big amount */}
+        <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+          <div style={{
+            fontSize: '12px',
+            color: 'var(--sf-text-muted)',
+            fontWeight: 500,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            marginBottom: '4px',
+          }}>
+            Total Tagihan
+          </div>
+          <div style={{
+            fontSize: '32px',
+            fontWeight: 700,
+            color: 'var(--sf-text)',
+            lineHeight: 1.1,
+            fontVariantNumeric: 'tabular-nums',
+            fontFamily: 'var(--sf-font-mono)',
+          }}>
+            {formatRupiah(bill.nominal)}
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        {bill.nominal > 0 && (
+          <PaymentProgress paid={bill.paidAmount} nominal={bill.nominal} />
+        )}
+
+        {/* Paid / Remaining row */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '12px',
+          marginTop: '16px',
+        }}>
+          <SummaryCard
+            label="Sudah Dibayar"
+            value={bill.paidAmount > 0 ? formatRupiah(bill.paidAmount) : 'Rp0'}
+            accent="income"
+          />
+          <SummaryCard
+            label={remaining <= 0 ? 'Sisa Tagihan' : 'Sisa Tagihan'}
+            value={formatRupiah(Math.max(remaining, 0))}
+            accent={remaining <= 0 ? 'income' : 'expense'}
+          />
+        </div>
+      </AppCard>
+
+      {/* ── Info grid: 2-column ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '12px',
+        marginTop: '12px',
+      }}>
+        {/* Household info */}
+        <AppCard style={{ padding: '16px' }}>
+          <div style={{
+            fontSize: '12px',
+            fontWeight: 600,
+            color: 'var(--sf-text)',
+            marginBottom: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}>
+            <UserOutlined style={{ color: 'var(--sf-accent)' }} />
+            Data Warga
+          </div>
+          <InfoRow
+            icon={<UserOutlined />}
+            label="Kepala Keluarga"
+            value={bill.householdName}
+          />
+        </AppCard>
+
+        {/* Bill info */}
+        <AppCard style={{ padding: '16px' }}>
+          <div style={{
+            fontSize: '12px',
+            fontWeight: 600,
+            color: 'var(--sf-text)',
+            marginBottom: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}>
+            <FileTextOutlined style={{ color: 'var(--sf-accent)' }} />
+            Detail Tagihan
+          </div>
+          <InfoRow
+            icon={<FileTextOutlined />}
+            label="Jenis Iuran"
+            value={bill.iuranType}
+          />
+          <div style={{ marginTop: '10px' }}>
+            <InfoRow
+              icon={<CalendarOutlined />}
+              label="Periode"
+              value={formatFullPeriodeLabel(bill.periode)}
+            />
+          </div>
+        </AppCard>
+      </div>
+
+      {/* ── Payment history ── */}
+      {hasHistory && (
+        <AppCard style={{ marginTop: '12px', padding: '16px' }}>
+          <div style={{
+            fontSize: '13px',
+            fontWeight: 600,
+            color: 'var(--sf-text)',
+            marginBottom: '12px',
+          }}>
+            Riwayat Pembayaran
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 400,
+              color: 'var(--sf-text-muted)',
+              marginLeft: '8px',
+            }}>
+              ({payments.length} tercatat)
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {payments.map((payment) => (
+              <PaymentHistoryItem key={payment.id} payment={payment} />
+            ))}
+          </div>
+        </AppCard>
+      )}
+    </>
+  )
+}
+
+/* ─────────────────────────────────────────────
+   IuranDetail — entry component
+   ───────────────────────────────────────────── */
 
 export function IuranDetail({
   billId,
@@ -150,280 +482,23 @@ export function IuranDetail({
     return bill.nominal - bill.paidAmount
   }, [bill])
 
-  /* ── Canonical detail content (reused by both modes) ─────────────────── */
-
-  const detailContent = !loading && !notFound && !error && bill ? (
-    <>
-      <AppCard style={{ marginBottom: 'var(--sp-md)' }}>
-        {/* Header */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          marginBottom: 'var(--sp-lg)',
-          gap: 'var(--sp-md)',
-          flexWrap: 'wrap',
-        }}>
-          <div>
-            <h2 style={{
-              fontSize: '16px',
-              fontWeight: 700,
-              color: 'var(--sf-text)',
-              margin: 0,
-              lineHeight: 1.3,
-            }}>
-              {bill.householdName}
-            </h2>
-            <p style={{
-              fontSize: '12px',
-              color: 'var(--sf-text-muted)',
-              margin: '2px 0 0',
-            }}>
-              Detail tagihan iuran
-            </p>
-          </div>
-          <Badge variant={getStatusVariant(bill.status)}>
-            {getStatusLabel(bill.status)}
-          </Badge>
-        </div>
-
-        {/* Info grid */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-          gap: 'var(--sp-md)',
-        }}>
-          <div>
-            <div style={{
-              fontSize: '11px',
-              color: 'var(--sf-text-muted)',
-              marginBottom: '2px',
-              fontWeight: 500,
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-            }}>
-              RT
-            </div>
-            <div style={{
-              fontSize: '13px',
-              color: 'var(--sf-text)',
-              fontWeight: 500,
-            }}>
-              {bill.rt}
-            </div>
-          </div>
-          <div>
-            <div style={{
-              fontSize: '11px',
-              color: 'var(--sf-text-muted)',
-              marginBottom: '2px',
-              fontWeight: 500,
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-            }}>
-              <FileTextOutlined style={{ marginRight: 4 }} />
-              Jenis Iuran
-            </div>
-            <div style={{
-              fontSize: '13px',
-              color: 'var(--sf-text)',
-            }}>
-              {bill.iuranType}
-            </div>
-          </div>
-          <div>
-            <div style={{
-              fontSize: '11px',
-              color: 'var(--sf-text-muted)',
-              marginBottom: '2px',
-              fontWeight: 500,
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-            }}>
-              <CalendarOutlined style={{ marginRight: 4 }} />
-              Periode
-            </div>
-            <div style={{
-              fontSize: '13px',
-              color: 'var(--sf-text)',
-            }}>
-              {formatFullPeriodeLabel(bill.periode)}
-            </div>
-          </div>
-          <div>
-            <div style={{
-              fontSize: '11px',
-              color: 'var(--sf-text-muted)',
-              marginBottom: '2px',
-              fontWeight: 500,
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-            }}>
-              <DollarOutlined style={{ marginRight: 4 }} />
-              Total Tagihan
-            </div>
-            <div style={{
-              fontSize: '14px',
-              color: 'var(--sf-text)',
-              fontWeight: 600,
-            }}>
-              {formatRupiah(bill.nominal)}
-            </div>
-          </div>
-          <div>
-            <div style={{
-              fontSize: '11px',
-              color: 'var(--sf-text-muted)',
-              marginBottom: '2px',
-              fontWeight: 500,
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-            }}>
-              <CheckCircleOutlined style={{ marginRight: 4, color: 'var(--sf-success)' }} />
-              Sudah Dibayar
-            </div>
-            <div style={{
-              fontSize: '14px',
-              color: 'var(--sf-success)',
-              fontWeight: 600,
-            }}>
-              {formatRupiah(bill.paidAmount)}
-            </div>
-          </div>
-          <div>
-            <div style={{
-              fontSize: '11px',
-              color: 'var(--sf-text-muted)',
-              marginBottom: '2px',
-              fontWeight: 500,
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-            }}>
-              <WarningOutlined style={{ marginRight: 4, color: remaining <= 0 ? 'var(--sf-success)' : 'var(--sf-warning)' }} />
-              Sisa Tagihan
-            </div>
-            <div style={{
-              fontSize: '14px',
-              color: remaining <= 0 ? 'var(--sf-success)' : 'var(--sf-warning)',
-              fontWeight: 600,
-            }}>
-              {formatRupiah(remaining)}
-            </div>
-          </div>
-        </div>
-
-        {/* Actions */}
-        {remaining > 0 && (
-          <div style={{ marginTop: 'var(--sp-lg)', display: 'flex', gap: '8px' }}>
-            {isModal ? (
-              <button
-                type="button"
-                onClick={() => onPayment(bill.id)}
-                style={{
-                  padding: '8px 16px',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: '#fff',
-                  background: 'var(--sf-accent)',
-                  border: 'none',
-                  borderRadius: 'var(--radius-sm)',
-                  cursor: 'pointer',
-                }}
-              >
-                Bayar Sekarang
-              </button>
-            ) : (
-              <Link
-                to={`/iuran/${bill.id}/pembayaran`}
-                style={{
-                  padding: '8px 16px',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: '#fff',
-                  background: 'var(--sf-accent)',
-                  border: 'none',
-                  borderRadius: 'var(--radius-sm)',
-                  textDecoration: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                Bayar Sekarang
-              </Link>
-            )}
-          </div>
-        )}
-      </AppCard>
-
-      {/* Payment history */}
-      {bill.payments && bill.payments.length > 0 && (
-        <AppCard>
-          <div style={{ marginBottom: 'var(--sp-md)' }}>
-            <h3 style={{
-              fontSize: '14px',
-              fontWeight: 600,
-              color: 'var(--sf-text)',
-              margin: 0,
-            }}>
-              Riwayat Pembayaran
-            </h3>
-            <p style={{
-              fontSize: '12px',
-              color: 'var(--sf-text-muted)',
-              margin: '2px 0 0',
-            }}>
-              {bill.payments.length} pembayaran tercatat
-            </p>
-          </div>
-          <table className="sf-table" style={{ width: '100%' }}>
-            <thead>
-              <tr>
-                <th>Tanggal</th>
-                <th>Nominal</th>
-                <th>Status</th>
-                <th>Metode</th>
-                <th>Catatan</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bill.payments.map((payment) => (
-                <tr key={payment.id}>
-                  <td>{formatDate(payment.paidDate)}</td>
-                  <td style={{ fontFamily: 'monospace', textAlign: 'right' }}>
-                    {formatRupiah(payment.nominal)}
-                  </td>
-                  <td>
-                    <Badge variant={getPaymentStatusVariant(payment.status!)}>
-                      {getPaymentStatusLabel(payment.status!)}
-                    </Badge>
-                  </td>
-                  <td style={{ color: 'var(--sf-text-muted)' }}>
-                    {payment.method === 'TRANSFER' ? 'Transfer' : 'Cash'}
-                  </td>
-                  <td style={{ color: 'var(--sf-text-muted)' }}>
-                    {payment.catatan || '\u2014'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </AppCard>
-      )}
-    </>
-  ) : null
-
-  /* ── Loading / error / not-found (page mode only) ────────────────────── */
+  /* ── Modal mode ───────────────────────────── */
 
   if (isModal) {
     return (
       <Modal
         open={open}
         onClose={handleClose}
-        width={800}
+        width={720}
         overlayClassName="sf-modal-overlay-detail"
       >
         <ModalHeader
-          title="Detail Iuran"
-          subtitle={`ID: ${effectiveId}`}
+          title="Detail Tagihan"
+          subtitle={
+            bill
+              ? `${bill.iuranType} · ${formatFullPeriodeLabel(bill.periode)}`
+              : `ID: ${effectiveId}`
+          }
           onClose={handleClose}
         />
         <ModalBody>
@@ -440,10 +515,10 @@ export function IuranDetail({
           )}
           {error && (
             <div style={{
-              background: 'var(--color-expense-subtle)',
-              color: 'var(--color-expense)',
-              border: '1px solid rgba(255,59,48,0.3)',
-              borderRadius: 'var(--radius-sm)',
+              background: 'var(--sf-danger-soft)',
+              color: 'var(--sf-danger)',
+              border: '1px solid rgba(242,73,92,0.3)',
+              borderRadius: 'var(--sf-radius-sm)',
               padding: '10px 14px',
               fontSize: '13px',
             }}>
@@ -460,13 +535,91 @@ export function IuranDetail({
               Tagihan iuran tidak ditemukan.
             </div>
           )}
-          {detailContent}
+          {!loading && !error && !notFound && bill && (
+            <>
+              {/* Header row with status badge */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '16px',
+              }}>
+                <div>
+                  <div style={{
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    color: 'var(--sf-text)',
+                  }}>
+                    {bill.householdName}
+                  </div>
+                  <div style={{
+                    fontSize: '12px',
+                    color: 'var(--sf-text-muted)',
+                    marginTop: '2px',
+                  }}>
+                    {bill.iuranType} · {formatFullPeriodeLabel(bill.periode)}
+                  </div>
+                </div>
+                <StatusBadge status={bill.status} />
+              </div>
+
+              <DetailContent bill={bill} remaining={remaining} />
+            </>
+          )}
         </ModalBody>
+
+        {/* Footer actions */}
+        {!loading && !error && !notFound && bill && (
+          <ModalFooter>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              width: '100%',
+            }}>
+              <button
+                type="button"
+                onClick={handleClose}
+                style={{
+                  padding: '8px 20px',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: 'var(--sf-text)',
+                  background: 'var(--sf-surface)',
+                  border: '1px solid var(--sf-border)',
+                  borderRadius: 'var(--sf-radius-sm)',
+                  cursor: 'pointer',
+                }}
+              >
+                Tutup
+              </button>
+
+              {remaining > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onPayment(bill.id)}
+                  style={{
+                    padding: '8px 20px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: '#fff',
+                    background: 'var(--sf-accent)',
+                    border: 'none',
+                    borderRadius: 'var(--sf-radius-sm)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Bayar Sekarang
+                </button>
+              )}
+            </div>
+          </ModalFooter>
+        )}
       </Modal>
     )
   }
 
-  /* ── Page mode (route: /iuran/:id) ──────────────────────────────────── */
+  /* ── Page mode (route: /iuran/:id) ────────── */
 
   return (
     <div style={{ flex: 1, padding: 'var(--sp-md) var(--sp-xl)' }}>
@@ -521,10 +674,10 @@ export function IuranDetail({
       {!loading && !notFound && error && (
         <AppCard>
           <div style={{
-            background: 'var(--color-expense-subtle)',
-            color: 'var(--color-expense)',
-            border: '1px solid rgba(255,59,48,0.3)',
-            borderRadius: 'var(--radius-sm)',
+            background: 'var(--sf-danger-soft)',
+            color: 'var(--sf-danger)',
+            border: '1px solid rgba(242,73,92,0.3)',
+            borderRadius: 'var(--sf-radius-sm)',
             padding: '10px 14px',
             fontSize: '13px',
           }}>
@@ -534,7 +687,36 @@ export function IuranDetail({
       )}
 
       {/* Detail */}
-      {detailContent}
+      {!loading && !error && !notFound && bill && (
+        <>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
+          }}>
+            <div>
+              <div style={{
+                fontSize: '16px',
+                fontWeight: 700,
+                color: 'var(--sf-text)',
+              }}>
+                {bill.householdName}
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: 'var(--sf-text-muted)',
+                marginTop: '2px',
+              }}>
+                {bill.iuranType} · {formatFullPeriodeLabel(bill.periode)}
+              </div>
+            </div>
+            <StatusBadge status={bill.status} />
+          </div>
+
+          <DetailContent bill={bill} remaining={remaining} />
+        </>
+      )}
     </div>
   )
 }
