@@ -15,7 +15,7 @@ import (
 
 const (
 	// DefaultSeedPassword is the single known password for all seeded mock users.
-	DefaultSeedPassword = "TestUser123!"
+	DefaultSeedPassword = "123qweasdzxc"
 )
 
 // SeedSummary contains counts of all entities inserted/upserted by the seed operation.
