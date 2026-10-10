@@ -243,9 +243,9 @@ func BillCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateBillInput
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, amount, period, due_date, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, 'unpaid')
-		 RETURNING id, rt_id, household_occupancy_id, due_id, amount::text, period, due_date, status, created_at, updated_at`,
+		 RETURNING id, rt_id, (SELECT rts.rt FROM rts WHERE id = $1) as rt_code, household_occupancy_id, due_id, amount::text, period, due_date, status, created_at, updated_at`,
 		rtID, in.HouseholdOccupancyID, in.DueID, in.Amount, in.Period, in.DueDate,
-	).Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt)
+	).Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create bill: %w", err)
 	}
@@ -259,16 +259,17 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 	var dueName, houseNum, headName sql.NullString
 
 	err := tx.QueryRowContext(ctx,
-		`SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
+		`SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
 		        d.name as due_name, ph.house_number, h.head_name
 		 FROM bills b
 		 JOIN dues d ON b.due_id = d.id
 		 JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
 		 JOIN households h ON ho.household_id = h.id
 		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+		 LEFT JOIN rts rt ON b.rt_id = rt.id
 		 WHERE b.id = $1 AND b.rt_id = $2 LIMIT 1`,
 		id, rtID,
-	).Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
+	).Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
 		&dueName, &houseNum, &headName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -290,13 +291,14 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 }
 
 func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period *string, offset, limit int) ([]*Bill, error) {
-	query := `SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
+	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
 	                 d.name as due_name, ph.house_number, h.head_name
 	          FROM bills b
 	          JOIN dues d ON b.due_id = d.id
 	          JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
 	          JOIN households h ON ho.household_id = h.id
 	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+	          LEFT JOIN rts rt ON b.rt_id = rt.id
 	          WHERE b.rt_id = $1`
 
 	args := []interface{}{rtID}
@@ -337,7 +339,7 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		var b Bill
 		var dueDate time.Time
 		var dueName, houseNum, headName sql.NullString
-		if err := rows.Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
+		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
 			&dueName, &houseNum, &headName); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}
@@ -413,11 +415,13 @@ func BillGetByIDForUpdate(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bi
 	var dueDate time.Time
 
 	err := tx.QueryRowContext(ctx,
-		`SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at
+		`SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at
 		 FROM bills b
+		 JOIN dues d ON b.due_id = d.id
+		 JOIN rts rt ON b.rt_id = rt.id
 		 WHERE b.id = $1 AND b.rt_id = $2 LIMIT 1 FOR UPDATE`,
 		id, rtID,
-	).Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt)
+	).Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -975,16 +979,17 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 	var dueName, houseNum, headName sql.NullString
 
 	err := tx.QueryRowContext(ctx,
-		`SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
+		`SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
 		        d.name as due_name, ph.house_number, h.head_name
 		 FROM bills b
 		 JOIN dues d ON b.due_id = d.id
 		 JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
 		 JOIN households h ON ho.household_id = h.id
 		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+		 LEFT JOIN rts rt ON b.rt_id = rt.id
 		 WHERE b.id = $1 LIMIT 1`,
 		id,
-	).Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
+	).Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
 		&dueName, &houseNum, &headName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1006,13 +1011,14 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 }
 
 func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period *string, offset, limit int) ([]*Bill, error) {
-	query := `SELECT b.id, b.rt_id, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
+	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
 	                 d.name as due_name, ph.house_number, h.head_name
 	          FROM bills b
 	          JOIN dues d ON b.due_id = d.id
 	          JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
 	          JOIN households h ON ho.household_id = h.id
-	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id`
+	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+	          LEFT JOIN rts rt ON b.rt_id = rt.id`
 
 	var whereParts []string
 	var args []interface{}
@@ -1057,7 +1063,7 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pe
 		var b Bill
 		var dueDate time.Time
 		var dueName, houseNum, headName sql.NullString
-		if err := rows.Scan(&b.ID, &b.RTID, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
+		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
 			&dueName, &houseNum, &headName); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}

@@ -73,17 +73,14 @@ function IuranPaymentContent({
     setSubmitting(true)
 
     try {
-      const token = localStorage.getItem('social-finance-session')
-      const session = token ? JSON.parse(token) : null
-      const accessToken = session?.accessToken
-
-      if (!accessToken) {
+      const pair = getSessionPair()
+      if (!pair?.accessToken) {
         setError('Sesi Anda telah berakhir. Silakan login ulang.')
         setSubmitting(false)
         return
       }
 
-      const payment = await apiCreatePayment(accessToken, {
+      const payment = await apiCreatePayment(pair.accessToken, {
         bill_id: bill.id,
         amount: String(nominalNum),
         method: method as 'CASH' | 'TRANSFER',
@@ -373,10 +370,12 @@ export function IuranPayment({
   billId,
   open: openProp,
   onClose: onCloseProp,
+  onPaymentSuccess: onPaymentSuccessProp,
 }: {
   billId?: string
   open?: boolean
   onClose?: () => void
+  onPaymentSuccess?: () => void
 } = {}) {
   const routeId = useParams<{ id: string }>()?.id
   const effectiveId = billId ?? routeId
@@ -417,7 +416,7 @@ export function IuranPayment({
           id: apiBill.id,
           householdId: apiBill.household_occupancy_id,
           householdName: apiBill.head_name ?? apiBill.house_number ?? 'Unknown',
-          rt: apiBill.rt_id ?? 'RT',
+          rt: apiBill.rt_code ? `RT ${apiBill.rt_code}` : 'RT —',
           iuranType: apiBill.due_name ?? 'Iuran',
           periode: apiBill.period,
           nominal: parseMoney(apiBill.amount),
@@ -474,8 +473,13 @@ export function IuranPayment({
       bill={bill}
       remaining={remaining}
       handleClose={handleClose}
-      onPaymentSuccess={async (_payment: ApiPayment) => {
-        // Refresh bill data after successful payment to update paidAmount
+      onPaymentSuccess={async (payment: ApiPayment) => {
+        // Refresh bill detail state locally to update paidAmount + status
+        if (onPaymentSuccessProp) {
+          void payment // used for typing; parent reloads from API
+          onPaymentSuccessProp()
+        }
+        // Notify parent (IuranList) to reload data from API
         try {
           const token = getSessionPair()?.accessToken
           if (token && effectiveId) {
@@ -497,11 +501,11 @@ export function IuranPayment({
                 } : prev
               )
             } catch {
-              // Silent fail - don't disrupt the success flow
+              // Silent fail — don't disrupt the success flow
             }
           }
         } catch {
-          // Silent fail - don't disrupt the success flow
+          // Silent fail — don't disrupt the success flow
         }
       }}
     />

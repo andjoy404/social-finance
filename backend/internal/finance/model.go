@@ -102,6 +102,7 @@ const (
 type Bill struct {
 	ID                   string     `json:"id"`
 	RTID                 string     `json:"rt_id"`
+	RTCode               string     `json:"rt_code"`
 	HouseholdOccupancyID string     `json:"household_occupancy_id"`
 	DueID                string     `json:"due_id"`
 	Amount               string     `json:"amount"` // String decimal

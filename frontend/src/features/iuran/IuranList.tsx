@@ -83,8 +83,7 @@ export function IuranList() {
   const mapBill = useCallback((b: ApiBill): IuranBill => {
     const iuranType = b.due_name ?? 'Iuran'
     const householdName = b.head_name ?? b.house_number ?? 'Unknown'
-    const rtParts = b.rt_id.split('-')
-    const rt = rtParts.length > 0 ? `RT ${rtParts[0]}` : 'RT'
+    const rt = b.rt_code ? `RT ${b.rt_code}` : 'RT —'
     return {
       id: b.id,
       householdId: b.household_occupancy_id,
@@ -466,6 +465,7 @@ export function IuranList() {
             billId={showPaymentBillId}
             open={true}
             onClose={() => setShowPaymentBillId(null)}
+            onPaymentSuccess={() => loadData(1, pageSize)}
           />
         )}
 

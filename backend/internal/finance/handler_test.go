@@ -2519,3 +2519,180 @@ func TestSuperAdminSecurityTests(t *testing.T) {
 		})
 	}
 }
+
+// TestRequireTenantContextGuard verifies that requireTenantContext correctly
+// rejects system-only SUPER_ADMIN (RTID == "") with HTTP 403 before any
+// service/database call is made, while allowing users with a valid tenant
+// membership to proceed.
+func TestRequireTenantContextGuard(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupFinanceRouter(pool)
+
+	rtID := setupTestRT(t, pool, "Guard RT", 1, "GUARD")
+	defer cleanupTestRT(t, pool, rtID)
+
+	// Create a resident with occupancy so GenerateBills produces bills.
+	phoneW := fmt.Sprintf("0833%08d", time.Now().UnixNano()%100000000)
+	_ = setupTestOccupancyWithResident(t, pool, rtID, phoneW)
+
+	// ── Helper: generate system-only superadmin token (RTID == "") ──
+	makeSystemOnlyToken := func() string {
+		saUser := setupSystemOnlySuperAdmin(t, pool, "g.sa@test.com", "Guard SA", "+628000")
+		return makeToken(t, auth.TokenClaims{
+			UserID:  saUser,
+			MID:     "",
+			RTID:    "",
+			Role:    "",
+			Jabatan: "",
+			SysRole: "super_admin",
+		})
+	}
+
+	// ── Helper: generate valid bendahara token (RTID != "") ──
+	phoneB := fmt.Sprintf("0811%08d", time.Now().UnixNano()%100000000)
+	userB, midB := setupTestUserWithMembership(t, pool, "g.bendahara@test.com", "Guard Bendahara", phoneB, rtID, "bendahara")
+	tokenBendahara := makeToken(t, auth.TokenClaims{
+		UserID:  userB,
+		MID:     midB,
+		RTID:    rtID,
+		Role:    string(auth.RoleBendahara),
+		Jabatan: "",
+		SysRole: "",
+	})
+
+	// ── Helper: assert 403 with expected message ──
+	assert403 := func(t *testing.T, rec *httptest.ResponseRecorder, label string) {
+		t.Helper()
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s: expected 403, got %d: %s", label, rec.Code, rec.Body.String())
+		}
+	}
+
+	// ── Test: system-only SUPER_ADMIN receives 403 on all targeted write endpoints ──
+	systemOnlyToken := makeSystemOnlyToken()
+	writeTests := []struct {
+		method   string
+		path     string
+		body     string
+	}{
+		{http.MethodPost, "/api/v1/categories", `{"name":"Hacked","type":"income"}`},
+		{http.MethodPost, "/api/v1/dues", `{"name":"Hacked Due","amount":"10000","period_type":"monthly"}`},
+		{http.MethodPost, "/api/v1/bills", `{"household_occupancy_id":"fake","due_id":"fake","amount":"10000","period":"2026-10","due_date":"2026-10-25"}`},
+		{http.MethodPost, "/api/v1/payments", `{"bill_id":"fake","amount":"10000","method":"CASH"}`},
+		{http.MethodPost, "/api/v1/transactions", `{"category_id":"fake","amount":"10000","type":"income","description":"Hacked"}`},
+	}
+
+	for _, wt := range writeTests {
+		t.Run("system-only 403: "+wt.method+" "+wt.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(wt.method, wt.path, bytes.NewBufferString(wt.body))
+			req.Header.Set("Authorization", "Bearer "+systemOnlyToken)
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			assert403(t, rec, wt.method+" "+wt.path)
+		})
+	}
+
+	// Cancel bill (DELETE /api/v1/bills/{id}) needs a real bill ID —
+	// generate one first via bendahara, then try cancel as system-only.
+	t.Run("system-only 403: DELETE /api/v1/bills/{id}", func(t *testing.T) {
+		// 1. Create a due first
+		dueRec := httptest.NewRecorder()
+		dueReq := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(`{"name":"Cancel Test Due","amount":"10000","period_type":"monthly"}`))
+		dueReq.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		dueReq.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(dueRec, dueReq)
+		if dueRec.Code != http.StatusCreated {
+			t.Fatalf("create due for cancel test: %d: %s", dueRec.Code, dueRec.Body.String())
+		}
+		var due Due
+		json.Unmarshal(dueRec.Body.Bytes(), &due)
+
+		// 2. Generate a bill
+		genRec := httptest.NewRecorder()
+		genReq := httptest.NewRequest(http.MethodPost, "/api/v1/bills/generate",
+			bytes.NewBufferString(fmt.Sprintf(`{"due_id":"%s","period":"2026-12","due_date":"2026-12-25"}`, due.ID)))
+		genReq.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		genReq.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(genRec, genReq)
+		if genRec.Code != http.StatusCreated {
+			t.Fatalf("generate bill: %d: %s", genRec.Code, genRec.Body.String())
+		}
+
+		// 3. Retrieve bill ID via list endpoint (more reliable than parsing GenerateBills response)
+		listRec := httptest.NewRecorder()
+		listReq := httptest.NewRequest(http.MethodGet, "/api/v1/bills?period=2026-12", nil)
+		listReq.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		router.ServeHTTP(listRec, listReq)
+		if listRec.Code != http.StatusOK {
+			t.Fatalf("list bills: %d: %s", listRec.Code, listRec.Body.String())
+		}
+		var listResp struct {
+			Data []Bill `json:"data"`
+		}
+		json.Unmarshal(listRec.Body.Bytes(), &listResp)
+		if len(listResp.Data) == 0 {
+			t.Fatal("no bills found after generate")
+		}
+		billID := listResp.Data[0].ID
+
+		// 4. Try to cancel as system-only — guard must block with 403
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/bills/"+billID, nil)
+		req.Header.Set("Authorization", "Bearer "+systemOnlyToken)
+		router.ServeHTTP(rec, req)
+		assert403(t, rec, "DELETE /api/v1/bills/{id}")
+	})
+
+	// ── Test: system-only SUPER_ADMIN receives 403 on PATCH /dues/{id} ──
+	t.Run("system-only 403: PATCH /api/v1/dues/{id}", func(t *testing.T) {
+		// 1. Create a due via bendahara
+		dueRec := httptest.NewRecorder()
+		dueReq := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(`{"name":"Patch Test Due","amount":"10000","period_type":"monthly"}`))
+		dueReq.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		dueReq.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(dueRec, dueReq)
+		if dueRec.Code != http.StatusCreated {
+			t.Fatalf("create due for patch test: %d: %s", dueRec.Code, dueRec.Body.String())
+		}
+		var d Due
+		json.Unmarshal(dueRec.Body.Bytes(), &d)
+
+		// 2. Try to update as system-only
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/dues/"+d.ID, bytes.NewBufferString(`{"name":"Updated"}`))
+		req.Header.Set("Authorization", "Bearer "+systemOnlyToken)
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(rec, req)
+		assert403(t, rec, "PATCH /api/v1/dues/{id}")
+	})
+
+	// ── Test: system-only SUPER_ADMIN receives 403 on POST /api/v1/bills/generate ──
+	t.Run("system-only 403: POST /api/v1/bills/generate", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/bills/generate",
+			bytes.NewBufferString(`{"due_id":"fake","period":"2027-01","due_date":"2027-01-25"}`))
+		req.Header.Set("Authorization", "Bearer "+systemOnlyToken)
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(rec, req)
+		assert403(t, rec, "POST /api/v1/bills/generate")
+	})
+
+	// ── Test: valid bendahara with RT membership is NOT rejected by guard ──
+	t.Run("valid bendahara proceeds past guard", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(`{"name":"Valid Due","amount":"50000","period_type":"monthly"}`))
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Errorf("valid bendahara: expected 201, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var d Due
+		json.Unmarshal(rec.Body.Bytes(), &d)
+		if d.Name != "Valid Due" {
+			t.Errorf("expected due name 'Valid Due', got %q", d.Name)
+		}
+	})
+}

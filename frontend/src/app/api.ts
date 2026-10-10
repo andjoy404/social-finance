@@ -213,9 +213,12 @@ async function authenticatedApiRequest(
   }
 
   if (!currentRes.ok) {
-    const body = await json<ApiError>(currentRes).catch(() => null)
-    if (currentRes.status >= 400 && body?.code) {
-      throw new ApiError(body.code, body.message)
+    const raw = await currentRes.text()
+    let body: { error?: ApiError } | null = null
+    try { body = JSON.parse(raw) } catch { /* ignore */ }
+    const apiErr = body?.error
+    if (currentRes.status >= 400 && apiErr?.code) {
+      throw new ApiError(apiErr.code, apiErr.message)
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
@@ -723,6 +726,7 @@ export async function apiCreateDue(
 export interface ApiBill {
   id: string
   rt_id: string
+  rt_code?: string | null
   household_occupancy_id: string
   due_id: string
   amount: string

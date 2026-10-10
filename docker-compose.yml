@@ -33,6 +33,8 @@ services:
       - social-finance-internal
 
   backend-test:
+    profiles:
+      - test
     build:
       context: ./backend
       dockerfile: Dockerfile.dev

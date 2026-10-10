@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -32,6 +31,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   final _nominalCtrl = TextEditingController();
   final _catatanCtrl = TextEditingController();
 
+  PaymentMethod? _selectedMethod;
   bool _saving = false;
   String? _error;
 
@@ -63,11 +63,17 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       await ref.read(iuranRepositoryProvider).createPayment(
             billId: widget.billId,
             amount: amount,
-            method: PaymentMethod.cash,
+            method: _selectedMethod ?? PaymentMethod.cash,
             notes: _catatanCtrl.text.trim().isEmpty
                 ? null
                 : _catatanCtrl.text.trim(),
           );
+
+      // Invalidate cached providers so list/detail screens fetch fresh data
+      if (mounted) {
+        ref.invalidate(billDetailProvider(widget.billId));
+        ref.invalidate(billsProvider);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -343,6 +349,41 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
+              // ── Metode Pembayaran ──
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Metode Pembayaran',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SegmentedButton<PaymentMethod>(
+                    segments: [
+                      ButtonSegment(
+                        value: PaymentMethod.cash,
+                        label: const Text('Tunai'),
+                        icon: const Icon(Icons.payments_outlined),
+                      ),
+                      ButtonSegment(
+                        value: PaymentMethod.transfer,
+                        label: const Text('Transfer'),
+                        icon: const Icon(Icons.account_balance_outlined),
+                      ),
+                    ],
+                    selected: {_selectedMethod ?? PaymentMethod.cash},
+                    onSelectionChanged: (selection) {
+                      setState(() {
+                        _selectedMethod = selection.first;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
               // ── Nominal Pembayaran ──
               AppTextField(
                 controller: _nominalCtrl,
@@ -396,6 +437,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       child: SizedBox(
                         height: 48,
                         child: OutlinedButton(
+                          key: const Key('btn_save'),
                           onPressed: _saving ? null : _save,
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: AppColors.accent),
@@ -407,7 +449,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                             ),
                           ),
                           child: _saving
-                              ? SizedBox(
+                              ? const SizedBox(
                                   width: 16,
                                   height: 16,
                                   child: CircularProgressIndicator(
@@ -446,6 +488,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       child: SizedBox(
                         height: 48,
                         child: OutlinedButton(
+                          key: const Key('btn_cancel'),
                           onPressed:
                               _saving ? null : () => _confirmCancel(),
                           style: OutlinedButton.styleFrom(

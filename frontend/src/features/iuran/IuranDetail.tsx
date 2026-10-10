@@ -421,7 +421,7 @@ export function IuranDetail({
           id: apiBill.id,
           householdId: apiBill.household_occupancy_id,
           householdName: apiBill.head_name ?? apiBill.house_number ?? 'Unknown',
-          rt: apiBill.rt_id ?? 'RT',
+          rt: apiBill.rt_code ? `RT ${apiBill.rt_code}` : 'RT —',
           iuranType: apiBill.due_name ?? 'Iuran',
           periode: apiBill.period,
           nominal: parseMoney(apiBill.amount),

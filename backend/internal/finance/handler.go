@@ -57,6 +57,19 @@ func parsePagination(r *http.Request) (int, int) {
 	return page, pageSize
 }
 
+// requireTenantContext returns true if the user has a tenant membership.
+// When false, it writes a 403 error response and returns false — the caller
+// must abort handling.  This guards financial write endpoints from receiving
+// an empty RTID that would cause "invalid input syntax for type uuid: \"\""
+// in PostgreSQL.
+func requireTenantContext(ac *auth.AuthContext, w http.ResponseWriter) bool {
+	if ac.RTID == "" {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "User harus memiliki membership RT untuk melakukan operasi keuangan")
+		return false
+	}
+	return true
+}
+
 // --- Categories Handlers ---
 
 func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +118,10 @@ func (h *Handler) CreateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	var in CreateCategoryInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		httpx.WriteValidationError(w, "invalid request body", nil)
@@ -137,6 +154,11 @@ func (h *Handler) UpdateCategory(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
@@ -179,6 +201,11 @@ func (h *Handler) DeactivateCategory(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
@@ -256,6 +283,10 @@ func (h *Handler) CreateDue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	var in CreateDueInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		httpx.WriteValidationError(w, "invalid request body", nil)
@@ -288,6 +319,11 @@ func (h *Handler) UpdateDue(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
@@ -330,6 +366,11 @@ func (h *Handler) DeactivateDue(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
@@ -560,6 +601,10 @@ func (h *Handler) GenerateBills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
 	if handled {
 		return
@@ -605,6 +650,10 @@ func (h *Handler) CreateBill(w http.ResponseWriter, r *http.Request) {
 	ac, ok := getAuthContext(r)
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
 		return
 	}
 
@@ -794,6 +843,10 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
 	if handled {
 		return
@@ -846,6 +899,11 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
@@ -1076,6 +1134,10 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
 	if handled {
 		return
@@ -1120,6 +1182,11 @@ func (h *Handler) ReverseTransaction(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
@@ -1209,6 +1276,11 @@ func (h *Handler) CancelBill(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
