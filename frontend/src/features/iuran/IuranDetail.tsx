@@ -6,6 +6,8 @@ import {
   FileTextOutlined,
   UserOutlined,
   CalendarOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
 } from '@ant-design/icons'
 import { AppCard } from '@/components/AppCard'
 import { Badge } from '@/components/Badge'
@@ -25,7 +27,8 @@ import {
   type IuranPaymentRecord,
   type PaymentStatusDisplay,
 } from './iuranTypes'
-import { apiGetBill, apiListPayments, getSessionPair } from '@/app/api'
+import type { ApiPayment } from '@/app/api'
+import { apiGetBill, apiListPayments, apiVerifyPayment, getSessionPair } from '@/app/api'
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
@@ -215,6 +218,128 @@ function PaymentHistoryItem({ payment }: { payment: IuranPaymentRecord }) {
 }
 
 /* ─────────────────────────────────────────────
+   Pending payment card (verification section)
+   ───────────────────────────────────────────── */
+
+function PendingPaymentCard({
+  payment,
+  verifyingId,
+  onApprove,
+  onReject,
+}: {
+  payment: ApiPayment
+  verifyingId: string | null
+  onApprove: () => void
+  onReject: () => void
+}) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: '12px',
+      padding: '12px 14px',
+      borderRadius: 'var(--sf-radius-sm)',
+      border: '1px solid var(--sf-warning)',
+      background: 'var(--sf-warning-soft)',
+    }}>
+      <div style={{
+        width: '36px',
+        height: '36px',
+        borderRadius: '50%',
+        background: 'var(--sf-warning)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#fff',
+        fontSize: '18px',
+        flexShrink: 0,
+      }}>
+        ⏳
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: '15px',
+          fontWeight: 700,
+          fontFamily: 'var(--sf-font-mono)',
+          color: 'var(--sf-text)',
+        }}>
+          {formatRupiah(parseMoney(payment.amount))}
+        </div>
+        <div style={{
+          fontSize: '11px',
+          color: 'var(--sf-text-muted)',
+          marginTop: '2px',
+        }}>
+          {formatDate(payment.paid_at)}
+          {payment.method ? ' · ' + (payment.method === 'TRANSFER' ? 'Transfer' : 'Cash') : ''}
+          {payment.notes && <span> · {payment.notes}</span>}
+        </div>
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          marginTop: '10px',
+        }}>
+          <button
+            type="button"
+            onClick={onApprove}
+            disabled={verifyingId === payment.id}
+            style={{
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#fff',
+              background: 'var(--sf-success)',
+              border: 'none',
+              borderRadius: 'var(--sf-radius-sm)',
+              cursor: verifyingId === payment.id ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            {verifyingId === payment.id
+              ? 'Memproses...'
+              : (
+                  <>
+                    <CheckCircleOutlined style={{ fontSize: 12 }} />
+                    Terima
+                  </>
+                )}
+          </button>
+          <button
+            type="button"
+            onClick={onReject}
+            disabled={verifyingId === payment.id}
+            style={{
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#fff',
+              background: 'var(--sf-danger)',
+              border: 'none',
+              borderRadius: 'var(--sf-radius-sm)',
+              cursor: verifyingId === payment.id ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            {verifyingId === payment.id
+              ? 'Memproses...'
+              : (
+                  <>
+                    <CloseCircleOutlined style={{ fontSize: 12 }} />
+                    Tolak
+                  </>
+                )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
    Shared detail content (used by both modes)
    ───────────────────────────────────────────── */
 
@@ -389,6 +514,9 @@ export function IuranDetail({
   const [error, setError] = useState<string | null>(null)
   const [bill, setBill] = useState<IuranBill | null>(null)
   const [notFound, setNotFound] = useState(false)
+  const [pendingPayments, setPendingPayments] = useState<ApiPayment[]>([])
+  const [verifyingId, setVerifyingId] = useState<string | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   // Load bill data
   useEffect(() => {
@@ -443,6 +571,12 @@ export function IuranDetail({
           0
         )
 
+        // Separate pending payments for verification
+        const pendingList = paymentsResponse.data.filter(
+          (p) => p.status === 'PENDING'
+        )
+        setPendingPayments(pendingList)
+
         // Map payments to frontend format
         const paymentRecords = paymentsResponse.data.map((p) => ({
           id: p.id,
@@ -482,7 +616,48 @@ export function IuranDetail({
     return bill.nominal - bill.paidAmount
   }, [bill])
 
-  /* ── Modal mode ───────────────────────────── */
+  // ── Verification handlers ────────────────────────────────────────
+
+  async function handleApprove(paymentId: string) {
+    if (!window.confirm('Terima pembayaran ini?')) return
+    setVerifyingId(paymentId)
+    try {
+      const token = getSessionPair()?.accessToken
+      if (!token) { setError('Sesi telah berakhir. Silakan login ulang.') }
+      else {
+        await apiVerifyPayment(token, paymentId, 'approve')
+        // Refresh bill data
+        window.location.reload()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memverifikasi')
+    } finally {
+      setVerifyingId(null)
+    }
+  }
+
+  async function handleReject(paymentId: string) {
+    const reason = rejectReason.trim()
+    if (!reason) { setError('Alasan penolakan harus diisi.') }
+    else {
+      setVerifyingId(paymentId)
+      try {
+        const token = getSessionPair()?.accessToken
+        if (!token) { setError('Sesi telah berakhir. Silakan login ulang.') }
+        else {
+          await apiVerifyPayment(token, paymentId, 'reject', { rejectionReason: reason })
+          window.location.reload()
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Gagal menolak pembayaran')
+      } finally {
+        setVerifyingId(null)
+        setRejectReason('')
+      }
+    }
+  }
+
+  // ── Modal mode ───────────────────────────────────────
 
   if (isModal) {
     return (
@@ -564,6 +739,54 @@ export function IuranDetail({
               </div>
 
               <DetailContent bill={bill} remaining={remaining} />
+
+              {/* ── Verification section (bendahara/pengurus/super_admin only) ── */}
+              {pendingPayments.length > 0 && (
+                <AppCard style={{ marginTop: '12px', padding: '16px' }}>
+                  <div style={{
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: 'var(--sf-text)',
+                    marginBottom: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}>
+                    <span style={{ fontSize: '18px' }}>⏳</span>
+                    Menunggu Verifikasi ({pendingPayments.length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {pendingPayments.map((p) => (
+                      <PendingPaymentCard
+                        key={p.id}
+                        payment={p}
+                        verifyingId={verifyingId}
+                        onApprove={() => handleApprove(p.id)}
+                        onReject={() => handleReject(p.id)}
+                      />
+                    ))}
+                  </div>
+                  {pendingPayments.length > 0 && (
+                    <div style={{ marginTop: '10px' }}>
+                      <textarea
+                        value={rejectReason}
+                        onChange={(e) => setRejectReason(e.target.value)}
+                        placeholder="Alasan penolakan (opsional, diisi untuk menolak pembayaran)"
+                        rows={2}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          fontSize: '12px',
+                          border: '1px solid var(--sf-border)',
+                          borderRadius: 'var(--sf-radius-sm)',
+                          resize: 'vertical',
+                          fontFamily: 'inherit',
+                        }}
+                      />
+                    </div>
+                  )}
+                </AppCard>
+              )}
             </>
           )}
         </ModalBody>

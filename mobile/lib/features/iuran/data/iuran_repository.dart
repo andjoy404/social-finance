@@ -162,6 +162,12 @@ class IuranRepository {
     );
   }
 
+  /// Fetch all PENDING payments for verification by bendahara/pengurus.
+  Future<List<BackendPayment>> fetchPendingPayments() async {
+    final response = await apiClient.listPayments(status: 'PENDING');
+    return response.data;
+  }
+
   // ─── Reports ────────────────────────────────────────────────────────
 
   Future<BackendBalance> fetchBalance() async {

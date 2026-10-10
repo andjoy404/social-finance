@@ -23,7 +23,8 @@ import { DueCreate } from './DueCreate'
 import { IuranDetail } from './IuranDetail'
 import { IuranPayment } from './IuranPayment'
 import type { IuranBill, IuranStatus } from './iuranTypes'
-import { apiListBills, apiListPayments, type ApiBill, getSessionPair } from '@/app/api'
+import { apiListBills, apiListPayments, type ApiBill, type ApiPayment, getSessionPair } from '@/app/api'
+import { useAuth } from '@/app/AuthContext'
 
 type FilterType = 'semua' | 'status' | 'periode' | 'jenis'
 
@@ -78,6 +79,13 @@ export function IuranList() {
   const [totalPages, setTotalPages] = useState(1)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+
+  // Auth for role-based access control
+  const { user } = useAuth()
+  const canVerify = useMemo(() => {
+    if (!user) return false
+    return user.role === 'pengurus' || user.role === 'bendahara' || user.role === 'super_admin'
+  }, [user])
 
   // Map backend bill to frontend IuranBill format
   const mapBill = useCallback((b: ApiBill): IuranBill => {
@@ -140,23 +148,30 @@ export function IuranList() {
       // Only load for first page to avoid excessive API calls
       if (p === 1 && bills.length > 0) {
         try {
-          // Load payments for each bill to calculate paidAmount
+          // Load payments for each bill to calculate paidAmount AND pending
           if (token) {
-            const paymentsPromises = bills.map((b: IuranBill) =>
-              apiListPayments(token, { bill_id: b.id }).catch(() => null)
-            )
+            const paymentsPromises = bills.map(async (b: IuranBill) => {
+              const res = await apiListPayments(token, { bill_id: b.id }).catch(() => null)
+              return { billId: b.id, data: res }
+            })
             const paymentsResults = await Promise.all(paymentsPromises)
 
-            paymentsResults.forEach((res: { data: { status: string; amount: string }[] } | null, idx: number) => {
-              if (res && res.data.length > 0) {
-                const approvedPayments = res.data.filter(
+            paymentsResults.forEach(({ billId: _billId, data }, idx: number) => {
+              if (data && data.data.length > 0) {
+                const approvedPayments = data.data.filter(
                   (p: { status: string; amount: string }) => p.status === 'APPROVED'
                 )
                 const paidAmount = approvedPayments.reduce(
                   (sum: number, p: { amount: string }) => sum + parseMoney(p.amount),
                   0
                 )
-                bills[idx] = { ...bills[idx], paidAmount }
+
+                // Collect pending payments for this bill
+                const pendingForBill = data.data
+                  .filter((p: { status: string }) => p.status === 'PENDING')
+                  .map((p: ApiPayment) => p)
+
+                bills[idx] = { ...bills[idx], paidAmount, pendingPayments: pendingForBill }
               }
             })
           }
@@ -490,7 +505,7 @@ export function IuranList() {
           </div>
         )}
 
-        {/* Bill Table */}
+        {/* Bill Table — dengan kolom VERIFIKASI untuk pembayaran pending */}
         {!loading && filteredBills.length > 0 && (
           <div className="table-wrapper">
             <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
@@ -504,19 +519,26 @@ export function IuranList() {
                   <th style={colStyles.nominal}>NOMINAL</th>
                   <th style={colStyles.paid}>DIBAYAR</th>
                   <th style={colStyles.status}>STATUS</th>
-                  <th style={colStyles.action}>AKSI</th>
+                  <th style={{ ...colStyles.action, width: 120, minWidth: 120 }}>VERIFIKASI</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredBills.map((bill, idx) => (
-                  <IuranBillRow
-                    key={bill.id}
-                    bill={bill}
-                    idx={idx}
-                    onDetail={() => setShowDetailBillId(bill.id)}
-                    onPayment={() => setShowPaymentBillId(bill.id)}
-                  />
-                ))}
+                {filteredBills.map((bill, idx) => {
+                  const pendingForBill = (bill as IuranBill & { pendingPayments?: ApiPayment[] }).pendingPayments
+                  return (
+                    <IuranBillRow
+                      key={bill.id}
+                      bill={bill}
+                      idx={idx}
+                      canVerify={canVerify}
+                      pendingPayments={pendingForBill ?? []}
+                      onDetail={() => {
+                        setShowDetailBillId(bill.id)
+                      }}
+                      onPayment={() => setShowPaymentBillId(bill.id)}
+                    />
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -542,11 +564,19 @@ export function IuranList() {
 interface IuranBillRowProps {
   bill: IuranBill
   idx: number
+  canVerify: boolean
+  pendingPayments: ApiPayment[]
   onDetail: () => void
   onPayment: () => void
 }
 
-function IuranBillRow({ bill, idx, onDetail, onPayment }: IuranBillRowProps) {
+function IuranBillRow({ bill, idx, canVerify, pendingPayments, onDetail, onPayment }: IuranBillRowProps) {
+  // Show pending payment indicator in status cell if available
+  const hasPending = pendingPayments.length > 0
+  const pendingAmount = hasPending
+    ? pendingPayments.reduce((sum, p) => sum + parseMoney(p.amount), 0)
+    : 0
+
   return (
     <tr>
       <td style={colStyles.no}>
@@ -569,17 +599,36 @@ function IuranBillRow({ bill, idx, onDetail, onPayment }: IuranBillRowProps) {
       </td>
       <td style={colStyles.paid}>
         {formatRupiah(bill.paidAmount)}
+        {hasPending && (
+          <div style={{ fontSize: '10px', color: 'var(--sf-warning)', marginTop: '2px', fontWeight: 600 }}>
+            +{formatRupiah(pendingAmount)} tertunda
+          </div>
+        )}
       </td>
       <td style={colStyles.status}>
         <Badge variant={getStatusVariant(bill.status)}>
           {getStatusLabel(bill.status)}
         </Badge>
+        {hasPending && (
+          <div style={{ fontSize: '10px', color: 'var(--sf-warning)', marginTop: '2px', fontWeight: 600 }}>
+            ⏳ {pendingPayments.length} menunggu
+          </div>
+        )}
       </td>
       <td style={colStyles.action}>
         <RowActionMenu
           items={[
             { label: 'Detail', onClick: onDetail },
             { label: 'Pembayaran', onClick: onPayment },
+            ...(hasPending && canVerify
+              ? [{
+                  label: `Verifikasi (${pendingPayments.length})`,
+                  onClick: () => {
+                    // Open detail modal with pending payment info
+                    onDetail()
+                  },
+                }]
+              : []),
           ]}
         />
       </td>

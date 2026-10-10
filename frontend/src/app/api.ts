@@ -844,15 +844,43 @@ export async function apiCreatePayment(
   token: string,
   body: ApiCreatePaymentBody,
 ): Promise<ApiPayment> {
-  const idempotencyKey = crypto.randomUUID()
   const res = await authenticatedApiRequest(BASE + '/payments', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
-      'Idempotency-Key': idempotencyKey,
+      'Idempotency-Key': crypto.randomUUID(),
     },
     body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiPayment>(res)
+  if (!res.ok || !data) {
+    const body = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && body?.code) {
+      throw new ApiError(body.code, body.message)
+    }
+    throw new ApiError('unexpected', 'Unexpected response')
+  }
+  return data
+}
+
+export async function apiVerifyPayment(
+  token: string,
+  paymentId: string,
+  action: 'approve' | 'reject',
+  options?: { rejectionReason?: string },
+): Promise<ApiPayment> {
+  const res = await authenticatedApiRequest(BASE + '/payments/' + paymentId + '/verify', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      action,
+      ...(options?.rejectionReason ? { rejection_reason: options.rejectionReason } : {}),
+    }),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
   const data = await json<ApiPayment>(res)

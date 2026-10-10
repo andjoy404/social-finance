@@ -8,9 +8,40 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
+import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+
+/// Check whether the current user can verify payments.
+/// Returns true for pengurus, bendahara, and super_admin.
+///
+/// The role value from [authRepositoryProvider] is always [AppRole]
+/// (mapped via [mapStringToAppRole] in [AuthRepository]), but we
+/// defensively handle the raw-string case too for cached/replay states.
+final canVerifyPaymentProvider = Provider<bool>((ref) {
+  final role = ref.read(authRepositoryProvider);
+  final roleValue = role?.valueOrNull?['role'];
+  if (roleValue == null) return false;
+
+  // Primary path: roleValue is AppRole enum (normal runtime)
+  if (roleValue is AppRole) {
+    return switch (roleValue) {
+      AppRole.pengurus || AppRole.bendahara || AppRole.superAdmin => true,
+      _ => false,
+    };
+  }
+
+  // Fallback: raw string from cached state or unexpected serialization
+  if (roleValue is String) {
+    return roleValue == 'pengurus' ||
+        roleValue == 'bendahara' ||
+        roleValue == 'super_admin';
+  }
+
+  return false;
+});
 
 // ─── Filter/Search State ──────────────────────────────────────────────
 
@@ -22,6 +53,25 @@ final iuranSelectedPeriodeProvider = StateProvider<String>((ref) => '');
 
 /// Selected status filter (enum name: 'belumBayar', 'sebagian', 'lunas').
 final iuranSelectedStatusProvider = StateProvider<String>((ref) => '');
+
+// ─── Pending Payments (for verification) ────────────────────────────
+
+/// Loads all PENDING payments for verification by bendahara/pengurus.
+final pendingPaymentsProvider =
+    FutureProvider.autoDispose.family<List<BackendPayment>, bool>(
+      (ref, canVerify) async {
+    if (!canVerify) return [];
+
+    final repository = ref.read(iuranRepositoryProvider);
+
+    try {
+      final result = await repository.fetchPendingPayments();
+      return result;
+    } catch (e) {
+      return [];
+    }
+  },
+);
 
 // ─── Bills (list with computed paidAmount) ────────────────────────────
 

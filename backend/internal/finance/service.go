@@ -255,27 +255,25 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		verifiedAt = &now
 	}
 
+	// Compute approved total BEFORE branching — both APPROVED and PENDING need it
+	approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
+	if err != nil {
+		return nil, fmt.Errorf("compute approved payment total: %w", err)
+	}
+
+	billCents, _, err := ParseMoney(bill.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("parse bill amount: %w", err)
+	}
+	approvedCents, _, err := ParseMoney(approvedTotal)
+	if err != nil {
+		return nil, fmt.Errorf("parse approved total: %w", err)
+	}
+
 	// --- APPROVED (staff-recorded): validate BEFORE insert ---
 	if status == PaymentStatusApproved {
-		// Compute approved total BEFORE inserting this payment
-		approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
-		if err != nil {
-			return nil, fmt.Errorf("compute approved payment total: %w", err)
-		}
-
 		// Parse money strings
-		billCents, _, err := ParseMoney(bill.Amount)
-		if err != nil {
-			return nil, fmt.Errorf("parse bill amount: %w", err)
-		}
 		paymentCents, _, err := ParseMoney(in.Amount)
-		if err != nil {
-			return nil, fmt.Errorf("parse payment amount: %w", err)
-		}
-		approvedCents, _, err := ParseMoney(approvedTotal)
-		if err != nil {
-			return nil, fmt.Errorf("parse approved total: %w", err)
-		}
 
 		remaining := billCents - approvedCents
 		if paymentCents > remaining {
@@ -330,7 +328,29 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		return payment, nil
 	}
 
-	// --- PENDING (warga-submitted): insert and return ---
+	// --- PENDING (warga-submitted): validate limits BEFORE insert ---
+
+	// Compute PENDING total for this bill (to prevent spam/overpayment)
+	pendingTotal, err := GetPendingPaymentTotal(ctx, tx, bill.ID)
+	if err != nil {
+		return nil, fmt.Errorf("compute pending payment total: %w", err)
+	}
+
+	// Parse money strings — billCents/paymentCents scoped to APPROVED block above
+	paymentCents, _, err := ParseMoney(in.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("parse payment amount: %w", err)
+	}
+	pendingCents, _, err := ParseMoney(pendingTotal)
+	if err != nil {
+		return nil, fmt.Errorf("parse pending total: %w", err)
+	}
+
+	remaining := billCents - approvedCents - pendingCents
+	if paymentCents > remaining {
+		return nil, fmt.Errorf("payment amount %s exceeds remaining balance %s", in.Amount, FormatMoney(remaining))
+	}
+
 	payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
 	if err != nil {
 		return nil, err
@@ -452,14 +472,9 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	}
 
 	// Overpayment check passed — approve the payment
-	reason := in.RejectionReason
-	var reasonPtr *string
-	if reason != nil && strings.TrimSpace(*reason) != "" {
-		trimmed := strings.TrimSpace(*reason)
-		reasonPtr = &trimmed
-	}
-
-	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, PaymentStatusApproved, verifierID, reasonPtr)
+	// IMPORTANT: approved payments must NEVER have a rejection reason.
+	// Pass nil for rejection reason to ensure data integrity.
+	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, PaymentStatusApproved, verifierID, nil)
 	if err != nil {
 		return nil, err
 	}

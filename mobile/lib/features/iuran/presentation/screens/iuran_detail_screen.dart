@@ -13,6 +13,8 @@ import 'package:social_finance/core/widgets/section_header.dart';
 
 import '../../data/iuran_models.dart';
 import '../../data/iuran_providers.dart';
+import '../../data/iuran_repository.dart';
+import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 
 /// Detail screen for a single iuran bill.
 class IuranDetailScreen extends ConsumerStatefulWidget {
@@ -241,6 +243,42 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           ),
 
           // ── Progress Bar for Partial Payment ──
+          // ── Verification section (if user can verify) ────────────────
+          // ── Verification section for bendahara/pengurus ─────────────
+          Builder(
+            builder: (context) {
+              final canVerify = ref.read(canVerifyPaymentProvider);
+              if (!canVerify) return const SizedBox.shrink();
+
+              // Subscribe to pending payments (bill-level filter for this bill)
+              final pendingPayments = ref.watch(pendingPaymentsProvider(true));
+
+              if (pendingPayments.value == null || pendingPayments.value!.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              // Filter to only pending payments for this bill
+              final allPending = pendingPayments.value!;
+              final billPending = allPending.where(
+                (p) => p.billId == bill.id,
+              ).toList();
+
+              if (billPending.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              return _buildVerificationSection(
+                context,
+                theme,
+                isDark,
+                billPending,
+              );
+            },
+          ),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          // ── Progress Bar for Partial Payment ──
           if (bill.status == IuranStatus.sebagian) ...[
             const SizedBox(height: AppSpacing.lg),
             SectionHeader(title: 'Progress Pembayaran'),
@@ -295,6 +333,309 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
   }
 
   // ── UI Helpers ──
+
+  Widget _buildVerificationSection(
+    BuildContext context,
+    ThemeData theme,
+    bool isDark,
+    List<BackendPayment> payments,
+  ) {
+    final accentSoft = AppColors.accentSoftColor(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader(title: 'Menunggu Verifikasi (${payments.length})'),
+        const SizedBox(height: AppSpacing.sm),
+        AppCard(
+          padding: const EdgeInsets.all(AppSpacing.base),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: payments.map((payment) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: accentSoft,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Center(
+                            child: Text(
+                              '⏳',
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Rp ${_formatAmount(payment.amount)}',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.warning,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_formatDate(payment.paidAt)} · ${_formatMethod(payment.method)}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: AppColors.lightTextMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        _buildVerifyButton(
+                          context,
+                          'Setujui',
+                          true,
+                          payment.id,
+                          theme,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        _buildVerifyButton(
+                          context,
+                          'Tolak',
+                          false,
+                          payment.id,
+                          theme,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVerifyButton(
+    BuildContext context,
+    String label,
+    bool approve,
+    String paymentId,
+    ThemeData theme,
+  ) {
+    return ElevatedButton.icon(
+      onPressed: () {
+        if (approve) {
+          _approvePayment(context, paymentId);
+        } else {
+          _showRejectDialog(context, paymentId);
+        }
+      },
+      icon: Icon(
+        approve ? Icons.check : Icons.close,
+        size: 16,
+        color: Colors.white,
+      ),
+      label: Text(label),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: approve ? AppColors.success : AppColors.warning,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _approvePayment(
+    BuildContext context,
+    String paymentId,
+  ) async {
+    final snackBar = SnackBar(
+      content: const Text('Memverifikasi pembayaran...'),
+      duration: const Duration(seconds: 1),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(snackBar);
+
+    try {
+      final repository = ref.read(iuranRepositoryProvider);
+      await repository.verifyPayment(
+        paymentId,
+        action: 'approve',
+      );
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pembayaran berhasil diverifikasi'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        // Invalidate bill and payments providers to refresh
+        ref.invalidate(billDetailProvider(widget.billId));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memverifikasi: $e'),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showRejectDialog(BuildContext context, String paymentId) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Konfirmasi Penolakan'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Apakah Anda yakin ingin menolak pembayaran ini?',
+                style: TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: controller,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Alasan Penolakan',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final reason = controller.text.trim();
+                if (reason.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Alasan penolakan harus diisi'),
+                      backgroundColor: AppColors.warning,
+                    ),
+                  );
+                  return;
+                }
+
+                Navigator.pop(dialogContext);
+
+                try {
+                  final repository = ref.read(iuranRepositoryProvider);
+                  await repository.verifyPayment(
+                    paymentId,
+                    action: 'reject',
+                    rejectionReason: reason,
+                  );
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Pembayaran ditolak'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                    // Invalidate bill and payments providers to refresh
+                    ref.invalidate(billDetailProvider(widget.billId));
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Gagal menolak: $e'),
+                        backgroundColor: AppColors.warning,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.warning,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Tolak'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatAmount(String amount) {
+    try {
+      final parts = amount.split('.');
+      final whole = int.tryParse(parts[0]) ?? 0;
+      return whole.toString().replaceAllMapped(
+        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+        (Match m) => '${m[1]}.',
+      );
+    } catch (_) {
+      return amount;
+    }
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return '';
+    return '${date.day} ${_monthName(date.month)} ${date.year}';
+  }
+
+  String _monthName(int month) {
+    const months = [
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
+    ];
+    return months[(month - 1).clamp(0, 11)];
+  }
+
+  String _formatMethod(PaymentMethod? method) {
+    switch (method) {
+      case PaymentMethod.cash:
+        return 'Cash';
+      case PaymentMethod.transfer:
+        return 'Transfer';
+      default:
+        return '';
+    }
+  }
 
   Widget _buildDetailRow(
     BuildContext context, {

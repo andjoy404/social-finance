@@ -464,6 +464,22 @@ func GetApprovedPaymentCount(ctx context.Context, tx *sql.Tx, billID string) (in
 	return count, nil
 }
 
+// GetPendingPaymentTotal returns the sum of PENDING payment amounts for a bill.
+// Returns "0" when no pending payments exist.
+func GetPendingPaymentTotal(ctx context.Context, tx *sql.Tx, billID string) (string, error) {
+	var totalStr string
+	err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(amount), 0)::text
+		 FROM payments
+		 WHERE bill_id = $1 AND status = 'PENDING'`,
+		billID,
+	).Scan(&totalStr)
+	if err != nil {
+		return "0", fmt.Errorf("get pending payment total: %w", err)
+	}
+	return totalStr, nil
+}
+
 // GetActiveCurrentOccupancyIDs returns all active current household occupancies for an RT.
 func GetActiveCurrentOccupancyIDs(ctx context.Context, tx *sql.Tx, rtID string) ([]string, error) {
 	rows, err := tx.QueryContext(ctx,

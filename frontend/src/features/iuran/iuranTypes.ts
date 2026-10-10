@@ -48,6 +48,7 @@ export interface IuranBill {
   status: IuranStatus
   paidDate?: string
   payments?: IuranPaymentRecord[]
+  pendingPayments?: Array<{ id: string; amount: string; status: string }>
 }
 
 export type IuranType = 'Keamanan' | 'Kebersihan' | 'Pembangunan'

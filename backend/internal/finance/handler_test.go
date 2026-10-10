@@ -972,19 +972,28 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		billID5 := listResp.Data[0].ID
 
 		// Warga submits payment that exceeds bill amount (100001 vs 100000)
+		// Now REJECTED at creation time (not just during verification)
 		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100001","method":"CASH"}`, billID5)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
 		rec = httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusCreated {
-			t.Fatalf("warga submit payment: %d: %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for overpayment, got %d: %s", rec.Code, rec.Body.String())
 		}
-		var p Payment
-		json.Unmarshal(rec.Body.Bytes(), &p)
-		if p.Status != PaymentStatusPending {
-			t.Errorf("expected PENDING for warga submission, got %s", p.Status)
+
+		// Verify NO payment was created
+		pReq := httptest.NewRequest(http.MethodGet, "/api/v1/payments?bill_id="+billID5, nil)
+		pReq.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		pRec := httptest.NewRecorder()
+		router.ServeHTTP(pRec, pReq)
+		var pList struct {
+			Data []Payment `json:"data"`
+		}
+		json.Unmarshal(pRec.Body.Bytes(), &pList)
+		if len(pList.Data) != 0 {
+			t.Errorf("expected 0 payments, got %d", len(pList.Data))
 		}
 
 		// Verify bill is still unpaid
@@ -995,26 +1004,13 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		var b Bill
 		json.Unmarshal(bRec.Body.Bytes(), &b)
 		if b.Status != BillStatusUnpaid {
-			t.Errorf("expected bill status UNPAID after warga submission, got %s", b.Status)
-		}
-
-		// Bendahara tries to approve overpayment -> should reject
-		verifyBody := `{"action":"approve"}`
-		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+p.ID+"/verify", bytes.NewBufferString(verifyBody))
-		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
-		req.Header.Set("Content-Type", "application/json")
-		rec = httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-		// Should reject due to overpayment (payment.amount > remaining)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("expected 400 for overpayment approval, got %d: %s", rec.Code, rec.Body.String())
+			t.Errorf("expected bill status UNPAID after overpayment rejection, got %s", b.Status)
 		}
 	})
 
-	t.Run("Overpayment rejection persists to DB after transaction", func(t *testing.T) {
-		// Regression test: VerifyPayment must COMMIT the REJECTED payment
-		// so it survives the HTTP response. Before the fix, tx.Rollback()
-		// was called on error, wiping the REJECTED state.
+	t.Run("Overpayment rejection persists - warga submission rejected at creation", func(t *testing.T) {
+		// Regression test: warga overpayment must be rejected at creation time
+		// (not just during verification), and no payment should be created.
 		// Generate a bill for this specific test
 		body := fmt.Sprintf(`{"due_id":"%s","period":"2026-10-persist","due_date":"2026-10-25"}`, dueID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/bills/generate", bytes.NewBufferString(body))
@@ -1061,81 +1057,140 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		rec = httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusCreated {
-			t.Fatalf("create warga payment: %d: %s", rec.Code, rec.Body.String())
-		}
-		var p2 Payment
-		json.Unmarshal(rec.Body.Bytes(), &p2)
-		if p2.Status != PaymentStatusPending {
-			t.Fatalf("expected PENDING, got %s", p2.Status)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for warga overpayment, got %d: %s", rec.Code, rec.Body.String())
 		}
 
-		// Step 3: Bendahara approves -> overpayment detected -> payment REJECTED
+		// Step 3: Verify no PENDING payment was created
+		pReq := httptest.NewRequest(http.MethodGet, "/api/v1/payments?bill_id="+billID, nil)
+		pReq.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		pRec := httptest.NewRecorder()
+		router.ServeHTTP(pRec, pReq)
+		var pList struct {
+			Data []Payment `json:"data"`
+		}
+		json.Unmarshal(pRec.Body.Bytes(), &pList)
+		if len(pList.Data) != 1 {
+			t.Fatalf("expected exactly 1 payment (the APPROVED one), got %d", len(pList.Data))
+		}
+
+		// Step 4: Verify bill status is still PARTIAL (not paid, not cancelled)
+		bReq := httptest.NewRequest(http.MethodGet, "/api/v1/bills/"+billID, nil)
+		bReq.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		bRec := httptest.NewRecorder()
+		router.ServeHTTP(bRec, bReq)
+		var b Bill
+		json.Unmarshal(bRec.Body.Bytes(), &b)
+		if b.Status != BillStatusPartial {
+			t.Errorf("expected bill status PARTIAL after overpayment rejection, got %s", b.Status)
+		}
+	})
+
+	t.Run("PENDING payment not counted in approved_total", func(t *testing.T) {
+		// Verify that PENDING payments do NOT count toward approved_total.
+		// approved_total should only include APPROVED payments.
+
+		// Generate a bill for warga's occupancy
+		body := fmt.Sprintf(`{"due_id":"%s","period":"2026-10-pending-test","due_date":"2026-10-25"}`, dueID)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/bills/generate", bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+tokenPengurus)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("generate bills: %d: %s", rec.Code, rec.Body.String())
+		}
+		var listResp struct {
+			Data []Bill `json:"data"`
+		}
+		req = httptest.NewRequest(http.MethodGet, "/api/v1/bills?period=2026-10-pending-test", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec = httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		json.Unmarshal(rec.Body.Bytes(), &listResp)
+		if len(listResp.Data) == 0 {
+			t.Fatal("expected at least 1 bill generated")
+		}
+		billID4 := listResp.Data[0].ID
+
+		// Warga submits PENDING payment (valid amount, e.g. 30000 for 100000 bill)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"30000","method":"CASH"}`, billID4)
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
+		req.Header.Set("Authorization", "Bearer "+tokenWarga)
+		req.Header.Set("Content-Type", "application/json")
+		rec = httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("warga submit: %d: %s", rec.Code, rec.Body.String())
+		}
+		var p Payment
+		json.Unmarshal(rec.Body.Bytes(), &p)
+		if p.Status != PaymentStatusPending {
+			t.Errorf("expected PENDING, got %s", p.Status)
+		}
+
+		// Verify bill is still UNPAID (PENDING payment does not change bill status)
+		bReq := httptest.NewRequest(http.MethodGet, "/api/v1/bills/"+billID4, nil)
+		bReq.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		bRec := httptest.NewRecorder()
+		router.ServeHTTP(bRec, bReq)
+		var b Bill
+		json.Unmarshal(bRec.Body.Bytes(), &b)
+		if b.Status != BillStatusUnpaid {
+			t.Errorf("expected UNPAID, got %s", b.Status)
+		}
+
+		// Verify approved_total does NOT include PENDING payment
+		var pendingTotal string
+		err := pool.Raw().QueryRowContext(context.Background(),
+			`SELECT COALESCE(SUM(amount), 0)::text FROM payments WHERE bill_id = $1 AND status = 'APPROVED'`,
+			billID4,
+		).Scan(&pendingTotal)
+		if err != nil {
+			t.Fatalf("query approved total: %v", err)
+		}
+		if pendingTotal != "0" {
+			t.Errorf("expected approved_total = '0' (PENDING not counted), got %s", pendingTotal)
+		}
+
+		// Now verify the pending payment
 		verifyBody := `{"action":"approve"}`
-		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+p2.ID+"/verify", bytes.NewBufferString(verifyBody))
+		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+p.ID+"/verify", bytes.NewBufferString(verifyBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
 		rec = httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400 for overpayment, got %d: %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusOK {
+			t.Fatalf("verify payment: %d: %s", rec.Code, rec.Body.Bytes())
+		}
+		var verifyResult Payment
+		json.Unmarshal(rec.Body.Bytes(), &verifyResult)
+		if verifyResult.Status != PaymentStatusApproved {
+			t.Errorf("expected APPROVED after verify, got %s", verifyResult.Status)
 		}
 
-		// Step 4: Query DB directly AFTER transaction completes
-		// Verify payment is REJECTED (not still PENDING)
-		var paymentStatus PaymentStatus
-		err := pool.Raw().QueryRowContext(
-			context.Background(),
-			`SELECT status FROM payments WHERE id = $1`,
-			p2.ID,
-		).Scan(&paymentStatus)
-		if err != nil {
-			t.Fatalf("query payment status: %v", err)
-		}
-		if paymentStatus != PaymentStatusRejected {
-			t.Errorf("expected payment status REJECTED after overpayment, got %s", paymentStatus)
-		}
-
-		// Verify bill is PARTIAL (not PAID, not UNPAID)
-		var billStatus BillStatus
-		err = pool.Raw().QueryRowContext(
-			context.Background(),
-			`SELECT status FROM bills WHERE id = $1`,
-			billID,
-		).Scan(&billStatus)
-		if err != nil {
-			t.Fatalf("query bill status: %v", err)
-		}
-		if billStatus != BillStatusPartial {
-			t.Errorf("expected bill status PARTIAL after overpayment rejection, got %s", billStatus)
-		}
-
-		// Verify approved total is still 60000 (p2 was NOT approved)
+		// Verify approved_total NOW includes the payment
 		var approvedTotal string
-		err = pool.Raw().QueryRowContext(
-			context.Background(),
+		err = pool.Raw().QueryRowContext(context.Background(),
 			`SELECT COALESCE(SUM(amount), 0)::text FROM payments WHERE bill_id = $1 AND status = 'APPROVED'`,
-			billID,
+			billID4,
 		).Scan(&approvedTotal)
 		if err != nil {
 			t.Fatalf("query approved total: %v", err)
 		}
-		if approvedTotal != "60000.00" {
-			t.Errorf("expected approved total 60000.00, got %s", approvedTotal)
+		if approvedTotal != "30000.00" {
+			t.Errorf("expected approved_total = '30000.00' after approve, got %s", approvedTotal)
 		}
 
-		// Verify no new ledger income transaction was posted for p2
-		var transCount int
-		err = pool.Raw().QueryRowContext(
-			context.Background(),
-			`SELECT COUNT(*) FROM transactions WHERE payment_id = $1`,
-			p2.ID,
-		).Scan(&transCount)
-		if err != nil {
-			t.Fatalf("query transaction count: %v", err)
-		}
-		if transCount != 0 {
-			t.Errorf("expected 0 ledger transactions for rejected payment, got %d", transCount)
+		// Verify bill status is PARTIAL (30000/100000)
+		bReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/bills/"+billID4, nil)
+		bReq2.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		bRec2 := httptest.NewRecorder()
+		router.ServeHTTP(bRec2, bReq2)
+		var b2 Bill
+		json.Unmarshal(bRec2.Body.Bytes(), &b2)
+		if b2.Status != BillStatusPartial {
+			t.Errorf("expected PARTIAL after approve, got %s", b2.Status)
 		}
 	})
 
@@ -1254,15 +1309,16 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		}
 
 		// Warga can submit another payment for same bill (while first is PENDING)
-		// because PENDING doesn't reduce remaining
+		// Test that PENDING DOES reserve remaining balance — second 60000 must be rejected.
+		// Remaining = 100000 - 0 approved - 60000 pending = 40000, so 60000 > 40000 => 400.
 		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, pendingBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody2))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
 		rec = httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusCreated {
-			t.Fatalf("second warga submit: %d: %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("second warga submit: expected 400, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 
