@@ -25,6 +25,7 @@ import (
 	httpx "social-finance/internal/http"
 	"social-finance/internal/migration"
 	rtpkg "social-finance/internal/rt"
+	"social-finance/internal/storage"
 )
 
 func main() {
@@ -52,6 +53,32 @@ func main() {
 			slog.Error("preflight failed", "error", err)
 			os.Exit(1)
 		}
+		os.Exit(0)
+	}
+
+	// Check for --init-storage flag.
+	if len(os.Args) > 1 && os.Args[1] == "--init-storage" {
+		cfg, err := config.Load()
+		if err != nil {
+			slog.Error("configuration error", "error", err)
+			os.Exit(1)
+		}
+		s3Storage, err := storage.NewS3Storage(storage.S3Config{
+			Endpoint:        cfg.RustFSEndpoint,
+			AccessKeyID:     cfg.RustFSAccessKey,
+			SecretAccessKey: cfg.RustFSSecretKey,
+			BucketName:      cfg.RustFSBucket,
+			UseSSL:          cfg.RustFSUseSSL,
+		})
+		if err != nil {
+			slog.Error("storage client initialization failed", "error", err)
+			os.Exit(1)
+		}
+		if err := s3Storage.InitBucket(context.Background()); err != nil {
+			slog.Error("storage bucket init failed", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("storage bucket initialized successfully", "bucket", cfg.RustFSBucket)
 		os.Exit(0)
 	}
 
@@ -100,7 +127,29 @@ func main() {
 	})
 	authHandler := auth.NewHandler(pool, authSvc)
 
-	router := buildRouter(pool, authHandler)
+	s3Storage, err := storage.NewS3Storage(storage.S3Config{
+		Endpoint:        cfg.RustFSEndpoint,
+		AccessKeyID:     cfg.RustFSAccessKey,
+		SecretAccessKey: cfg.RustFSSecretKey,
+		BucketName:      cfg.RustFSBucket,
+		UseSSL:          cfg.RustFSUseSSL,
+	})
+	var store storage.Service
+	if err != nil {
+		slog.Warn("failed to initialize s3 storage client, falling back to mock storage", "error", err)
+		store = storage.NewMockStorage()
+	} else {
+		store = s3Storage
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := s3Storage.InitBucket(ctx); err != nil {
+				slog.Warn("storage bucket init deferred or failed", "error", err)
+			}
+		}()
+	}
+
+	router := buildRouter(pool, authHandler, store)
 
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	slog.Info("server starting", "port", cfg.HTTPPort, "env", cfg.AppEnv)
@@ -345,7 +394,7 @@ func mustMarshal(v any) []byte {
 }
 
 // buildRouter wires up the HTTP router with middleware and endpoints.
-func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
+func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Service) http.Handler {
 	r := chi.NewRouter()
 
 	// Core middleware.
@@ -537,8 +586,14 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 	})
 
 	// Finance module
-	finSvc := finance.NewService(pool)
-	finH := finance.NewHandler(pool, finSvc)
+	var store storage.Service
+	if len(opts) > 0 && opts[0] != nil {
+		store = opts[0]
+	} else {
+		store = storage.NewMockStorage()
+	}
+	finSvc := finance.NewService(pool, store)
+	finH := finance.NewHandler(pool, finSvc, store)
 
 	// Financial read access & warga payments: warga, bendahara, pengurus
 	// jabatan-based users evaluated via position_permissions for finance.read.
@@ -553,12 +608,14 @@ func buildRouter(pool *database.Pool, authH *auth.Handler) http.Handler {
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)
 		r.Get("/api/v1/payments/{id}", finH.GetPayment)
+		r.Get("/api/v1/payments/{id}/proof", finH.GetPaymentProof)
 		r.Get("/api/v1/transactions", finH.ListTransactions)
 		r.Get("/api/v1/transactions/{id}", finH.GetTransaction)
 		r.Get("/api/v1/reports/balance", finH.GetBalance)
 
 		// Self-submitted payments by warga or staff
 		r.Post("/api/v1/payments", finH.CreatePayment)
+		r.Post("/api/v1/payments/{id}/proof", finH.UploadPaymentProof)
 	})
 
 	// Master categories management: pengurus only (Bendahara cannot delete categories)

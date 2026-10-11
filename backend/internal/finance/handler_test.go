@@ -18,6 +18,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
+	"social-finance/internal/storage"
 	"social-finance/internal/testutil"
 )
 
@@ -200,13 +201,20 @@ func setupTestUser(t *testing.T, pool *database.Pool, email, fullName, phone, rt
 	return userID
 }
 
-func setupFinanceRouter(pool *database.Pool) http.Handler {
+func setupFinanceRouter(pool *database.Pool, storageMock ...storage.Service) http.Handler {
 	// Wire pool into auth middleware so identity validation in RequireAuth succeeds.
 	auth.AuthDBPool = pool
 
+	var store storage.Service
+	if len(storageMock) > 0 {
+		store = storageMock[0]
+	} else {
+		store = storage.NewMockStorage()
+	}
+
 	r := chi.NewRouter()
-	finSvc := NewService(pool)
-	finH := NewHandler(pool, finSvc)
+	finSvc := NewService(pool, store)
+	finH := NewHandler(pool, finSvc, store)
 
 	// Financial read access & warga payments: warga, bendahara, pengurus
 	r.Group(func(r chi.Router) {
@@ -218,6 +226,8 @@ func setupFinanceRouter(pool *database.Pool) http.Handler {
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)
 		r.Get("/api/v1/payments/{id}", finH.GetPayment)
+		r.Get("/api/v1/payments/{id}/proof", finH.GetPaymentProof)
+		r.Post("/api/v1/payments/{id}/proof", finH.UploadPaymentProof)
 		r.Get("/api/v1/transactions", finH.ListTransactions)
 		r.Get("/api/v1/transactions/{id}", finH.GetTransaction)
 		r.Get("/api/v1/reports/balance", finH.GetBalance)
@@ -2749,6 +2759,187 @@ func TestRequireTenantContextGuard(t *testing.T) {
 		json.Unmarshal(rec.Body.Bytes(), &d)
 		if d.Name != "Valid Due" {
 			t.Errorf("expected due name 'Valid Due', got %q", d.Name)
+		}
+	})
+}
+
+func TestPaymentProofEndpoints(t *testing.T) {
+	pool := testPool(t)
+	store := storage.NewMockStorage()
+	router := setupFinanceRouter(pool, store)
+
+	rtID := setupTestRT(t, pool, "RT Proof Test", 1, "01")
+	defer cleanupTestRT(t, pool, rtID)
+
+	wargaPhone := fmt.Sprintf("081%08d", time.Now().UnixNano()%100000000)
+	occID := setupTestOccupancyWithResident(t, pool, rtID, wargaPhone)
+	wargaUserID, wargaMID := setupTestUserWithMembership(t, pool, "warga-proof@example.com", "Warga Proof", wargaPhone, rtID, "warga")
+	wargaToken := makeToken(t, auth.TokenClaims{UserID: wargaUserID, MID: wargaMID, Role: string(auth.RoleWarga), RTID: rtID})
+
+	bendaharaPhone := fmt.Sprintf("082%08d", time.Now().UnixNano()%100000000)
+	bendaharaUserID, bendaharaMID := setupTestUserWithMembership(t, pool, "bendahara-proof@example.com", "Bendahara Proof", bendaharaPhone, rtID, "bendahara")
+	bendaharaToken := makeToken(t, auth.TokenClaims{UserID: bendaharaUserID, MID: bendaharaMID, Role: string(auth.RoleBendahara), RTID: rtID})
+
+	// Different RT warga
+	otherRTID := setupTestRT(t, pool, "RT Other Proof", 2, "02")
+	defer cleanupTestRT(t, pool, otherRTID)
+	otherPhone := fmt.Sprintf("083%08d", time.Now().UnixNano()%100000000)
+	setupTestOccupancyWithResident(t, pool, otherRTID, otherPhone)
+	otherUserID, otherMID := setupTestUserWithMembership(t, pool, "other-proof@example.com", "Other Proof", otherPhone, otherRTID, "warga")
+	otherToken := makeToken(t, auth.TokenClaims{UserID: otherUserID, MID: otherMID, Role: string(auth.RoleWarga), RTID: otherRTID})
+
+	// Create Due and Bill
+	rec := httptest.NewRecorder()
+	dueReq := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(`{"name":"Iuran Sampah","amount":"25000","period_type":"monthly"}`))
+	dueReq.Header.Set("Authorization", "Bearer "+bendaharaToken)
+	dueReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, dueReq)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create due failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var due Due
+	json.Unmarshal(rec.Body.Bytes(), &due)
+
+	billReq := httptest.NewRequest(http.MethodPost, "/api/v1/bills", bytes.NewBufferString(fmt.Sprintf(`{"household_occupancy_id":"%s","due_id":"%s","period":"2026-06","amount":"25000","due_date":"2026-06-25"}`, occID, due.ID)))
+	billReq.Header.Set("Authorization", "Bearer "+bendaharaToken)
+	billReq.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, billReq)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create bill failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var bill Bill
+	json.Unmarshal(rec.Body.Bytes(), &bill)
+
+	// Create Payment as Warga
+	payReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(fmt.Sprintf(`{"bill_id":"%s","amount":"25000","method":"TRANSFER","origin":"WARGA"}`, bill.ID)))
+	payReq.Header.Set("Authorization", "Bearer "+wargaToken)
+	payReq.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, payReq)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create payment failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var payment Payment
+	json.Unmarshal(rec.Body.Bytes(), &payment)
+
+	// Helper to create multipart form body
+	createMultipart := func(fieldName, filename, contentType string, content []byte) (*bytes.Buffer, string) {
+		body := &bytes.Buffer{}
+		writer := bytes.NewBuffer(nil)
+		// Custom multipart boundary
+		boundary := "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+		writer.WriteString("--" + boundary + "\r\n")
+		writer.WriteString(fmt.Sprintf("Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n", fieldName, filename))
+		writer.WriteString(fmt.Sprintf("Content-Type: %s\r\n\r\n", contentType))
+		writer.Write(content)
+		writer.WriteString("\r\n--" + boundary + "--\r\n")
+		body.Write(writer.Bytes())
+		return body, "multipart/form-data; boundary=" + boundary
+	}
+
+	validPNG := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52}
+
+	t.Run("upload valid PNG payment proof", func(t *testing.T) {
+		body, ct := createMultipart("file", "proof.png", "image/png", validPNG)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+payment.ID+"/proof", body)
+		req.Header.Set("Authorization", "Bearer "+wargaToken)
+		req.Header.Set("Content-Type", ct)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("upload proof: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var updated Payment
+		json.Unmarshal(rec.Body.Bytes(), &updated)
+		if updated.ProofPath == nil || *updated.ProofPath == "" {
+			t.Errorf("expected proof_path to be populated")
+		}
+		if updated.ProofMimeType == nil || *updated.ProofMimeType != "image/png" {
+			t.Errorf("expected mime_type image/png, got %v", updated.ProofMimeType)
+		}
+	})
+
+	t.Run("get payment proof as warga (owner)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID+"/proof", nil)
+		req.Header.Set("Authorization", "Bearer "+wargaToken)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("get proof owner: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if rec.Header().Get("Content-Type") != "image/png" {
+			t.Errorf("expected Content-Type image/png, got %s", rec.Header().Get("Content-Type"))
+		}
+		if !bytes.Equal(rec.Body.Bytes(), validPNG) {
+			t.Errorf("downloaded bytes do not match uploaded png")
+		}
+	})
+
+	t.Run("get payment proof as bendahara", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID+"/proof", nil)
+		req.Header.Set("Authorization", "Bearer "+bendaharaToken)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("get proof bendahara: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	// Another warga in same RT but DIFFERENT household
+	warga2Phone := fmt.Sprintf("084%08d", time.Now().UnixNano()%100000000)
+	setupTestOccupancyWithResident(t, pool, rtID, warga2Phone)
+	warga2UserID, warga2MID := setupTestUserWithMembership(t, pool, "warga2-proof@example.com", "Warga 2 Proof", warga2Phone, rtID, "warga")
+	warga2Token := makeToken(t, auth.TokenClaims{UserID: warga2UserID, MID: warga2MID, Role: string(auth.RoleWarga), RTID: rtID})
+
+	t.Run("get payment proof as other warga in same RT is forbidden", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID+"/proof", nil)
+		req.Header.Set("Authorization", "Bearer "+warga2Token)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("expected 403 Forbidden for same-RT different household warga, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("get payment proof as warga from different RT is not found (isolated)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID+"/proof", nil)
+		req.Header.Set("Authorization", "Bearer "+otherToken)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("expected 404 Not Found for cross-tenant warga, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("upload proof rejecting empty file", func(t *testing.T) {
+		body, ct := createMultipart("file", "empty.png", "image/png", []byte{})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+payment.ID+"/proof", body)
+		req.Header.Set("Authorization", "Bearer "+wargaToken)
+		req.Header.Set("Content-Type", ct)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for empty file, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("upload proof rejecting non-image format", func(t *testing.T) {
+		body, ct := createMultipart("file", "test.txt", "text/plain", []byte("plain text content here"))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+payment.ID+"/proof", body)
+		req.Header.Set("Authorization", "Bearer "+wargaToken)
+		req.Header.Set("Content-Type", ct)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for text file, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 }

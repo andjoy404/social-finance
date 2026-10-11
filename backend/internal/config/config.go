@@ -18,8 +18,13 @@ type Config struct {
 	DBSSLMode     string
 	JWTSecret     string
 	JWTExpiry     int
-	RefreshExpiry int
-	LogLevel      string
+	RefreshExpiry   int
+	LogLevel        string
+	RustFSEndpoint  string
+	RustFSAccessKey string
+	RustFSSecretKey string
+	RustFSBucket    string
+	RustFSUseSSL    bool
 }
 
 // Load reads required configuration from environment variables and returns
@@ -28,17 +33,22 @@ type Config struct {
 // cannot be parsed.
 func Load() (Config, error) {
 	cfg := Config{
-		AppEnv:        get("APP_ENV", "development"),
-		DBHost:        getOrPanic("DB_HOST"),
-		DBPort:        getOrDie("DB_PORT", "5432"),
-		DBName:        getOrDie("DB_NAME", "social_finance"),
-		DBUser:        getOrDie("DB_USER", "social_finance"),
-		DBPassword:    getOrDie("DB_PASSWORD", "social_finance_dev_password"),
-		DBSSLMode:     getOrDie("DB_SSLMODE", "prefer"),
-		JWTSecret:     getOrDie("JWT_SECRET", "dev-secret-min-32-chars-required"),
-		JWTExpiry:     getint("JWT_EXPIRY", 900),
-		RefreshExpiry: getint("REFRESH_EXPIRY", 604800),
-		LogLevel:      get("LOG_LEVEL", "info"),
+		AppEnv:          get("APP_ENV", "development"),
+		DBHost:          getOrPanic("DB_HOST"),
+		DBPort:          getOrDie("DB_PORT", "5432"),
+		DBName:          getOrDie("DB_NAME", "social_finance"),
+		DBUser:          getOrDie("DB_USER", "social_finance"),
+		DBPassword:      getOrDie("DB_PASSWORD", "social_finance_dev_password"),
+		DBSSLMode:       getOrDie("DB_SSLMODE", "prefer"),
+		JWTSecret:       getOrDie("JWT_SECRET", "dev-secret-min-32-chars-required"),
+		JWTExpiry:       getint("JWT_EXPIRY", 900),
+		RefreshExpiry:   getint("REFRESH_EXPIRY", 604800),
+		LogLevel:        get("LOG_LEVEL", "info"),
+		RustFSEndpoint:  get("RUSTFS_ENDPOINT", "rustfs:9000"),
+		RustFSAccessKey: get("RUSTFS_ACCESS_KEY", get("RUSTFS_ROOT_USER", "rustfsadmin")),
+		RustFSSecretKey: get("RUSTFS_SECRET_KEY", get("RUSTFS_ROOT_PASSWORD", "rustfsadmin123")),
+		RustFSBucket:    get("RUSTFS_BUCKET", "social-finance-payment-proofs"),
+		RustFSUseSSL:    get("RUSTFS_USE_SSL", "false") == "true",
 	}
 
 	port, err := getPort("HTTP_PORT", 8080)

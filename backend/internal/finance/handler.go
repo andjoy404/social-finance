@@ -3,24 +3,37 @@ package finance
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	httpx "social-finance/internal/http"
+	"social-finance/internal/storage"
 )
 
 type Handler struct {
-	pool *database.Pool
-	svc  *Service
+	pool    *database.Pool
+	svc     *Service
+	storage storage.Service
 }
 
-func NewHandler(pool *database.Pool, svc *Service) *Handler {
+func NewHandler(pool *database.Pool, svc *Service, opts ...storage.Service) *Handler {
+	var store storage.Service
+	if len(opts) > 0 && opts[0] != nil {
+		store = opts[0]
+	} else if svc != nil && svc.Storage() != nil {
+		store = svc.Storage()
+	} else {
+		store = storage.NewMockStorage()
+	}
 	return &Handler{
-		pool: pool,
-		svc:  svc,
+		pool:    pool,
+		svc:     svc,
+		storage: store,
 	}
 }
 
@@ -859,13 +872,53 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var in CreatePaymentInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		httpx.WriteValidationError(targetW, "invalid request body", nil)
-		return
+	var uploadedKey string
+
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			httpx.WriteValidationError(targetW, "invalid multipart form or file too large (max 5MB)", nil)
+			return
+		}
+		in.BillID = r.FormValue("bill_id")
+		in.Amount = r.FormValue("amount")
+		in.Method = PaymentMethod(r.FormValue("method"))
+		if notes := r.FormValue("notes"); notes != "" {
+			in.Notes = &notes
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			file, header, err = r.FormFile("proof")
+		}
+		if err == nil {
+			defer file.Close()
+			if header.Size > 0 {
+				meta, err := h.storage.UploadProof(r.Context(), ac.RTID, in.BillID, header.Filename, file, header.Size)
+				if err != nil {
+					httpx.WriteValidationError(targetW, err.Error(), nil)
+					return
+				}
+				uploadedKey = meta.Key
+				in.ProofPath = &meta.Key
+				in.ProofOriginalName = &meta.OriginalName
+				in.ProofMimeType = &meta.ContentType
+				in.ProofSizeBytes = &meta.Size
+				in.ProofUploadedBy = &ac.UserID
+			}
+		}
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			httpx.WriteValidationError(targetW, "invalid request body", nil)
+			return
+		}
 	}
 
 	tx, err := h.pool.BeginTx(r.Context())
 	if err != nil {
+		if uploadedKey != "" {
+			_ = h.storage.DeleteProof(r.Context(), uploadedKey)
+		}
 		httpx.WriteInternalServerError(targetW, "transaction error")
 		return
 	}
@@ -873,6 +926,9 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.svc.CreatePayment(r.Context(), tx, ac.RTID, ac.UserID, string(ac.TenantRole), in)
 	if err != nil {
+		if uploadedKey != "" {
+			_ = h.storage.DeleteProof(r.Context(), uploadedKey)
+		}
 		if errors.Is(err, ErrBillAlreadyPaid) {
 			httpx.WriteConflict(targetW, "bill is already paid")
 			return
@@ -886,11 +942,203 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(); err != nil {
+		if uploadedKey != "" {
+			_ = h.storage.DeleteProof(r.Context(), uploadedKey)
+		}
 		httpx.WriteInternalServerError(targetW, "commit error")
 		return
 	}
 
 	writeJSON(targetW, http.StatusCreated, p)
+}
+
+func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	paymentID := chi.URLParam(r, "id")
+	if paymentID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		httpx.WriteValidationError(w, "invalid multipart form or file too large (max 5MB)", nil)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		file, header, err = r.FormFile("proof")
+	}
+	if err != nil {
+		httpx.WriteValidationError(w, "missing file in 'file' or 'proof' field", nil)
+		return
+	}
+	defer file.Close()
+
+	if header.Size <= 0 {
+		httpx.WriteValidationError(w, "uploaded file is empty", nil)
+		return
+	}
+	if header.Size > 5*1024*1024 {
+		httpx.WriteValidationError(w, "file size exceeds 5MB limit", nil)
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	payment, err := PaymentGetByID(r.Context(), tx, paymentID, ac.RTID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "payment not found")
+			return
+		}
+		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+
+	if string(ac.TenantRole) == "warga" {
+		bill, err := BillGetByID(r.Context(), tx, payment.BillID, ac.RTID)
+		if err != nil {
+			httpx.WriteNotFound(w, "bill not found")
+			return
+		}
+		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
+		if err != nil {
+			httpx.WriteInternalServerError(w, "error verifying residency")
+			return
+		}
+		if occID == "" || bill.HouseholdOccupancyID != occID {
+			httpx.WriteForbidden(w, "cannot upload proof for another household's payment")
+			return
+		}
+	}
+
+	if payment.Status == PaymentStatusRejected {
+		httpx.WriteValidationError(w, "cannot upload proof for a rejected payment", nil)
+		return
+	}
+
+	meta, err := h.storage.UploadProof(r.Context(), ac.RTID, paymentID, header.Filename, file, header.Size)
+	if err != nil {
+		if errors.Is(err, storage.ErrInvalidFormat) || errors.Is(err, storage.ErrFileTooLarge) || errors.Is(err, storage.ErrEmptyFile) {
+			httpx.WriteValidationError(w, err.Error(), nil)
+			return
+		}
+		httpx.WriteInternalServerError(w, "failed to upload proof to storage")
+		return
+	}
+
+	updatedPayment, err := h.svc.AttachPaymentProof(r.Context(), tx, ac.RTID, ac.UserID, string(ac.TenantRole), paymentID, meta)
+	if err != nil {
+		_ = h.storage.DeleteProof(r.Context(), meta.Key)
+		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		_ = h.storage.DeleteProof(r.Context(), meta.Key)
+		httpx.WriteInternalServerError(w, "commit error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updatedPayment)
+}
+
+func (h *Handler) GetPaymentProof(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	paymentID := chi.URLParam(r, "id")
+	if paymentID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	var p *Payment
+	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		p, err = PaymentGetByIDAll(r.Context(), tx, paymentID)
+	} else {
+		if !requireTenantContext(ac, w) {
+			return
+		}
+		p, err = PaymentGetByID(r.Context(), tx, paymentID, ac.RTID)
+	}
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "payment not found")
+			return
+		}
+		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+
+	if string(ac.TenantRole) == "warga" {
+		bill, err := BillGetByID(r.Context(), tx, p.BillID, ac.RTID)
+		if err != nil {
+			httpx.WriteNotFound(w, "bill not found")
+			return
+		}
+		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
+		if err != nil {
+			httpx.WriteInternalServerError(w, "error verifying residency")
+			return
+		}
+		if occID == "" || bill.HouseholdOccupancyID != occID {
+			httpx.WriteForbidden(w, "cannot view proof for another household's payment")
+			return
+		}
+	}
+
+	if p.ProofPath == nil || *p.ProofPath == "" {
+		httpx.WriteNotFound(w, "payment proof not found")
+		return
+	}
+
+	reader, err := h.storage.GetProof(r.Context(), *p.ProofPath)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			httpx.WriteNotFound(w, "proof file not found in storage")
+			return
+		}
+		httpx.WriteInternalServerError(w, "failed to retrieve proof file")
+		return
+	}
+	defer reader.Body.Close()
+
+	w.Header().Set("Content-Type", reader.ContentType)
+	if reader.Size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(reader.Size, 10))
+	}
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+
+	_, _ = io.Copy(w, reader.Body)
 }
 
 func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {

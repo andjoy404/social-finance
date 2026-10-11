@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -33,6 +36,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   final _catatanCtrl = TextEditingController();
 
   PaymentMethod? _selectedMethod;
+  Uint8List? _proofBytes;
+  String? _proofFileName;
   bool _saving = false;
   String? _error;
 
@@ -50,6 +55,41 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
     super.dispose();
   }
 
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 85,
+      );
+      if (pickedFile != null) {
+        final bytes = await pickedFile.readAsBytes();
+        setState(() {
+          _proofBytes = bytes;
+          _proofFileName = pickedFile.name;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memilih gambar: $e'),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+      }
+    }
+  }
+
+  void _removeProof() {
+    setState(() {
+      _proofBytes = null;
+      _proofFileName = null;
+    });
+  }
+
   Future<void> _save() async {
     if (!_validate()) return;
 
@@ -60,19 +100,42 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
     try {
       final amount = int.parse(_nominalCtrl.text.trim());
+      final repo = ref.read(iuranRepositoryProvider);
 
-      await ref.read(iuranRepositoryProvider).createPayment(
-            billId: widget.billId,
-            amount: amount,
-            method: _selectedMethod ?? PaymentMethod.cash,
-            notes: _catatanCtrl.text.trim().isEmpty
-                ? null
-                : _catatanCtrl.text.trim(),
+      final payment = await repo.createPayment(
+        billId: widget.billId,
+        amount: amount,
+        method: _selectedMethod ?? PaymentMethod.cash,
+        notes: _catatanCtrl.text.trim().isEmpty
+            ? null
+            : _catatanCtrl.text.trim(),
+      );
+
+      // If proof image was picked, upload it for the newly created payment
+      if (_proofBytes != null && _proofFileName != null) {
+        try {
+          await repo.uploadPaymentProof(
+            paymentId: payment.id,
+            fileBytes: _proofBytes!,
+            filename: _proofFileName!,
           );
+        } catch (proofErr) {
+          // Payment is created; notify user about proof upload retry if needed
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Pembayaran tersimpan, namun bukti gagal diunggah: $proofErr'),
+                backgroundColor: AppColors.warning,
+              ),
+            );
+          }
+        }
+      }
 
       // Invalidate cached providers so list/detail screens fetch fresh data
       if (mounted) {
         ref.invalidate(billDetailProvider(widget.billId));
+        ref.invalidate(billPaymentsProvider(widget.billId));
         ref.invalidate(billsProvider);
       }
 
@@ -419,6 +482,110 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 label: 'Catatan Pembayaran',
                 hintText: 'Catatan opsional (mis: bayar via transfer)',
               ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // ── Bukti Pembayaran (Upload Bukti) ──
+              Text(
+                'Bukti Pembayaran (Opsional)',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Unggah foto resi atau bukti transfer (JPG, PNG, WebP maks 5MB)',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              if (_proofBytes != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkSurface : AppColors.lightSurfaceSubtle,
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(
+                      color: AppColors.accent.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        child: Image.memory(
+                          _proofBytes!,
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _proofFileName ?? 'bukti_pembayaran.jpg',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${(_proofBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                        onPressed: _removeProof,
+                        tooltip: 'Hapus Bukti',
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _pickImage(ImageSource.gallery),
+                        icon: const Icon(Icons.photo_library_outlined, size: 18),
+                        label: const Text('Galeri'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.accent,
+                          side: const BorderSide(color: AppColors.accent),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _pickImage(ImageSource.camera),
+                        icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                        label: const Text('Kamera'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.accent,
+                          side: const BorderSide(color: AppColors.accent),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: AppSpacing.xxl),
 
               // ── Buttons: Simpan + Batal ──

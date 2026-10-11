@@ -34,6 +34,10 @@ export interface IuranPaymentRecord {
   catatan?: string
   status?: PaymentStatusDisplay
   method?: 'CASH' | 'TRANSFER'
+  proofPath?: string | null
+  proofOriginalName?: string | null
+  proofMimeType?: string | null
+  proofSizeBytes?: number | null
 }
 
 export interface IuranBill {

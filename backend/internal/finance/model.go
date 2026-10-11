@@ -166,22 +166,31 @@ type Payment struct {
 	Method          PaymentMethod `json:"method"`
 	Origin          PaymentOrigin `json:"origin"`
 	Status          PaymentStatus `json:"status"`
-	ProofPath       *string       `json:"proof_path,omitempty"`
-	PaidAt          time.Time     `json:"paid_at"`
-	VerifiedBy      *string       `json:"verified_by,omitempty"`
-	VerifiedAt      *time.Time    `json:"verified_at,omitempty"`
-	RejectionReason *string       `json:"rejection_reason,omitempty"`
-	Notes           *string       `json:"notes,omitempty"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
+	ProofPath         *string       `json:"proof_path,omitempty"`
+	PaidAt            time.Time     `json:"paid_at"`
+	VerifiedBy        *string       `json:"verified_by,omitempty"`
+	VerifiedAt        *time.Time    `json:"verified_at,omitempty"`
+	RejectionReason   *string       `json:"rejection_reason,omitempty"`
+	Notes             *string       `json:"notes,omitempty"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+	ProofOriginalName *string       `json:"proof_original_name,omitempty"`
+	ProofMimeType     *string       `json:"proof_mime_type,omitempty"`
+	ProofSizeBytes    *int64        `json:"proof_size_bytes,omitempty"`
+	ProofUploadedAt   *time.Time    `json:"proof_uploaded_at,omitempty"`
+	ProofUploadedBy   *string       `json:"proof_uploaded_by,omitempty"`
 }
 
 type CreatePaymentInput struct {
-	BillID    string        `json:"bill_id"`
-	Amount    string        `json:"amount"`
-	Method    PaymentMethod `json:"method"`
-	ProofPath *string       `json:"proof_path,omitempty"`
-	Notes     *string       `json:"notes,omitempty"`
+	BillID            string        `json:"bill_id"`
+	Amount            string        `json:"amount"`
+	Method            PaymentMethod `json:"method"`
+	ProofPath         *string       `json:"proof_path,omitempty"`
+	Notes             *string       `json:"notes,omitempty"`
+	ProofOriginalName *string       `json:"proof_original_name,omitempty"`
+	ProofMimeType     *string       `json:"proof_mime_type,omitempty"`
+	ProofSizeBytes    *int64        `json:"proof_size_bytes,omitempty"`
+	ProofUploadedBy   *string       `json:"proof_uploaded_by,omitempty"`
 }
 
 type VerifyPaymentInput struct {

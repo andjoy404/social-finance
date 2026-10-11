@@ -270,4 +270,14 @@ void main() {
       },
     );
   });
+
+  group('IuranPaymentScreen — Payment Proof Option', () {
+    testWidgets('renders proof upload buttons (Galeri and Kamera)', (tester) async {
+      await _pumpPage(tester);
+
+      expect(find.text('Bukti Pembayaran (Opsional)', skipOffstage: false), findsOneWidget);
+      expect(find.text('Galeri', skipOffstage: false), findsOneWidget);
+      expect(find.text('Kamera', skipOffstage: false), findsOneWidget);
+    });
+  });
 }

@@ -15,6 +15,7 @@ import '../../data/iuran_models.dart';
 import '../../data/iuran_providers.dart';
 import '../../data/iuran_repository.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
+import '../widgets/payment_proof_thumbnail.dart';
 
 /// Detail screen for a single iuran bill.
 class IuranDetailScreen extends ConsumerStatefulWidget {
@@ -318,6 +319,90 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
             ),
           ],
 
+          // ── Riwayat Pembayaran (History & Bukti) ──
+          const SizedBox(height: AppSpacing.lg),
+          SectionHeader(title: 'Riwayat Pembayaran'),
+          const SizedBox(height: AppSpacing.sm),
+          ref.watch(billPaymentsProvider(bill.id)).when(
+                data: (payments) {
+                  if (payments.isEmpty) {
+                    return AppCard(
+                      padding: const EdgeInsets.all(AppSpacing.base),
+                      child: Center(
+                        child: Text(
+                          'Belum ada riwayat pembayaran.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  return AppCard(
+                    padding: const EdgeInsets.all(AppSpacing.base),
+                    child: Column(
+                      children: payments.map((p) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                          child: Row(
+                            children: [
+                              Icon(
+                                p.status == PaymentStatus.approved
+                                    ? Icons.check_circle_outline
+                                    : p.status == PaymentStatus.rejected
+                                        ? Icons.cancel_outlined
+                                        : Icons.access_time_outlined,
+                                size: 20,
+                                color: p.status == PaymentStatus.approved
+                                    ? AppColors.success
+                                    : p.status == PaymentStatus.rejected
+                                        ? AppColors.danger
+                                        : AppColors.warning,
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}',
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${_formatDate(p.paidAt)} · ${p.status.name.toUpperCase()}',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (p.proofPath != null && p.proofPath!.isNotEmpty) ...[
+                                const SizedBox(width: AppSpacing.sm),
+                                PaymentProofThumbnail(
+                                  paymentId: p.id,
+                                  size: 40,
+                                  label: 'Bukti Pembayaran (${_formatDate(p.paidAt)})',
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  );
+                },
+                loading: () => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(AppSpacing.md),
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+
           const SizedBox(height: AppSpacing.xxl),
         ],
       ),
@@ -388,6 +473,14 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                             ],
                           ),
                         ),
+                        if (payment.proofPath != null && payment.proofPath!.isNotEmpty) ...[
+                          const SizedBox(width: AppSpacing.sm),
+                          PaymentProofThumbnail(
+                            paymentId: payment.id,
+                            size: 44,
+                            label: 'Bukti Pembayaran Rp ${_formatAmount(payment.amount)}',
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: AppSpacing.md),

@@ -3,6 +3,8 @@
 /// Follows the Warga pattern: repository wraps the API client,
 /// converts Backend DTOs to UI models, and maps Dio errors.
 
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -181,14 +183,32 @@ class IuranRepository {
     required String billId,
     required int amount, // rupiah in int (display format)
     required PaymentMethod method,
+    String? proofPath,
     String? notes,
   }) async {
     return apiClient.createPayment(
       billId: billId,
       amount: _formatMoney(amount),
       method: method,
+      proofPath: proofPath,
       notes: notes,
     );
+  }
+
+  Future<BackendPayment> uploadPaymentProof({
+    required String paymentId,
+    required List<int> fileBytes,
+    required String filename,
+  }) async {
+    return apiClient.uploadPaymentProof(
+      paymentId: paymentId,
+      fileBytes: fileBytes,
+      filename: filename,
+    );
+  }
+
+  Future<Uint8List> getPaymentProofBytes(String paymentId) async {
+    return apiClient.getPaymentProofBytes(paymentId);
   }
 
   Future<BackendPayment> verifyPayment(

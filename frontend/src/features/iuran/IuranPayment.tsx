@@ -6,6 +6,9 @@ import {
   CalendarOutlined,
   FileTextOutlined,
   WarningOutlined,
+  UploadOutlined,
+  DeleteOutlined,
+  FileImageOutlined,
 } from '@ant-design/icons'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
@@ -16,13 +19,24 @@ import {
   parseMoney,
   type IuranBill,
 } from './iuranTypes'
-import { apiGetBill, apiCreatePayment, apiListPayments, type ApiPayment, type ApiError, getSessionPair } from '@/app/api'
+import {
+  apiGetBill,
+  apiCreatePayment,
+  apiUploadPaymentProof,
+  apiListPayments,
+  type ApiPayment,
+  type ApiError,
+  getSessionPair,
+} from '@/app/api'
 
 // Payment method options
 const PAYMENT_METHODS = [
   { value: 'CASH', label: 'Cash' },
   { value: 'TRANSFER', label: 'Transfer' },
 ] as const
+
+const MAX_PROOF_SIZE = 5 * 1024 * 1024 // 5 MB
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 function IuranPaymentContent({
   bill,
@@ -37,12 +51,57 @@ function IuranPaymentContent({
 }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [nominal, setNominal] = useState('')
   const [payDate, setPayDate] = useState('')
   const [catatan, setCatatan] = useState('')
   const [method, setMethod] = useState<'CASH' | 'TRANSFER' | ''>('')
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [successPayment, setSuccessPayment] = useState<ApiPayment | null>(null)
+
+  // Clean up object URL on unmount or file change
+  useEffect(() => {
+    return () => {
+      if (proofPreviewUrl) {
+        URL.revokeObjectURL(proofPreviewUrl)
+      }
+    }
+  }, [proofPreviewUrl])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+      setValidationErrors(['Format file bukti harus berupa gambar (JPG, PNG, atau WebP).'])
+      e.target.value = ''
+      return
+    }
+
+    if (file.size > MAX_PROOF_SIZE) {
+      setValidationErrors(['Ukuran file bukti tidak boleh melebihi 5 MB.'])
+      e.target.value = ''
+      return
+    }
+
+    if (proofPreviewUrl) {
+      URL.revokeObjectURL(proofPreviewUrl)
+    }
+
+    setProofFile(file)
+    setProofPreviewUrl(URL.createObjectURL(file))
+    setValidationErrors([])
+  }
+
+  const handleRemoveFile = () => {
+    if (proofPreviewUrl) {
+      URL.revokeObjectURL(proofPreviewUrl)
+    }
+    setProofFile(null)
+    setProofPreviewUrl(null)
+  }
 
   const nominalNum = nominal.trim() ? parseMoney(nominal) : 0
 
@@ -50,6 +109,7 @@ function IuranPaymentContent({
     e.preventDefault()
     setValidationErrors([])
     setError(null)
+    setWarningMessage(null)
 
     const errs: string[] = []
     if (!nominal.trim()) {
@@ -64,6 +124,14 @@ function IuranPaymentContent({
     }
     if (!method) {
       errs.push('Metode pembayaran harus dipilih.')
+    }
+    if (proofFile) {
+      if (!ALLOWED_MIME_TYPES.includes(proofFile.type)) {
+        errs.push('Format file bukti harus berupa gambar (JPG, PNG, atau WebP).')
+      }
+      if (proofFile.size > MAX_PROOF_SIZE) {
+        errs.push('Ukuran file bukti tidak boleh melebihi 5 MB.')
+      }
     }
     if (errs.length > 0) {
       setValidationErrors(errs)
@@ -80,12 +148,23 @@ function IuranPaymentContent({
         return
       }
 
-      const payment = await apiCreatePayment(pair.accessToken, {
+      // Create payment
+      let payment = await apiCreatePayment(pair.accessToken, {
         bill_id: bill.id,
         amount: String(nominalNum),
         method: method as 'CASH' | 'TRANSFER',
         notes: catatan || undefined,
+        file: proofFile || undefined,
       })
+
+      // If proof file was attached but payment was created without file (or as separate upload)
+      if (proofFile && !payment.proof_path) {
+        try {
+          payment = await apiUploadPaymentProof(pair.accessToken, payment.id, proofFile)
+        } catch {
+          setWarningMessage('Pembayaran berhasil dicatat, namun bukti pembayaran gagal diunggah.')
+        }
+      }
 
       // Success!
       setSuccessPayment(payment)
@@ -134,6 +213,11 @@ function IuranPaymentContent({
                   Pembayaran sebesar <strong>{formatRupiah(parseMoney(successPayment.amount))}</strong> telah diverifikasi.
                 </p>
               </>
+            )}
+            {warningMessage && (
+              <p style={{ fontSize: 12, color: 'var(--sf-warning)', marginTop: 8 }}>
+                {warningMessage}
+              </p>
             )}
           </div>
         </ModalBody>
@@ -347,6 +431,107 @@ function IuranPaymentContent({
               placeholder="Catatan tambahan (opsional)"
               disabled={submitting}
             />
+          </div>
+
+          {/* Bukti Pembayaran */}
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="ip-proof">
+              <FileImageOutlined style={{ marginRight: 4 }} />
+              Bukti Pembayaran (Opsional)
+            </label>
+
+            {!proofFile ? (
+              <div>
+                <label
+                  htmlFor="ip-proof"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '16px',
+                    border: '1px dashed var(--border-color)',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--sf-surface)',
+                    cursor: submitting ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    color: 'var(--sf-text-muted)',
+                  }}
+                >
+                  <UploadOutlined style={{ fontSize: '16px' }} />
+                  <span>Pilih file gambar (JPG, PNG, WebP maks 5MB)</span>
+                </label>
+                <input
+                  id="ip-proof"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleFileChange}
+                  disabled={submitting}
+                  style={{ display: 'none' }}
+                />
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px 12px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--sf-surface)',
+                }}
+              >
+                {proofPreviewUrl && (
+                  <img
+                    src={proofPreviewUrl}
+                    alt="Preview Bukti"
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      objectFit: 'cover',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border-color)',
+                    }}
+                  />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      color: 'var(--sf-text)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {proofFile.name}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--sf-text-muted)' }}>
+                    {(proofFile.size / 1024).toFixed(1)} KB
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveFile}
+                  disabled={submitting}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--sf-danger)',
+                    cursor: 'pointer',
+                    padding: '6px',
+                    fontSize: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  title="Hapus file"
+                >
+                  <DeleteOutlined />
+                </button>
+              </div>
+            )}
           </div>
         </ModalBody>
         <ModalFooter>

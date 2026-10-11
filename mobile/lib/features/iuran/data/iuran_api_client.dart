@@ -5,6 +5,7 @@
 /// No duplication of auth/interceptor behavior.
 
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
@@ -253,6 +254,45 @@ class IuranApiClient {
     final data = response.data;
     if (data is! Map) throw const FormatException('Unexpected response');
     return BackendPayment.fromJson(data.cast<String, dynamic>());
+  }
+
+  /// POST /api/v1/payments/{id}/proof
+  Future<BackendPayment> uploadPaymentProof({
+    required String paymentId,
+    required List<int> fileBytes,
+    required String filename,
+  }) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(
+        fileBytes,
+        filename: filename,
+      ),
+    });
+
+    final response = await dio.post(
+      '/api/v1/payments/$paymentId/proof',
+      data: formData,
+    );
+
+    final data = response.data;
+    if (data is! Map) throw const FormatException('Unexpected response');
+    return BackendPayment.fromJson(data.cast<String, dynamic>());
+  }
+
+  /// GET /api/v1/payments/{id}/proof
+  /// Returns raw bytes of the image using authenticated session.
+  Future<Uint8List> getPaymentProofBytes(String paymentId) async {
+    final response = await dio.get<List<int>>(
+      '/api/v1/payments/$paymentId/proof',
+      options: Options(
+        responseType: ResponseType.bytes,
+      ),
+    );
+
+    if (response.data == null) {
+      throw const FormatException('Empty proof image received');
+    }
+    return Uint8List.fromList(response.data!);
   }
 
   // ─── Categories ─────────────────────────────────────────────────────

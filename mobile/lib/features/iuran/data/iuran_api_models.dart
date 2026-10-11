@@ -234,6 +234,11 @@ class BackendPayment {
   final PaymentOrigin origin;
   final PaymentStatus status;
   final String? proofPath;
+  final String? proofOriginalName;
+  final String? proofMimeType;
+  final int? proofSizeBytes;
+  final DateTime? proofUploadedAt;
+  final String? proofUploadedBy;
   final DateTime? paidAt;
   final String? verifiedBy;
   final DateTime? verifiedAt;
@@ -251,6 +256,11 @@ class BackendPayment {
     required this.origin,
     required this.status,
     this.proofPath,
+    this.proofOriginalName,
+    this.proofMimeType,
+    this.proofSizeBytes,
+    this.proofUploadedAt,
+    this.proofUploadedBy,
     this.paidAt,
     this.verifiedBy,
     this.verifiedAt,
@@ -270,6 +280,11 @@ class BackendPayment {
       origin: _parsePaymentOrigin(json['origin'] as String?),
       status: _parsePaymentStatus(json['status'] as String?),
       proofPath: json['proof_path'] as String?,
+      proofOriginalName: json['proof_original_name'] as String?,
+      proofMimeType: json['proof_mime_type'] as String?,
+      proofSizeBytes: (json['proof_size_bytes'] as num?)?.toInt(),
+      proofUploadedAt: _parseDateTime(json['proof_uploaded_at'] as String?),
+      proofUploadedBy: json['proof_uploaded_by'] as String?,
       paidAt: _parseDateTime(json['paid_at'] as String?),
       verifiedBy: json['verified_by'] as String?,
       verifiedAt: _parseDateTime(json['verified_at'] as String?),

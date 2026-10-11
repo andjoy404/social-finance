@@ -10,15 +10,74 @@ import (
 	"time"
 
 	"social-finance/internal/database"
+	"social-finance/internal/storage"
 )
 
 // Service encapsulates business logic for the Finance domain.
 type Service struct {
-	pool *database.Pool
+	pool    *database.Pool
+	storage storage.Service
 }
 
-func NewService(pool *database.Pool) *Service {
-	return &Service{pool: pool}
+func NewService(pool *database.Pool, opts ...storage.Service) *Service {
+	var store storage.Service
+	if len(opts) > 0 && opts[0] != nil {
+		store = opts[0]
+	} else {
+		store = storage.NewMockStorage()
+	}
+	return &Service{pool: pool, storage: store}
+}
+
+func (s *Service) Storage() storage.Service {
+	return s.storage
+}
+
+func (s *Service) AttachPaymentProof(ctx context.Context, tx *sql.Tx, rtID, userID, userRole, paymentID string, meta *storage.ObjectMetadata) (*Payment, error) {
+	payment, err := PaymentGetByID(ctx, tx, paymentID, rtID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify permissions
+	if userRole == "warga" {
+		bill, err := BillGetByID(ctx, tx, payment.BillID, rtID)
+		if err != nil {
+			return nil, fmt.Errorf("bill not found: %w", err)
+		}
+		occID, err := GetOccupancyIDForUser(ctx, tx, rtID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("error verifying warga occupancy: %w", err)
+		}
+		if occID == "" || bill.HouseholdOccupancyID != occID {
+			return nil, errors.New("cannot attach proof to another household's payment")
+		}
+	}
+
+	if payment.Status == PaymentStatusRejected {
+		return nil, errors.New("cannot attach proof to a rejected payment")
+	}
+
+	updatedPayment, err := PaymentAttachProof(ctx, tx, paymentID, rtID, meta.Key, meta.OriginalName, meta.ContentType, meta.Size, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	auditPayload, _ := json.Marshal(map[string]interface{}{
+		"payment_id":  paymentID,
+		"proof_path":  meta.Key,
+		"uploaded_by": userID,
+	})
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &userID,
+		Action:     "upload_payment_proof",
+		EntityType: "payment",
+		EntityID:   updatedPayment.ID,
+		NewValues:  auditPayload,
+	})
+
+	return updatedPayment, nil
 }
 
 // --- Categories ---

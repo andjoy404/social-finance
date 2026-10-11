@@ -8,6 +8,7 @@ import {
   CalendarOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  FileImageOutlined,
 } from '@ant-design/icons'
 import { AppCard } from '@/components/AppCard'
 import { Badge } from '@/components/Badge'
@@ -27,7 +28,13 @@ import {
   type IuranPaymentRecord,
   type PaymentStatusDisplay,
 } from './iuranTypes'
-import { apiGetBill, apiListPayments, apiVerifyPayment, getSessionPair } from '@/app/api'
+import {
+  apiGetBill,
+  apiListPayments,
+  apiGetPaymentProofBlob,
+  apiVerifyPayment,
+  getSessionPair,
+} from '@/app/api'
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
@@ -144,15 +151,234 @@ function InfoRow({ icon, label, value }: { icon?: React.ReactNode; label: string
 }
 
 /* ─────────────────────────────────────────────
+   Proof image thumbnail component
+   ───────────────────────────────────────────── */
+
+function ProofImageThumbnail({
+  paymentId,
+  onClick,
+}: {
+  paymentId: string
+  onClick?: () => void
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    let currentUrl: string | null = null
+
+    async function fetchProof() {
+      try {
+        const token = getSessionPair()?.accessToken
+        if (!token) {
+          setError(true)
+          setLoading(false)
+          return
+        }
+
+        const { blob } = await apiGetPaymentProofBlob(token, paymentId)
+        if (cancelled) return
+
+        currentUrl = URL.createObjectURL(blob)
+        setBlobUrl(currentUrl)
+        setLoading(false)
+      } catch {
+        if (!cancelled) {
+          setError(true)
+          setLoading(false)
+        }
+      }
+    }
+
+    fetchProof()
+
+    return () => {
+      cancelled = true
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl)
+      }
+    }
+  }, [paymentId])
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          width: '32px',
+          height: '32px',
+          borderRadius: '4px',
+          background: 'var(--sf-surface)',
+          border: '1px solid var(--sf-border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '11px',
+          color: 'var(--sf-text-muted)',
+        }}
+        title="Memuat bukti..."
+      >
+        ⏳
+      </div>
+    )
+  }
+
+  if (error || !blobUrl) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onClick?.()
+        }}
+        style={{
+          padding: '4px 8px',
+          fontSize: '11px',
+          borderRadius: '4px',
+          border: '1px solid var(--sf-border)',
+          background: 'var(--sf-surface)',
+          color: 'var(--sf-text-muted)',
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+        }}
+        title="Lihat Bukti"
+      >
+        <FileImageOutlined /> Bukti
+      </button>
+    )
+  }
+
+  return (
+    <img
+      src={blobUrl}
+      alt="Bukti Transfer"
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick?.()
+      }}
+      style={{
+        width: '32px',
+        height: '32px',
+        objectFit: 'cover',
+        borderRadius: '4px',
+        border: '1px solid var(--sf-border)',
+        cursor: 'pointer',
+      }}
+      title="Klik untuk memperbesar bukti"
+    />
+  )
+}
+
+/* ─────────────────────────────────────────────
+   Proof preview modal
+   ───────────────────────────────────────────── */
+
+function ProofPreviewModal({
+  paymentId,
+  onClose,
+}: {
+  paymentId: string
+  onClose: () => void
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let currentUrl: string | null = null
+
+    async function fetchProof() {
+      try {
+        const token = getSessionPair()?.accessToken
+        if (!token) {
+          setError('Sesi berakhir. Silakan login ulang.')
+          setLoading(false)
+          return
+        }
+
+        const { blob } = await apiGetPaymentProofBlob(token, paymentId)
+        if (cancelled) return
+
+        currentUrl = URL.createObjectURL(blob)
+        setBlobUrl(currentUrl)
+        setLoading(false)
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Gagal memuat bukti pembayaran')
+          setLoading(false)
+        }
+      }
+    }
+
+    fetchProof()
+
+    return () => {
+      cancelled = true
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl)
+      }
+    }
+  }, [paymentId])
+
+  return (
+    <Modal open onClose={onClose} width={600}>
+      <ModalHeader
+        title="Bukti Pembayaran"
+        subtitle=""
+        onClose={onClose}
+      />
+      <ModalBody>
+        <div style={{ textAlign: 'center', padding: '12px 0' }}>
+          {loading && (
+            <div style={{ padding: '40px 0', color: 'var(--sf-text-muted)' }}>
+              Memuat gambar bukti pembayaran...
+            </div>
+          )}
+          {error && (
+            <div style={{ padding: '20px 0', color: 'var(--sf-danger)' }}>
+              {error}
+            </div>
+          )}
+          {blobUrl && (
+            <img
+              src={blobUrl}
+              alt="Bukti Pembayaran Penuh"
+              style={{
+                maxWidth: '100%',
+                maxHeight: '65vh',
+                borderRadius: '6px',
+                objectFit: 'contain',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              }}
+            />
+          )}
+        </div>
+      </ModalBody>
+      <ModalFooter>
+        <button type="button" className="sf-btn-primary" onClick={onClose}>
+          Tutup
+        </button>
+      </ModalFooter>
+    </Modal>
+  )
+}
+
+/* ─────────────────────────────────────────────
    Payment history item
    ───────────────────────────────────────────── */
 
 function PaymentHistoryItem({
   payment,
   onVerify,
+  onViewProof,
 }: {
   payment: IuranPaymentRecord
   onVerify?: () => void
+  onViewProof?: (paymentId: string) => void
 }) {
   const isApproved = payment.status === 'APPROVED'
   const isPending = payment.status === 'PENDING'
@@ -216,6 +442,12 @@ function PaymentHistoryItem({
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        {payment.proofPath && (
+          <ProofImageThumbnail
+            paymentId={payment.id}
+            onClick={() => onViewProof?.(payment.id)}
+          />
+        )}
         {payment.catatan && (
           <span style={{
             fontSize: '11px',
@@ -254,10 +486,12 @@ function DetailContent({
   bill,
   remaining,
   onPendingVerify,
+  onViewProof,
 }: {
   bill: IuranBill
   remaining: number
   onPendingVerify?: (payment: IuranPaymentRecord) => void
+  onViewProof?: (paymentId: string) => void
 }) {
   const payments = bill.payments ?? []
   const hasHistory = payments.length > 0
@@ -397,6 +631,7 @@ function DetailContent({
                 key={payment.id}
                 payment={payment}
                 onVerify={() => onPendingVerify?.(payment)}
+                onViewProof={onViewProof}
               />
             ))}
           </div>
@@ -436,6 +671,7 @@ export function IuranDetail({
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [verifyingPayment, setVerifyingPayment] = useState<IuranPaymentRecord | null>(null)
+  const [previewingProofId, setPreviewingProofId] = useState<string | null>(null)
 
   // Load bill data
   useEffect(() => {
@@ -508,6 +744,10 @@ export function IuranDetail({
           catatan: p.notes ?? undefined,
           status: p.status as PaymentStatusDisplay,
           method: p.method,
+          proofPath: p.proof_path,
+          proofOriginalName: p.proof_original_name,
+          proofMimeType: p.proof_mime_type,
+          proofSizeBytes: p.proof_size_bytes,
         }))
 
         setBill({
@@ -666,6 +906,7 @@ export function IuranDetail({
                 bill={bill}
                 remaining={remaining}
                 onPendingVerify={(payment) => setVerifyingPayment(payment)}
+                onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
               />
             </>
           )}
@@ -827,18 +1068,42 @@ export function IuranDetail({
                 <div style={{
                   fontSize: '12px',
                   color: 'var(--sf-text-muted)',
-                  marginBottom: '4px',
+                  marginBottom: '6px',
                   fontWeight: 500,
                 }}>
                   Bukti Pembayaran
                 </div>
-                <div style={{
-                  fontSize: '12px',
-                  color: 'var(--sf-text-muted)',
-                  fontStyle: 'italic',
-                }}>
-                  Belum ada bukti pembayaran
-                </div>
+                {verifyingPayment.proofPath ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ProofImageThumbnail
+                      paymentId={verifyingPayment.id}
+                      onClick={() => setPreviewingProofId(verifyingPayment.id)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPreviewingProofId(verifyingPayment.id)}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '12px',
+                        border: '1px solid var(--sf-border)',
+                        background: 'var(--sf-surface)',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        color: 'var(--sf-text)',
+                      }}
+                    >
+                      Lihat Bukti Ukuran Penuh
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{
+                    fontSize: '12px',
+                    color: 'var(--sf-text-muted)',
+                    fontStyle: 'italic',
+                  }}>
+                    Belum ada bukti pembayaran
+                  </div>
+                )}
               </div>
 
               {/* Reject reason */}
@@ -965,6 +1230,14 @@ export function IuranDetail({
             </div>
           </div>
         )}
+
+        {/* Proof Preview Modal in Modal Mode */}
+        {previewingProofId && (
+          <ProofPreviewModal
+            paymentId={previewingProofId}
+            onClose={() => setPreviewingProofId(null)}
+          />
+        )}
       </Modal>
     )
   }
@@ -1064,7 +1337,20 @@ export function IuranDetail({
             <StatusBadge status={bill.status} />
           </div>
 
-          <DetailContent bill={bill} remaining={remaining} />
+          <DetailContent
+            bill={bill}
+            remaining={remaining}
+            onPendingVerify={(payment) => setVerifyingPayment(payment)}
+            onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
+          />
+
+          {/* Proof Preview Modal in Page Mode */}
+          {previewingProofId && (
+            <ProofPreviewModal
+              paymentId={previewingProofId}
+              onClose={() => setPreviewingProofId(null)}
+            />
+          )}
         </>
       )}
     </div>

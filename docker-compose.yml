@@ -24,10 +24,19 @@ services:
       - BOOTSTRAP_EMAIL=${BOOTSTRAP_EMAIL}
       - BOOTSTRAP_PASSWORD=${BOOTSTRAP_PASSWORD}
       - BOOTSTRAP_NAME=${BOOTSTRAP_NAME:-Super Admin}
+      - RUSTFS_ENDPOINT=${RUSTFS_ENDPOINT:-rustfs:9000}
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin123}
+      - RUSTFS_BUCKET=${RUSTFS_BUCKET:-social-finance-payment-proofs}
+      - RUSTFS_USE_SSL=${RUSTFS_USE_SSL:-false}
     depends_on:
       postgres:
         condition: service_healthy
       seed:
+        condition: service_completed_successfully
+      rustfs:
+        condition: service_healthy
+      rustfs-init:
         condition: service_completed_successfully
     networks:
       - social-finance-internal
@@ -59,8 +68,15 @@ services:
       - BOOTSTRAP_EMAIL=${BOOTSTRAP_EMAIL}
       - BOOTSTRAP_PASSWORD=${BOOTSTRAP_PASSWORD}
       - BOOTSTRAP_NAME=${BOOTSTRAP_NAME:-Super Admin}
+      - RUSTFS_ENDPOINT=${RUSTFS_ENDPOINT:-rustfs:9000}
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin123}
+      - RUSTFS_BUCKET=${RUSTFS_BUCKET:-social-finance-payment-proofs}
+      - RUSTFS_USE_SSL=${RUSTFS_USE_SSL:-false}
     depends_on:
       postgres:
+        condition: service_healthy
+      rustfs:
         condition: service_healthy
     networks:
       - social-finance-internal
@@ -82,6 +98,54 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - social-finance-internal
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: social-finance-rustfs
+    environment:
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin123}
+      - RUSTFS_ROOT_USER=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_ROOT_PASSWORD=${RUSTFS_SECRET_KEY:-rustfsadmin123}
+      - MINIO_ROOT_USER=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - MINIO_ROOT_PASSWORD=${RUSTFS_SECRET_KEY:-rustfsadmin123}
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - social-finance-internal
+
+  rustfs-init:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: social-finance-rustfs-init
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    environment:
+      - APP_ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-social_finance}
+      - DB_USER=${DB_USER:-social_finance}
+      - DB_PASSWORD=${DB_PASSWORD:-social_finance_dev_password}
+      - DB_SSLMODE=${DB_SSLMODE:-prefer}
+      - RUSTFS_ENDPOINT=${RUSTFS_ENDPOINT:-rustfs:9000}
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin123}
+      - RUSTFS_BUCKET=${RUSTFS_BUCKET:-social-finance-payment-proofs}
+      - RUSTFS_USE_SSL=${RUSTFS_USE_SSL:-false}
+    command: ["/tmp/build/api", "--init-storage"]
+    depends_on:
+      rustfs:
+        condition: service_healthy
     networks:
       - social-finance-internal
 
@@ -142,6 +206,7 @@ services:
 
 volumes:
   postgres_data:
+  rustfs_data:
 
 networks:
   social-finance-internal:

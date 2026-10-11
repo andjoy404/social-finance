@@ -749,6 +749,11 @@ export interface ApiPayment {
   origin: 'SELF_SUBMITTED' | 'STAFF_RECORDED'
   status: 'PENDING' | 'APPROVED' | 'REJECTED'
   proof_path?: string | null
+  proof_original_name?: string | null
+  proof_mime_type?: string | null
+  proof_size_bytes?: number | null
+  proof_uploaded_at?: string | null
+  proof_uploaded_by?: string | null
   paid_at: string
   verified_by?: string | null
   verified_at?: string | null
@@ -764,6 +769,7 @@ export interface ApiCreatePaymentBody {
   method: 'CASH' | 'TRANSFER'
   proof_path?: string | null
   notes?: string | null
+  file?: File
 }
 
 export async function apiListBills(
@@ -844,25 +850,105 @@ export async function apiCreatePayment(
   token: string,
   body: ApiCreatePaymentBody,
 ): Promise<ApiPayment> {
-  const res = await authenticatedApiRequest(BASE + '/payments', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      'Idempotency-Key': crypto.randomUUID(),
-    },
-    body: JSON.stringify(body),
-    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
-  })
+  let res: Response
+  if (body.file) {
+    const formData = new FormData()
+    formData.append('bill_id', body.bill_id)
+    formData.append('amount', body.amount)
+    formData.append('method', body.method)
+    if (body.notes) formData.append('notes', body.notes)
+    formData.append('file', body.file)
+
+    res = await authenticatedApiRequest(BASE + '/payments', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: formData,
+      ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    })
+  } else {
+    res = await authenticatedApiRequest(BASE + '/payments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        bill_id: body.bill_id,
+        amount: body.amount,
+        method: body.method,
+        notes: body.notes,
+        proof_path: body.proof_path,
+      }),
+      ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    })
+  }
+
   const data = await json<ApiPayment>(res)
   if (!res.ok || !data) {
-    const body = await json<ApiError>(res).catch(() => null)
-    if (res.status >= 400 && body?.code) {
-      throw new ApiError(body.code, body.message)
+    const bodyErr = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && bodyErr?.code) {
+      throw new ApiError(bodyErr.code, bodyErr.message)
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
   return data
+}
+
+export async function apiUploadPaymentProof(
+  token: string,
+  paymentId: string,
+  file: File,
+): Promise<ApiPayment> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const res = await authenticatedApiRequest(BASE + `/payments/${paymentId}/proof`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+
+  const data = await json<ApiPayment>(res)
+  if (!res.ok || !data) {
+    const bodyErr = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && bodyErr?.code) {
+      throw new ApiError(bodyErr.code, bodyErr.message)
+    }
+    throw new ApiError('unexpected', 'Unexpected response')
+  }
+  return data
+}
+
+export async function apiGetPaymentProofBlob(
+  token: string,
+  paymentId: string,
+): Promise<{ blob: Blob; contentType: string }> {
+  const res = await authenticatedApiRequest(BASE + `/payments/${paymentId}/proof`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+
+  if (!res.ok) {
+    const bodyErr = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && bodyErr?.code) {
+      throw new ApiError(bodyErr.code, bodyErr.message)
+    }
+    throw new ApiError('unexpected', 'Failed to fetch payment proof')
+  }
+
+  const blob = await res.blob()
+  const contentType = res.headers.get('content-type') || 'image/jpeg'
+  return { blob, contentType }
 }
 
 export async function apiVerifyPayment(

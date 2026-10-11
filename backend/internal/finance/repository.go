@@ -531,13 +531,23 @@ func GetOccupancyIDForUser(ctx context.Context, tx *sql.Tx, rtID, userID string)
 
 func PaymentCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreatePaymentInput, origin PaymentOrigin, status PaymentStatus, verifiedBy *string, verifiedAt *time.Time) (*Payment, error) {
 	var p Payment
+	var uploadedAt *time.Time
+	if in.ProofPath != nil {
+		now := time.Now()
+		uploadedAt = &now
+	}
+
 	err := tx.QueryRowContext(ctx,
-		`INSERT INTO payments (rt_id, bill_id, amount, method, origin, status, proof_path, notes, verified_by, verified_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at, verified_by, verified_at, rejection_reason, notes, created_at, updated_at`,
+		`INSERT INTO payments (rt_id, bill_id, amount, method, origin, status, proof_path, notes, verified_by, verified_at,
+		                      proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at, verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
+		           proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by`,
 		rtID, in.BillID, in.Amount, in.Method, origin, status, in.ProofPath, in.Notes, verifiedBy, verifiedAt,
+		in.ProofOriginalName, in.ProofMimeType, in.ProofSizeBytes, uploadedAt, in.ProofUploadedBy,
 	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt)
+		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
+		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
 	if err != nil {
 		return nil, fmt.Errorf("create payment: %w", err)
 	}
@@ -548,11 +558,13 @@ func PaymentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Payment,
 	var p Payment
 	err := tx.QueryRowContext(ctx,
 		`SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-		        verified_by, verified_at, rejection_reason, notes, created_at, updated_at
+		        verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
+		        proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by
 		 FROM payments WHERE id = $1 AND rt_id = $2 LIMIT 1`,
 		id, rtID,
 	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt)
+		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
+		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -564,7 +576,8 @@ func PaymentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Payment,
 
 func PaymentList(ctx context.Context, tx *sql.Tx, rtID string, billID, status *string, offset, limit int) ([]*Payment, error) {
 	query := `SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-	                 verified_by, verified_at, rejection_reason, notes, created_at, updated_at
+	                 verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
+	                 proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by
 	          FROM payments WHERE rt_id = $1`
 	args := []interface{}{rtID}
 	pos := 2
@@ -593,7 +606,8 @@ func PaymentList(ctx context.Context, tx *sql.Tx, rtID string, billID, status *s
 	for rows.Next() {
 		var p Payment
 		if err := rows.Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-			&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
+			&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy); err != nil {
 			return nil, fmt.Errorf("scan payment: %w", err)
 		}
 		list = append(list, &p)
@@ -629,15 +643,40 @@ func PaymentVerify(ctx context.Context, tx *sql.Tx, id, rtID string, status Paym
 		 SET status = $1, verified_by = $2, verified_at = CURRENT_TIMESTAMP, rejection_reason = $3, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = $4 AND rt_id = $5
 		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-		           verified_by, verified_at, rejection_reason, notes, created_at, updated_at`,
+		           verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
+		           proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by`,
 		status, verifierID, reason, id, rtID,
 	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt)
+		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
+		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("verify payment: %w", err)
+	}
+	return &p, nil
+}
+
+func PaymentAttachProof(ctx context.Context, tx *sql.Tx, paymentID, rtID, proofPath, originalName, mimeType string, size int64, uploadedBy string) (*Payment, error) {
+	var p Payment
+	err := tx.QueryRowContext(ctx,
+		`UPDATE payments
+		 SET proof_path = $1, proof_original_name = $2, proof_mime_type = $3, proof_size_bytes = $4,
+		     proof_uploaded_at = CURRENT_TIMESTAMP, proof_uploaded_by = $5, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = $6 AND rt_id = $7
+		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
+		           verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
+		           proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by`,
+		proofPath, originalName, mimeType, size, uploadedBy, paymentID, rtID,
+	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
+		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
+		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("attach proof to payment: %w", err)
 	}
 	return &p, nil
 }
@@ -1135,11 +1174,13 @@ func PaymentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Payment, er
 	var p Payment
 	err := tx.QueryRowContext(ctx,
 		`SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-		        verified_by, verified_at, rejection_reason, notes, created_at, updated_at
+		        verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
+		        proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by
 		 FROM payments WHERE id = $1 LIMIT 1`,
 		id,
 	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt)
+		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
+		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -1151,7 +1192,8 @@ func PaymentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Payment, er
 
 func PaymentListAll(ctx context.Context, tx *sql.Tx, billID, status *string, offset, limit int) ([]*Payment, error) {
 	query := `SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-	                 verified_by, verified_at, rejection_reason, notes, created_at, updated_at
+	                 verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
+	                 proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by
 	          FROM payments WHERE 1=1`
 	var args []interface{}
 	pos := 1
@@ -1180,7 +1222,8 @@ func PaymentListAll(ctx context.Context, tx *sql.Tx, billID, status *string, off
 	for rows.Next() {
 		var p Payment
 		if err := rows.Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-			&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
+			&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy); err != nil {
 			return nil, fmt.Errorf("scan payment: %w", err)
 		}
 		list = append(list, &p)
