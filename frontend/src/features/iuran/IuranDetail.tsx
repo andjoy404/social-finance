@@ -1527,6 +1527,15 @@ export function IuranDetail({
             onClose={() => setPreviewingProofId(null)}
           />
         )}
+
+        {/* Payment Detail Modal in Modal Mode */}
+        {selectedPaymentDetail && (
+          <PaymentDetailModal
+            payment={selectedPaymentDetail}
+            onClose={() => setSelectedPaymentDetail(null)}
+            onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
+          />
+        )}
       </Modal>
     )
   }
