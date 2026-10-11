@@ -375,15 +375,24 @@ function PaymentHistoryItem({
   payment,
   onVerify,
   onViewProof,
+  onTap,
 }: {
   payment: IuranPaymentRecord
   onVerify?: () => void
   onViewProof?: (paymentId: string) => void
+  onTap?: () => void
 }) {
   const isApproved = payment.status === 'APPROVED'
   const isPending = payment.status === 'PENDING'
   return (
     <div
+      role={onTap ? 'button' : undefined}
+      tabIndex={onTap ? 0 : undefined}
+      onKeyDown={onTap ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap() } } : undefined}
+      onClick={() => {
+        if (isPending) onVerify?.()
+        else onTap?.()
+      }}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -400,10 +409,25 @@ function PaymentHistoryItem({
           : isPending
             ? 'var(--sf-warning-soft)'
             : 'transparent',
-        cursor: isPending ? 'pointer' : 'default',
+        cursor: isPending ? 'pointer' : (onTap ? 'pointer' : 'default'),
+        outline: 'none',
+        transition: 'background 150ms ease',
       }}
-      onClick={() => {
-        if (isPending) onVerify?.()
+      onMouseEnter={(e) => {
+        if (onTap || isPending) {
+          (e.currentTarget as HTMLDivElement).style.background = isApproved
+            ? 'var(--sf-success-soft)'
+            : isPending
+              ? 'var(--sf-warning-soft)'
+              : 'var(--sf-surface-subtle)'
+        }
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLDivElement).style.background = isApproved
+          ? 'var(--sf-success-soft)'
+          : isPending
+            ? 'var(--sf-warning-soft)'
+            : 'transparent'
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
@@ -487,11 +511,13 @@ function DetailContent({
   remaining,
   onPendingVerify,
   onViewProof,
+  onPaymentDetail,
 }: {
   bill: IuranBill
   remaining: number
   onPendingVerify?: (payment: IuranPaymentRecord) => void
   onViewProof?: (paymentId: string) => void
+  onPaymentDetail?: (payment: IuranPaymentRecord) => void
 }) {
   const payments = bill.payments ?? []
   const hasHistory = payments.length > 0
@@ -632,12 +658,271 @@ function DetailContent({
                 payment={payment}
                 onVerify={() => onPendingVerify?.(payment)}
                 onViewProof={onViewProof}
+                onTap={() => onPaymentDetail?.(payment)}
               />
             ))}
           </div>
         </AppCard>
       )}
     </>
+  )
+}
+
+/* ─────────────────────────────────────────────
+   Payment detail modal — shows full payment info
+   ───────────────────────────────────────────── */
+
+function PaymentDetailModal({
+  payment,
+  onClose,
+  onViewProof,
+}: {
+  payment: IuranPaymentRecord
+  onClose: () => void
+  onViewProof?: (paymentId: string) => void
+}) {
+  const isApproved = payment.status === 'APPROVED'
+  const isRejected = payment.status === 'REJECTED'
+  const statusColor = isApproved
+    ? 'var(--sf-success)'
+    : isRejected
+      ? 'var(--sf-danger)'
+      : 'var(--sf-warning)'
+  const statusIcon = isApproved
+    ? '✓'
+    : isRejected
+      ? '✕'
+      : '⏳'
+
+  return (
+    <Modal open onClose={onClose} width={560}>
+      <ModalHeader
+        title="Detail Pembayaran"
+        subtitle=""
+        onClose={onClose}
+      />
+      <ModalBody>
+        {/* Amount + status header */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          marginBottom: '20px',
+        }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '50%',
+            background: `${statusColor}18`,
+            border: `1px solid ${statusColor}40`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '18px',
+            fontWeight: 700,
+            color: statusColor,
+            flexShrink: 0,
+          }}>
+            {statusIcon}
+          </div>
+          <div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: 700,
+              fontFamily: 'var(--sf-font-mono)',
+              color: 'var(--sf-text)',
+            }}>
+              {formatRupiah(payment.nominal)}
+            </div>
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--sf-text-muted)',
+              marginTop: '2px',
+            }}>
+              {formatDate(payment.paidDate)}
+              {payment.method ? ` · ${payment.method === 'TRANSFER' ? 'Transfer' : 'Cash'}` : ''}
+            </div>
+          </div>
+        </div>
+
+        {/* Details grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '16px',
+          marginBottom: '20px',
+        }}>
+          <div>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '4px',
+            }}>
+              Status
+            </div>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: 600,
+              color: statusColor,
+            }}>
+              {getPaymentStatusLabel(payment.status!)}
+            </div>
+          </div>
+          <div>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '4px',
+            }}>
+              Metode
+            </div>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--sf-text)',
+            }}>
+              {payment.method === 'TRANSFER' ? 'Transfer' : payment.method === 'CASH' ? 'Cash' : '—'}
+            </div>
+          </div>
+        </div>
+
+        {/* Catatan Warga */}
+        {payment.catatan && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '6px',
+            }}>
+              Catatan Warga
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: 'var(--sf-text)',
+              padding: '10px 12px',
+              background: 'var(--sf-surface)',
+              borderRadius: 'var(--sf-radius-sm)',
+              border: '1px solid var(--sf-border)',
+            }}>
+              {payment.catatan}
+            </div>
+          </div>
+        )}
+
+        {/* Catatan Pengurus / Alasan Penolakan */}
+        {payment.rejectionReason && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '6px',
+            }}>
+              Catatan Pengurus
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: isRejected ? 'var(--sf-danger)' : 'var(--sf-text)',
+              padding: '10px 12px',
+              background: isRejected ? 'var(--sf-danger-soft)' : 'var(--sf-surface)',
+              borderRadius: 'var(--sf-radius-sm)',
+              border: `1px solid ${isRejected ? 'rgba(242,73,92,0.3)' : 'var(--sf-border)'}`,
+            }}>
+              {payment.rejectionReason}
+            </div>
+          </div>
+        )}
+
+        {/* Diverifikasi Oleh */}
+        {payment.verifiedBy && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '6px',
+            }}>
+              Diverifikasi Oleh
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: 'var(--sf-success)',
+              fontWeight: 600,
+            }}>
+              {payment.verifiedBy}
+            </div>
+          </div>
+        )}
+
+        {/* Bukti Transfer */}
+        <div>
+          <div style={{
+            fontSize: '11px',
+            color: 'var(--sf-text-muted)',
+            fontWeight: 500,
+            textTransform: 'uppercase',
+            letterSpacing: '0.03em',
+            marginBottom: '6px',
+          }}>
+            Bukti Transfer
+          </div>
+          {payment.proofPath ? (
+            <div>
+              <ProofImageThumbnail
+                paymentId={payment.id}
+                onClick={() => onViewProof?.(payment.id)}
+              />
+              <button
+                type="button"
+                onClick={() => onViewProof?.(payment.id)}
+                style={{
+                  marginLeft: '8px',
+                  padding: '4px 10px',
+                  fontSize: '12px',
+                  border: '1px solid var(--sf-border)',
+                  background: 'var(--sf-surface)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  color: 'var(--sf-text)',
+                }}
+              >
+                Lihat Penuh
+              </button>
+            </div>
+          ) : (
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--sf-text-muted)',
+              fontStyle: 'italic',
+              padding: '12px',
+              background: 'var(--sf-surface)',
+              borderRadius: 'var(--sf-radius-sm)',
+              border: '1px solid var(--sf-border)',
+            }}>
+              Tidak ada bukti transfer
+            </div>
+          )}
+        </div>
+      </ModalBody>
+      <ModalFooter>
+        <button type="button" className="sf-btn-primary" onClick={onClose}>
+          Tutup
+        </button>
+      </ModalFooter>
+    </Modal>
   )
 }
 
@@ -672,6 +957,7 @@ export function IuranDetail({
   const [rejectReason, setRejectReason] = useState('')
   const [verifyingPayment, setVerifyingPayment] = useState<IuranPaymentRecord | null>(null)
   const [previewingProofId, setPreviewingProofId] = useState<string | null>(null)
+  const [selectedPaymentDetail, setSelectedPaymentDetail] = useState<IuranPaymentRecord | null>(null)
 
   // Load bill data
   useEffect(() => {
@@ -742,6 +1028,8 @@ export function IuranDetail({
           nominal: parseMoney(p.amount),
           paidDate: p.paid_at,
           catatan: p.notes ?? undefined,
+          rejectionReason: p.rejection_reason ?? undefined,
+          verifiedBy: p.verified_by ?? undefined,
           status: p.status as PaymentStatusDisplay,
           method: p.method,
           proofPath: p.proof_path,
@@ -907,6 +1195,7 @@ export function IuranDetail({
                 remaining={remaining}
                 onPendingVerify={(payment) => setVerifyingPayment(payment)}
                 onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
+                onPaymentDetail={(payment) => setSelectedPaymentDetail(payment)}
               />
             </>
           )}
@@ -1342,6 +1631,7 @@ export function IuranDetail({
             remaining={remaining}
             onPendingVerify={(payment) => setVerifyingPayment(payment)}
             onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
+            onPaymentDetail={(payment) => setSelectedPaymentDetail(payment)}
           />
 
           {/* Proof Preview Modal in Page Mode */}
@@ -1349,6 +1639,15 @@ export function IuranDetail({
             <ProofPreviewModal
               paymentId={previewingProofId}
               onClose={() => setPreviewingProofId(null)}
+            />
+          )}
+
+          {/* Payment Detail Modal in Page Mode */}
+          {selectedPaymentDetail && (
+            <PaymentDetailModal
+              payment={selectedPaymentDetail}
+              onClose={() => setSelectedPaymentDetail(null)}
+              onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
             />
           )}
         </>

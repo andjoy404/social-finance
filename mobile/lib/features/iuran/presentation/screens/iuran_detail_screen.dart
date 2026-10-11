@@ -148,6 +148,11 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     ),
                   ],
                 ),
+                // ── Progress bar for partial payment (in header card) ──
+                if (bill.status == IuranStatus.sebagian) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  _buildProgressBar(bill),
+                ],
               ],
             ),
           ),
@@ -270,57 +275,6 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           ),
 
           const SizedBox(height: AppSpacing.lg),
-
-          // ── Progress Bar for Partial Payment ──
-          if (bill.status == IuranStatus.sebagian) ...[
-            const SizedBox(height: AppSpacing.lg),
-            SectionHeader(title: 'Progress Pembayaran'),
-            const SizedBox(height: AppSpacing.sm),
-            AppCard(
-              padding: const EdgeInsets.all(AppSpacing.base),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '${((bill.paidAmount / bill.nominal) * 100).toStringAsFixed(0)}%',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.accent,
-                        ),
-                      ),
-                      Text(
-                        '${bill.paidAmount} / ${bill.nominal}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.lightTextMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
-                    child: LinearProgressIndicator(
-                      value: bill.paidAmount / bill.nominal,
-                      minHeight: 8,
-                      borderRadius: BorderRadius.circular(AppRadius.xs),
-                      backgroundColor: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurfaceSubtle,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        AppColors.accent,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // ── Riwayat Pembayaran (History & Bukti) ──
-          const SizedBox(height: AppSpacing.lg),
           SectionHeader(title: 'Riwayat Pembayaran'),
           const SizedBox(height: AppSpacing.sm),
           ref.watch(billPaymentsProvider(bill.id)).when(
@@ -342,52 +296,56 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     padding: const EdgeInsets.all(AppSpacing.base),
                     child: Column(
                       children: payments.map((p) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                          child: Row(
-                            children: [
-                              Icon(
-                                p.status == PaymentStatus.approved
-                                    ? Icons.check_circle_outline
-                                    : p.status == PaymentStatus.rejected
-                                        ? Icons.cancel_outlined
-                                        : Icons.access_time_outlined,
-                                size: 20,
-                                color: p.status == PaymentStatus.approved
-                                    ? AppColors.success
-                                    : p.status == PaymentStatus.rejected
-                                        ? AppColors.danger
-                                        : AppColors.warning,
-                              ),
-                              const SizedBox(width: AppSpacing.sm),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}',
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    Text(
-                                      '${_formatDate(p.paidAt)} · ${p.status.name.toUpperCase()}',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                                      ),
-                                    ),
-                                  ],
+                        return InkWell(
+                          onTap: () => _showPaymentDetailDialog(context, p),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  p.status == PaymentStatus.approved
+                                      ? Icons.check_circle_outline
+                                      : p.status == PaymentStatus.rejected
+                                          ? Icons.cancel_outlined
+                                          : Icons.access_time_outlined,
+                                  size: 20,
+                                  color: p.status == PaymentStatus.approved
+                                      ? AppColors.success
+                                      : p.status == PaymentStatus.rejected
+                                          ? AppColors.danger
+                                          : AppColors.warning,
                                 ),
-                              ),
-                              if (p.proofPath != null && p.proofPath!.isNotEmpty) ...[
                                 const SizedBox(width: AppSpacing.sm),
-                                PaymentProofThumbnail(
-                                  paymentId: p.id,
-                                  size: 40,
-                                  label: 'Bukti Pembayaran (${_formatDate(p.paidAt)})',
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}',
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${_formatDate(p.paidAt)} · ${p.status.name.toUpperCase()}',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                                if (p.proofPath != null && p.proofPath!.isNotEmpty) ...[
+                                  const SizedBox(width: AppSpacing.sm),
+                                  PaymentProofThumbnail(
+                                    paymentId: p.id,
+                                    size: 40,
+                                    label: 'Bukti Pembayaran (${_formatDate(p.paidAt)})',
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         );
                       }).toList(),
@@ -799,6 +757,95 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     );
   }
 
+  Widget _buildProgressBar(IuranBill bill) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final pct = bill.paidAmount / bill.nominal;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${(pct * 100).toStringAsFixed(0)}%',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppColors.accent,
+              ),
+            ),
+            Text(
+              '${bill.paidAmount} / ${bill.nominal}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppColors.lightTextMuted,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.xs),
+          child: LinearProgressIndicator(
+            value: pct,
+            minHeight: 8,
+            borderRadius: BorderRadius.circular(AppRadius.xs),
+            backgroundColor: isDark
+                ? AppColors.darkSurface
+                : AppColors.lightSurfaceSubtle,
+            valueColor: const AlwaysStoppedAnimation<Color>(
+              AppColors.accent,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDialogDetailRow(
+    BuildContext context,
+    bool isDark, {
+    required IconData icon,
+    required String label,
+    required String value,
+    Color? valueColor,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: valueColor ?? AppColors.accent),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark
+                        ? AppColors.darkTextMuted
+                        : AppColors.lightTextMuted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: valueColor ??
+                        (isDark ? AppColors.darkText : AppColors.lightText),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAndroidFAB(BuildContext context, Color accentSoft) {
     return Container(
       decoration: BoxDecoration(
@@ -839,6 +886,217 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // ── Payment detail dialog ──
+
+  void _showPaymentDetailDialog(
+    BuildContext context,
+    BackendPayment payment,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        final dialogTheme = Theme.of(dialogCtx);
+        final dialogIsDark = dialogTheme.brightness == Brightness.dark;
+        final isApproved = payment.status == PaymentStatus.approved;
+        final isRejected = payment.status == PaymentStatus.rejected;
+        return Dialog(
+          backgroundColor: dialogTheme.colorScheme.surface,
+          insetPadding: const EdgeInsets.all(AppSpacing.md),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Detail Pembayaran',
+                      style: dialogTheme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(dialogCtx).pop(),
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+
+                // Amount
+                Row(
+                  children: [
+                    Icon(
+                      isApproved
+                          ? Icons.check_circle_outline
+                          : isRejected
+                              ? Icons.cancel_outlined
+                              : Icons.access_time_outlined,
+                      color: isApproved
+                          ? AppColors.success
+                          : isRejected
+                              ? AppColors.danger
+                              : AppColors.warning,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Text(
+                      'Rp ${_formatAmount(payment.amount)}',
+                      style: dialogTheme.textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+
+                // Details list
+                _buildDialogDetailRow(
+                  dialogCtx,
+                  dialogIsDark,
+                  icon: Icons.calendar_today_outlined,
+                  label: 'Tanggal',
+                  value: _formatDate(payment.paidAt),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _buildDialogDetailRow(
+                  dialogCtx,
+                  dialogIsDark,
+                  icon: Icons.payment_outlined,
+                  label: 'Metode',
+                  value: _formatMethod(payment.method),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _buildDialogDetailRow(
+                  dialogCtx,
+                  dialogIsDark,
+                  icon: Icons.tag_outlined,
+                  label: 'Status',
+                  value: payment.status.name.toUpperCase(),
+                  valueColor: isApproved
+                      ? AppColors.success
+                      : isRejected
+                          ? AppColors.danger
+                          : AppColors.warning,
+                ),
+
+                // Catatan (warga note)
+                if (payment.notes != null && payment.notes!.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  const Divider(height: 20),
+                  _buildDialogDetailRow(
+                    dialogCtx,
+                    dialogIsDark,
+                    icon: Icons.note_outlined,
+                    label: 'Catatan Warga',
+                    value: payment.notes!,
+                  ),
+                ],
+
+                // Rejection reason
+                if (isRejected &&
+                    payment.rejectionReason != null &&
+                    payment.rejectionReason!.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  const Divider(height: 20),
+                  _buildDialogDetailRow(
+                    dialogCtx,
+                    dialogIsDark,
+                    icon: Icons.error_outline,
+                    label: 'Alasan Penolakan',
+                    value: payment.rejectionReason!,
+                    valueColor: AppColors.danger,
+                  ),
+                ],
+
+                // Verified by
+                if (payment.verifiedBy != null &&
+                    payment.verifiedBy!.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  const Divider(height: 20),
+                  _buildDialogDetailRow(
+                    dialogCtx,
+                    dialogIsDark,
+                    icon: Icons.verified_user_outlined,
+                    label: 'Diverifikasi Oleh',
+                    value: payment.verifiedBy!,
+                    valueColor: AppColors.success,
+                  ),
+                ],
+
+                // Bukti transfer
+                const Divider(height: 20),
+                Text(
+                  'Bukti Transfer',
+                  style: dialogTheme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                if (payment.proofPath != null &&
+                    payment.proofPath!.isNotEmpty) ...[
+                  PaymentProofThumbnail(
+                    paymentId: payment.id,
+                    size: 120,
+                    label: 'Bukti Pembayaran Rp ${_formatAmount(payment.amount)} pada ${_formatDate(payment.paidAt)}',
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Center(
+                    child: Text(
+                      'Klik gambar untuk memperbesar',
+                      style: dialogTheme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.lightTextMuted,
+                          ),
+                    ),
+                  ),
+                ] else ...[
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: (dialogIsDark
+                              ? AppColors.darkSurfaceSubtle
+                              : AppColors.lightSurfaceSubtle)
+                          .withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      border: Border.all(
+                        color: (dialogIsDark
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder)
+                            .withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.image_not_supported_outlined,
+                            size: 32,
+                            color: dialogIsDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'Tidak ada bukti transfer',
+                            style: dialogTheme.textTheme.bodySmall?.copyWith(
+                                  color: dialogIsDark
+                                      ? AppColors.darkTextMuted
+                                      : AppColors.lightTextMuted,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

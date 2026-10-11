@@ -32,6 +32,8 @@ export interface IuranPaymentRecord {
   nominal: number
   paidDate: string
   catatan?: string
+  rejectionReason?: string
+  verifiedBy?: string
   status?: PaymentStatusDisplay
   method?: 'CASH' | 'TRANSFER'
   proofPath?: string | null
