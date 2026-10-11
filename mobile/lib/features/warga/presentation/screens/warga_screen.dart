@@ -161,83 +161,86 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
                 ? _buildWebFab(context, fabIconSize, fabLabelSize, accentSoft, onFabPressed!)
                 : _buildAndroidFab(context, fabSize, fabIconSize, fabLabelSize, accentSoft, onFabPressed!)
             : null,
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Search Section ──
+        body: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(wargaListProvider.notifier).refresh(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Search Section ──
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.base,
+                  AppSpacing.sm,
+                  AppSpacing.base,
+                  AppSpacing.sm,
+                ),
+                child: AppTextField(
+                  controller: _searchController,
+                  hintText: 'Cari nama, alamat, atau nomor rumah...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 20),
+                          onPressed: _clearSearch,
+                        )
+                      : null,
+                  onChanged: (value) {
+                    ref.read(wargaSearchQueryProvider.notifier).state = value;
+                    setState(() {});
+                  },
+                ),
+              ),
+
+            // ── Summary Count ──
             Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.base,
-                AppSpacing.sm,
-                AppSpacing.base,
-                AppSpacing.sm,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.base,
+                vertical: AppSpacing.xs,
               ),
-              child: AppTextField(
-                controller: _searchController,
-                hintText: 'Cari nama, alamat, atau nomor rumah...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 20),
-                        onPressed: _clearSearch,
-                      )
-                    : null,
-                onChanged: (value) {
-                  ref.read(wargaSearchQueryProvider.notifier).state = value;
-                  setState(() {});
-                },
+              child: Text(
+                'Menampilkan ${residents.length} warga',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
 
-          // ── Summary Count ──
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.base,
-              vertical: AppSpacing.xs,
-            ),
-            child: Text(
-              'Menampilkan ${residents.length} warga',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-
-          // ── Content: Loading / Error / Empty / List ──
-          Expanded(
-            child: switch (wargaState) {
-              AsyncLoading() => const Center(
-                child: CircularProgressIndicator(),
-              ),
-              AsyncError() => Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 64,
-                        color: theme.colorScheme.error.withValues(alpha: 0.5),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Terjadi Kesalahan',
-                        style: theme.textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        errorMessage,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        height: 36,
-                        child: ElevatedButton(
-                          onPressed: _retry,
-                          style: ElevatedButton.styleFrom(
+            // ── Content: Loading / Error / Empty / List ──
+            Expanded(
+              child: switch (wargaState) {
+                AsyncLoading() => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+                AsyncError() => Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 64,
+                          color: theme.colorScheme.error.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Terjadi Kesalahan',
+                          style: theme.textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          errorMessage,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          height: 36,
+                          child: ElevatedButton(
+                            onPressed: _retry,
+                            style: ElevatedButton.styleFrom(
                             backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
                             foregroundColor: theme.colorScheme.primary,
                             elevation: 0,
@@ -302,13 +305,15 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
                           );
                         },
                       ),
-            },
-          ),
-        ],
+              },
+            ),
+          ],
+        ),
       ),
     ),
   );
-}
+  }
+
   Widget _buildWebFab(
     BuildContext context,
     double iconSize,
