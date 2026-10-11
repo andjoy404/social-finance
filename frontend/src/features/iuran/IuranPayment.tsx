@@ -420,13 +420,13 @@ export function IuranPayment({
           iuranType: apiBill.due_name ?? 'Iuran',
           periode: apiBill.period,
           nominal: parseMoney(apiBill.amount),
-          paidAmount: 0, // will be calculated from payments
+          paidAmount: 0, // calculated separately from payments
+          pendingAmount: 0, // calculated separately from PENDING payments
           status: 'belum_bayar', // default, will be mapped
           payments: [],
         }
 
-        // Load payments for this bill to calculate paidAmount
-        let paidAmount = 0
+        // Load payments for this bill to calculate paidAmount + pendingAmount
         try {
           const paymentsResponse = await apiListPayments(token, { bill_id: effectiveId })
           if (cancelled) return
@@ -435,14 +435,25 @@ export function IuranPayment({
           const approvedPayments = paymentsResponse.data.filter(
             (p) => p.status === 'APPROVED'
           )
-          paidAmount = approvedPayments.reduce(
+          const paidAmount = approvedPayments.reduce(
             (sum, p) => sum + parseMoney(p.amount),
             0
           )
+
+          // Calculate pendingAmount from PENDING payments only
+          const pendingPayments = paymentsResponse.data.filter(
+            (p) => p.status === 'PENDING'
+          )
+          const pendingAmount = pendingPayments.reduce(
+            (sum, p) => sum + parseMoney(p.amount),
+            0
+          )
+
+          mappedBill.paidAmount = paidAmount
+          mappedBill.pendingAmount = pendingAmount
         } catch {
-          // Silent fail — paidAmount tetap 0 jika payments API gagal
+          // Silent fail — amounts tetap 0 jika payments API gagal
         }
-        mappedBill.paidAmount = paidAmount
 
         setBill(mappedBill)
       } catch (err) {
@@ -465,7 +476,7 @@ export function IuranPayment({
 
   const remaining = useMemo(() => {
     if (!bill) return 0
-    return bill.nominal - bill.paidAmount
+    return bill.nominal - bill.paidAmount - bill.pendingAmount
   }, [bill])
 
   const paymentContent = !error && bill ? (
@@ -474,7 +485,7 @@ export function IuranPayment({
       remaining={remaining}
       handleClose={handleClose}
       onPaymentSuccess={async (payment: ApiPayment) => {
-        // Refresh bill detail state locally to update paidAmount + status
+        // Refresh bill detail state locally to update paidAmount + pendingAmount + status
         if (onPaymentSuccessProp) {
           void payment // used for typing; parent reloads from API
           onPaymentSuccessProp()
@@ -493,10 +504,18 @@ export function IuranPayment({
                 (sum, p) => sum + parseMoney(p.amount),
                 0
               )
+              const pendingPayments = paymentsResponse.data.filter(
+                (p) => p.status === 'PENDING'
+              )
+              const pendingAmount = pendingPayments.reduce(
+                (sum, p) => sum + parseMoney(p.amount),
+                0
+              )
               setBill((prev) =>
                 prev ? {
                   ...prev,
                   paidAmount,
+                  pendingAmount,
                   status: approvedPayments.length > 0 && paidAmount >= parseMoney(apiBill.amount) ? 'lunas' : 'sebagian',
                 } : prev
               )

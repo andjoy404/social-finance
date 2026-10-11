@@ -101,6 +101,7 @@ export function IuranList() {
       periode: b.period,
       nominal: parseMoney(b.amount),
       paidAmount: 0, // calculated separately from payments
+      pendingAmount: 0,
       status: BACKEND_STATUS_MAP[b.status] ?? 'belum_bayar',
       paidDate: undefined,
       payments: [], // populated in IuranDetail
@@ -165,13 +166,15 @@ export function IuranList() {
                   (sum: number, p: { amount: string }) => sum + parseMoney(p.amount),
                   0
                 )
+                const pendingPayments = data.data.filter(
+                  (p: { status: string; amount: string }) => p.status === 'PENDING'
+                )
+                const pendingAmount = pendingPayments.reduce(
+                  (sum: number, p: { amount: string }) => sum + parseMoney(p.amount),
+                  0
+                )
 
-                // Collect pending payments for this bill
-                const pendingForBill = data.data
-                  .filter((p: { status: string }) => p.status === 'PENDING')
-                  .map((p: ApiPayment) => p)
-
-                bills[idx] = { ...bills[idx], paidAmount, pendingPayments: pendingForBill }
+                bills[idx] = { ...bills[idx], paidAmount, pendingAmount }
               }
             })
           }
@@ -211,6 +214,19 @@ export function IuranList() {
   useEffect(() => {
     loadData(1, 10)
   }, [loadData])
+
+  // Auto-refresh when user returns to tab (e.g., after paying from Android)
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        loadData(1, pageSize)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [loadData, pageSize])
 
   const handleFilter = (filter: FilterType) => {
     setFilterType(filter)

@@ -45,10 +45,10 @@ export interface IuranBill {
   periode: string
   nominal: number
   paidAmount: number
+  pendingAmount: number
   status: IuranStatus
   paidDate?: string
   payments?: IuranPaymentRecord[]
-  pendingPayments?: Array<{ id: string; amount: string; status: string }>
 }
 
 export type IuranType = 'Keamanan' | 'Kebersihan' | 'Pembangunan'
