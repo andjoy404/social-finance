@@ -164,13 +164,6 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
               children: [
                 _buildDetailRow(
                   context,
-                  icon: Icons.groups_outlined,
-                  label: 'Nama Kepala Keluarga',
-                  value: bill.householdName,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _buildDetailRow(
-                  context,
                   icon: Icons.home_outlined,
                   label: 'Rumah',
                   value: bill.householdName,
@@ -242,7 +235,6 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
             ),
           ),
 
-          // ── Progress Bar for Partial Payment ──
           // ── Verification section (if user can verify) ────────────────
           // ── Verification section for bendahara/pengurus ─────────────
           Builder(

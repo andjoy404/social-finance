@@ -24,6 +24,19 @@ class IuranRepository {
     return apiClient.listDues(isActive: isActive);
   }
 
+  /// Create a new due (iuran type). Pengurus only.
+  Future<BackendDue> createDue({
+    required String name,
+    required int amount,
+    required DuePeriodType periodType,
+  }) async {
+    return apiClient.createDue(
+      name: name,
+      amount: '${amount}.00',
+      periodType: periodType,
+    );
+  }
+
   // ─── Bills (with paidAmount computation) ────────────────────────────
 
   /// Fetch paginated bills with computed paidAmount per bill.
@@ -62,6 +75,12 @@ class IuranRepository {
             0,
             (sum, p) => sum + moneyToDisplayRupiah(p.amount),
           );
+      final rejectedTotal = payments.data
+          .where((p) => p.status == PaymentStatus.rejected)
+          .fold<int>(
+            0,
+            (sum, p) => sum + moneyToDisplayRupiah(p.amount),
+          );
 
       uiBills.add(IuranBill(
         id: bill.id,
@@ -71,6 +90,7 @@ class IuranRepository {
         nominal: moneyToDisplayRupiah(bill.amount),
         paidAmount: approvedTotal,
         pendingAmount: pendingTotal,
+        rejectedAmount: rejectedTotal,
         status: _mapBillStatus(bill.status),
       ));
     }
@@ -113,7 +133,7 @@ class IuranRepository {
     return allBills;
   }
 
-  /// Fetch a single bill detail with computed paidAmount and pendingAmount.
+  /// Fetch a single bill detail with computed paidAmount, pendingAmount, and rejectedAmount.
   Future<IuranBill?> fetchBillDetail(String billId) async {
     final bill = await apiClient.getBill(billId);
     final payments = await apiClient.listPayments(billId: bill.id);
@@ -129,6 +149,12 @@ class IuranRepository {
           0,
           (sum, p) => sum + moneyToDisplayRupiah(p.amount),
         );
+    final rejectedTotal = payments.data
+        .where((p) => p.status == PaymentStatus.rejected)
+        .fold<int>(
+          0,
+          (sum, p) => sum + moneyToDisplayRupiah(p.amount),
+        );
 
     return IuranBill(
       id: bill.id,
@@ -138,6 +164,7 @@ class IuranRepository {
       nominal: moneyToDisplayRupiah(bill.amount),
       paidAmount: approvedTotal,
       pendingAmount: pendingTotal,
+      rejectedAmount: rejectedTotal,
       status: _mapBillStatus(bill.status),
     );
   }

@@ -107,7 +107,8 @@ class BillsNotifier extends AutoDisposeAsyncNotifier<List<IuranBill>> {
   }
 }
 
-/// Filtered bills derived from billsProvider + search/periode/status.
+/// Filtered bills derived from billsProvider + search/periode/status,
+/// sorted oldest to newest by period.
 final filteredBillsProvider = Provider<List<IuranBill>>((ref) {
   final state = ref.watch(billsProvider);
   final query = ref.watch(iuranSearchQueryProvider).trim().toLowerCase();
@@ -121,11 +122,7 @@ final filteredBillsProvider = Provider<List<IuranBill>>((ref) {
     _ => <IuranBill>[],
   };
 
-  if (query.isEmpty && periode.isEmpty && status.isEmpty) {
-    return bills;
-  }
-
-  return bills.where((b) {
+  var filtered = bills.where((b) {
     final searchMatch = query.isEmpty ||
         b.householdName.toLowerCase().contains(query) ||
         b.iuranType.toLowerCase().contains(query);
@@ -133,7 +130,47 @@ final filteredBillsProvider = Provider<List<IuranBill>>((ref) {
     final statusMatch = status.isEmpty || b.status.name == status;
     return searchMatch && periodeMatch && statusMatch;
   }).toList();
+
+  // Sort: unpaid/partial first (oldest→newest), then paid (newest→oldest)
+  filtered.sort((a, b) {
+    final aPaid = a.status == IuranStatus.lunas;
+    final bPaid = b.status == IuranStatus.lunas;
+    if (aPaid != bPaid) {
+      // Unpaid/partial first: a is not paid, b is paid → a comes first (-1)
+      return aPaid ? 1 : -1;
+    }
+    final aParsed = _parsePeriodForSort(a.periode);
+    final bParsed = _parsePeriodForSort(b.periode);
+    final yearCmp = aParsed[0].compareTo(bParsed[0]);
+    if (yearCmp != 0) return aPaid ? bParsed[0].compareTo(aParsed[0]) : yearCmp;
+    return aPaid ? bParsed[1].compareTo(aParsed[1]) : yearCmp != 0 ? yearCmp : aParsed[1].compareTo(bParsed[1]);
+  });
+
+  return filtered;
 });
+
+/// Sort helper: parse "Oktober 2026" → [2026, 10] for chronological ordering.
+List<int> _parsePeriodForSort(String period) {
+  final parts = period.split(' ');
+  if (parts.length < 2) return [0, 0];
+  final year = int.tryParse(parts[1]) ?? 0;
+  const months = {
+    'januari': 1,
+    'februari': 2,
+    'maret': 3,
+    'april': 4,
+    'mei': 5,
+    'juni': 6,
+    'juli': 7,
+    'agustus': 8,
+    'september': 9,
+    'oktober': 10,
+    'november': 11,
+    'desember': 12,
+  };
+  final month = months[parts[0].toLowerCase()] ?? 0;
+  return [year, month];
+}
 
 // ─── Bill Detail (parameterized by ID) ────────────────────────────────
 
@@ -170,6 +207,10 @@ class DuesNotifier extends AutoDisposeAsyncNotifier<List<BackendDue>> {
       state = AsyncError(error, st);
       return [];
     }
+  }
+
+  Future<void> refresh() async {
+    await _fetch();
   }
 }
 

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
+import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
@@ -464,9 +465,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                                   mainAxisAlignment:
                                       MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.save_outlined, size: 18),
+                                    Icon(Icons.payment, size: 18),
                                     SizedBox(width: 6),
-                                    Text('Simpan'),
+                                    Text('Bayar'),
                                   ],
                                 ),
                         ),
@@ -543,14 +544,14 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
           Row(
             children: [
               Icon(
-                Icons.groups_outlined,
+                Icons.home_outlined,
                 size: 18,
                 color: AppColors.accent,
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  'Kepala Keluarga',
+                  'Rumah',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: isDark
                         ? AppColors.darkTextMuted
@@ -612,11 +613,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   ),
                 ),
               ),
-              Text(
-                bill.periode,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
+              AppBadge(
+                label: bill.periode.toUpperCase(),
+                backgroundColor: isDark
+                    ? AppColors.darkAccentSoft
+                    : AppColors.lightAccentSoft,
+                textColor: AppColors.accent,
               ),
             ],
           ),

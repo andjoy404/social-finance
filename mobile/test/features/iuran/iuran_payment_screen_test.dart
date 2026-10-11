@@ -98,7 +98,7 @@ void main() {
         expect(find.text('Ringkasan Tagihan'), findsOneWidget);
         expect(find.text('Bpk. Ahmad', skipOffstage: false), findsOneWidget);
         expect(find.text('Iuran Keamanan', skipOffstage: false), findsOneWidget);
-        expect(find.text('Oktober 2026', skipOffstage: false), findsOneWidget);
+        expect(find.textContaining('OKTOBER 2026'), findsOneWidget);
       },
     );
 
@@ -120,11 +120,11 @@ void main() {
     );
 
     testWidgets(
-      'renders Simpan and Batal buttons',
+      'renders Bayar and Batal buttons',
       (tester) async {
         await _pumpPage(tester);
         // Buttons are below the fold in ListView — use skipOffstage: false
-        expect(find.text('Simpan', skipOffstage: false), findsOneWidget);
+        expect(find.text('Bayar', skipOffstage: false), findsOneWidget);
         expect(find.text('Batal', skipOffstage: false), findsOneWidget);
       },
     );
@@ -171,8 +171,8 @@ void main() {
         await _pumpPage(tester);
 
         // Scroll to make the button visible, then tap
-        await _scrollToVisible(tester, find.text('Simpan', skipOffstage: false));
-        await tester.tap(find.text('Simpan', skipOffstage: false));
+        await _scrollToVisible(tester, find.text('Bayar', skipOffstage: false));
+        await tester.tap(find.text('Bayar', skipOffstage: false));
         await tester.pumpAndSettle();
 
         expect(
@@ -190,8 +190,8 @@ void main() {
         await tester.enterText(find.byType(TextField).at(0), 'abc');
         await tester.pumpAndSettle();
 
-        await _scrollToVisible(tester, find.text('Simpan', skipOffstage: false));
-        await tester.tap(find.text('Simpan', skipOffstage: false));
+        await _scrollToVisible(tester, find.text('Bayar', skipOffstage: false));
+        await tester.tap(find.text('Bayar', skipOffstage: false));
         await tester.pumpAndSettle();
 
         expect(
@@ -209,8 +209,8 @@ void main() {
         await tester.enterText(find.byType(TextField).at(0), '0');
         await tester.pumpAndSettle();
 
-        await _scrollToVisible(tester, find.text('Simpan', skipOffstage: false));
-        await tester.tap(find.text('Simpan', skipOffstage: false));
+        await _scrollToVisible(tester, find.text('Bayar', skipOffstage: false));
+        await tester.tap(find.text('Bayar', skipOffstage: false));
         await tester.pumpAndSettle();
 
         expect(
@@ -228,8 +228,8 @@ void main() {
         await tester.enterText(find.byType(TextField).at(0), '-100');
         await tester.pumpAndSettle();
 
-        await _scrollToVisible(tester, find.text('Simpan', skipOffstage: false));
-        await tester.tap(find.text('Simpan', skipOffstage: false));
+        await _scrollToVisible(tester, find.text('Bayar', skipOffstage: false));
+        await tester.tap(find.text('Bayar', skipOffstage: false));
         await tester.pumpAndSettle();
 
         expect(
@@ -253,17 +253,17 @@ void main() {
         await tester.pumpAndSettle();
 
         // Scroll to make button visible
-        await _scrollToVisible(tester, find.text('Simpan', skipOffstage: false));
+        await _scrollToVisible(tester, find.text('Bayar', skipOffstage: false));
 
-        // Tap Simpan → setState(_saving=true) runs synchronously
-        await tester.tap(find.text('Simpan', skipOffstage: false));
+        // Tap Bayar → setState(_saving=true) runs synchronously
+        await tester.tap(find.text('Bayar', skipOffstage: false));
         // One pump triggers the rebuild where _saving == true.
         await tester.pump();
 
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
-        // Verify the Simpan button text is replaced with the spinner.
-        expect(find.text('Simpan', skipOffstage: false), findsNothing);
+        // Verify the Bayar button text is replaced with the spinner.
+        expect(find.text('Bayar', skipOffstage: false), findsNothing);
 
         // Let the pending API call complete so the test cleans up.
         await tester.pumpAndSettle();

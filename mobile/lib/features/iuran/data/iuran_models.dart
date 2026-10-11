@@ -18,6 +18,7 @@ class IuranBill {
   final int nominal; // amount in rupiah (int, no floating point)
   final int paidAmount;
   final int pendingAmount;
+  final int rejectedAmount;
   final IuranStatus status;
 
   const IuranBill({
@@ -28,16 +29,19 @@ class IuranBill {
     required this.nominal,
     this.paidAmount = 0,
     this.pendingAmount = 0,
+    this.rejectedAmount = 0,
     this.status = IuranStatus.belumBayar,
   });
 
   /// Returns the remaining balance for display purposes.
-  /// Calculated as nominal minus APPROVED payments only (pending does not
-  /// reduce the displayed balance — pending is awaiting verification).
-  int get remainingAmount => nominal - paidAmount;
+  /// Calculated as nominal minus APPROVED payments only.
+  /// Pending and rejected payments do NOT reduce the displayed balance.
+  int get remainingAmount =>
+      nominal - paidAmount < 0 ? 0 : nominal - paidAmount;
 
   /// Returns the maximum amount that can still be paid.
   /// Accounts for approved and pending payments to prevent overpayment.
+  /// Rejected payments do NOT affect capacity.
   int get paymentCapacity =>
       nominal - paidAmount - pendingAmount < 0
           ? 0
@@ -69,7 +73,7 @@ String getStatusLabel(IuranStatus status) {
 Color getStatusColor(IuranStatus status, BuildContext context) {
   final isDark = Theme.of(context).brightness == Brightness.dark;
   return switch (status) {
-    IuranStatus.belumBayar => AppColors.warning,
+    IuranStatus.belumBayar => AppColors.danger,
     IuranStatus.sebagian => AppColors.warning,
     IuranStatus.lunas => AppColors.success,
   };

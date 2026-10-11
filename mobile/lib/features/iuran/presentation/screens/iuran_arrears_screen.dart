@@ -99,97 +99,100 @@ class _IuranArrearsScreenState extends ConsumerState<IuranArrearsScreen> {
               ),
             ),
           ),
-        _ => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Search Section ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.base,
-                  AppSpacing.sm,
-                  AppSpacing.base,
-                  AppSpacing.sm,
-                ),
-                child: AppTextField(
-                  controller: _searchController,
-                  hintText: 'Cari nama atau jenis iuran...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: () {
-                            _searchController.clear();
-                            _syncSearch();
-                            setState(() {});
-                          },
-                        )
-                      : null,
-                  onChanged: (_) => _syncSearch(),
-                ),
-              ),
-
-              // ── Filter Chip ──
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-                child: Row(
-                  children: [
-                    _buildFilterChip(
-                      label: periode.isEmpty ? 'Periode' : periode,
-                      selected: periode.isNotEmpty,
-                      onTap: () => _showPeriodeDialog(context, isDark),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── Summary Card ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.base,
-                  AppSpacing.sm,
-                  AppSpacing.base,
-                  AppSpacing.xs,
-                ),
-                child: Container(
-                  padding: const EdgeInsets.all(AppSpacing.base),
-                  decoration: BoxDecoration(
-                    color: AppColors.warning.withValues(
-                        alpha: isDark ? 0.15 : 0.08),
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    border: Border.all(
-                      color: AppColors.warning
-                          .withValues(alpha: isDark ? 0.3 : 0.2),
-                    ),
+        _ => RefreshIndicator(
+            onRefresh: () =>
+                ref.read(billsProvider.notifier).refresh(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Search Section ──
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.base,
+                    AppSpacing.sm,
+                    AppSpacing.base,
+                    AppSpacing.sm,
                   ),
+                  child: AppTextField(
+                    controller: _searchController,
+                    hintText: 'Cari nama atau jenis iuran...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 20),
+                            onPressed: () {
+                              _searchController.clear();
+                              _syncSearch();
+                              setState(() {});
+                            },
+                          )
+                        : null,
+                    onChanged: (_) => _syncSearch(),
+                  ),
+                ),
+
+                // ── Filter Chip ──
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.base),
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        color: AppColors.warning,
-                        size: 20,
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          'Total Tunggakan',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: AppColors.warning,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        formatRupiah(totalArrears),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: AppColors.warning,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      _buildFilterChip(
+                        label: periode.isEmpty ? 'Periode' : periode,
+                        selected: periode.isNotEmpty,
+                        onTap: () => _showPeriodeDialog(context, isDark),
                       ),
                     ],
                   ),
                 ),
-              ),
+
+                // ── Summary Card ──
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.base,
+                    AppSpacing.sm,
+                    AppSpacing.base,
+                    AppSpacing.xs,
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(AppSpacing.base),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withValues(
+                          alpha: isDark ? 0.15 : 0.08),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      border: Border.all(
+                        color: AppColors.warning
+                            .withValues(alpha: isDark ? 0.3 : 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: AppColors.warning,
+                          size: 20,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            'Total Tunggakan',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppColors.warning,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          formatRupiah(totalArrears),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
 
               // ── Count ──
               Padding(
@@ -238,6 +241,7 @@ class _IuranArrearsScreenState extends ConsumerState<IuranArrearsScreen> {
               ),
             ],
           ),
+        ),
       },
     );
   }
@@ -425,7 +429,7 @@ class _ArrearsCard extends StatelessWidget {
                           textColor: AppColors.info,
                         ),
                         AppBadge(
-                          label: bill.periode,
+                          label: bill.periode.toUpperCase(),
                           backgroundColor: isDark
                               ? AppColors.darkAccentSoft
                               : AppColors.lightAccentSoft,

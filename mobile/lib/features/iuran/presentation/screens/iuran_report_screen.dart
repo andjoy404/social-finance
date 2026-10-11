@@ -163,11 +163,13 @@ class IuranReportScreen extends ConsumerWidget {
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Laporan Iuran'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.base),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: RefreshIndicator(
+        onRefresh: () async => ref.refresh(billsProvider.notifier).refresh(),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.base),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // ── Summary Cards ──
             const SectionHeader(title: 'Ringkasan'),
             const SizedBox(height: AppSpacing.sm),
@@ -441,6 +443,7 @@ class IuranReportScreen extends ConsumerWidget {
           ],
         ),
       ),
+    ),
     );
   }
 

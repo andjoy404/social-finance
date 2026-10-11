@@ -199,6 +199,76 @@ void main() {
     );
   });
 
+  // ─── rejectedAmount field ────────────────────────────────────────────────
+
+  test('rejectedAmount defaults to 0', () {
+    final bill = const IuranBill(
+      id: 'b-rej-default',
+      householdName: 'Test',
+      iuranType: 'Keamanan',
+      periode: 'Oktober 2026',
+      nominal: 100000,
+      paidAmount: 50000,
+      pendingAmount: 25000,
+    );
+    expect(bill.rejectedAmount, equals(0));
+  });
+
+  test('rejectedAmount non-zero when set', () {
+    final bill = const IuranBill(
+      id: 'b-rej-set',
+      householdName: 'Test',
+      iuranType: 'Keamanan',
+      periode: 'Oktober 2026',
+      nominal: 100000,
+      paidAmount: 50000,
+      pendingAmount: 25000,
+      rejectedAmount: 25000,
+    );
+    expect(bill.rejectedAmount, equals(25000));
+  });
+
+  group('remainingAmount with rejectedAmount', () {
+    test(
+      'rejected does NOT reduce remaining display',
+      () {
+        final bill = const IuranBill(
+          id: 'b-rem-rej',
+          householdName: 'Test',
+          iuranType: 'Keamanan',
+          periode: 'Oktober 2026',
+          nominal: 100000,
+          paidAmount: 50000,
+          pendingAmount: 25000,
+          rejectedAmount: 25000,
+        );
+        // Remaining = nominal - paidAmount only
+        expect(bill.remainingAmount, equals(50000));
+      },
+    );
+  });
+
+  group('paymentCapacity with rejectedAmount', () {
+    test(
+      'rejected does NOT reduce capacity',
+      () {
+        final bill = const IuranBill(
+          id: 'b-cap-rej',
+          householdName: 'Test',
+          iuranType: 'Keamanan',
+          periode: 'Oktober 2026',
+          nominal: 100000,
+          paidAmount: 50000,
+          pendingAmount: 25000,
+          rejectedAmount: 25000,
+        );
+        // Capacity = max(0, nominal - paid - pending) = 100000 - 50000 - 25000 = 25000
+        // Rejected does NOT affect capacity
+        expect(bill.paymentCapacity, equals(25000));
+      },
+    );
+  });
+
   // ─── Key Distinction ─────────────────────────────────────────────────
 
   group('remainingAmount vs paymentCapacity distinction', () {
