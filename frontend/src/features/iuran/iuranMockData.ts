@@ -54,6 +54,7 @@ function makeBill(hhIndex: number, iuranType: string, periode: string, status: I
     periode,
     nominal,
     paidAmount,
+    pendingAmount: 0,
     status,
     paidDate: status === 'lunas' ? '2026-09-15' : undefined,
     payments: makePayments(status === 'lunas' ? 1 : status === 'sebagian' ? 2 : 0, paidAmount),

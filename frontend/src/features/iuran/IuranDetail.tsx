@@ -27,7 +27,6 @@ import {
   type IuranPaymentRecord,
   type PaymentStatusDisplay,
 } from './iuranTypes'
-import type { ApiPayment } from '@/app/api'
 import { apiGetBill, apiListPayments, apiVerifyPayment, getSessionPair } from '@/app/api'
 
 function formatDate(iso: string): string {
@@ -148,18 +147,39 @@ function InfoRow({ icon, label, value }: { icon?: React.ReactNode; label: string
    Payment history item
    ───────────────────────────────────────────── */
 
-function PaymentHistoryItem({ payment }: { payment: IuranPaymentRecord }) {
+function PaymentHistoryItem({
+  payment,
+  onVerify,
+}: {
+  payment: IuranPaymentRecord
+  onVerify?: () => void
+}) {
   const isApproved = payment.status === 'APPROVED'
+  const isPending = payment.status === 'PENDING'
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '10px 12px',
-      borderRadius: '8px',
-      border: `1px solid ${isApproved ? 'var(--sf-success)' : 'var(--sf-border)'}`,
-      background: isApproved ? 'var(--sf-success-soft)' : 'transparent',
-    }}>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: isPending ? '10px 12px' : '10px 12px',
+        borderRadius: '8px',
+        border: isApproved
+          ? '1px solid var(--sf-success)'
+          : isPending
+            ? '1px solid var(--sf-warning)'
+            : '1px solid var(--sf-border)',
+        background: isApproved
+          ? 'var(--sf-success-soft)'
+          : isPending
+            ? 'var(--sf-warning-soft)'
+            : 'transparent',
+        cursor: isPending ? 'pointer' : 'default',
+      }}
+      onClick={() => {
+        if (isPending) onVerify?.()
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
         <div style={{
           width: '36px',
@@ -209,6 +229,15 @@ function PaymentHistoryItem({ payment }: { payment: IuranPaymentRecord }) {
             {payment.catatan}
           </span>
         )}
+        {isPending && (
+          <span style={{
+            fontSize: '10px',
+            color: 'var(--sf-warning)',
+            fontWeight: 500,
+          }}>
+            Klik untuk verifikasi
+          </span>
+        )}
         <Badge variant={getPaymentStatusVariant(payment.status!)}>
           {getPaymentStatusLabel(payment.status!)}
         </Badge>
@@ -218,132 +247,18 @@ function PaymentHistoryItem({ payment }: { payment: IuranPaymentRecord }) {
 }
 
 /* ─────────────────────────────────────────────
-   Pending payment card (verification section)
-   ───────────────────────────────────────────── */
-
-function PendingPaymentCard({
-  payment,
-  verifyingId,
-  onApprove,
-  onReject,
-}: {
-  payment: ApiPayment
-  verifyingId: string | null
-  onApprove: () => void
-  onReject: () => void
-}) {
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'flex-start',
-      gap: '12px',
-      padding: '12px 14px',
-      borderRadius: 'var(--sf-radius-sm)',
-      border: '1px solid var(--sf-warning)',
-      background: 'var(--sf-warning-soft)',
-    }}>
-      <div style={{
-        width: '36px',
-        height: '36px',
-        borderRadius: '50%',
-        background: 'var(--sf-warning)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#fff',
-        fontSize: '18px',
-        flexShrink: 0,
-      }}>
-        ⏳
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: '15px',
-          fontWeight: 700,
-          fontFamily: 'var(--sf-font-mono)',
-          color: 'var(--sf-text)',
-        }}>
-          {formatRupiah(parseMoney(payment.amount))}
-        </div>
-        <div style={{
-          fontSize: '11px',
-          color: 'var(--sf-text-muted)',
-          marginTop: '2px',
-        }}>
-          {formatDate(payment.paid_at)}
-          {payment.method ? ' · ' + (payment.method === 'TRANSFER' ? 'Transfer' : 'Cash') : ''}
-          {payment.notes && <span> · {payment.notes}</span>}
-        </div>
-        <div style={{
-          display: 'flex',
-          gap: '8px',
-          marginTop: '10px',
-        }}>
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={verifyingId === payment.id}
-            style={{
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: '#fff',
-              background: 'var(--sf-success)',
-              border: 'none',
-              borderRadius: 'var(--sf-radius-sm)',
-              cursor: verifyingId === payment.id ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            {verifyingId === payment.id
-              ? 'Memproses...'
-              : (
-                  <>
-                    <CheckCircleOutlined style={{ fontSize: 12 }} />
-                    Terima
-                  </>
-                )}
-          </button>
-          <button
-            type="button"
-            onClick={onReject}
-            disabled={verifyingId === payment.id}
-            style={{
-              padding: '6px 14px',
-              fontSize: '12px',
-              fontWeight: 600,
-              color: '#fff',
-              background: 'var(--sf-danger)',
-              border: 'none',
-              borderRadius: 'var(--sf-radius-sm)',
-              cursor: verifyingId === payment.id ? 'not-allowed' : 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            {verifyingId === payment.id
-              ? 'Memproses...'
-              : (
-                  <>
-                    <CloseCircleOutlined style={{ fontSize: 12 }} />
-                    Tolak
-                  </>
-                )}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ─────────────────────────────────────────────
    Shared detail content (used by both modes)
    ───────────────────────────────────────────── */
 
-function DetailContent({ bill, remaining }: { bill: IuranBill; remaining: number }) {
+function DetailContent({
+  bill,
+  remaining,
+  onPendingVerify,
+}: {
+  bill: IuranBill
+  remaining: number
+  onPendingVerify?: (payment: IuranPaymentRecord) => void
+}) {
   const payments = bill.payments ?? []
   const hasHistory = payments.length > 0
 
@@ -393,7 +308,7 @@ function DetailContent({ bill, remaining }: { bill: IuranBill; remaining: number
             accent="income"
           />
           <SummaryCard
-            label={remaining <= 0 ? 'Sisa Tagihan' : 'Sisa Tagihan'}
+            label="Sisa Tagihan"
             value={formatRupiah(Math.max(remaining, 0))}
             accent={remaining <= 0 ? 'income' : 'expense'}
           />
@@ -478,7 +393,11 @@ function DetailContent({ bill, remaining }: { bill: IuranBill; remaining: number
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {payments.map((payment) => (
-              <PaymentHistoryItem key={payment.id} payment={payment} />
+              <PaymentHistoryItem
+                key={payment.id}
+                payment={payment}
+                onVerify={() => onPendingVerify?.(payment)}
+              />
             ))}
           </div>
         </AppCard>
@@ -514,9 +433,9 @@ export function IuranDetail({
   const [error, setError] = useState<string | null>(null)
   const [bill, setBill] = useState<IuranBill | null>(null)
   const [notFound, setNotFound] = useState(false)
-  const [pendingPayments, setPendingPayments] = useState<ApiPayment[]>([])
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [verifyingPayment, setVerifyingPayment] = useState<IuranPaymentRecord | null>(null)
 
   // Load bill data
   useEffect(() => {
@@ -554,6 +473,7 @@ export function IuranDetail({
           periode: apiBill.period,
           nominal: parseMoney(apiBill.amount),
           paidAmount: 0, // will be calculated from payments
+          pendingAmount: 0, // will be calculated from PENDING payments
           status: BACKEND_STATUS_MAP[apiBill.status] ?? 'belum_bayar',
           payments: [], // will be loaded separately
         }
@@ -571,11 +491,14 @@ export function IuranDetail({
           0
         )
 
-        // Separate pending payments for verification
-        const pendingList = paymentsResponse.data.filter(
+        // Calculate pendingAmount for remaining balance calculation
+        const pendingPayments = paymentsResponse.data.filter(
           (p) => p.status === 'PENDING'
         )
-        setPendingPayments(pendingList)
+        const pendingAmount = pendingPayments.reduce(
+          (sum, p) => sum + parseMoney(p.amount),
+          0
+        )
 
         // Map payments to frontend format
         const paymentRecords = paymentsResponse.data.map((p) => ({
@@ -590,6 +513,7 @@ export function IuranDetail({
         setBill({
           ...mappedBill,
           paidAmount,
+          pendingAmount,
           payments: paymentRecords,
         })
       } catch (err) {
@@ -613,7 +537,7 @@ export function IuranDetail({
 
   const remaining = useMemo(() => {
     if (!bill) return 0
-    return bill.nominal - bill.paidAmount
+    return bill.nominal - bill.paidAmount - bill.pendingAmount
   }, [bill])
 
   // ── Verification handlers ────────────────────────────────────────
@@ -738,55 +662,11 @@ export function IuranDetail({
                 <StatusBadge status={bill.status} />
               </div>
 
-              <DetailContent bill={bill} remaining={remaining} />
-
-              {/* ── Verification section (bendahara/pengurus/super_admin only) ── */}
-              {pendingPayments.length > 0 && (
-                <AppCard style={{ marginTop: '12px', padding: '16px' }}>
-                  <div style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--sf-text)',
-                    marginBottom: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}>
-                    <span style={{ fontSize: '18px' }}>⏳</span>
-                    Menunggu Verifikasi ({pendingPayments.length})
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {pendingPayments.map((p) => (
-                      <PendingPaymentCard
-                        key={p.id}
-                        payment={p}
-                        verifyingId={verifyingId}
-                        onApprove={() => handleApprove(p.id)}
-                        onReject={() => handleReject(p.id)}
-                      />
-                    ))}
-                  </div>
-                  {pendingPayments.length > 0 && (
-                    <div style={{ marginTop: '10px' }}>
-                      <textarea
-                        value={rejectReason}
-                        onChange={(e) => setRejectReason(e.target.value)}
-                        placeholder="Alasan penolakan (opsional, diisi untuk menolak pembayaran)"
-                        rows={2}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          fontSize: '12px',
-                          border: '1px solid var(--sf-border)',
-                          borderRadius: 'var(--sf-radius-sm)',
-                          resize: 'vertical',
-                          fontFamily: 'inherit',
-                        }}
-                      />
-                    </div>
-                  )}
-                </AppCard>
-              )}
+              <DetailContent
+                bill={bill}
+                remaining={remaining}
+                onPendingVerify={(payment) => setVerifyingPayment(payment)}
+              />
             </>
           )}
         </ModalBody>
@@ -825,11 +705,12 @@ export function IuranDetail({
                     padding: '8px 20px',
                     fontSize: '13px',
                     fontWeight: 600,
-                    color: '#fff',
-                    background: 'var(--sf-accent)',
-                    border: 'none',
+                    color: 'var(--sf-accent)',
+                    background: 'var(--sf-accent-soft)',
+                    border: `1px solid var(--sf-accent)`,
                     borderRadius: 'var(--sf-radius-sm)',
                     cursor: 'pointer',
+                    transition: 'background 200ms, border-color 200ms',
                   }}
                 >
                   Bayar Sekarang
@@ -837,6 +718,252 @@ export function IuranDetail({
               )}
             </div>
           </ModalFooter>
+        )}
+
+        {/* ── Verification popup ─────────────────────────────────── */}
+        {verifyingPayment && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(0,0,0,0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              padding: '20px',
+            }}
+            onClick={() => setVerifyingPayment(null)}
+          >
+            <div
+              style={{
+                background: 'var(--sf-surface)',
+                borderRadius: 'var(--sf-radius-md)',
+                border: '1px solid var(--sf-border)',
+                padding: '20px',
+                width: '100%',
+                maxWidth: '480px',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '16px',
+              }}>
+                <div style={{
+                  fontSize: '15px',
+                  fontWeight: 700,
+                  color: 'var(--sf-text)',
+                }}>
+                  Verifikasi Pembayaran
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVerifyingPayment(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--sf-text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '18px',
+                    padding: '4px 8px',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Payment info */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px',
+                borderRadius: 'var(--sf-radius-sm)',
+                background: 'var(--sf-warning-soft)',
+                border: '1px solid var(--sf-warning)',
+                marginBottom: '16px',
+              }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: 'var(--sf-warning)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  fontSize: '18px',
+                  flexShrink: 0,
+                }}>
+                  ⏳
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: '16px',
+                    fontWeight: 700,
+                    fontFamily: 'var(--sf-font-mono)',
+                    color: 'var(--sf-text)',
+                  }}>
+                    {formatRupiah(verifyingPayment.nominal)}
+                  </div>
+                  <div style={{
+                    fontSize: '12px',
+                    color: 'var(--sf-text-muted)',
+                    marginTop: '2px',
+                    lineHeight: 1.5,
+                  }}>
+                    {formatDate(verifyingPayment.paidDate)}
+                    {verifyingPayment.method ? ` · ${verifyingPayment.method === 'TRANSFER' ? 'Transfer' : 'Cash'}` : ''}
+                    {verifyingPayment.catatan && ` · ${verifyingPayment.catatan}`}
+                  </div>
+                </div>
+              </div>
+
+              {/* Proof of payment */}
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{
+                  fontSize: '12px',
+                  color: 'var(--sf-text-muted)',
+                  marginBottom: '4px',
+                  fontWeight: 500,
+                }}>
+                  Bukti Pembayaran
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: 'var(--sf-text-muted)',
+                  fontStyle: 'italic',
+                }}>
+                  Belum ada bukti pembayaran
+                </div>
+              </div>
+
+              {/* Reject reason */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{
+                  fontSize: '12px',
+                  color: 'var(--sf-text-muted)',
+                  marginBottom: '6px',
+                  display: 'block',
+                }}>
+                  Alasan penolakan (opsional)
+                </label>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Masukkan alasan penolakan..."
+                  rows={2}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    color: 'var(--sf-text)',
+                    background: 'var(--sf-surface-subtle)',
+                    border: '1px solid var(--sf-border)',
+                    borderRadius: 'var(--sf-radius-sm)',
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = 'var(--sf-accent)'
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = 'var(--sf-border)'
+                  }}
+                />
+              </div>
+
+              {/* Actions */}
+              <div style={{
+                display: 'flex',
+                gap: '8px',
+                justifyContent: 'space-between',
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerifyingPayment(null)
+                    setRejectReason('')
+                  }}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    color: 'var(--sf-text)',
+                    background: 'var(--sf-surface)',
+                    border: '1px solid var(--sf-border)',
+                    borderRadius: 'var(--sf-radius-sm)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Batal
+                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleReject(verifyingPayment.id)}
+                    disabled={verifyingId === verifyingPayment.id}
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: 'var(--sf-danger)',
+                      background: 'var(--sf-danger-soft)',
+                      border: '1px solid rgba(242,73,92,0.3)',
+                      borderRadius: 'var(--sf-radius-sm)',
+                      cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'background 200ms, border-color 200ms',
+                    }}
+                  >
+                    {verifyingId === verifyingPayment.id
+                      ? 'Memproses...'
+                      : (
+                          <>
+                            <CloseCircleOutlined style={{ fontSize: 12 }} />
+                            Tolak
+                          </>
+                        )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApprove(verifyingPayment.id)}
+                    disabled={verifyingId === verifyingPayment.id}
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: 'var(--sf-success)',
+                      background: 'var(--sf-success-soft)',
+                      border: '1px solid rgba(46,204,113,0.3)',
+                      borderRadius: 'var(--sf-radius-sm)',
+                      cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'background 200ms, border-color 200ms',
+                    }}
+                  >
+                    {verifyingId === verifyingPayment.id
+                      ? 'Memproses...'
+                      : (
+                          <>
+                            <CheckCircleOutlined style={{ fontSize: 12 }} />
+                            Terima
+                          </>
+                        )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </Modal>
     )

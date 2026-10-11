@@ -17,6 +17,7 @@ class IuranBill {
   final String periode;
   final int nominal; // amount in rupiah (int, no floating point)
   final int paidAmount;
+  final int pendingAmount;
   final IuranStatus status;
 
   const IuranBill({
@@ -26,11 +27,21 @@ class IuranBill {
     required this.periode,
     required this.nominal,
     this.paidAmount = 0,
+    this.pendingAmount = 0,
     this.status = IuranStatus.belumBayar,
   });
 
-  /// Returns the remaining amount to be paid.
+  /// Returns the remaining balance for display purposes.
+  /// Calculated as nominal minus APPROVED payments only (pending does not
+  /// reduce the displayed balance — pending is awaiting verification).
   int get remainingAmount => nominal - paidAmount;
+
+  /// Returns the maximum amount that can still be paid.
+  /// Accounts for approved and pending payments to prevent overpayment.
+  int get paymentCapacity =>
+      nominal - paidAmount - pendingAmount < 0
+          ? 0
+          : nominal - paidAmount - pendingAmount;
 
   /// Returns true if this bill is in arrears (not yet paid or partially paid).
   bool get isInArrears => status != IuranStatus.lunas;

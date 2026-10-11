@@ -9,7 +9,6 @@ import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
-import { RowActionMenu } from '@/components/RowActionMenu'
 import {
   BACKEND_STATUS_MAP,
   formatRupiah,
@@ -23,8 +22,7 @@ import { DueCreate } from './DueCreate'
 import { IuranDetail } from './IuranDetail'
 import { IuranPayment } from './IuranPayment'
 import type { IuranBill, IuranStatus } from './iuranTypes'
-import { apiListBills, apiListPayments, type ApiBill, type ApiPayment, getSessionPair } from '@/app/api'
-import { useAuth } from '@/app/AuthContext'
+import { apiListBills, apiListPayments, type ApiBill, getSessionPair } from '@/app/api'
 
 type FilterType = 'semua' | 'status' | 'periode' | 'jenis'
 
@@ -50,6 +48,7 @@ const colStyles = {
   periode: { width: 90, minWidth: 90, maxWidth: 90, textAlign: 'center' as const },
   nominal: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
   paid: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
+  pending: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
   status: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'center' as const },
   action: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const },
 }
@@ -79,13 +78,6 @@ export function IuranList() {
   const [totalPages, setTotalPages] = useState(1)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
-
-  // Auth for role-based access control
-  const { user } = useAuth()
-  const canVerify = useMemo(() => {
-    if (!user) return false
-    return user.role === 'pengurus' || user.role === 'bendahara' || user.role === 'super_admin'
-  }, [user])
 
   // Map backend bill to frontend IuranBill format
   const mapBill = useCallback((b: ApiBill): IuranBill => {
@@ -284,6 +276,10 @@ export function IuranList() {
     () => uniquePeriodes.map((p) => ({ value: p, label: formatPeriodeLabel(p) })),
     [uniquePeriodes]
   )
+
+  const handleRowClick = useCallback((billId: string) => {
+    setShowDetailBillId(billId)
+  }, [])
 
   return (
     <>
@@ -521,7 +517,7 @@ export function IuranList() {
           </div>
         )}
 
-        {/* Bill Table — dengan kolom VERIFIKASI untuk pembayaran pending */}
+        {/* Bill Table */}
         {!loading && filteredBills.length > 0 && (
           <div className="table-wrapper">
             <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
@@ -534,25 +530,64 @@ export function IuranList() {
                   <th style={colStyles.periode}>PERIODE</th>
                   <th style={colStyles.nominal}>NOMINAL</th>
                   <th style={colStyles.paid}>DIBAYAR</th>
+                  <th style={colStyles.pending}>TERTUNDA</th>
                   <th style={colStyles.status}>STATUS</th>
-                  <th style={{ ...colStyles.action, width: 120, minWidth: 120 }}>VERIFIKASI</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredBills.map((bill, idx) => {
-                  const pendingForBill = (bill as IuranBill & { pendingPayments?: ApiPayment[] }).pendingPayments
+                  const hasPending = (bill.pendingAmount ?? 0) > 0
+
                   return (
-                    <IuranBillRow
+                    <tr
                       key={bill.id}
-                      bill={bill}
-                      idx={idx}
-                      canVerify={canVerify}
-                      pendingPayments={pendingForBill ?? []}
-                      onDetail={() => {
-                        setShowDetailBillId(bill.id)
+                      onClick={() => handleRowClick(bill.id)}
+                      style={{ cursor: 'pointer' }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          handleRowClick(bill.id)
+                        }
                       }}
-                      onPayment={() => setShowPaymentBillId(bill.id)}
-                    />
+                    >
+                      <td style={colStyles.no}>
+                        {idx + 1}
+                      </td>
+                      <td style={colStyles.name}>
+                        <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
+                      </td>
+                      <td style={colStyles.rt}>
+                        {bill.rt}
+                      </td>
+                      <td style={colStyles.type}>
+                        {bill.iuranType}
+                      </td>
+                      <td style={colStyles.periode}>
+                        {formatPeriodeLabel(bill.periode)}
+                      </td>
+                      <td style={colStyles.nominal}>
+                        {formatRupiah(bill.nominal)}
+                      </td>
+                      <td style={colStyles.paid}>
+                        {formatRupiah(bill.paidAmount)}
+                      </td>
+                      <td style={colStyles.pending}>
+                        {hasPending ? (
+                          <span style={{ color: 'var(--sf-warning)' }}>
+                            {formatRupiah(bill.pendingAmount)}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td style={colStyles.status}>
+                        <Badge variant={getStatusVariant(bill.status)}>
+                          {getStatusLabel(bill.status)}
+                        </Badge>
+                      </td>
+                    </tr>
                   )
                 })}
               </tbody>
@@ -574,80 +609,5 @@ export function IuranList() {
         )}
       </div>
     </>
-  )
-}
-
-interface IuranBillRowProps {
-  bill: IuranBill
-  idx: number
-  canVerify: boolean
-  pendingPayments: ApiPayment[]
-  onDetail: () => void
-  onPayment: () => void
-}
-
-function IuranBillRow({ bill, idx, canVerify, pendingPayments, onDetail, onPayment }: IuranBillRowProps) {
-  // Show pending payment indicator in status cell if available
-  const hasPending = pendingPayments.length > 0
-  const pendingAmount = hasPending
-    ? pendingPayments.reduce((sum, p) => sum + parseMoney(p.amount), 0)
-    : 0
-
-  return (
-    <tr>
-      <td style={colStyles.no}>
-        {idx + 1}
-      </td>
-      <td style={colStyles.name}>
-        <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
-      </td>
-      <td style={colStyles.rt}>
-        {bill.rt}
-      </td>
-      <td style={colStyles.type}>
-        {bill.iuranType}
-      </td>
-      <td style={colStyles.periode}>
-        {formatPeriodeLabel(bill.periode)}
-      </td>
-      <td style={colStyles.nominal}>
-        {formatRupiah(bill.nominal)}
-      </td>
-      <td style={colStyles.paid}>
-        {formatRupiah(bill.paidAmount)}
-        {hasPending && (
-          <div style={{ fontSize: '10px', color: 'var(--sf-warning)', marginTop: '2px', fontWeight: 600 }}>
-            +{formatRupiah(pendingAmount)} tertunda
-          </div>
-        )}
-      </td>
-      <td style={colStyles.status}>
-        <Badge variant={getStatusVariant(bill.status)}>
-          {getStatusLabel(bill.status)}
-        </Badge>
-        {hasPending && (
-          <div style={{ fontSize: '10px', color: 'var(--sf-warning)', marginTop: '2px', fontWeight: 600 }}>
-            ⏳ {pendingPayments.length} menunggu
-          </div>
-        )}
-      </td>
-      <td style={colStyles.action}>
-        <RowActionMenu
-          items={[
-            { label: 'Detail', onClick: onDetail },
-            { label: 'Pembayaran', onClick: onPayment },
-            ...(hasPending && canVerify
-              ? [{
-                  label: `Verifikasi (${pendingPayments.length})`,
-                  onClick: () => {
-                    // Open detail modal with pending payment info
-                    onDetail()
-                  },
-                }]
-              : []),
-          ]}
-        />
-      </td>
-    </tr>
   )
 }

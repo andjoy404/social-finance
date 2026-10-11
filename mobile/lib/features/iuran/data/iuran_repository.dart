@@ -56,6 +56,12 @@ class IuranRepository {
             0,
             (sum, p) => sum + moneyToDisplayRupiah(p.amount),
           );
+      final pendingTotal = payments.data
+          .where((p) => p.status == PaymentStatus.pending)
+          .fold<int>(
+            0,
+            (sum, p) => sum + moneyToDisplayRupiah(p.amount),
+          );
 
       uiBills.add(IuranBill(
         id: bill.id,
@@ -64,6 +70,7 @@ class IuranRepository {
         periode: formatPeriod(bill.period),
         nominal: moneyToDisplayRupiah(bill.amount),
         paidAmount: approvedTotal,
+        pendingAmount: pendingTotal,
         status: _mapBillStatus(bill.status),
       ));
     }
@@ -106,12 +113,18 @@ class IuranRepository {
     return allBills;
   }
 
-  /// Fetch a single bill detail with computed paidAmount.
+  /// Fetch a single bill detail with computed paidAmount and pendingAmount.
   Future<IuranBill?> fetchBillDetail(String billId) async {
     final bill = await apiClient.getBill(billId);
     final payments = await apiClient.listPayments(billId: bill.id);
     final approvedTotal = payments.data
         .where((p) => p.status == PaymentStatus.approved)
+        .fold<int>(
+          0,
+          (sum, p) => sum + moneyToDisplayRupiah(p.amount),
+        );
+    final pendingTotal = payments.data
+        .where((p) => p.status == PaymentStatus.pending)
         .fold<int>(
           0,
           (sum, p) => sum + moneyToDisplayRupiah(p.amount),
@@ -124,6 +137,7 @@ class IuranRepository {
       periode: formatPeriod(bill.period),
       nominal: moneyToDisplayRupiah(bill.amount),
       paidAmount: approvedTotal,
+      pendingAmount: pendingTotal,
       status: _mapBillStatus(bill.status),
     );
   }

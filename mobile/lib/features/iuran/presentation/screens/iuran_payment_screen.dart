@@ -105,8 +105,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
     if (amount != null) {
       final state = ref.read(billDetailProvider(widget.billId));
       if (state is AsyncData<IuranBill?> && state.value != null) {
-        final remaining = state.value!.remainingAmount;
-        if (amount > remaining && remaining > 0) {
+        final capacity = state.value!.paymentCapacity;
+        if (amount > capacity && capacity > 0) {
           if (mounted) {
             setState(() => _error = 'Nominal melebihi sisa tagihan.');
           }
@@ -403,8 +403,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   );
                   if (state is AsyncData<IuranBill?> &&
                       state.value != null &&
-                      amount > state.value!.remainingAmount &&
-                      state.value!.remainingAmount > 0) {
+                      amount > state.value!.paymentCapacity &&
+                      state.value!.paymentCapacity > 0) {
                     return 'Nominal melebihi sisa tagihan.';
                   }
                   return null;
