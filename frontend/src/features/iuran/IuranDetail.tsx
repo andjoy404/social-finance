@@ -462,6 +462,11 @@ function PaymentHistoryItem({
           }}>
             {formatDate(payment.paidDate)}
             {payment.method ? ' · ' + (payment.method === 'TRANSFER' ? 'Transfer' : 'Cash') : ''}
+            {payment.paymentNo && (
+              <span style={{ fontFamily: 'var(--sf-font-mono)', marginLeft: '4px' }}>
+                {payment.paymentNo}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -748,7 +753,7 @@ function PaymentDetailModal({
         {/* Details grid */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: '1fr 1fr 1fr',
           gap: '16px',
           marginBottom: '20px',
         }}>
@@ -790,6 +795,26 @@ function PaymentDetailModal({
               {payment.method === 'TRANSFER' ? 'Transfer' : payment.method === 'CASH' ? 'Cash' : '—'}
             </div>
           </div>
+          <div>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '4px',
+            }}>
+              No. Pembayaran
+            </div>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--sf-text)',
+              fontFamily: 'var(--sf-font-mono)',
+            }}>
+              {payment.paymentNo || '—'}
+            </div>
+          </div>
         </div>
 
         {/* Catatan Warga */}
@@ -818,8 +843,8 @@ function PaymentDetailModal({
           </div>
         )}
 
-        {/* Catatan Pengurus / Alasan Penolakan */}
-        {payment.rejectionReason && (
+        {/* Catatan Pengurus (approval/rejection notes) */}
+        {payment.officerNotes && (
           <div style={{ marginBottom: '16px' }}>
             <div style={{
               fontSize: '11px',
@@ -833,11 +858,37 @@ function PaymentDetailModal({
             </div>
             <div style={{
               fontSize: '13px',
-              color: isRejected ? 'var(--sf-danger)' : 'var(--sf-text)',
+              color: 'var(--sf-text)',
               padding: '10px 12px',
-              background: isRejected ? 'var(--sf-danger-soft)' : 'var(--sf-surface)',
+              background: 'var(--sf-surface)',
               borderRadius: 'var(--sf-radius-sm)',
-              border: `1px solid ${isRejected ? 'rgba(242,73,92,0.3)' : 'var(--sf-border)'}`,
+              border: '1px solid var(--sf-border)',
+            }}>
+              {payment.officerNotes}
+            </div>
+          </div>
+        )}
+
+        {/* Catatan Penolakan (legacy) */}
+        {payment.rejectionReason && !payment.officerNotes && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '6px',
+            }}>
+              Alasan Penolakan
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: 'var(--sf-danger)',
+              padding: '10px 12px',
+              background: 'var(--sf-danger-soft)',
+              borderRadius: 'var(--sf-radius-sm)',
+              border: '1px solid rgba(242,73,92,0.3)',
             }}>
               {payment.rejectionReason}
             </div>
@@ -862,7 +913,7 @@ function PaymentDetailModal({
               color: 'var(--sf-success)',
               fontWeight: 600,
             }}>
-              {payment.verifiedBy}
+              {payment.verifiedByName ?? payment.verifiedBy}
             </div>
           </div>
         )}
@@ -954,7 +1005,8 @@ export function IuranDetail({
   const [bill, setBill] = useState<IuranBill | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
-  const [rejectReason, setRejectReason] = useState('')
+  const [officerNotes, setOfficerNotes] = useState('')
+  const [rejectError, setRejectError] = useState('')
   const [verifyingPayment, setVerifyingPayment] = useState<IuranPaymentRecord | null>(null)
   const [previewingProofId, setPreviewingProofId] = useState<string | null>(null)
   const [selectedPaymentDetail, setSelectedPaymentDetail] = useState<IuranPaymentRecord | null>(null)
@@ -1030,6 +1082,9 @@ export function IuranDetail({
           catatan: p.notes ?? undefined,
           rejectionReason: p.rejection_reason ?? undefined,
           verifiedBy: p.verified_by ?? undefined,
+          verifiedByName: p.verified_by_name ?? undefined,
+          officerNotes: p.officer_notes ?? undefined,
+          paymentNo: p.payment_no ?? undefined,
           status: p.status as PaymentStatusDisplay,
           method: p.method,
           proofPath: p.proof_path,
@@ -1077,7 +1132,7 @@ export function IuranDetail({
       const token = getSessionPair()?.accessToken
       if (!token) { setError('Sesi telah berakhir. Silakan login ulang.') }
       else {
-        await apiVerifyPayment(token, paymentId, 'approve')
+        await apiVerifyPayment(token, paymentId, 'approve', { officerNotes: officerNotes.trim() || undefined })
         // Refresh bill data
         window.location.reload()
       }
@@ -1089,23 +1144,30 @@ export function IuranDetail({
   }
 
   async function handleReject(paymentId: string) {
-    const reason = rejectReason.trim()
-    if (!reason) { setError('Alasan penolakan harus diisi.') }
-    else {
-      setVerifyingId(paymentId)
-      try {
-        const token = getSessionPair()?.accessToken
-        if (!token) { setError('Sesi telah berakhir. Silakan login ulang.') }
-        else {
-          await apiVerifyPayment(token, paymentId, 'reject', { rejectionReason: reason })
-          window.location.reload()
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Gagal menolak pembayaran')
-      } finally {
-        setVerifyingId(null)
-        setRejectReason('')
+    // Validate officerNotes (the only input for reject — user fills this as reason)
+    const notes = officerNotes.trim()
+    if (!notes) {
+      setRejectError('Catatan wajib diisi untuk menolak pembayaran.')
+      return
+    }
+    setRejectError('')
+    setVerifyingId(paymentId)
+    try {
+      const token = getSessionPair()?.accessToken
+      if (!token) { setError('Sesi telah berakhir. Silakan login ulang.') }
+      else {
+        // Send the notes as both rejectionReason and officerNotes
+        await apiVerifyPayment(token, paymentId, 'reject', {
+          rejectionReason: notes,
+          officerNotes: notes,
+        })
+        window.location.reload()
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menolak pembayaran')
+    } finally {
+      setVerifyingId(null)
+      setOfficerNotes('')
     }
   }
 
@@ -1395,7 +1457,7 @@ export function IuranDetail({
                 )}
               </div>
 
-              {/* Reject reason */}
+              {/* Officer notes */}
               <div style={{ marginBottom: '16px' }}>
                 <label style={{
                   fontSize: '12px',
@@ -1403,12 +1465,12 @@ export function IuranDetail({
                   marginBottom: '6px',
                   display: 'block',
                 }}>
-                  Alasan penolakan (opsional)
+                  Catatan petugas (wajib untuk Tolak, opsional untuk Terima)
                 </label>
                 <textarea
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="Masukkan alasan penolakan..."
+                  value={officerNotes}
+                  onChange={(e) => setOfficerNotes(e.target.value)}
+                  placeholder="Catatan verifikasi atau persetujuan..."
                   rows={2}
                   style={{
                     width: '100%',
@@ -1432,6 +1494,21 @@ export function IuranDetail({
                 />
               </div>
 
+              {/* Reject error — rendered inline in popup to avoid being covered by z-index:10 overlay */}
+              {rejectError && (
+                <div style={{
+                  marginBottom: '16px',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  color: 'var(--sf-danger)',
+                  background: 'var(--sf-danger-soft)',
+                  border: '1px solid rgba(242,73,92,0.2)',
+                  borderRadius: 'var(--sf-radius-sm)',
+                }}>
+                  {rejectError}
+                </div>
+              )}
+
               {/* Actions */}
               <div style={{
                 display: 'flex',
@@ -1442,7 +1519,6 @@ export function IuranDetail({
                   type="button"
                   onClick={() => {
                     setVerifyingPayment(null)
-                    setRejectReason('')
                   }}
                   style={{
                     padding: '8px 16px',
@@ -1520,20 +1596,20 @@ export function IuranDetail({
           </div>
         )}
 
-        {/* Proof Preview Modal in Modal Mode */}
-        {previewingProofId && (
-          <ProofPreviewModal
-            paymentId={previewingProofId}
-            onClose={() => setPreviewingProofId(null)}
-          />
-        )}
-
         {/* Payment Detail Modal in Modal Mode */}
         {selectedPaymentDetail && (
           <PaymentDetailModal
             payment={selectedPaymentDetail}
             onClose={() => setSelectedPaymentDetail(null)}
             onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
+          />
+        )}
+
+        {/* Proof Preview Modal — rendered after PaymentDetailModal so it stacks on top */}
+        {previewingProofId && (
+          <ProofPreviewModal
+            paymentId={previewingProofId}
+            onClose={() => setPreviewingProofId(null)}
           />
         )}
       </Modal>
@@ -1643,20 +1719,20 @@ export function IuranDetail({
             onPaymentDetail={(payment) => setSelectedPaymentDetail(payment)}
           />
 
-          {/* Proof Preview Modal in Page Mode */}
-          {previewingProofId && (
-            <ProofPreviewModal
-              paymentId={previewingProofId}
-              onClose={() => setPreviewingProofId(null)}
-            />
-          )}
-
           {/* Payment Detail Modal in Page Mode */}
           {selectedPaymentDetail && (
             <PaymentDetailModal
               payment={selectedPaymentDetail}
               onClose={() => setSelectedPaymentDetail(null)}
               onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
+            />
+          )}
+
+          {/* Proof Preview Modal in Page Mode — rendered after PaymentDetailModal so it stacks on top */}
+          {previewingProofId && (
+            <ProofPreviewModal
+              paymentId={previewingProofId}
+              onClose={() => setPreviewingProofId(null)}
             />
           )}
         </>

@@ -57,19 +57,29 @@ class IuranApiClient {
     required String name,
     required String amount,
     required DuePeriodType periodType,
+    PaymentRule? paymentRule,
+    bool? isVoluntary,
   }) async {
+    final Map<String, dynamic> body = {
+      'name': name,
+      'amount': amount,
+      'period_type': _serializePeriodType(periodType),
+    };
+    if (paymentRule != null) {
+      body['payment_rule'] = _serializePaymentRule(paymentRule);
+    }
+    if (isVoluntary != null) {
+      body['is_voluntary'] = isVoluntary;
+    }
+
     final response = await dio.post(
       '/api/v1/dues',
-      data: {
-        'name': name,
-        'amount': amount,
-        'period_type': _serializePeriodType(periodType),
-      },
+      data: body,
     );
 
-    final body = response.data;
-    if (body is! Map) throw const FormatException('Unexpected response');
-    return BackendDue.fromJson(body.cast<String, dynamic>());
+    final bodyMap = response.data;
+    if (bodyMap is! Map) throw const FormatException('Unexpected response');
+    return BackendDue.fromJson(bodyMap.cast<String, dynamic>());
   }
 
   /// PATCH /api/v1/dues/{id}
@@ -78,12 +88,16 @@ class IuranApiClient {
     String? name,
     String? amount,
     DuePeriodType? periodType,
+    PaymentRule? paymentRule,
+    bool? isVoluntary,
     bool? isActive,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (amount != null) body['amount'] = amount;
     if (periodType != null) body['period_type'] = _serializePeriodType(periodType);
+    if (paymentRule != null) body['payment_rule'] = _serializePaymentRule(paymentRule);
+    if (isVoluntary != null) body['is_voluntary'] = isVoluntary;
     if (isActive != null) body['is_active'] = isActive;
 
     final response = await dio.patch(
@@ -241,6 +255,7 @@ class IuranApiClient {
     String paymentId, {
     required String action,
     String? rejectionReason,
+    String? officerNotes,
   }) async {
     final response = await dio.post(
       '/api/v1/payments/$paymentId/verify',
@@ -248,6 +263,8 @@ class IuranApiClient {
         'action': action,
         if (rejectionReason != null && rejectionReason.isNotEmpty)
           'rejection_reason': rejectionReason,
+        if (officerNotes != null && officerNotes.isNotEmpty)
+          'officer_notes': officerNotes,
       },
     );
 
@@ -386,6 +403,15 @@ class IuranApiClient {
         return 'yearly';
       case DuePeriodType.oneTime:
         return 'one_time';
+    }
+  }
+
+  String _serializePaymentRule(PaymentRule rule) {
+    switch (rule) {
+      case PaymentRule.full:
+        return 'full';
+      case PaymentRule.partial:
+        return 'partial';
     }
   }
 

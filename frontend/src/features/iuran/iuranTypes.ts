@@ -34,6 +34,9 @@ export interface IuranPaymentRecord {
   catatan?: string
   rejectionReason?: string
   verifiedBy?: string
+  verifiedByName?: string
+  officerNotes?: string
+  paymentNo?: string
   status?: PaymentStatusDisplay
   method?: 'CASH' | 'TRANSFER'
   proofPath?: string | null
@@ -72,6 +75,14 @@ export const DUE_PERIOD_TYPE_OPTIONS: { value: DuePeriodType; label: string }[] 
   { value: 'monthly', label: 'Bulanan' },
   { value: 'yearly', label: 'Tahunan' },
   { value: 'one_time', label: 'Sekali Waktu' },
+]
+
+// Backend PaymentRule → frontend display
+export type PaymentRuleType = 'full' | 'partial'
+
+export const PAYMENT_RULE_OPTIONS: { value: PaymentRuleType; label: string }[] = [
+  { value: 'full', label: 'Lunas Penuh' },
+  { value: 'partial', label: 'Sebagian' },
 ]
 
 export function getIuranTypeLabel(value: string): string {

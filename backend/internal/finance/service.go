@@ -139,6 +139,21 @@ func (s *Service) CreateDue(ctx context.Context, tx *sql.Tx, rtID, userID string
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
+	// Relax amount validation: when is_voluntary, amount = 0 is allowed
+	if !in.IsVoluntary {
+		cents, canon, err := ParseMoney(in.Amount)
+		if err != nil || cents <= 0 {
+			return nil, ErrInvalidAmount
+		}
+		in.Amount = canon
+	} else {
+		// Voluntary: amount must be >= 0
+		cents, canon, err := ParseMoney(in.Amount)
+		if err != nil || cents < 0 {
+			return nil, ErrInvalidAmount
+		}
+		in.Amount = canon
+	}
 	due, err := DueCreate(ctx, tx, rtID, in)
 	if err != nil {
 		return nil, err
@@ -158,7 +173,7 @@ func (s *Service) CreateDue(ctx context.Context, tx *sql.Tx, rtID, userID string
 func (s *Service) UpdateDue(ctx context.Context, tx *sql.Tx, id, rtID, userID string, in UpdateDueInput) (*Due, error) {
 	if in.Amount != nil {
 		cents, canon, err := ParseMoney(*in.Amount)
-		if err != nil || cents <= 0 {
+		if err != nil || cents < 0 {
 			return nil, ErrInvalidAmount
 		}
 		in.Amount = &canon
@@ -314,6 +329,12 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		verifiedAt = &now
 	}
 
+	// Fetch the due to determine payment_rule for amount validation
+	due, err := DueGetByID(ctx, tx, bill.DueID, rtID)
+	if err != nil {
+		return nil, fmt.Errorf("due not found: %w", err)
+	}
+
 	// Compute approved total BEFORE branching — both APPROVED and PENDING need it
 	approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
 	if err != nil {
@@ -333,10 +354,20 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	if status == PaymentStatusApproved {
 		// Parse money strings
 		paymentCents, _, err := ParseMoney(in.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("parse payment amount: %w", err)
+		}
 
 		remaining := billCents - approvedCents
 		if paymentCents > remaining {
 			return nil, fmt.Errorf("payment amount %s exceeds remaining balance %s", in.Amount, FormatMoney(remaining))
+		}
+
+		// Enforce payment_rule: "full" requires payment == remaining
+		if due.PaymentRule == PaymentRuleFull {
+			if paymentCents != remaining {
+				return nil, fmt.Errorf("this iuran requires full payment: amount must be %s", FormatMoney(remaining))
+			}
 		}
 
 		// Insert payment NOW (validation passed)
@@ -410,6 +441,13 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		return nil, fmt.Errorf("payment amount %s exceeds remaining balance %s", in.Amount, FormatMoney(remaining))
 	}
 
+	// Enforce payment_rule: "full" requires payment == remaining
+	if due.PaymentRule == PaymentRuleFull {
+		if paymentCents != remaining {
+			return nil, fmt.Errorf("this iuran requires full payment: amount must be %s", FormatMoney(remaining))
+		}
+	}
+
 	payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
 	if err != nil {
 		return nil, err
@@ -454,14 +492,16 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	}
 
 	if action == "reject" {
-		reason := in.RejectionReason
-		var reasonPtr *string
-		if reason != nil && strings.TrimSpace(*reason) != "" {
-			trimmed := strings.TrimSpace(*reason)
-			reasonPtr = &trimmed
+		reason := ""
+		if in.RejectionReason != nil && strings.TrimSpace(*in.RejectionReason) != "" {
+			reason = strings.TrimSpace(*in.RejectionReason)
+		}
+		officerNotes := ""
+		if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
+			officerNotes = strings.TrimSpace(*in.OfficerNotes)
 		}
 
-		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, PaymentStatusRejected, verifierID, reasonPtr)
+		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusRejected, reason, officerNotes)
 		if err != nil {
 			return nil, err
 		}
@@ -512,7 +552,14 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		} else {
 			rejectionReason = "Payment amount exceeds remaining balance"
 		}
-		verifiedPayment, _ := PaymentVerify(ctx, tx, paymentID, rtID, PaymentStatusRejected, verifierID, &rejectionReason)
+		officerNotes := ""
+		if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
+			officerNotes = strings.TrimSpace(*in.OfficerNotes)
+		}
+		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusRejected, rejectionReason, officerNotes)
+		if err != nil {
+			return nil, fmt.Errorf("reject overpayment: %w", err)
+		}
 
 		auditPayload, _ := json.Marshal(verifiedPayment)
 		_ = AuditLogInsert(ctx, tx, AuditLog{
@@ -533,7 +580,11 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	// Overpayment check passed — approve the payment
 	// IMPORTANT: approved payments must NEVER have a rejection reason.
 	// Pass nil for rejection reason to ensure data integrity.
-	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, PaymentStatusApproved, verifierID, nil)
+	officerNotes := ""
+	if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
+		officerNotes = strings.TrimSpace(*in.OfficerNotes)
+	}
+	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes)
 	if err != nil {
 		return nil, err
 	}

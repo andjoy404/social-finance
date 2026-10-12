@@ -43,6 +43,8 @@ enum CategoryType { income, expense }
 
 enum DuePeriodType { monthly, yearly, oneTime }
 
+enum PaymentRule { full, partial }
+
 enum BillStatus { unpaid, partial, paid, cancelled }
 
 enum PaymentMethod { cash, transfer }
@@ -110,6 +112,8 @@ class BackendDue {
   final String name;
   final String amount; // raw NUMERIC string
   final DuePeriodType periodType;
+  final PaymentRule paymentRule;
+  final bool isVoluntary;
   final bool isActive;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -120,6 +124,8 @@ class BackendDue {
     required this.name,
     required this.amount,
     required this.periodType,
+    required this.paymentRule,
+    required this.isVoluntary,
     required this.isActive,
     this.createdAt,
     this.updatedAt,
@@ -132,6 +138,8 @@ class BackendDue {
       name: json['name'] as String? ?? '',
       amount: json['amount'] as String? ?? '',
       periodType: _parseDuePeriodType(json['period_type'] as String?),
+      paymentRule: _parsePaymentRule(json['payment_rule'] as String?),
+      isVoluntary: json['is_voluntary'] as bool? ?? false,
       isActive: json['is_active'] as bool? ?? true,
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
@@ -149,6 +157,17 @@ DuePeriodType _parseDuePeriodType(String? value) {
       return DuePeriodType.oneTime;
     default:
       return DuePeriodType.monthly;
+  }
+}
+
+PaymentRule _parsePaymentRule(String? value) {
+  switch (value) {
+    case 'full':
+      return PaymentRule.full;
+    case 'partial':
+      return PaymentRule.partial;
+    default:
+      return PaymentRule.full;
   }
 }
 
@@ -241,9 +260,12 @@ class BackendPayment {
   final String? proofUploadedBy;
   final DateTime? paidAt;
   final String? verifiedBy;
+  final String? verifiedByName;
   final DateTime? verifiedAt;
   final String? rejectionReason;
+  final String? officerNotes;
   final String? notes;
+  final String? paymentNo;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -263,9 +285,12 @@ class BackendPayment {
     this.proofUploadedBy,
     this.paidAt,
     this.verifiedBy,
+    this.verifiedByName,
     this.verifiedAt,
     this.rejectionReason,
+    this.officerNotes,
     this.notes,
+    this.paymentNo,
     this.createdAt,
     this.updatedAt,
   });
@@ -287,9 +312,12 @@ class BackendPayment {
       proofUploadedBy: json['proof_uploaded_by'] as String?,
       paidAt: _parseDateTime(json['paid_at'] as String?),
       verifiedBy: json['verified_by'] as String?,
+      verifiedByName: json['verified_by_name'] as String?,
       verifiedAt: _parseDateTime(json['verified_at'] as String?),
       rejectionReason: json['rejection_reason'] as String?,
+      officerNotes: json['officer_notes'] as String?,
       notes: json['notes'] as String?,
+      paymentNo: json['payment_no'] as String?,
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
     );

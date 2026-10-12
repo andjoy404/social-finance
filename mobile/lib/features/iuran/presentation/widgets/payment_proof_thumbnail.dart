@@ -149,12 +149,15 @@ class PaymentProofThumbnail extends ConsumerWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          title ?? 'Bukti Pembayaran',
-                          style: Theme.of(dialogCtx)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                        Flexible(
+                          child: Text(
+                            title ?? 'Bukti Pembayaran',
+                            style: Theme.of(dialogCtx)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         IconButton(
                           icon: const Icon(Icons.close),

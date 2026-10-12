@@ -63,29 +63,43 @@ const (
 	DuePeriodOneTime DuePeriodType = "one_time"
 )
 
+// PaymentRule represents how payment amounts are handled for a due type.
+type PaymentRule string
+
+const (
+	PaymentRuleFull    PaymentRule = "full"     // warga must pay the full remaining balance
+	PaymentRulePartial PaymentRule = "partial"   // warga may pay any positive amount ≤ remaining balance
+)
+
 // Due represents RT dues configuration.
 type Due struct {
-	ID         string        `json:"id"`
-	RTID       string        `json:"rt_id"`
-	Name       string        `json:"name"`
-	Amount     string        `json:"amount"` // String decimal NUMERIC(15,2)
-	PeriodType DuePeriodType `json:"period_type"`
-	IsActive   bool          `json:"is_active"`
-	CreatedAt  time.Time     `json:"created_at"`
-	UpdatedAt  time.Time     `json:"updated_at"`
+	ID           string        `json:"id"`
+	RTID         string        `json:"rt_id"`
+	Name         string        `json:"name"`
+	Amount       string        `json:"amount"` // String decimal NUMERIC(15,2)
+	PeriodType   DuePeriodType `json:"period_type"`
+	PaymentRule  PaymentRule   `json:"payment_rule"`
+	IsVoluntary  bool          `json:"is_voluntary"`
+	IsActive     bool          `json:"is_active"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
 }
 
 type CreateDueInput struct {
-	Name       string        `json:"name"`
-	Amount     string        `json:"amount"`
-	PeriodType DuePeriodType `json:"period_type"`
+	Name        string        `json:"name"`
+	Amount      string        `json:"amount"`
+	PeriodType  DuePeriodType `json:"period_type"`
+	PaymentRule PaymentRule   `json:"payment_rule"` // defaults to "full"
+	IsVoluntary bool          `json:"is_voluntary"`
 }
 
 type UpdateDueInput struct {
-	Name       *string        `json:"name"`
-	Amount     *string        `json:"amount"`
-	PeriodType *DuePeriodType `json:"period_type"`
-	IsActive   *bool          `json:"is_active"`
+	Name        *string        `json:"name"`
+	Amount      *string        `json:"amount"`
+	PeriodType  *DuePeriodType `json:"period_type"`
+	PaymentRule *PaymentRule   `json:"payment_rule,omitempty"`
+	IsVoluntary *bool          `json:"is_voluntary,omitempty"`
+	IsActive    *bool          `json:"is_active"`
 }
 
 // BillStatus represents current status of a bill.
@@ -170,8 +184,11 @@ type Payment struct {
 	PaidAt            time.Time     `json:"paid_at"`
 	VerifiedBy        *string       `json:"verified_by,omitempty"`
 	VerifiedAt        *time.Time    `json:"verified_at,omitempty"`
+	VerifiedByName    *string       `json:"verified_by_name,omitempty"`
 	RejectionReason   *string       `json:"rejection_reason,omitempty"`
 	Notes             *string       `json:"notes,omitempty"`
+	OfficerNotes      *string       `json:"officer_notes,omitempty"`
+	PaymentNo         *string       `json:"payment_no,omitempty"`
 	CreatedAt         time.Time     `json:"created_at"`
 	UpdatedAt         time.Time     `json:"updated_at"`
 	ProofOriginalName *string       `json:"proof_original_name,omitempty"`
@@ -196,6 +213,7 @@ type CreatePaymentInput struct {
 type VerifyPaymentInput struct {
 	Action          string  `json:"action"` // "approve" or "reject"
 	RejectionReason *string `json:"rejection_reason,omitempty"`
+	OfficerNotes    *string `json:"officer_notes,omitempty"`
 }
 
 // VerifyPaymentResult carries the outcome of VerifyPayment.

@@ -10,7 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { PlusOutlined } from '@ant-design/icons'
-import { DUE_PERIOD_TYPE_OPTIONS, type DuePeriodType } from './iuranTypes'
+import { DUE_PERIOD_TYPE_OPTIONS, type DuePeriodType, PAYMENT_RULE_OPTIONS, type PaymentRuleType } from './iuranTypes'
 
 /* ── Form shape ─────────────────────────────────────────────────────── */
 
@@ -18,12 +18,16 @@ interface DueFormState {
   name: string
   amount: string
   period_type: DuePeriodType
+  payment_rule: PaymentRuleType
+  is_voluntary: boolean
 }
 
 const emptyForm: DueFormState = {
   name: '',
   amount: '',
   period_type: 'monthly',
+  payment_rule: 'full',
+  is_voluntary: false,
 }
 
 /* ── Authorization gate ─────────────────────────────────────────────── */
@@ -92,9 +96,9 @@ function DueFormFields({
           type="number"
           value={form.amount}
           onChange={(e) => onChange('amount', e.target.value)}
-          placeholder="Contoh: 50000"
+          placeholder={form.is_voluntary ? 'Contoh: 0 untuk sumbangan sukarela' : 'Contoh: 50000'}
           required
-          min="1"
+          min={form.is_voluntary ? '0' : '1'}
           inputMode="numeric"
           disabled={disabled}
         />
@@ -118,6 +122,41 @@ function DueFormFields({
             </option>
           ))}
         </select>
+      </div>
+
+      {/* Rule Pembayaran */}
+      <div className="sf-form-field">
+        <label className="sf-form-label" htmlFor="df-payment-rule">
+          Aturan Pembayaran <span style={{ color: 'var(--sf-danger)' }}>*</span>
+        </label>
+        <select
+          id="df-payment-rule"
+          className="sf-form-select"
+          value={form.payment_rule}
+          onChange={(e) => onChange('payment_rule', e.target.value)}
+          disabled={disabled}
+        >
+          {PAYMENT_RULE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Sumbangan Sukarela */}
+      <div className="sf-form-field">
+        <label className="sf-form-label" htmlFor="df-voluntary">
+          <input
+            id="df-voluntary"
+            type="checkbox"
+            checked={form.is_voluntary}
+            onChange={(e) => onChange('is_voluntary', String(e.target.checked))}
+            disabled={disabled}
+            style={{ marginRight: 8, width: 'auto', accentColor: 'var(--sf-accent)' }}
+          />
+          Sumbangan Sukarela (Nominal Rp0 diperbolehkan)
+        </label>
       </div>
     </>
   )
@@ -147,7 +186,14 @@ export function DueCreate({
   const [validationErrors, setValidationErrors] = useState<string[]>([])
 
   const handleChange = (field: string, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
+    setForm((prev) => {
+      const next = { ...prev, [field]: value }
+      // Convert string back to boolean for is_voluntary
+      if (field === 'is_voluntary') {
+        next.is_voluntary = value === 'true'
+      }
+      return next
+    })
     if (validationErrors.length > 0) setValidationErrors([])
     if (error) setError(null)
   }
@@ -157,8 +203,10 @@ export function DueCreate({
     if (!form.name.trim()) errs.push('Nama iuran harus diisi.')
     if (!form.amount || !/^\d+(\.\d+)?$/.test(form.amount)) {
       errs.push('Nominal harus angka yang valid.')
-    } else if (Number(form.amount) <= 0) {
+    } else if (!form.is_voluntary && Number(form.amount) <= 0) {
       errs.push('Nominal harus lebih besar dari 0.')
+    } else if (form.is_voluntary && Number(form.amount) < 0) {
+      errs.push('Nominal harus nol atau lebih.')
     }
     if (!form.period_type) errs.push('Frekuensi harus dipilih.')
     if (errs.length > 0) { setValidationErrors(errs); return false }
@@ -183,6 +231,8 @@ export function DueCreate({
         name: form.name.trim(),
         amount: form.amount,
         period_type: form.period_type,
+        payment_rule: form.payment_rule,
+        is_voluntary: form.is_voluntary,
       }
 
       await apiCreateDue(pair.accessToken, body)

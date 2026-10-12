@@ -49,56 +49,56 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
         ),
       ),
       floatingActionButton: billState.when(
-        data: (bill) =>
-            (bill != null && bill.status != IuranStatus.lunas)
-                ? _buildAndroidFAB(context, accentSoft)
-                : null,
+        data: (bill) => (bill != null && bill.status != IuranStatus.lunas)
+            ? _buildAndroidFAB(context, accentSoft)
+            : null,
         loading: () => null,
         error: (_, __) => null,
       ),
       body: switch (billState) {
         AsyncLoading() => const Center(child: CircularProgressIndicator()),
         AsyncError(:final error) => Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.error_outline,
-                      size: 64, color: AppColors.warning),
-                  const SizedBox(height: AppSpacing.md),
-                  Text('Gagal Memuat Data',
-                      style: theme.textTheme.titleLarge),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(error.toString(),
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant)),
-                  const SizedBox(height: AppSpacing.lg),
-                  ElevatedButton.icon(
-                    onPressed: () =>
-                        ref.refresh(billDetailProvider(_billId)),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Coba Lagi'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        AsyncData(:final value) => value == null
-            ? Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: EmptyState(
-                    icon: Icons.receipt_long_outlined,
-                    title: 'Tagihan Tidak Ditemukan',
-                    description: 'Detail tagihan tidak tersedia.',
-                    actionText: 'Kembali',
-                    onAction: () => context.pop(),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, size: 64, color: AppColors.warning),
+                const SizedBox(height: AppSpacing.md),
+                Text('Gagal Memuat Data', style: theme.textTheme.titleLarge),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  error.toString(),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-              )
-            : _buildBillDetail(context, theme, isDark, value, accentSoft),
+                const SizedBox(height: AppSpacing.lg),
+                ElevatedButton.icon(
+                  onPressed: () => ref.refresh(billDetailProvider(_billId)),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Coba Lagi'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        AsyncData(:final value) =>
+          value == null
+              ? Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: EmptyState(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'Tagihan Tidak Ditemukan',
+                      description: 'Detail tagihan tidak tersedia.',
+                      actionText: 'Kembali',
+                      onAction: () => context.pop(),
+                    ),
+                  ),
+                )
+              : _buildBillDetail(context, theme, isDark, value, accentSoft),
         _ => const SizedBox.shrink(),
       },
     );
@@ -111,9 +111,27 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     IuranBill bill,
     Color accentSoft,
   ) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSpacing.base),
-      child: Column(
+    /// Re-fetch bill detail and payments via Riverpod.
+    ///
+    /// `FutureProvider.family` does not expose an awaitable Future through
+    /// `ref.refresh()`, so we use `ref.read(provider.future)` which returns
+    /// the underlying `Future` that the provider wraps. This guarantees a
+    /// single API call and proper await semantics for RefreshIndicator.
+    Future<void> _onRefresh() async {
+      // Wait for both providers to complete their re-fetch.
+      // If either fails the Future throws, but RefreshIndicator catches
+      // the exception and keeps the spinner visible until the UI updates.
+      await Future.wait([
+        ref.read(billDetailProvider(_billId).future),
+        ref.read(billPaymentsProvider(_billId).future),
+      ]);
+    }
+
+    return RefreshIndicator(
+      onRefresh: _onRefresh,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.base),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Status Header ──
@@ -125,11 +143,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(
-                      Icons.receipt_long,
-                      size: 24,
-                      color: AppColors.accent,
-                    ),
+                    Icon(Icons.receipt_long, size: 24, color: AppColors.accent),
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: Text(
@@ -142,9 +156,10 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     AppBadge(
                       label: getStatusLabel(bill.status),
                       textColor: getStatusColor(bill.status, context),
-                      backgroundColor:
-                          getStatusColor(bill.status, context)
-                              .withValues(alpha: isDark ? 0.18 : 0.10),
+                      backgroundColor: getStatusColor(
+                        bill.status,
+                        context,
+                      ).withValues(alpha: isDark ? 0.18 : 0.10),
                     ),
                   ],
                 ),
@@ -186,7 +201,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   context,
                   icon: Icons.calendar_today_outlined,
                   label: 'Periode',
-                  value: bill.periode,
+                  trailing: _buildPeriodeBadge(bill.periode),
                 ),
               ],
             ),
@@ -242,7 +257,6 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           ),
 
           // ── Verification section (if user can verify) ────────────────
-          // ── Verification section for bendahara/pengurus ─────────────
           Builder(
             builder: (context) {
               final canVerify = ref.read(canVerifyPaymentProvider);
@@ -251,15 +265,16 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
               // Subscribe to pending payments (bill-level filter for this bill)
               final pendingPayments = ref.watch(pendingPaymentsProvider(true));
 
-              if (pendingPayments.value == null || pendingPayments.value!.isEmpty) {
+              if (pendingPayments.value == null ||
+                  pendingPayments.value!.isEmpty) {
                 return const SizedBox.shrink();
               }
 
               // Filter to only pending payments for this bill
               final allPending = pendingPayments.value!;
-              final billPending = allPending.where(
-                (p) => p.billId == bill.id,
-              ).toList();
+              final billPending = allPending
+                  .where((p) => p.billId == bill.id)
+                  .toList();
 
               if (billPending.isEmpty) {
                 return const SizedBox.shrink();
@@ -277,7 +292,9 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           const SizedBox(height: AppSpacing.lg),
           SectionHeader(title: 'Riwayat Pembayaran'),
           const SizedBox(height: AppSpacing.sm),
-          ref.watch(billPaymentsProvider(bill.id)).when(
+          ref
+              .watch(billPaymentsProvider(bill.id))
+              .when(
                 data: (payments) {
                   if (payments.isEmpty) {
                     return AppCard(
@@ -286,7 +303,9 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                         child: Text(
                           'Belum ada riwayat pembayaran.',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                            color: isDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
                           ),
                         ),
                       ),
@@ -300,48 +319,88 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                           onTap: () => _showPaymentDetailDialog(context, p),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.xs,
+                            ),
                             child: Row(
                               children: [
                                 Icon(
                                   p.status == PaymentStatus.approved
                                       ? Icons.check_circle_outline
                                       : p.status == PaymentStatus.rejected
-                                          ? Icons.cancel_outlined
-                                          : Icons.access_time_outlined,
+                                      ? Icons.cancel_outlined
+                                      : Icons.access_time_outlined,
                                   size: 20,
                                   color: p.status == PaymentStatus.approved
                                       ? AppColors.success
                                       : p.status == PaymentStatus.rejected
-                                          ? AppColors.danger
-                                          : AppColors.warning,
+                                      ? AppColors.danger
+                                      : AppColors.warning,
                                 ),
                                 const SizedBox(width: AppSpacing.sm),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}',
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}',
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 1,
+                                            ),
+                                          ),
+                                          if (p.paymentNo != null &&
+                                              p.paymentNo!.isNotEmpty) ...[
+                                            const SizedBox(
+                                              width: AppSpacing.xs,
+                                            ),
+                                            Flexible(
+                                              child: Text(
+                                                p.paymentNo!,
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: isDark
+                                                          ? AppColors
+                                                                .darkTextMuted
+                                                          : AppColors
+                                                                .lightTextMuted,
+                                                    ),
+                                                overflow: TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                       Text(
                                         '${_formatDate(p.paidAt)} · ${p.status.name.toUpperCase()}',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                                        ),
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: isDark
+                                                  ? AppColors.darkTextMuted
+                                                  : AppColors.lightTextMuted,
+                                            ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                if (p.proofPath != null && p.proofPath!.isNotEmpty) ...[
+                                if (p.proofPath != null &&
+                                    p.proofPath!.isNotEmpty) ...[
                                   const SizedBox(width: AppSpacing.sm),
                                   PaymentProofThumbnail(
                                     paymentId: p.id,
                                     size: 40,
-                                    label: 'Bukti Pembayaran (${_formatDate(p.paidAt)})',
+                                    label:
+                                        'Bukti Pembayaran (${_formatDate(p.paidAt)})',
                                   ),
                                 ],
                               ],
@@ -362,9 +421,10 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
               ),
 
           const SizedBox(height: AppSpacing.xxl),
-        ],
-      ),
-    );
+        ], // Column children
+      ), // Column
+    ), // SingleChildScrollView
+  ); // RefreshIndicator + _buildBillDetail
   }
 
   // ── UI Helpers ──
@@ -431,12 +491,14 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                             ],
                           ),
                         ),
-                        if (payment.proofPath != null && payment.proofPath!.isNotEmpty) ...[
+                        if (payment.proofPath != null &&
+                            payment.proofPath!.isNotEmpty) ...[
                           const SizedBox(width: AppSpacing.sm),
                           PaymentProofThumbnail(
                             paymentId: payment.id,
                             size: 44,
-                            label: 'Bukti Pembayaran Rp ${_formatAmount(payment.amount)}',
+                            label:
+                                'Bukti Pembayaran Rp ${_formatAmount(payment.amount)}',
                           ),
                         ],
                       ],
@@ -504,73 +566,34 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     );
   }
 
-  Future<void> _approvePayment(
-    BuildContext context,
-    String paymentId,
-  ) async {
-    final snackBar = SnackBar(
-      content: const Text('Memverifikasi pembayaran...'),
-      duration: const Duration(seconds: 1),
-    );
-    ScaffoldMessenger.of(context).showSnackBar(snackBar);
-
-    try {
-      final repository = ref.read(iuranRepositoryProvider);
-      await repository.verifyPayment(
-        paymentId,
-        action: 'approve',
-      );
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pembayaran berhasil diverifikasi'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-        // Invalidate bill and payments providers to refresh
-        ref.invalidate(billDetailProvider(widget.billId));
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal memverifikasi: $e'),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-      }
-    }
-  }
-
-  void _showRejectDialog(BuildContext context, String paymentId) {
-    final controller = TextEditingController();
+  Future<void> _approvePayment(BuildContext context, String paymentId) async {
+    final notesController = TextEditingController();
     showDialog(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Konfirmasi Penolakan'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Apakah Anda yakin ingin menolak pembayaran ini?',
-                style: TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextField(
-                controller: controller,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Alasan Penolakan',
-                  border: OutlineInputBorder(),
-                  alignLabelWithHint: true,
+          title: const Text('Konfirmasi Persetujuan'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Apakah Anda yakin ingin menyetujui pembayaran ini?',
+                  style: TextStyle(fontSize: 14),
                 ),
-              ),
-            ],
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  controller: notesController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Catatan Pengurus (opsional)',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -579,7 +602,105 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                final reason = controller.text.trim();
+                final notes = notesController.text.trim();
+                Navigator.pop(dialogContext);
+
+                final snackBar = SnackBar(
+                  content: const Text('Memverifikasi pembayaran...'),
+                  duration: const Duration(seconds: 1),
+                );
+                ScaffoldMessenger.of(context).showSnackBar(snackBar);
+
+                try {
+                  final repository = ref.read(iuranRepositoryProvider);
+                  await repository.verifyPayment(
+                    paymentId,
+                    action: 'approve',
+                    officerNotes: notes.isNotEmpty ? notes : null,
+                  );
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Pembayaran berhasil diverifikasi'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                    ref.invalidate(billDetailProvider(widget.billId));
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Gagal memverifikasi: $e'),
+                        backgroundColor: AppColors.warning,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Setujui'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showRejectDialog(BuildContext context, String paymentId) {
+    final reasonController = TextEditingController();
+    final notesController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Konfirmasi Penolakan'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Apakah Anda yakin ingin menolak pembayaran ini?',
+                  style: TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  controller: notesController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Catatan Pengurus (opsional)',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  controller: reasonController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Alasan Penolakan',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final reason = reasonController.text.trim();
                 if (reason.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -590,7 +711,14 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   return;
                 }
 
+                final notes = notesController.text.trim();
                 Navigator.pop(dialogContext);
+
+                final snackBar = SnackBar(
+                  content: const Text('Memverifikasi pembayaran...'),
+                  duration: const Duration(seconds: 1),
+                );
+                ScaffoldMessenger.of(context).showSnackBar(snackBar);
 
                 try {
                   final repository = ref.read(iuranRepositoryProvider);
@@ -598,20 +726,22 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     paymentId,
                     action: 'reject',
                     rejectionReason: reason,
+                    officerNotes: notes.isNotEmpty ? notes : null,
                   );
 
                   if (context.mounted) {
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Pembayaran ditolak'),
                         backgroundColor: AppColors.success,
                       ),
                     );
-                    // Invalidate bill and payments providers to refresh
                     ref.invalidate(billDetailProvider(widget.billId));
                   }
                 } catch (e) {
                   if (context.mounted) {
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Gagal menolak: $e'),
@@ -684,7 +814,8 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     BuildContext context, {
     required IconData icon,
     required String label,
-    required String value,
+    String? value,
+    Widget? trailing,
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -705,14 +836,60 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           ),
         ),
         Expanded(
-          child: Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-            ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (value != null) ...[
+                Expanded(
+                  child: Text(
+                    value,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  trailing,
+                ],
+              ] else if (trailing != null) ...[
+                trailing,
+              ],
+            ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPeriodeBadge(String periode) {
+    final theme = Theme.of(context);
+    final parts = periode.split('-');
+    if (parts.length != 2) return Text(periode);
+
+    final year = parts[0];
+    final monthIndex = int.tryParse(parts[1]) ?? 0;
+    final monthName = _monthName(monthIndex);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        '$monthName $year',
+        style: theme.textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+          color: AppColors.accent,
+        ),
+      ),
     );
   }
 
@@ -723,6 +900,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     required String value,
     Color? valueColor,
     bool highlight = false,
+    Widget? trailing,
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -743,14 +921,26 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           ),
         ),
         Expanded(
-          child: Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
-              color: valueColor ??
-                  (isDark ? AppColors.darkText : AppColors.lightText),
-              fontSize: highlight ? 16 : null,
-            ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text(
+                value,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: highlight ? FontWeight.w700 : FontWeight.w500,
+                  color:
+                      valueColor ??
+                      (isDark ? AppColors.darkText : AppColors.lightText),
+                  fontSize: highlight ? 16 : null,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: AppSpacing.sm),
+                trailing,
+              ],
+            ],
           ),
         ),
       ],
@@ -792,9 +982,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
             backgroundColor: isDark
                 ? AppColors.darkSurface
                 : AppColors.lightSurfaceSubtle,
-            valueColor: const AlwaysStoppedAnimation<Color>(
-              AppColors.accent,
-            ),
+            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accent),
           ),
         ),
       ],
@@ -834,7 +1022,8 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   value,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600,
-                    color: valueColor ??
+                    color:
+                        valueColor ??
                         (isDark ? AppColors.darkText : AppColors.lightText),
                   ),
                 ),
@@ -891,10 +1080,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
 
   // ── Payment detail dialog ──
 
-  void _showPaymentDetailDialog(
-    BuildContext context,
-    BackendPayment payment,
-  ) {
+  void _showPaymentDetailDialog(BuildContext context, BackendPayment payment) {
     showDialog(
       context: context,
       builder: (dialogCtx) {
@@ -917,8 +1103,9 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   children: [
                     Text(
                       'Detail Pembayaran',
-                      style: dialogTheme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
+                      style: dialogTheme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
@@ -935,23 +1122,38 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                       isApproved
                           ? Icons.check_circle_outline
                           : isRejected
-                              ? Icons.cancel_outlined
-                              : Icons.access_time_outlined,
+                          ? Icons.cancel_outlined
+                          : Icons.access_time_outlined,
                       color: isApproved
                           ? AppColors.success
                           : isRejected
-                              ? AppColors.danger
-                              : AppColors.warning,
+                          ? AppColors.danger
+                          : AppColors.warning,
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Text(
                       'Rp ${_formatAmount(payment.amount)}',
-                      style: dialogTheme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: dialogTheme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.md),
+
+                // Payment reference number
+                if (payment.paymentNo != null &&
+                    payment.paymentNo!.isNotEmpty) ...[
+                  _buildDialogDetailRow(
+                    dialogCtx,
+                    dialogIsDark,
+                    icon: Icons.receipt_outlined,
+                    label: 'No. Pembayaran',
+                    value: payment.paymentNo!,
+                    valueColor: AppColors.accent,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
 
                 // Details list
                 _buildDialogDetailRow(
@@ -979,8 +1181,8 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   valueColor: isApproved
                       ? AppColors.success
                       : isRejected
-                          ? AppColors.danger
-                          : AppColors.warning,
+                      ? AppColors.danger
+                      : AppColors.warning,
                 ),
 
                 // Catatan (warga note)
@@ -1012,9 +1214,73 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   ),
                 ],
 
-                // Verified by
-                if (payment.verifiedBy != null &&
-                    payment.verifiedBy!.isNotEmpty) ...[
+                // Officer notes (bendahara/pengurus notes — separate from rejection)
+                if (payment.officerNotes != null &&
+                    payment.officerNotes!.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  const Divider(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: isApproved
+                          ? (dialogIsDark
+                                ? AppColors.darkSuccessSoft
+                                : AppColors.success.withValues(alpha: 0.08))
+                          : (dialogIsDark
+                                ? AppColors.darkWarningSoft
+                                : AppColors.warning.withValues(alpha: 0.08)),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      border: Border.all(
+                        color: isApproved
+                            ? AppColors.success.withValues(alpha: 0.2)
+                            : AppColors.warning.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              isApproved
+                                  ? Icons.check_circle_outline
+                                  : Icons.info_outline,
+                              size: 18,
+                              color: isApproved
+                                  ? AppColors.success
+                                  : AppColors.warning,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Text(
+                              'Catatan Pengurus',
+                              style: dialogTheme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: isApproved
+                                    ? AppColors.success
+                                    : AppColors.warning,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          payment.officerNotes!,
+                          style: dialogTheme.textTheme.bodyMedium?.copyWith(
+                            color: dialogIsDark
+                                ? AppColors.darkText
+                                : AppColors.lightText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                // Verified by (name if available, fall back to UUID)
+                if ((payment.verifiedByName != null &&
+                        payment.verifiedByName!.isNotEmpty) ||
+                    (payment.verifiedBy != null &&
+                        payment.verifiedBy!.isNotEmpty)) ...[
                   const SizedBox(height: AppSpacing.sm),
                   const Divider(height: 20),
                   _buildDialogDetailRow(
@@ -1022,17 +1288,32 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     dialogIsDark,
                     icon: Icons.verified_user_outlined,
                     label: 'Diverifikasi Oleh',
-                    value: payment.verifiedBy!,
+                    value: payment.verifiedByName ?? payment.verifiedBy!,
                     valueColor: AppColors.success,
                   ),
+                  if (payment.verifiedAt != null) ...[
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 36),
+                      child: Text(
+                        _formatDate(payment.verifiedAt),
+                        style: dialogTheme.textTheme.bodySmall?.copyWith(
+                          color: dialogIsDark
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
 
                 // Bukti transfer
                 const Divider(height: 20),
                 Text(
                   'Bukti Transfer',
-                  style: dialogTheme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: dialogTheme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 if (payment.proofPath != null &&
@@ -1040,31 +1321,34 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   PaymentProofThumbnail(
                     paymentId: payment.id,
                     size: 120,
-                    label: 'Bukti Pembayaran Rp ${_formatAmount(payment.amount)} pada ${_formatDate(payment.paidAt)}',
+                    label:
+                        'Bukti Pembayaran Rp ${_formatAmount(payment.amount)} pada ${_formatDate(payment.paidAt)}',
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   Center(
                     child: Text(
                       'Klik gambar untuk memperbesar',
                       style: dialogTheme.textTheme.bodySmall?.copyWith(
-                            color: AppColors.lightTextMuted,
-                          ),
+                        color: AppColors.lightTextMuted,
+                      ),
                     ),
                   ),
                 ] else ...[
                   Container(
                     padding: const EdgeInsets.all(AppSpacing.md),
                     decoration: BoxDecoration(
-                      color: (dialogIsDark
-                              ? AppColors.darkSurfaceSubtle
-                              : AppColors.lightSurfaceSubtle)
-                          .withValues(alpha: 0.5),
+                      color:
+                          (dialogIsDark
+                                  ? AppColors.darkSurfaceSubtle
+                                  : AppColors.lightSurfaceSubtle)
+                              .withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(AppRadius.base),
                       border: Border.all(
-                        color: (dialogIsDark
-                                ? AppColors.darkBorder
-                                : AppColors.lightBorder)
-                            .withValues(alpha: 0.5),
+                        color:
+                            (dialogIsDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder)
+                                .withValues(alpha: 0.5),
                       ),
                     ),
                     child: Center(
@@ -1082,10 +1366,10 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                           Text(
                             'Tidak ada bukti transfer',
                             style: dialogTheme.textTheme.bodySmall?.copyWith(
-                                  color: dialogIsDark
-                                      ? AppColors.darkTextMuted
-                                      : AppColors.lightTextMuted,
-                                ),
+                              color: dialogIsDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                            ),
                           ),
                         ],
                       ),

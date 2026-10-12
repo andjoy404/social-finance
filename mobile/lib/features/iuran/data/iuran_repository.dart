@@ -31,11 +31,15 @@ class IuranRepository {
     required String name,
     required int amount,
     required DuePeriodType periodType,
+    PaymentRule? paymentRule,
+    bool? isVoluntary,
   }) async {
     return apiClient.createDue(
       name: name,
       amount: '${amount}.00',
       periodType: periodType,
+      paymentRule: paymentRule,
+      isVoluntary: isVoluntary,
     );
   }
 
@@ -215,11 +219,13 @@ class IuranRepository {
     String paymentId, {
     required String action,
     String? rejectionReason,
+    String? officerNotes,
   }) async {
     return apiClient.verifyPayment(
       paymentId,
       action: action,
       rejectionReason: rejectionReason,
+      officerNotes: officerNotes,
     );
   }
 

@@ -686,6 +686,8 @@ export interface ApiCreateDueBody {
   name: string
   amount: string
   period_type: 'monthly' | 'yearly' | 'one_time'
+  payment_rule?: 'full' | 'partial'
+  is_voluntary?: boolean
 }
 
 export async function apiListDues(
@@ -759,6 +761,9 @@ export interface ApiPayment {
   verified_at?: string | null
   rejection_reason?: string | null
   notes?: string | null
+  officer_notes?: string | null
+  verified_by_name?: string | null
+  payment_no?: string | null
   created_at: string
   updated_at: string
 }
@@ -955,7 +960,7 @@ export async function apiVerifyPayment(
   token: string,
   paymentId: string,
   action: 'approve' | 'reject',
-  options?: { rejectionReason?: string },
+  options?: { rejectionReason?: string; officerNotes?: string },
 ): Promise<ApiPayment> {
   const res = await authenticatedApiRequest(BASE + '/payments/' + paymentId + '/verify', {
     method: 'POST',
@@ -966,6 +971,7 @@ export async function apiVerifyPayment(
     body: JSON.stringify({
       action,
       ...(options?.rejectionReason ? { rejection_reason: options.rejectionReason } : {}),
+      ...(options?.officerNotes ? { officer_notes: options.officerNotes } : {}),
     }),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
