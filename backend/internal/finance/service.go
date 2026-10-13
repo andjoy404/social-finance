@@ -234,6 +234,22 @@ func (s *Service) GenerateBills(ctx context.Context, tx *sql.Tx, rtID, userID st
 		return nil, fmt.Errorf("invalid due_date format (YYYY-MM-DD): %w", err)
 	}
 
+	// If the due is voluntary with zero amount (sumbangan sukarela Rp0),
+	// do NOT generate mandatory bills or debts for residents.
+	// Voluntary contributions are paid voluntarily and should not produce zero-amount bills.
+	cents, _, err := ParseMoney(due.Amount)
+	if err == nil && due.IsVoluntary && cents == 0 {
+		_ = AuditLogInsert(ctx, tx, AuditLog{
+			RTID:       rtID,
+			UserID:     &userID,
+			Action:     "generate_bills",
+			EntityType: "bill",
+			EntityID:   in.Period,
+			NewValues:  json.RawMessage(fmt.Sprintf(`{"due_id":"%s","period":"%s","count":0,"note":"voluntary_zero_amount"}`, in.DueID, in.Period)),
+		})
+		return []*Bill{}, nil
+	}
+
 	occupancyIDs, err := GetActiveCurrentOccupancyIDs(ctx, tx, rtID)
 	if err != nil {
 		return nil, err

@@ -127,9 +127,9 @@ func DueCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateDueInput) 
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO dues (rt_id, name, amount, period_type, payment_rule, is_voluntary, is_active)
 		 VALUES ($1, $2, $3, $4, $5, $6, true)
-		 RETURNING id, rt_id, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at`,
+		 RETURNING id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $1) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at`,
 		rtID, in.Name, in.Amount, in.PeriodType, in.PaymentRule, in.IsVoluntary,
-	).Scan(&d.ID, &d.RTID, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create dues: %w", err)
 	}
@@ -139,10 +139,10 @@ func DueCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateDueInput) 
 func DueGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Due, error) {
 	var d Due
 	err := tx.QueryRowContext(ctx,
-		`SELECT id, rt_id, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at
+		`SELECT id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $2) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at
 		 FROM dues WHERE id = $1 AND rt_id = $2 LIMIT 1`,
 		id, rtID,
-	).Scan(&d.ID, &d.RTID, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -153,15 +153,15 @@ func DueGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Due, error) 
 }
 
 func DueList(ctx context.Context, tx *sql.Tx, rtID string, isActive *bool) ([]*Due, error) {
-	query := `SELECT id, rt_id, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at
-	          FROM dues WHERE rt_id = $1`
+	query := `SELECT d.id, d.rt_id, rts.rt as rt_code, d.name, d.amount::text, d.period_type, d.payment_rule, d.is_voluntary, d.is_active, d.created_at, d.updated_at
+	          FROM dues d JOIN rts ON rts.id = d.rt_id WHERE d.rt_id = $1`
 	var args []interface{}
 	args = append(args, rtID)
 	if isActive != nil {
-		query += " AND is_active = $2"
+		query += " AND d.is_active = $2"
 		args = append(args, *isActive)
 	}
-	query += " ORDER BY name ASC"
+	query += " ORDER BY d.name ASC"
 
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -172,7 +172,7 @@ func DueList(ctx context.Context, tx *sql.Tx, rtID string, isActive *bool) ([]*D
 	var list []*Due
 	for rows.Next() {
 		var d Due
-		if err := rows.Scan(&d.ID, &d.RTID, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan due: %w", err)
 		}
 		list = append(list, &d)
@@ -1115,14 +1115,14 @@ func CategoryListAll(ctx context.Context, tx *sql.Tx, isActive *bool) ([]*Financ
 // --- Dues ---
 
 func DueListAll(ctx context.Context, tx *sql.Tx, isActive *bool) ([]*Due, error) {
-	query := `SELECT id, rt_id, name, amount::text, period_type, is_active, created_at, updated_at
-	          FROM dues`
+	query := `SELECT d.id, d.rt_id, rts.rt as rt_code, d.name, d.amount::text, d.period_type, d.payment_rule, d.is_voluntary, d.is_active, d.created_at, d.updated_at
+	          FROM dues d JOIN rts ON rts.id = d.rt_id`
 	var args []interface{}
 	if isActive != nil {
-		query += ` WHERE is_active = $1`
+		query += ` WHERE d.is_active = $1`
 		args = append(args, *isActive)
 	}
-	query += ` ORDER BY rt_id, name ASC`
+	query += ` ORDER BY d.rt_id, d.name ASC`
 
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1133,7 +1133,7 @@ func DueListAll(ctx context.Context, tx *sql.Tx, isActive *bool) ([]*Due, error)
 	var list []*Due
 	for rows.Next() {
 		var d Due
-		if err := rows.Scan(&d.ID, &d.RTID, &d.Name, &d.Amount, &d.PeriodType, &d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan due: %w", err)
 		}
 		list = append(list, &d)

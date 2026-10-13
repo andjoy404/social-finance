@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -649,6 +650,7 @@ func (h *Handler) GenerateBills(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(); err != nil {
+		slog.Error("GenerateBills commit failed", "error", err, "rt_id", ac.RTID, "due_id", in.DueID, "period", in.Period)
 		httpx.WriteInternalServerError(targetW, "commit error")
 		return
 	}

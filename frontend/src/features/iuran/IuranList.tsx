@@ -19,10 +19,11 @@ import {
   parseMoney,
 } from './iuranTypes'
 import { DueCreate } from './DueCreate'
+import { DueDetailModal } from './DueDetailModal'
 import { IuranDetail } from './IuranDetail'
 import { IuranPayment } from './IuranPayment'
 import type { IuranBill, IuranStatus } from './iuranTypes'
-import { apiListBills, apiListPayments, type ApiBill, getSessionPair } from '@/app/api'
+import { apiListBills, apiListPayments, apiListDues, type ApiBill, type ApiDue, getSessionPair } from '@/app/api'
 
 type FilterType = 'semua' | 'status' | 'periode' | 'jenis'
 
@@ -31,6 +32,7 @@ const STATUS_OPTIONS: { value: IuranStatus; label: string }[] = [
   { value: 'sebagian', label: 'Sebagian' },
   { value: 'lunas', label: 'Lunas' },
   { value: 'dibatalkan', label: 'Dibatalkan' },
+  { value: 'sukarela', label: 'Sukarela' },
 ]
 
 const statusFilterOptions: { value: FilterType; label: string }[] = [
@@ -66,6 +68,9 @@ export function IuranList() {
 
   // Payment modal state
   const [showPaymentBillId, setShowPaymentBillId] = useState<string | null>(null)
+
+  // Due Detail modal state (voluntary Rp0)
+  const [showDueDetailDue, setShowDueDetailDue] = useState<ApiDue | null>(null)
 
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [search, setSearch] = useState('')
@@ -132,10 +137,47 @@ export function IuranList() {
         params.period = periodeValue
       }
 
-      const response = await apiListBills(token, params)
+      const [billsResponse, duesResponse] = await Promise.all([
+        apiListBills(token, params),
+        apiListDues(token, { is_active: true, page_size: 100 }).catch(() => null),
+      ])
 
-      const data = response?.data ?? []
+      const data = billsResponse?.data ?? []
       let bills = data.map(mapBill)
+
+      // Include active voluntary Rp0 dues (sumbangan sukarela) as informational items in the list
+      // Only include if no specific bill-only status filter is applied, or if 'sukarela' filter is selected
+      if (duesResponse && (!statusValue || statusValue === 'sukarela')) {
+        const duesList: ApiDue[] = Array.isArray(duesResponse)
+          ? duesResponse
+          : Array.isArray(duesResponse.data)
+            ? duesResponse.data
+            : []
+        const voluntaryDues = duesList.filter(
+          (d: ApiDue) => d.is_active && d.is_voluntary && parseMoney(d.amount) === 0
+        )
+        const voluntaryItems: IuranBill[] = voluntaryDues.map((d: ApiDue) => ({
+          id: `voluntary-due-${d.id}`,
+          dueId: d.id,
+          householdId: '',
+          householdName: 'Semua Warga (Sukarela)',
+          rt: d.rt_code ? `RT ${d.rt_code}` : 'RT —',
+          iuranType: d.name,
+          periode: '—',
+          nominal: 0,
+          paidAmount: 0,
+          pendingAmount: 0,
+          status: 'sukarela' as IuranStatus,
+          isVoluntary: true,
+          dueData: d,
+          payments: [],
+        }))
+
+        // Filter out if periode filter is set (voluntary Rp0 dues don't belong to a single mandatory billing period)
+        if (!periodeValue) {
+          bills = [...bills, ...voluntaryItems]
+        }
+      }
 
       // Load payments for all visible bills to calculate paidAmount
       // Only load for first page to avoid excessive API calls
@@ -143,7 +185,8 @@ export function IuranList() {
         try {
           // Load payments for each bill to calculate paidAmount AND pending
           if (token) {
-            const paymentsPromises = bills.map(async (b: IuranBill) => {
+            const actualBills = bills.filter((b: IuranBill) => !b.isVoluntary)
+            const paymentsPromises = actualBills.map(async (b: IuranBill) => {
               const res = await apiListPayments(token, { bill_id: b.id }).catch(() => null)
               return { billId: b.id, data: res }
             })
@@ -179,8 +222,13 @@ export function IuranList() {
       if (search.trim()) {
         const q = search.trim().toLowerCase()
         bills = bills.filter(
-          (b) => b.householdName.toLowerCase().includes(q) || b.rt.toLowerCase().includes(q)
+          (b) => b.householdName.toLowerCase().includes(q) || b.rt.toLowerCase().includes(q) || b.iuranType.toLowerCase().includes(q)
         )
+      }
+
+      // Client-side status filter for sukarela
+      if (statusValue === 'sukarela') {
+        bills = bills.filter((b) => b.status === 'sukarela')
       }
 
       // Client-side jenis filter (backend doesn't support it)
@@ -190,7 +238,7 @@ export function IuranList() {
 
       const totalPages = Math.max(1, Math.ceil(bills.length / size))
 
-      setBackendBills(response?.data ?? [])
+      setBackendBills(billsResponse?.data ?? [])
       setFilteredBills(bills)
       setTotal(bills.length)
       setTotalPages(totalPages)
@@ -277,7 +325,12 @@ export function IuranList() {
     [uniquePeriodes]
   )
 
-  const handleRowClick = useCallback((billId: string) => {
+  const handleRowClick = useCallback((billId: string, dueData?: ApiDue) => {
+    // Voluntary Rp0 items open DueDetailModal with the ApiDue data
+    if (billId.startsWith('voluntary-due-') && dueData) {
+      setShowDueDetailDue(dueData)
+      return
+    }
     setShowDetailBillId(billId)
   }, [])
 
@@ -496,6 +549,15 @@ export function IuranList() {
           />
         )}
 
+        {/* Due Detail Modal (voluntary Rp0) */}
+        {showDueDetailDue && (
+          <DueDetailModal
+            due={showDueDetailDue}
+            open={!!showDueDetailDue}
+            onClose={() => setShowDueDetailDue(null)}
+          />
+        )}
+
         {/* Error */}
         {error && (
           <div className="sf-error-banner" role="alert">
@@ -538,17 +600,20 @@ export function IuranList() {
                 {filteredBills.map((bill, idx) => {
                   const hasPending = (bill.pendingAmount ?? 0) > 0
 
+                  // Extract dueData from bill for voluntary items
+                  const dueData = (bill as IuranBill & { dueData?: ApiDue }).dueData
+
                   return (
                     <tr
                       key={bill.id}
-                      onClick={() => handleRowClick(bill.id)}
-                      style={{ cursor: 'pointer' }}
+                      onClick={() => handleRowClick(bill.id, dueData)}
+                      style={{ cursor: bill.isVoluntary ? 'pointer' : 'pointer' }}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
-                          handleRowClick(bill.id)
+                          handleRowClick(bill.id, dueData)
                         }
                       }}
                     >
@@ -565,7 +630,7 @@ export function IuranList() {
                         {bill.iuranType}
                       </td>
                       <td style={colStyles.periode}>
-                        {formatPeriodeLabel(bill.periode)}
+                        {bill.periode.includes('-') ? formatPeriodeLabel(bill.periode) : bill.periode}
                       </td>
                       <td style={colStyles.nominal}>
                         {formatRupiah(bill.nominal)}

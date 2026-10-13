@@ -459,6 +459,7 @@ class IuranReportScreen extends ConsumerWidget {
       IuranStatus.belumBayar => AppColors.warning,
       IuranStatus.sebagian => AppColors.warning,
       IuranStatus.lunas => AppColors.success,
+      IuranStatus.sukarela => AppColors.info,
     };
   }
 

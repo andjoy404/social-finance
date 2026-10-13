@@ -1,4 +1,4 @@
-export type IuranStatus = 'belum_bayar' | 'sebagian' | 'lunas' | 'dibatalkan'
+export type IuranStatus = 'belum_bayar' | 'sebagian' | 'lunas' | 'dibatalkan' | 'sukarela'
 
 // Backend BillStatus → Frontend IuranStatus mapping
 export const BACKEND_STATUS_MAP: Record<string, IuranStatus> = {
@@ -9,7 +9,7 @@ export const BACKEND_STATUS_MAP: Record<string, IuranStatus> = {
 }
 
 // Backend status to display variant
-export function getStatusVariant(status: IuranStatus): 'red' | 'amber' | 'green' | 'default' {
+export function getStatusVariant(status: IuranStatus): 'red' | 'amber' | 'green' | 'default' | 'blue' {
   switch (status) {
     case 'belum_bayar':
       return 'red'
@@ -19,6 +19,8 @@ export function getStatusVariant(status: IuranStatus): 'red' | 'amber' | 'green'
       return 'green'
     case 'dibatalkan':
       return 'default'
+    case 'sukarela':
+      return 'blue'
     default:
       return 'default'
   }
@@ -58,6 +60,8 @@ export interface IuranBill {
   status: IuranStatus
   paidDate?: string
   payments?: IuranPaymentRecord[]
+  isVoluntary?: boolean
+  dueId?: string
 }
 
 export type IuranType = 'Keamanan' | 'Kebersihan' | 'Pembangunan'
@@ -99,6 +103,8 @@ export function getStatusLabel(status: IuranStatus): string {
       return 'Lunas'
     case 'dibatalkan':
       return 'Dibatalkan'
+    case 'sukarela':
+      return 'Sukarela'
     default:
       return status
   }

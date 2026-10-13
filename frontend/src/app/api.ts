@@ -674,9 +674,12 @@ export async function updateSpecialResident(
 export interface ApiDue {
   id: string
   rt_id: string
+  rt_code?: string
   name: string
   amount: string
   period_type: 'monthly' | 'yearly' | 'one_time'
+  payment_rule?: 'full' | 'partial'
+  is_voluntary?: boolean
   is_active: boolean
   created_at: string
   updated_at: string

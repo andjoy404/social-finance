@@ -384,6 +384,10 @@ func TestDuesCRUDAndValidation(t *testing.T) {
 		if d.Amount != "50000.00" {
 			t.Errorf("amount = %s, want 50000.00", d.Amount)
 		}
+		// Regression: Dues API must return rt_code from rts table join
+		if d.RTCode == "" {
+			t.Errorf("rt_code = %q, want non-empty (rt_code verified from rts table)", d.RTCode)
+		}
 	})
 
 	t.Run("Reject negative or zero amount", func(t *testing.T) {

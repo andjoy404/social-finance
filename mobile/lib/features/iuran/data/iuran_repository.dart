@@ -132,6 +132,40 @@ class IuranRepository {
       currentPage++;
     } while (currentPage <= totalPages);
 
+    // Include active voluntary dues with Rp0 as informational items
+    try {
+      final dues = await apiClient.listDues(isActive: true);
+      for (final d in dues) {
+        if (d.isVoluntary && moneyToDisplayRupiah(d.amount) == 0) {
+          final periodTypeLabel = switch (d.periodType) {
+            DuePeriodType.monthly => 'Bulanan',
+            DuePeriodType.yearly => 'Tahunan',
+            DuePeriodType.oneTime => 'Sekali Waktu',
+          };
+          allBills.add(
+            IuranBill(
+              id: 'voluntary-due-${d.id}',
+              householdName: 'Semua Warga (Sukarela)',
+              iuranType: d.name,
+              periode: '—',
+              nominal: 0,
+              paidAmount: 0,
+              pendingAmount: 0,
+              rejectedAmount: 0,
+              status: IuranStatus.sukarela,
+              isVoluntary: true,
+              dueName: d.name,
+              duePeriodType: periodTypeLabel,
+              dueRtCode: d.rtId,
+              dueIsVoluntary: d.isVoluntary,
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      // Do not fail bill loading if dues query fails
+    }
+
     // Apply search filter client-side if needed
     if (search != null && search.trim().isNotEmpty) {
       final query = search.trim().toLowerCase();

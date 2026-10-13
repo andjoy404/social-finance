@@ -1574,6 +1574,24 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
   border-color: var(--sf-text-muted);
 }
 
+.sf-btn-secondary {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--sf-text);
+  background: var(--sf-bg-secondary);
+  border: 1px solid var(--sf-border);
+  border-radius: var(--sf-radius-sm);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.sf-btn-secondary:hover {
+  background: var(--sf-bg-tertiary);
+  border-color: var(--sf-text-muted);
+}
+
 /* ── Dashboard metric card hover — subtle ────────────────────────────── */
 
 .sf-metric-card {

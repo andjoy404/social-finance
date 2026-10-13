@@ -67,22 +67,23 @@ const (
 type PaymentRule string
 
 const (
-	PaymentRuleFull    PaymentRule = "full"     // warga must pay the full remaining balance
-	PaymentRulePartial PaymentRule = "partial"   // warga may pay any positive amount ≤ remaining balance
+	PaymentRuleFull    PaymentRule = "full"    // warga must pay the full remaining balance
+	PaymentRulePartial PaymentRule = "partial" // warga may pay any positive amount ≤ remaining balance
 )
 
 // Due represents RT dues configuration.
 type Due struct {
-	ID           string        `json:"id"`
-	RTID         string        `json:"rt_id"`
-	Name         string        `json:"name"`
-	Amount       string        `json:"amount"` // String decimal NUMERIC(15,2)
-	PeriodType   DuePeriodType `json:"period_type"`
-	PaymentRule  PaymentRule   `json:"payment_rule"`
-	IsVoluntary  bool          `json:"is_voluntary"`
-	IsActive     bool          `json:"is_active"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	ID          string        `json:"id"`
+	RTID        string        `json:"rt_id"`
+	RTCode      string        `json:"rt_code"`
+	Name        string        `json:"name"`
+	Amount      string        `json:"amount"` // String decimal NUMERIC(15,2)
+	PeriodType  DuePeriodType `json:"period_type"`
+	PaymentRule PaymentRule   `json:"payment_rule"`
+	IsVoluntary bool          `json:"is_voluntary"`
+	IsActive    bool          `json:"is_active"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 }
 
 type CreateDueInput struct {
@@ -173,13 +174,13 @@ const (
 
 // Payment represents a recorded payment for a bill.
 type Payment struct {
-	ID              string        `json:"id"`
-	RTID            string        `json:"rt_id"`
-	BillID          string        `json:"bill_id"`
-	Amount          string        `json:"amount"` // String decimal
-	Method          PaymentMethod `json:"method"`
-	Origin          PaymentOrigin `json:"origin"`
-	Status          PaymentStatus `json:"status"`
+	ID                string        `json:"id"`
+	RTID              string        `json:"rt_id"`
+	BillID            string        `json:"bill_id"`
+	Amount            string        `json:"amount"` // String decimal
+	Method            PaymentMethod `json:"method"`
+	Origin            PaymentOrigin `json:"origin"`
+	Status            PaymentStatus `json:"status"`
 	ProofPath         *string       `json:"proof_path,omitempty"`
 	PaidAt            time.Time     `json:"paid_at"`
 	VerifiedBy        *string       `json:"verified_by,omitempty"`
@@ -237,15 +238,15 @@ type PaymentAllocation struct {
 
 // CreateMultiPeriodPaymentInput describes a multi-period payment spanning multiple bills.
 type CreateMultiPeriodPaymentInput struct {
-	BillIDs  []string      `json:"bill_ids"`
-	Allocations []AllocationEntry `json:"allocations"`
-	Method            PaymentMethod `json:"method"`
-	ProofPath         *string       `json:"proof_path,omitempty"`
-	Notes             *string       `json:"notes,omitempty"`
-	ProofOriginalName *string       `json:"proof_original_name,omitempty"`
-	ProofMimeType     *string       `json:"proof_mime_type,omitempty"`
-	ProofSizeBytes    *int64        `json:"proof_size_bytes,omitempty"`
-	ProofUploadedBy   *string       `json:"proof_uploaded_by,omitempty"`
+	BillIDs           []string          `json:"bill_ids"`
+	Allocations       []AllocationEntry `json:"allocations"`
+	Method            PaymentMethod     `json:"method"`
+	ProofPath         *string           `json:"proof_path,omitempty"`
+	Notes             *string           `json:"notes,omitempty"`
+	ProofOriginalName *string           `json:"proof_original_name,omitempty"`
+	ProofMimeType     *string           `json:"proof_mime_type,omitempty"`
+	ProofSizeBytes    *int64            `json:"proof_size_bytes,omitempty"`
+	ProofUploadedBy   *string           `json:"proof_uploaded_by,omitempty"`
 }
 
 // AllocationEntry maps a bill to its allocated amount within a multi-period payment.
@@ -256,8 +257,8 @@ type AllocationEntry struct {
 
 // MultiPeriodPaymentResult carries the outcome of CreateMultiPeriodPayment.
 type MultiPeriodPaymentResult struct {
-	Payment         *Payment            `json:"payment"`
-	Allocations     []*PaymentAllocation `json:"allocations"`
+	Payment     *Payment             `json:"payment"`
+	Allocations []*PaymentAllocation `json:"allocations"`
 }
 
 // TransactionType represents ledger entry type.
@@ -346,7 +347,13 @@ func (d *CreateDueInput) Validate() error {
 		return errors.New("dues name is required")
 	}
 	cents, canon, err := ParseMoney(d.Amount)
-	if err != nil || cents <= 0 {
+	if err != nil {
+		return ErrInvalidAmount
+	}
+	if !d.IsVoluntary && cents <= 0 {
+		return ErrInvalidAmount
+	}
+	if d.IsVoluntary && cents < 0 {
 		return ErrInvalidAmount
 	}
 	d.Amount = canon

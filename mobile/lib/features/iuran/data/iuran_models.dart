@@ -8,6 +8,7 @@ enum IuranStatus {
   belumBayar,
   sebagian,
   lunas,
+  sukarela,
 }
 
 /// Iuran bill model for the IURAN feature.
@@ -21,10 +22,17 @@ class IuranBill {
   final int pendingAmount;
   final int rejectedAmount;
   final IuranStatus status;
+  final bool isVoluntary;
 
   /// True when the bill's due uses payment_rule "full": the backend only
   /// accepts a payment equal to the remaining balance.
   final bool requiresFullPayment;
+
+  /// When isVoluntary==true, optional definition data from BackendDue.
+  final String? dueName;
+  final String? duePeriodType;
+  final String? dueRtCode;
+  final bool? dueIsVoluntary;
 
   const IuranBill({
     required this.id,
@@ -36,7 +44,12 @@ class IuranBill {
     this.pendingAmount = 0,
     this.rejectedAmount = 0,
     this.status = IuranStatus.belumBayar,
+    this.isVoluntary = false,
     this.requiresFullPayment = false,
+    this.dueName,
+    this.duePeriodType,
+    this.dueRtCode,
+    this.dueIsVoluntary,
   });
 
   /// Returns the remaining balance for display purposes.
@@ -54,7 +67,9 @@ class IuranBill {
           : nominal - paidAmount - pendingAmount;
 
   /// Returns true if this bill is in arrears (not yet paid or partially paid).
-  bool get isInArrears => status != IuranStatus.lunas;
+  /// Voluntary Rp0 items are never in arrears.
+  bool get isInArrears =>
+      status != IuranStatus.lunas && status != IuranStatus.sukarela;
 }
 
 /// Format a nominal amount in rupiah to Indonesian currency string.
@@ -73,16 +88,17 @@ String getStatusLabel(IuranStatus status) {
     IuranStatus.belumBayar => 'Belum Bayar',
     IuranStatus.sebagian => 'Sebagian',
     IuranStatus.lunas => 'Lunas',
+    IuranStatus.sukarela => 'Sukarela',
   };
 }
 
 /// Return the color associated with the given status.
 Color getStatusColor(IuranStatus status, BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   return switch (status) {
     IuranStatus.belumBayar => AppColors.danger,
     IuranStatus.sebagian => AppColors.warning,
     IuranStatus.lunas => AppColors.success,
+    IuranStatus.sukarela => AppColors.info,
   };
 }
 
@@ -92,6 +108,7 @@ IuranStatus parseStatus(String value) {
     'belum_bayar' || 'belum bayar' => IuranStatus.belumBayar,
     'sebagian' => IuranStatus.sebagian,
     'lunas' => IuranStatus.lunas,
+    'sukarela' => IuranStatus.sukarela,
     _ => IuranStatus.belumBayar,
   };
 }

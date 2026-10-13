@@ -517,6 +517,186 @@ class _IuranCard extends StatelessWidget {
 
   const _IuranCard({required this.bill});
 
+  void _showDueDetailDialog(BuildContext dialogCtx) {
+    final theme = Theme.of(dialogCtx);
+    final isDark = theme.brightness == Brightness.dark;
+    final rtLabel = bill.dueRtCode?.isNotEmpty == true
+        ? 'RT: ${bill.dueRtCode}'
+        : 'RT: —';
+
+    // Local state for input fields — no persistence needed (UI only)
+    final sumbanganController = TextEditingController();
+    final catatanController = TextEditingController();
+
+    showDialog<void>(
+      context: dialogCtx,
+      builder: (builderCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+              title: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: AppColors.info,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      bill.iuranType,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Status badge
+                    AppBadge(
+                      label: 'Sukarela',
+                      textColor: AppColors.info,
+                      backgroundColor: AppColors.info.withValues(alpha: isDark ? 0.25 : 0.12),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    // Info rows
+                    _infoRow(theme, 'Nominal', 'Rp0'),
+                    _infoRow(theme, 'Periode', bill.duePeriodType ?? '—'),
+                    _infoRow(theme, 'RT', rtLabel),
+                    // Spacing before form fields
+                    const SizedBox(height: AppSpacing.md),
+                    // Sumbangan input
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Nominal Sumbangan (Rp)',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        AppTextField(
+                          controller: sumbanganController,
+                          hintText: 'Masukkan nominal sumbangan',
+                          keyboardType: TextInputType.number,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        // Catatan input
+                        Text(
+                          'Catatan (opsional)',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        AppTextField(
+                          controller: catatanController,
+                          hintText: 'Tambahkan catatan jika diperlukan',
+                        ),
+                      ],
+                    ),
+                    // Spacing before info note
+                    const SizedBox(height: AppSpacing.md),
+                    // Info note — moved to bottom
+                    Container(
+                      width: double.maxFinite,
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        border: Border.all(
+                          color: isDark
+                              ? AppColors.darkBorder
+                              : AppColors.lightBorder,
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: AppColors.info,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              'Ini adalah definisi iuran sukarela (sumbangan) dengan nominal Rp0. Tagihan hanya terbentuk ketika pengurus membuat tagihan manual untuk periode tertentu.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(builderCtx).pop(),
+                  child: const Text('Batal'),
+                ),
+                TextButton(
+                  onPressed: null, // Bayar not available yet
+                  child: Text(
+                    'Bayar',
+                    style: TextStyle(
+                      color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _infoRow(ThemeData theme, String label, String value) {
+    final isDark = theme.brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -525,7 +705,13 @@ class _IuranCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => context.push('/home/iuran/detail/${bill.id}'),
+        onTap: () {
+          if (bill.isVoluntary) {
+            _showDueDetailDialog(context);
+          } else {
+            context.push('/home/iuran/detail/${bill.id}');
+          }
+        },
         borderRadius: BorderRadius.circular(AppRadius.base),
         child: AppCard(
           padding: const EdgeInsets.all(AppSpacing.base),
