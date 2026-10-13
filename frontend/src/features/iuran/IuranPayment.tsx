@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   CheckCircleOutlined,
   DollarOutlined,
@@ -14,6 +14,7 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
 import {
   formatRupiah,
+  formatRibuan,
   getStatusVariant,
   getStatusLabel,
   parseMoney,
@@ -31,7 +32,7 @@ import {
 
 // Payment method options
 const PAYMENT_METHODS = [
-  { value: 'CASH', label: 'Cash' },
+  { value: 'CASH', label: 'Tunai' },
   { value: 'TRANSFER', label: 'Transfer' },
 ] as const
 
@@ -52,14 +53,20 @@ function IuranPaymentContent({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
-  const [nominal, setNominal] = useState('')
-  const [payDate, setPayDate] = useState('')
+  const [nominal, setNominal] = useState(() => (remaining > 0 ? String(remaining) : ''))
+  const [payDate, setPayDate] = useState(() => new Date().toISOString().split('T')[0])
   const [catatan, setCatatan] = useState('')
   const [method, setMethod] = useState<'CASH' | 'TRANSFER' | ''>('')
   const [proofFile, setProofFile] = useState<File | null>(null)
   const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [successPayment, setSuccessPayment] = useState<ApiPayment | null>(null)
+
+  useEffect(() => {
+    if (!nominal && remaining > 0) {
+      setNominal(String(remaining))
+    }
+  }, [remaining])
 
   // Clean up object URL on unmount or file change
   useEffect(() => {
@@ -237,7 +244,16 @@ function IuranPaymentContent({
         subtitle={`Tagihan ${bill.householdName}`}
         onClose={handleClose}
       />
-      <form onSubmit={handleSubmit}>
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+        }}
+      >
         <ModalBody>
           {validationErrors.length > 0 && (
             <div className="sf-form-error-list">
@@ -246,10 +262,10 @@ function IuranPaymentContent({
           )}
           {error && <div className="sf-form-error-list">{error}</div>}
 
-          {/* Informasi warga/KK */}
+          {/* Informasi warga */}
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="ip-household">
-              Informasi Warga/KK
+              Informasi Warga
             </label>
             <input
               id="ip-household"
@@ -355,27 +371,38 @@ function IuranPaymentContent({
               Metode Pembayaran <span style={{ color: 'var(--sf-danger)' }}>*</span>
             </label>
             <div style={{ display: 'flex', gap: 'var(--sp-sm)' }}>
-              {PAYMENT_METHODS.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  className={`sf-form-input ${method === m.value ? 'sf-form-input--active' : ''}`}
-                  style={{
-                    flex: 1,
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    border: method === m.value ? '2px solid var(--sf-accent)' : '1px solid var(--border-color)',
-                    background: method === m.value ? 'var(--sf-accent-subtle)' : 'transparent',
-                    fontWeight: method === m.value ? 600 : 400,
-                  }}
-                  onClick={() => {
-                    setMethod(m.value as 'CASH' | 'TRANSFER')
-                    setValidationErrors([])
-                  }}
-                >
-                  {m.label}
-                </button>
-              ))}
+              {PAYMENT_METHODS.map((m) => {
+                const isSelected = method === m.value
+                return (
+                  <button
+                    key={m.value}
+                    type="button"
+                    className={`sf-form-input ${isSelected ? 'sf-form-input--active' : ''}`}
+                    style={{
+                      flex: 1,
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      border: isSelected
+                        ? '1.5px solid var(--sf-accent)'
+                        : '1px solid var(--sf-border, var(--border-color))',
+                      background: isSelected
+                        ? 'var(--sf-accent-subtle, rgba(59, 130, 246, 0.08))'
+                        : 'var(--sf-surface, transparent)',
+                      color: isSelected ? 'var(--sf-accent)' : 'var(--sf-text)',
+                      fontWeight: isSelected ? 600 : 400,
+                      borderRadius: 'var(--sf-radius-sm, 6px)',
+                      padding: '8px 16px',
+                      transition: 'all 150ms ease',
+                    }}
+                    onClick={() => {
+                      setMethod(m.value as 'CASH' | 'TRANSFER')
+                      setValidationErrors([])
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
@@ -387,12 +414,15 @@ function IuranPaymentContent({
             <input
               id="ip-amount"
               className="sf-form-input"
-              type="number"
-              value={nominal}
-              onChange={(e) => { setNominal(e.target.value); setValidationErrors([]) }}
-              placeholder={`Maksimal ${formatRupiah(remaining)}`}
-              max={remaining}
-              min={1}
+              type="text"
+              inputMode="numeric"
+              value={formatRibuan(nominal)}
+              onChange={(e) => {
+                const rawDigits = e.target.value.replace(/\D/g, '')
+                setNominal(rawDigits)
+                setValidationErrors([])
+              }}
+              placeholder={`Maksimal ${formatRibuan(remaining)}`}
               autoFocus
             />
             {remaining <= 0 && (
@@ -413,6 +443,14 @@ function IuranPaymentContent({
               type="date"
               value={payDate}
               onChange={(e) => { setPayDate(e.target.value); setValidationErrors([]) }}
+              onClick={(e) => {
+                try {
+                  (e.currentTarget as HTMLInputElement).showPicker?.()
+                } catch {
+                  // Fallback for browsers that do not support showPicker or restrict invocation
+                }
+              }}
+              style={{ cursor: 'pointer' }}
               max={new Date().toISOString().split('T')[0]}
             />
           </div>
@@ -446,20 +484,27 @@ function IuranPaymentContent({
                   htmlFor="ip-proof"
                   style={{
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '8px',
                     padding: '16px',
-                    border: '1px dashed var(--border-color)',
-                    borderRadius: 'var(--radius-sm)',
+                    border: '1.5px dashed var(--sf-border, var(--border-color))',
+                    borderRadius: 'var(--sf-radius-sm, 6px)',
                     background: 'var(--sf-surface)',
                     cursor: submitting ? 'not-allowed' : 'pointer',
                     fontSize: '13px',
                     color: 'var(--sf-text-muted)',
+                    transition: 'border-color 150ms ease, background 150ms ease',
                   }}
                 >
-                  <UploadOutlined style={{ fontSize: '16px' }} />
-                  <span>Pilih file gambar (JPG, PNG, WebP maks 5MB)</span>
+                  <UploadOutlined style={{ fontSize: '20px', color: 'var(--sf-accent)' }} />
+                  <span style={{ fontWeight: 500, color: 'var(--sf-text)' }}>
+                    Pilih Berkas Bukti Pembayaran
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--sf-text-muted)' }}>
+                    Format JPG, PNG, atau WebP (Maks. 5 MB)
+                  </span>
                 </label>
                 <input
                   id="ip-proof"
@@ -476,9 +521,9 @@ function IuranPaymentContent({
                   display: 'flex',
                   alignItems: 'center',
                   gap: '12px',
-                  padding: '10px 12px',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-sm)',
+                  padding: '12px 14px',
+                  border: '1px solid var(--sf-border, var(--border-color))',
+                  borderRadius: 'var(--sf-radius-sm, 6px)',
                   background: 'var(--sf-surface)',
                 }}
               >
@@ -491,7 +536,7 @@ function IuranPaymentContent({
                       height: '48px',
                       objectFit: 'cover',
                       borderRadius: '4px',
-                      border: '1px solid var(--border-color)',
+                      border: '1px solid var(--sf-border, var(--border-color))',
                     }}
                   />
                 )}
@@ -535,15 +580,20 @@ function IuranPaymentContent({
           </div>
         </ModalBody>
         <ModalFooter>
-          <button type="button" className="sf-btn-ghost" onClick={handleClose} disabled={submitting}>
+          <button
+            type="button"
+            className="sf-btn-ghost"
+            onClick={handleClose}
+            disabled={submitting}
+          >
             Batal
           </button>
           <button
             type="submit"
             className="sf-btn-primary"
-            disabled={submitting || remaining <= 0 || !method}
+            disabled={submitting || remaining <= 0}
           >
-            {submitting ? 'Menyimpan...' : 'Simpan Pembayaran'}
+            {submitting ? 'Menyimpan...' : 'Bayar'}
           </button>
         </ModalFooter>
       </form>
@@ -562,15 +612,22 @@ export function IuranPayment({
   onClose?: () => void
   onPaymentSuccess?: () => void
 } = {}) {
+  const navigate = useNavigate()
   const routeId = useParams<{ id: string }>()?.id
   const effectiveId = billId ?? routeId
   const isModal = billId !== undefined
   const open = openProp ?? true
-  const handleClose = onCloseProp ?? (() => window.history.back())
+  const handleClose = onCloseProp ?? (() => navigate('/iuran'))
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notFound, setNotFound] = useState(false)
   const [bill, setBill] = useState<IuranBill | null>(null)
+  const [retryCount, setRetryCount] = useState(0)
+
+  const handleRetry = () => {
+    setRetryCount((c) => c + 1)
+  }
 
   // Load bill and payments data from API
   useEffect(() => {
@@ -578,6 +635,7 @@ export function IuranPayment({
     async function loadBill() {
       setLoading(true)
       setError(null)
+      setNotFound(false)
 
       if (!effectiveId) {
         setError('ID tagihan tidak valid')
@@ -643,13 +701,16 @@ export function IuranPayment({
         setBill(mappedBill)
       } catch (err) {
         if (cancelled) return
-        const apiErr = err as ApiError
+        const apiErr = err as { code?: string }
         if (apiErr.code === 'not_found') {
-          setError('Tagihan tidak ditemukan')
+          setNotFound(true)
         } else {
           setError(err instanceof Error ? err.message : 'Gagal memuat data tagihan')
         }
-        setLoading(false)
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
@@ -657,7 +718,7 @@ export function IuranPayment({
     return () => {
       cancelled = true
     }
-  }, [effectiveId])
+  }, [effectiveId, retryCount])
 
   const remaining = useMemo(() => {
     if (!bill) return 0
@@ -666,6 +727,7 @@ export function IuranPayment({
 
   const paymentContent = !error && bill ? (
     <IuranPaymentContent
+      key={bill.id}
       bill={bill}
       remaining={remaining}
       handleClose={handleClose}
@@ -715,116 +777,105 @@ export function IuranPayment({
     />
   ) : null
 
-  // Modal mode
-  if (isModal) {
+  if (isModal && !open) {
+    return null
+  }
+
+  // Modal mode or page route
+  const modalOpen = isModal ? open : true
+
+  if (loading) {
     return (
-      <Modal
-        open={open}
-        onClose={handleClose}
-        width={520}
-        overlayClassName="sf-modal-overlay-payment"
-      >
-        {loading && (
-          <ModalHeader
-            title="Memuat Form Pembayaran"
-            subtitle=""
-            onClose={handleClose}
-          />
-        )}
-        {error && !bill && (
-          <>
-            <ModalHeader
-              title="Error"
-              subtitle=""
-              onClose={handleClose}
-            />
-            <ModalBody>
-              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-                {error}
-              </div>
-            </ModalBody>
-          </>
-        )}
-        {(!loading && !error && !bill) && (
-          <>
-            <ModalHeader
-              title="Tagihan Tidak Ditemukan"
-              subtitle="Data iuran tidak ditemukan"
-              onClose={handleClose}
-            />
-            <ModalBody>
-              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-                Tagihan iuran yang Anda buka tidak ditemukan.
-              </div>
-            </ModalBody>
-          </>
-        )}
-        {paymentContent}
+      <Modal open={modalOpen} onClose={handleClose} width={520}>
+        <ModalHeader
+          title="Memuat Form Pembayaran"
+          subtitle=""
+          onClose={handleClose}
+        />
+        <ModalBody>
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
+            Memuat data tagihan...
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+            Batal
+          </button>
+        </ModalFooter>
       </Modal>
     )
   }
 
-  // Page mode (route: /iuran/:id/pembayaran)
-  return (
-    <div style={{ flex: 1, padding: 'var(--sp-md) var(--sp-xl)' }}>
-      {/* Back button */}
-      <div style={{ marginBottom: 'var(--sp-md)' }}>
-        <a
-          href="/iuran"
-          onClick={(e) => { e.preventDefault(); window.history.back(); }}
-          style={{
-            fontSize: '13px',
-            color: 'var(--sf-accent)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            textDecoration: 'none',
-          }}
-        >
-          ← Kembali ke Daftar Iuran
-        </a>
-      </div>
+  if (notFound) {
+    return (
+      <Modal open={modalOpen} onClose={handleClose} width={520}>
+        <ModalHeader
+          title="Tagihan Tidak Ditemukan"
+          subtitle="Data iuran tidak ditemukan"
+          onClose={handleClose}
+        />
+        <ModalBody>
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
+            Tagihan iuran yang Anda buka tidak ditemukan.
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+            Tutup
+          </button>
+        </ModalFooter>
+      </Modal>
+    )
+  }
 
-      {/* Loading */}
-      {loading && (
-        <div style={{
-          textAlign: 'center',
-          padding: '24px 0',
-          color: 'var(--sf-text-muted)',
-          fontSize: 13,
-        }}>
-          Memuat data tagihan...
-        </div>
-      )}
+  if (error && !bill) {
+    return (
+      <Modal open={modalOpen} onClose={handleClose} width={520}>
+        <ModalHeader
+          title="Gagal Memuat Tagihan"
+          subtitle=""
+          onClose={handleClose}
+        />
+        <ModalBody>
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-danger)', fontSize: 13 }}>
+            {error}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+              Tutup
+            </button>
+            <button type="button" className="sf-btn-primary" onClick={handleRetry}>
+              Coba Lagi
+            </button>
+          </div>
+        </ModalFooter>
+      </Modal>
+    )
+  }
 
-      {/* Error */}
-      {!loading && error && (
-        <div style={{
-          background: 'var(--color-expense-subtle)',
-          color: 'var(--color-expense)',
-          border: '1px solid rgba(255,59,48,0.3)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '10px 14px',
-          fontSize: '13px',
-        }}>
-          {error}
-        </div>
-      )}
+  if (!bill) {
+    return (
+      <Modal open={modalOpen} onClose={handleClose} width={520}>
+        <ModalHeader
+          title="Tagihan Tidak Ditemukan"
+          subtitle="Data iuran tidak ditemukan"
+          onClose={handleClose}
+        />
+        <ModalBody>
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
+            Tagihan iuran yang Anda buka tidak ditemukan.
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+            Tutup
+          </button>
+        </ModalFooter>
+      </Modal>
+    )
+  }
 
-      {/* Not found */}
-      {!loading && !error && !bill && (
-        <div style={{
-          textAlign: 'center',
-          padding: '24px 0',
-          color: 'var(--sf-text-muted)',
-          fontSize: 13,
-        }}>
-          Tagihan iuran yang Anda buka tidak ditemukan.
-        </div>
-      )}
-
-      {/* Payment form */}
-      {paymentContent}
-    </div>
-  )
+  return paymentContent
 }

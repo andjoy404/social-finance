@@ -1338,6 +1338,14 @@ input { font-family: inherit; }
   overflow: hidden;
 }
 
+.sf-modal > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* ── RT modal: lighter backdrop so table stays visible ──────────────────── */
 
 .sf-modal-overlay-rt {
@@ -1473,6 +1481,31 @@ input { font-family: inherit; }
 .sf-form-select {
   appearance: auto;
   cursor: pointer;
+}
+
+input[type="date"].sf-form-input {
+  color-scheme: light dark;
+  position: relative;
+}
+
+[data-theme='dark'] input[type="date"].sf-form-input {
+  color-scheme: dark;
+}
+
+[data-theme='light'] input[type="date"].sf-form-input {
+  color-scheme: light;
+}
+
+input[type="date"].sf-form-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.75;
+  padding: 2px;
+  border-radius: var(--sf-radius-sm);
+  transition: opacity 150ms ease;
+}
+
+input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
 }
 
 .sf-form-grid-2 {

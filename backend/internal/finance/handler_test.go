@@ -167,7 +167,7 @@ func setupTestUserWithMembership(t *testing.T, pool *database.Pool, email, fullN
 	// Create user
 	var userID string
 	c := atomic.AddInt64(&rtCounter, 1)
-	uniqueEmail := fmt.Sprintf("%d_%s", c, email)
+	uniqueEmail := fmt.Sprintf("%d_%d_%s", time.Now().UnixNano(), c, email)
 	err := db.QueryRowContext(ctx,
 		`INSERT INTO users (email, phone, password_hash, full_name, is_active)
 		 VALUES ($1, $2, 'dummyhash', $3, true) RETURNING id`,
@@ -233,6 +233,7 @@ func setupFinanceRouter(pool *database.Pool, storageMock ...storage.Service) htt
 		r.Get("/api/v1/reports/balance", finH.GetBalance)
 
 		r.Post("/api/v1/payments", finH.CreatePayment)
+		r.Post("/api/v1/payments/multi-period", finH.CreateMultiPeriodPayment)
 	})
 
 	// Master categories management: pengurus only
@@ -784,7 +785,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 	// Create Due
 	var dueID string
 	{
-		body := `{"name":"Iuran DR03/04","amount":"100000","period_type":"monthly"}`
+		body := `{"name":"Iuran DR03/04","amount":"100000","period_type":"monthly","payment_rule":"partial"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1603,7 +1604,7 @@ func TestBillCancellationGuard(t *testing.T) {
 	// Create Due
 	var dueID string
 	{
-		body := `{"name":"Iuran Cancel","amount":"100000","period_type":"monthly"}`
+		body := `{"name":"Iuran Cancel","amount":"100000","period_type":"monthly","payment_rule":"partial"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1817,7 +1818,7 @@ func TestConcurrentPaymentRaceCondition(t *testing.T) {
 	// Create Due
 	var dueID string
 	{
-		body := `{"name":"Iuran Race","amount":"100000","period_type":"monthly"}`
+		body := `{"name":"Iuran Race","amount":"100000","period_type":"monthly","payment_rule":"partial"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1966,23 +1967,40 @@ func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occID
 	var catA1, dueA string
 	var billA1ID string
 	{
-		tx, _ := pool.BeginTx(ctx)
-		c, _ := CategoryCreate(ctx, tx, rta, CreateCategoryInput{Name: "Sumbangan RT-A", Type: CategoryTypeIncome})
+		tx, err := pool.BeginTx(ctx)
+		if err != nil {
+			t.Fatalf("begin RT-A fixture transaction: %v", err)
+		}
+		c, err := CategoryCreate(ctx, tx, rta, CreateCategoryInput{Name: "Sumbangan RT-A", Type: CategoryTypeIncome})
+		if err != nil {
+			t.Fatalf("create RT-A income category: %v", err)
+		}
 		catA1 = c.ID
-		_, _ = CategoryCreate(ctx, tx, rta, CreateCategoryInput{Name: "Kebersihan RT-A", Type: CategoryTypeExpense})
-		d, _ := DueCreate(ctx, tx, rta, CreateDueInput{Name: "Iuran RT-A", Amount: "100000", PeriodType: DuePeriodMonthly})
+		if _, err = CategoryCreate(ctx, tx, rta, CreateCategoryInput{Name: "Kebersihan RT-A", Type: CategoryTypeExpense}); err != nil {
+			t.Fatalf("create RT-A expense category: %v", err)
+		}
+		d, err := DueCreate(ctx, tx, rta, CreateDueInput{Name: "Iuran RT-A", Amount: "100000", PeriodType: DuePeriodMonthly, PaymentRule: PaymentRuleFull})
+		if err != nil {
+			t.Fatalf("create RT-A due: %v", err)
+		}
 		dueA = d.ID
-		b1, _ := BillCreate(ctx, tx, rta, CreateBillInput{
+		b1, err := BillCreate(ctx, tx, rta, CreateBillInput{
 			HouseholdOccupancyID: occIDA, DueID: dueA, Amount: "100000",
 			Period: "2026-10", DueDate: "2026-10-25",
 		})
+		if err != nil {
+			t.Fatalf("create RT-A first bill: %v", err)
+		}
 		billA1ID = b1.ID
-		// Second bill (for testing count and list comprehensiveness)
-		_, _ = BillCreate(ctx, tx, rta, CreateBillInput{
+		if _, err = BillCreate(ctx, tx, rta, CreateBillInput{
 			HouseholdOccupancyID: occIDA, DueID: dueA, Amount: "100000",
 			Period: "2026-11", DueDate: "2026-11-25",
-		})
-		tx.Commit()
+		}); err != nil {
+			t.Fatalf("create RT-A second bill: %v", err)
+		}
+		if err = tx.Commit(); err != nil {
+			t.Fatalf("commit RT-A fixture transaction: %v", err)
+		}
 	}
 	// Insert income transaction for RT-A (200000)
 	incomeA = 200000
@@ -1999,18 +2017,35 @@ func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occID
 	}
 
 	// ── RT-B data: 2 categories, 1 due, 1 bill, expense transaction ──
-	var catB2 string
+	var catB2, dueB string
 	{
-		tx, _ := pool.BeginTx(ctx)
-		_, _ = CategoryCreate(ctx, tx, rtb, CreateCategoryInput{Name: "Iuran RT-B", Type: CategoryTypeIncome})
-		c2, _ := CategoryCreate(ctx, tx, rtb, CreateCategoryInput{Name: "Kebersihan RT-B", Type: CategoryTypeExpense})
+		tx, err := pool.BeginTx(ctx)
+		if err != nil {
+			t.Fatalf("begin RT-B fixture transaction: %v", err)
+		}
+		_, err = CategoryCreate(ctx, tx, rtb, CreateCategoryInput{Name: "Iuran RT-B", Type: CategoryTypeIncome})
+		if err != nil {
+			t.Fatalf("create RT-B income category: %v", err)
+		}
+		c2, err := CategoryCreate(ctx, tx, rtb, CreateCategoryInput{Name: "Kebersihan RT-B", Type: CategoryTypeExpense})
+		if err != nil {
+			t.Fatalf("create RT-B expense category: %v", err)
+		}
 		catB2 = c2.ID
-		_, _ = DueCreate(ctx, tx, rtb, CreateDueInput{Name: "Iuran RT-B", Amount: "50000", PeriodType: DuePeriodMonthly})
-		_, _ = BillCreate(ctx, tx, rtb, CreateBillInput{
-			HouseholdOccupancyID: occIDB, DueID: dueA, Amount: "50000",
+		dB, err := DueCreate(ctx, tx, rtb, CreateDueInput{Name: "Iuran RT-B", Amount: "50000", PeriodType: DuePeriodMonthly, PaymentRule: PaymentRuleFull})
+		if err != nil {
+			t.Fatalf("create RT-B due: %v", err)
+		}
+		dueB = dB.ID
+		if _, err = BillCreate(ctx, tx, rtb, CreateBillInput{
+			HouseholdOccupancyID: occIDB, DueID: dueB, Amount: "50000",
 			Period: "2026-10", DueDate: "2026-10-25",
-		})
-		tx.Commit()
+		}); err != nil {
+			t.Fatalf("create RT-B bill: %v", err)
+		}
+		if err = tx.Commit(); err != nil {
+			t.Fatalf("commit RT-B fixture transaction: %v", err)
+		}
 	}
 	// Insert expense transaction for RT-B (150000)
 	expenseB = 150000
@@ -2638,9 +2673,9 @@ func TestRequireTenantContextGuard(t *testing.T) {
 	// ── Test: system-only SUPER_ADMIN receives 403 on all targeted write endpoints ──
 	systemOnlyToken := makeSystemOnlyToken()
 	writeTests := []struct {
-		method   string
-		path     string
-		body     string
+		method string
+		path   string
+		body   string
 	}{
 		{http.MethodPost, "/api/v1/categories", `{"name":"Hacked","type":"income"}`},
 		{http.MethodPost, "/api/v1/dues", `{"name":"Hacked Due","amount":"10000","period_type":"monthly"}`},

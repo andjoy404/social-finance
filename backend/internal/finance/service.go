@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -138,6 +139,10 @@ func (s *Service) DeactivateCategory(ctx context.Context, tx *sql.Tx, id, rtID, 
 func (s *Service) CreateDue(ctx context.Context, tx *sql.Tx, rtID, userID string, in CreateDueInput) (*Due, error) {
 	if err := in.Validate(); err != nil {
 		return nil, err
+	}
+	// Default payment_rule to "full" if not specified
+	if in.PaymentRule == "" {
+		in.PaymentRule = PaymentRuleFull
 	}
 	// Relax amount validation: when is_voluntary, amount = 0 is allowed
 	if !in.IsVoluntary {
@@ -480,17 +485,6 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		return nil, errors.New("action must be 'approve' or 'reject'")
 	}
 
-	bill, err := BillGetByIDForUpdate(ctx, tx, payment.BillID, rtID)
-	if err != nil {
-		return nil, fmt.Errorf("bill not found: %w", err)
-	}
-	if bill.Status == BillStatusPaid {
-		return nil, ErrBillAlreadyPaid
-	}
-	if bill.Status == BillStatusCancelled {
-		return nil, ErrBillCancelled
-	}
-
 	if action == "reject" {
 		reason := ""
 		if in.RejectionReason != nil && strings.TrimSpace(*in.RejectionReason) != "" {
@@ -520,6 +514,34 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	}
 
 	// action == "approve"
+	// Detect whether this is a multi-period payment by querying allocations.
+	allocs, err := PaymentAllocationsByPaymentID(ctx, tx, paymentID)
+	if err != nil {
+		return nil, fmt.Errorf("query payment allocations: %w", err)
+	}
+
+	if len(allocs) == 0 {
+		// ── Single-period payment (legacy path) ────────────────────────
+		return s.verifySinglePayment(ctx, tx, paymentID, rtID, verifierID, payment, in)
+	}
+
+	// ── Multi-period payment approval ────────────────────────────────
+	return s.verifyMultiPeriodPayment(ctx, tx, paymentID, rtID, verifierID, payment, allocs, in)
+}
+
+// verifySinglePayment handles legacy single-bill payment approval.
+func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID, rtID, verifierID string, payment *Payment, in VerifyPaymentInput) (*VerifyPaymentResult, error) {
+	bill, err := BillGetByIDForUpdate(ctx, tx, payment.BillID, rtID)
+	if err != nil {
+		return nil, fmt.Errorf("bill not found: %w", err)
+	}
+	if bill.Status == BillStatusPaid {
+		return nil, ErrBillAlreadyPaid
+	}
+	if bill.Status == BillStatusCancelled {
+		return nil, ErrBillCancelled
+	}
+
 	// Validate overpayment BEFORE approving payment.
 	// approved_total_before does NOT include this payment yet (still PENDING).
 	approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
@@ -527,7 +549,6 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		return nil, fmt.Errorf("compute approved payment total: %w", err)
 	}
 
-	// Parse money strings to compare amounts
 	billCents, _, err := ParseMoney(bill.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("parse bill amount: %w", err)
@@ -544,8 +565,6 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	remaining := billCents - approvedCents
 	if paymentCents > remaining {
 		// Overpayment detected — reject the payment atomically.
-		// The REJECTED state must persist so the handler commits (not rolls back)
-		// the transaction while returning HTTP 400.
 		var rejectionReason string
 		if in.RejectionReason != nil && strings.TrimSpace(*in.RejectionReason) != "" {
 			rejectionReason = strings.TrimSpace(*in.RejectionReason)
@@ -578,15 +597,13 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	}
 
 	// Overpayment check passed — approve the payment
-	// IMPORTANT: approved payments must NEVER have a rejection reason.
-	// Pass nil for rejection reason to ensure data integrity.
 	officerNotes := ""
 	if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
 		officerNotes = strings.TrimSpace(*in.OfficerNotes)
 	}
 	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("approve payment: %w", err)
 	}
 
 	// Update bill status based on new total (this payment + previously approved)
@@ -616,6 +633,139 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	}, TransactionStatusPosted, nil, &verifiedPayment.ID, now)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for approved payment: %w", err)
+	}
+
+	auditPayload, _ := json.Marshal(verifiedPayment)
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &verifierID,
+		Action:     "verify_payment",
+		EntityType: "payment",
+		EntityID:   verifiedPayment.ID,
+		NewValues:  auditPayload,
+	})
+
+	return &VerifyPaymentResult{Payment: verifiedPayment}, nil
+}
+
+// verifyMultiPeriodPayment handles approval for payments spanning multiple bills.
+// All bills are validated before any state changes; ONE KAS transaction is posted.
+func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paymentID, rtID, verifierID string, payment *Payment, allocs []*PaymentAllocation, in VerifyPaymentInput) (*VerifyPaymentResult, error) {
+	// Step 1: Lock and cache bill info for all allocated bills.
+	// Sort bill IDs deterministically to prevent deadlocks when multiple
+	// concurrent transactions try to lock overlapping sets of bills.
+	type billInfo struct {
+		bill          *Bill
+		remaining     int64
+		billCents     int64
+		approvedCents int64
+	}
+
+	// Extract and sort bill IDs for consistent locking order.
+	billIDs := make([]string, 0, len(allocs))
+	allocByBill := make(map[string]*PaymentAllocation, len(allocs))
+	for _, a := range allocs {
+		billIDs = append(billIDs, a.BillID)
+		allocByBill[a.BillID] = a
+	}
+	sort.Strings(billIDs)
+
+	infos := make(map[string]*billInfo)
+	for _, billID := range billIDs {
+		a := allocByBill[billID]
+		bill, err := BillGetByIDForUpdate(ctx, tx, billID, rtID)
+		if err != nil {
+			return nil, fmt.Errorf("bill %s not found: %w", billID, err)
+		}
+		if bill.Status == BillStatusPaid {
+			return nil, fmt.Errorf("bill %s is already paid", billID)
+		}
+		if bill.Status == BillStatusCancelled {
+			return nil, fmt.Errorf("bill %s is cancelled", billID)
+		}
+
+		billCents, _, err := ParseMoney(bill.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("parse bill %s amount: %w", billID, err)
+		}
+		approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, billID)
+		if err != nil {
+			return nil, fmt.Errorf("approved total for bill %s: %w", billID, err)
+		}
+		approvedCents, _, err := ParseMoney(approvedTotal)
+		if err != nil {
+			return nil, fmt.Errorf("parse approved total for bill %s: %w", billID, err)
+		}
+
+		allocCents, _, err := ParseMoney(a.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("parse allocation amount for bill %s: %w", billID, err)
+		}
+
+		// Overpayment guard: allocated amount must not exceed remaining.
+		remaining := billCents - approvedCents
+		if allocCents > remaining {
+			return nil, fmt.Errorf("allocation %s exceeds remaining balance %s for bill %s",
+				a.Amount, FormatMoney(remaining), billID)
+		}
+
+		infos[billID] = &billInfo{
+			bill:          bill,
+			remaining:     remaining,
+			billCents:     billCents,
+			approvedCents: approvedCents,
+		}
+	}
+
+	// Step 2: Approve the payment row.
+	officerNotes := ""
+	if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
+		officerNotes = strings.TrimSpace(*in.OfficerNotes)
+	}
+	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes)
+	if err != nil {
+		return nil, fmt.Errorf("approve payment: %w", err)
+	}
+
+	// Step 3: Update all bill statuses + create ONE KAS transaction.
+	// Iterate allocs in original order to preserve allocation mapping.
+	for _, a := range allocs {
+		info := infos[a.BillID]
+		allocCents, _, _ := ParseMoney(a.Amount)
+
+		newTotal := info.approvedCents + allocCents
+		if newTotal >= info.billCents {
+			if err := BillUpdateStatus(ctx, tx, a.BillID, rtID, BillStatusPaid); err != nil {
+				return nil, fmt.Errorf("update bill %s status: %w", a.BillID, err)
+			}
+		} else {
+			if err := BillUpdateStatus(ctx, tx, a.BillID, rtID, BillStatusPartial); err != nil {
+				return nil, fmt.Errorf("update bill %s status: %w", a.BillID, err)
+			}
+		}
+	}
+
+	// Post ONE income transaction into ledger for the entire payment.
+	catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
+	if err != nil {
+		return nil, err
+	}
+	periods := make([]string, 0, len(allocs))
+	for _, a := range allocs {
+		if info := infos[a.BillID]; info != nil {
+			periods = append(periods, info.bill.Period)
+		}
+	}
+	desc := fmt.Sprintf("Multi-period payment: %s", strings.Join(periods, ", "))
+	now := time.Now()
+	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
+		CategoryID:  catID,
+		Amount:      payment.Amount,
+		Type:        TransactionTypeIncome,
+		Description: desc,
+	}, TransactionStatusPosted, nil, &payment.ID, now)
+	if err != nil {
+		return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
 	}
 
 	auditPayload, _ := json.Marshal(verifiedPayment)
@@ -779,4 +929,288 @@ func (s *Service) CancelBill(ctx context.Context, tx *sql.Tx, id, rtID, userID s
 	})
 
 	return nil
+}
+
+// CreateMultiPeriodPayment creates a single payment that spans multiple bills (multi-period).
+// One payment row, one KAS transaction, multiple allocations.
+func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID, userID, userRole string, in CreateMultiPeriodPaymentInput) (*MultiPeriodPaymentResult, error) {
+	// ── 1. Validate input ──────────────────────────────────────────────
+	if len(in.BillIDs) == 0 {
+		return nil, errors.New("at least one bill must be selected")
+	}
+	if len(in.Allocations) == 0 {
+		return nil, errors.New("at least one allocation must be specified")
+	}
+	if len(in.Allocations) != len(in.BillIDs) {
+		return nil, errors.New("allocations count must match bill IDs count")
+	}
+
+	// Build allocation lookup
+	allocMap := make(map[string]string) // billID → amount
+	for _, a := range in.Allocations {
+		if strings.TrimSpace(a.BillID) == "" {
+			return nil, errors.New("allocation bill_id is required")
+		}
+		if strings.TrimSpace(a.Amount) == "" {
+			return nil, fmt.Errorf("allocation amount for bill %s is required", a.BillID)
+		}
+		allocMap[a.BillID] = a.Amount
+	}
+
+	// Compute total allocation
+	totalCents := int64(0)
+	for _, amountStr := range allocMap {
+		cents, _, err := ParseMoney(amountStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid allocation amount: %w", err)
+		}
+		totalCents += cents
+	}
+	totalCanon := FormatMoney(totalCents)
+
+	// ── 2. Lock and validate all bills ─────────────────────────────────
+	// Sort bill IDs deterministically to prevent deadlocks when multiple
+	// concurrent transactions try to lock overlapping sets of bills.
+	sortedBillIDs := make([]string, len(in.BillIDs))
+	copy(sortedBillIDs, in.BillIDs)
+	sort.Strings(sortedBillIDs)
+
+	type billInfo struct {
+		bill          *Bill
+		due           *Due
+		remaining     int64
+		billCents     int64
+		approvedCents int64
+		pendingCents  int64 // pending reservation (warga only)
+	}
+
+	infos := make(map[string]*billInfo)
+	for _, billID := range sortedBillIDs {
+		bill, err := BillGetByIDForUpdate(ctx, tx, billID, rtID)
+		if err != nil {
+			return nil, fmt.Errorf("bill %s not found in this RT: %w", billID, err)
+		}
+		if bill.Status == BillStatusPaid {
+			return nil, fmt.Errorf("bill %s is already paid", billID)
+		}
+		if bill.Status == BillStatusCancelled {
+			return nil, fmt.Errorf("bill %s is cancelled", billID)
+		}
+
+		due, err := DueGetByID(ctx, tx, bill.DueID, rtID)
+		if err != nil {
+			return nil, fmt.Errorf("due not found for bill %s: %w", billID, err)
+		}
+
+		// Compute remaining for this bill.
+		// For warga, pending reservations reduce available capacity so that
+		// duplicate submissions cannot overpay a bill through PENDING entries.
+		// Staff auto-approve skips this check because staff payments are
+		// immediately APPROVED and validated against approved totals.
+		billCents, _, err := ParseMoney(bill.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("parse bill amount: %w", err)
+		}
+		approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, billID)
+		if err != nil {
+			return nil, fmt.Errorf("compute approved total: %w", err)
+		}
+		approvedCents, _, err := ParseMoney(approvedTotal)
+		if err != nil {
+			return nil, fmt.Errorf("parse approved total: %w", err)
+		}
+
+		// Pending reservation for warga — prevents double-submission overpayment.
+		// Matches single-period policy: warga cannot submit more than
+		// (bill amount - approved total - pending total).
+		var pendingCents int64
+		if userRole == "warga" {
+			pendingTotal, err := GetPendingPaymentTotal(ctx, tx, billID)
+			if err != nil {
+				return nil, fmt.Errorf("compute pending total: %w", err)
+			}
+			pendingCents, _, err = ParseMoney(pendingTotal)
+			if err != nil {
+				return nil, fmt.Errorf("parse pending total: %w", err)
+			}
+		}
+
+		remaining := billCents - approvedCents - pendingCents
+		infos[billID] = &billInfo{
+			bill:          bill,
+			due:           due,
+			remaining:     remaining,
+			billCents:     billCents,
+			approvedCents: approvedCents,
+			pendingCents:  pendingCents,
+		}
+	}
+
+	// ── 3. Warga ownership check ───────────────────────────────────────
+	if userRole == "warga" {
+		occID, err := GetOccupancyIDForUser(ctx, tx, rtID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("error verifying warga occupancy: %w", err)
+		}
+		for billID, info := range infos {
+			if info.bill.HouseholdOccupancyID != occID {
+				return nil, fmt.Errorf("cannot pay bill belonging to another household (bill %s)", billID)
+			}
+		}
+	}
+
+	// ── 4. Validate allocation amounts ─────────────────────────────────
+	// For warga, `remaining` already excludes pending reservations (same
+	// policy as single-period `CreatePayment`), preventing double-submission
+	// overpayment. For staff, `remaining` equals `billCents - approvedCents`
+	// because staff payments are immediately APPROVED and validated
+	// against approved totals at verification time.
+	for _, a := range in.Allocations {
+		info := infos[a.BillID]
+		if info == nil {
+			return nil, fmt.Errorf("allocation references unknown bill %s", a.BillID)
+		}
+
+		allocCents, _, err := ParseMoney(a.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("parse allocation amount: %w", err)
+		}
+		if allocCents <= 0 {
+			return nil, fmt.Errorf("allocation amount must be positive for bill %s", a.BillID)
+		}
+		if allocCents > info.remaining {
+			return nil, fmt.Errorf("allocation amount %s exceeds remaining balance %s for bill %s",
+				a.Amount, FormatMoney(info.remaining), a.BillID)
+		}
+
+		// Enforce payment_rule per bill
+		if info.due.PaymentRule == PaymentRuleFull {
+			if allocCents != info.remaining {
+				return nil, fmt.Errorf("bill %s requires full payment: amount must be %s",
+					a.BillID, FormatMoney(info.remaining))
+			}
+		}
+	}
+
+	// ── 5. Determine origin/status ─────────────────────────────────────
+	var origin PaymentOrigin
+	var status PaymentStatus
+	var verifiedBy *string
+	var verifiedAt *time.Time
+
+	if userRole == "warga" {
+		origin = PaymentOriginSelfSubmitted
+		status = PaymentStatusPending
+	} else {
+		origin = PaymentOriginStaffRecorded
+		status = PaymentStatusApproved
+		verifiedBy = &userID
+		now := time.Now()
+		verifiedAt = &now
+	}
+
+	// ── 6. Create payment row ──────────────────────────────────────────
+	// Use direct INSERT (PaymentCreate validates single-bill remaining;
+	// multi-period total exceeds any single bill's remaining).
+	// All validation already passed in steps 1-5.
+	var payment Payment
+	var err error
+	err = tx.QueryRowContext(ctx,
+		`INSERT INTO payments (rt_id, bill_id, amount, method, origin, status,
+		 proof_path, notes, proof_original_name, proof_mime_type, proof_size_bytes,
+		 proof_uploaded_by, verified_by, verified_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
+		          verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes,
+		          created_at, updated_at, proof_original_name, proof_mime_type, proof_size_bytes,
+		          proof_uploaded_at, proof_uploaded_by`,
+		rtID, in.Allocations[0].BillID, totalCanon, in.Method, origin, status,
+		in.ProofPath, in.Notes,
+		in.ProofOriginalName, in.ProofMimeType, in.ProofSizeBytes, in.ProofUploadedBy,
+		verifiedBy, verifiedAt,
+	).Scan(&payment.ID, &payment.RTID, &payment.BillID, &payment.Amount,
+		&payment.Method, &payment.Origin, &payment.Status,
+		&payment.ProofPath, &payment.PaidAt,
+		&payment.VerifiedBy, &payment.VerifiedAt, &payment.VerifiedByName,
+		&payment.RejectionReason, &payment.Notes, &payment.OfficerNotes,
+		&payment.CreatedAt, &payment.UpdatedAt,
+		&payment.ProofOriginalName, &payment.ProofMimeType, &payment.ProofSizeBytes,
+		&payment.ProofUploadedAt, &payment.ProofUploadedBy,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create payment: %w", err)
+	}
+
+	// ── 7. Create allocations ──────────────────────────────────────────
+	allocations := make([]*PaymentAllocation, 0, len(in.Allocations))
+	for _, a := range in.Allocations {
+		alloc, err := PaymentAllocationCreate(ctx, tx, payment.ID, a.BillID, a.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("create allocation for bill %s: %w", a.BillID, err)
+		}
+		allocations = append(allocations, alloc)
+	}
+
+	// ── 8. If APPROVED (staff): update bills + KAS transaction ─────────
+	if status == PaymentStatusApproved {
+		for _, a := range allocations {
+			info := infos[a.BillID]
+			allocCents, _, _ := ParseMoney(a.Amount)
+
+			// Use cached values — do NOT re-query GetApprovedPaymentTotal()
+			// because the payment row is already INSERTED and its FK points
+			// to the first bill, which would double-count the amount for
+			// staff-recorded payments.
+			newTotal := info.approvedCents + allocCents
+			if newTotal >= info.billCents {
+				_ = BillUpdateStatus(ctx, tx, a.BillID, rtID, BillStatusPaid)
+			} else {
+				_ = BillUpdateStatus(ctx, tx, a.BillID, rtID, BillStatusPartial)
+			}
+		}
+
+		// Post ONE income transaction into ledger for the entire payment
+		catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
+		if err != nil {
+			return nil, err
+		}
+		periods := make([]string, 0, len(allocations))
+		for _, a := range allocations {
+			if info := infos[a.BillID]; info != nil {
+				periods = append(periods, info.bill.Period)
+			}
+		}
+		desc := fmt.Sprintf("Multi-period payment: %s", strings.Join(periods, ", "))
+		now := time.Now()
+		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
+			CategoryID:  catID,
+			Amount:      payment.Amount,
+			Type:        TransactionTypeIncome,
+			Description: desc,
+		}, TransactionStatusPosted, nil, &payment.ID, now)
+		if err != nil {
+			return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
+		}
+	}
+
+	// ── 9. Audit log ───────────────────────────────────────────────────
+	auditData, _ := json.Marshal(map[string]interface{}{
+		"payment_id":       payment.ID,
+		"bill_ids":         in.BillIDs,
+		"total":            totalCanon,
+		"allocation_count": len(allocations),
+	})
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &userID,
+		Action:     "create_multi_period_payment",
+		EntityType: "payment",
+		EntityID:   payment.ID,
+		NewValues:  auditData,
+	})
+
+	return &MultiPeriodPaymentResult{
+		Payment:     &payment,
+		Allocations: allocations,
+	}, nil
 }

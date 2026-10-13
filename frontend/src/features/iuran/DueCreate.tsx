@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   apiCreateDue,
+  apiGenerateBills,
   ApiError,
   clearSessionPair,
   getSessionPair,
@@ -184,6 +185,8 @@ export function DueCreate({
   const [error, setError] = useState<ApiError | null>(null)
   const [form, setForm] = useState<DueFormState>(emptyForm)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const [period, setPeriod] = useState('')
+  const [dueDate, setDueDate] = useState('')
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => {
@@ -209,6 +212,8 @@ export function DueCreate({
       errs.push('Nominal harus nol atau lebih.')
     }
     if (!form.period_type) errs.push('Frekuensi harus dipilih.')
+    if (!period || !/^\d{4}(-\d{2})?$/.test(period)) errs.push('Periode harus YYYY-MM atau YYYY.')
+    if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) errs.push('Tanggal jatuh tempo harus YYYY-MM-DD.')
     if (errs.length > 0) { setValidationErrors(errs); return false }
     return true
   }
@@ -235,7 +240,8 @@ export function DueCreate({
         is_voluntary: form.is_voluntary,
       }
 
-      await apiCreateDue(pair.accessToken, body)
+      const due = await apiCreateDue(pair.accessToken, body)
+      await apiGenerateBills(pair.accessToken, { due_id: due.id, period, due_date: dueDate }, crypto.randomUUID())
       handleSave()
       handleClose()
     } catch (err) {
@@ -292,6 +298,29 @@ export function DueCreate({
             </div>
           )}
           <DueFormFields form={form} onChange={handleChange} disabled={loading} />
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="df-period-value">Periode</label>
+            <input id="df-period-value" className="sf-form-input" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="YYYY-MM / YYYY" disabled={loading} />
+          </div>
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="df-due-date">Tanggal Jatuh Tempo</label>
+            <input
+              id="df-due-date"
+              className="sf-form-input"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              onClick={(e) => {
+                try {
+                  (e.currentTarget as HTMLInputElement).showPicker?.()
+                } catch {
+                  // Fallback for browsers that do not support showPicker or restrict invocation
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+              disabled={loading}
+            />
+          </div>
         </ModalBody>
         <ModalFooter>
           <button type="button" className="sf-btn-ghost" onClick={handleClose} disabled={loading}>

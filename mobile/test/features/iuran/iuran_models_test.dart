@@ -337,16 +337,16 @@ void main() {
   // ─── formatRupiah ─────────────────────────────────────────────────────
 
   group('formatRupiah', () {
-    test('formats 50000 as "Rp 50.000"', () {
-      expect(formatRupiah(50000), equals('Rp 50.000'));
+    test('formats 50000 as "Rp50.000"', () {
+      expect(formatRupiah(50000), equals('Rp50.000'));
     });
 
-    test('formats 0 as "Rp 0"', () {
-      expect(formatRupiah(0), equals('Rp 0'));
+    test('formats 0 as "Rp0"', () {
+      expect(formatRupiah(0), equals('Rp0'));
     });
 
-    test('formats 1000000 as "Rp 1.000.000"', () {
-      expect(formatRupiah(1000000), equals('Rp 1.000.000'));
+    test('formats 1000000 as "Rp1.000.000"', () {
+      expect(formatRupiah(1000000), equals('Rp1.000.000'));
     });
   });
 

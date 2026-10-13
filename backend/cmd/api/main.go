@@ -615,6 +615,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 
 		// Self-submitted payments by warga or staff
 		r.Post("/api/v1/payments", finH.CreatePayment)
+		r.Post("/api/v1/payments/multi-period", finH.CreateMultiPeriodPayment)
 		r.Post("/api/v1/payments/{id}/proof", finH.UploadPaymentProof)
 	})
 

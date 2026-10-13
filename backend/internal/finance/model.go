@@ -226,6 +226,40 @@ type VerifyPaymentResult struct {
 	OverpaymentRejected bool
 }
 
+// PaymentAllocation links a payment to the specific bill portion it covers.
+type PaymentAllocation struct {
+	ID        string    `json:"id"`
+	PaymentID string    `json:"payment_id"`
+	BillID    string    `json:"bill_id"`
+	Amount    string    `json:"amount"` // String decimal
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// CreateMultiPeriodPaymentInput describes a multi-period payment spanning multiple bills.
+type CreateMultiPeriodPaymentInput struct {
+	BillIDs  []string      `json:"bill_ids"`
+	Allocations []AllocationEntry `json:"allocations"`
+	Method            PaymentMethod `json:"method"`
+	ProofPath         *string       `json:"proof_path,omitempty"`
+	Notes             *string       `json:"notes,omitempty"`
+	ProofOriginalName *string       `json:"proof_original_name,omitempty"`
+	ProofMimeType     *string       `json:"proof_mime_type,omitempty"`
+	ProofSizeBytes    *int64        `json:"proof_size_bytes,omitempty"`
+	ProofUploadedBy   *string       `json:"proof_uploaded_by,omitempty"`
+}
+
+// AllocationEntry maps a bill to its allocated amount within a multi-period payment.
+type AllocationEntry struct {
+	BillID string `json:"bill_id"`
+	Amount string `json:"amount"`
+}
+
+// MultiPeriodPaymentResult carries the outcome of CreateMultiPeriodPayment.
+type MultiPeriodPaymentResult struct {
+	Payment         *Payment            `json:"payment"`
+	Allocations     []*PaymentAllocation `json:"allocations"`
+}
+
 // TransactionType represents ledger entry type.
 type TransactionType string
 

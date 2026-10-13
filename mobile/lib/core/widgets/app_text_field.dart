@@ -13,6 +13,8 @@ class AppTextField extends StatelessWidget {
   final Widget? suffixIcon;
   final AutovalidateMode? autovalidateMode;
   final ValueChanged<String>? onChanged;
+  final VoidCallback? onTap;
+  final bool readOnly;
   final List<TextInputFormatter>? inputFormatters;
 
   const AppTextField({
@@ -27,6 +29,8 @@ class AppTextField extends StatelessWidget {
     this.suffixIcon,
     this.autovalidateMode,
     this.onChanged,
+    this.onTap,
+    this.readOnly = false,
     this.inputFormatters,
   });
 
@@ -37,6 +41,8 @@ class AppTextField extends StatelessWidget {
       obscureText: obscureText,
       keyboardType: keyboardType,
       autovalidateMode: autovalidateMode ?? AutovalidateMode.disabled,
+      readOnly: readOnly,
+      onTap: onTap,
       validator: validator,
       onChanged: onChanged,
       inputFormatters: inputFormatters,

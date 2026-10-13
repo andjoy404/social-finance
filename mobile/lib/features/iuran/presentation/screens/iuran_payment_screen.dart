@@ -12,6 +12,8 @@ import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
+import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/utils/rupiah_formatter.dart';
 
 import '../../data/iuran_api_models.dart';
 import '../../data/iuran_models.dart';
@@ -40,6 +42,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   String? _proofFileName;
   bool _saving = false;
   String? _error;
+  bool _nominalPrefilled = false;
 
   @override
   void initState() {
@@ -99,7 +102,11 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
     });
 
     try {
-      final amount = int.parse(_nominalCtrl.text.trim());
+      final amount = parseRupiahInput(_nominalCtrl.text);
+      if (amount == null) {
+        if (mounted) setState(() => _error = 'Nominal pembayaran harus berupa angka yang valid.');
+        return;
+      }
       final repo = ref.read(iuranRepositoryProvider);
 
       final payment = await repo.createPayment(
@@ -122,9 +129,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         } catch (proofErr) {
           // Payment is created; notify user about proof upload retry if needed
           if (mounted) {
+            final msg = proofErr is ServerException
+                ? proofErr.message
+                : proofErr.toString();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Pembayaran tersimpan, namun bukti gagal diunggah: $proofErr'),
+                content: Text('Pembayaran tersimpan, namun bukti gagal diunggah: $msg'),
                 backgroundColor: AppColors.warning,
               ),
             );
@@ -154,8 +164,10 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       }
     } catch (e) {
       if (mounted) {
+        final repo = ref.read(iuranRepositoryProvider);
+        final mapped = repo.mapDioError(e);
         setState(() {
-          _error = e.toString();
+          _error = mapped.message;
           _saving = false;
         });
       }
@@ -165,14 +177,22 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   bool _validate() {
     if (!_formKey.currentState!.validate()) return false;
 
-    final amount = int.tryParse(_nominalCtrl.text.trim());
+    final amount = parseRupiahInput(_nominalCtrl.text);
     if (amount != null) {
       final state = ref.read(billDetailProvider(widget.billId));
       if (state is AsyncData<IuranBill?> && state.value != null) {
-        final capacity = state.value!.paymentCapacity;
+        final bill = state.value!;
+        final capacity = bill.paymentCapacity;
         if (amount > capacity && capacity > 0) {
           if (mounted) {
             setState(() => _error = 'Nominal melebihi sisa tagihan.');
+          }
+          return false;
+        }
+        if (bill.requiresFullPayment && amount != capacity && capacity > 0) {
+          if (mounted) {
+            setState(() => _error =
+                'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(capacity)}).');
           }
           return false;
         }
@@ -252,8 +272,27 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    // Listen to bill detail once to pre-fill nominal with remaining balance if empty
+    ref.listen<AsyncValue<IuranBill?>>(billDetailProvider(widget.billId), (prev, next) {
+      if (!_nominalPrefilled && next is AsyncData<IuranBill?> && next.value != null) {
+        if (_nominalCtrl.text.isEmpty && next.value!.paymentCapacity > 0) {
+          _nominalPrefilled = true;
+          _nominalCtrl.text = RupiahInputFormatter.formatForInput(next.value!.paymentCapacity);
+        }
+      }
+    });
+
     // Watch bill detail from API
     final billState = ref.watch(billDetailProvider(widget.billId));
+    if (!_nominalPrefilled &&
+        billState is AsyncData<IuranBill?> &&
+        billState.value != null &&
+        _nominalCtrl.text.isEmpty &&
+        billState.value!.paymentCapacity > 0) {
+      _nominalPrefilled = true;
+      _nominalCtrl.text =
+          RupiahInputFormatter.formatForInput(billState.value!.paymentCapacity);
+    }
 
     return PopScope(
       canPop: false,
@@ -443,6 +482,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                         _selectedMethod = selection.first;
                       });
                     },
+                    style: SegmentedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.lightBorder),
+                    ),
                   ),
                 ],
               ),
@@ -454,22 +496,30 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 label: 'Nominal Pembayaran',
                 hintText: 'Masukkan nominal',
                 keyboardType: TextInputType.number,
+                inputFormatters: [RupiahInputFormatter()],
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'Nominal harus diisi.';
                   }
-                  final amount = int.tryParse(value.trim());
+                  final amount = parseRupiahInput(value);
                   if (amount == null || amount <= 0) {
-                    return 'Nominal harus berupa angka yang valid.';
+                    return 'Nominal harus berupa angka.';
                   }
                   final state = ref.read(
                     billDetailProvider(widget.billId),
                   );
                   if (state is AsyncData<IuranBill?> &&
-                      state.value != null &&
-                      amount > state.value!.paymentCapacity &&
-                      state.value!.paymentCapacity > 0) {
-                    return 'Nominal melebihi sisa tagihan.';
+                      state.value != null) {
+                    final bill = state.value!;
+                    if (amount > bill.paymentCapacity &&
+                        bill.paymentCapacity > 0) {
+                      return 'Nominal melebihi sisa tagihan.';
+                    }
+                    if (bill.requiresFullPayment &&
+                        amount != bill.paymentCapacity &&
+                        bill.paymentCapacity > 0) {
+                      return 'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(bill.paymentCapacity)}).';
+                    }
                   }
                   return null;
                 },

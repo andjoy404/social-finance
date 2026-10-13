@@ -15,15 +15,23 @@ import 'iuran_api_models.dart';
 /// Uses `dart:math` only — no external uuid package in pubspec.yaml.
 String _generateUuid() {
   final r = Random();
-  String hex(int count) => List.generate(
-        count,
-        (_) => '0123456789abcdef'[r.nextInt(16)],
-      ).join();
+  String hex(int count) =>
+      List.generate(count, (_) => '0123456789abcdef'[r.nextInt(16)]).join();
 
   // 8-4-4-4-12 format
   return '${hex(8)}-${hex(4)}-4${hex(3)}-'
       '${'89ab'[r.nextInt(4)]}${hex(3)}-'
       '${hex(12)}';
+}
+
+class GenerateBillsResult {
+  final int generatedCount;
+  final List<BackendBill> bills;
+
+  const GenerateBillsResult({
+    required this.generatedCount,
+    required this.bills,
+  });
 }
 
 class IuranApiClient {
@@ -38,10 +46,7 @@ class IuranApiClient {
     final query = <String, dynamic>{};
     if (isActive != null) query['is_active'] = isActive ? 'true' : 'false';
 
-    final response = await dio.get(
-      '/api/v1/dues',
-      queryParameters: query,
-    );
+    final response = await dio.get('/api/v1/dues', queryParameters: query);
 
     final data = response.data;
     if (data is! List) return [];
@@ -72,10 +77,7 @@ class IuranApiClient {
       body['is_voluntary'] = isVoluntary;
     }
 
-    final response = await dio.post(
-      '/api/v1/dues',
-      data: body,
-    );
+    final response = await dio.post('/api/v1/dues', data: body);
 
     final bodyMap = response.data;
     if (bodyMap is! Map) throw const FormatException('Unexpected response');
@@ -95,8 +97,10 @@ class IuranApiClient {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (amount != null) body['amount'] = amount;
-    if (periodType != null) body['period_type'] = _serializePeriodType(periodType);
-    if (paymentRule != null) body['payment_rule'] = _serializePaymentRule(paymentRule);
+    if (periodType != null)
+      body['period_type'] = _serializePeriodType(periodType);
+    if (paymentRule != null)
+      body['payment_rule'] = _serializePaymentRule(paymentRule);
     if (isVoluntary != null) body['is_voluntary'] = isVoluntary;
     if (isActive != null) body['is_active'] = isActive;
 
@@ -150,39 +154,55 @@ class IuranApiClient {
   }
 
   /// POST /api/v1/bills/generate — with Idempotency-Key
-  Future<List<BackendBill>> generateBills({
+  Future<GenerateBillsResult> generateBills({
     required String dueId,
     required String period,
     required String dueDate,
+    required String idempotencyKey,
   }) async {
-    final idempotencyKey = _generateUuid();
-
     final response = await dio.post(
       '/api/v1/bills/generate',
-      data: {
-        'due_id': dueId,
-        'period': period,
-        'due_date': dueDate,
-      },
-      options: Options(
-        headers: {'Idempotency-Key': idempotencyKey},
-      ),
+      data: {'due_id': dueId, 'period': period, 'due_date': dueDate},
+      options: Options(headers: {'Idempotency-Key': idempotencyKey}),
     );
 
-    final data = response.data;
-    if (data is List) {
-      return data
-          .whereType<Map>()
-          .map((e) => BackendBill.fromJson(e.cast<String, dynamic>()))
-          .toList();
+    return _parseGenerateBillsResponse(response.data);
+  }
+
+  /// Parses the actual backend response: {generated_count, bills}.
+  GenerateBillsResult parseGenerateBillsResponse(dynamic data) {
+    return _parseGenerateBillsResponse(data);
+  }
+
+  GenerateBillsResult _parseGenerateBillsResponse(dynamic data) {
+    if (data is! Map) {
+      throw const FormatException('Unexpected generate bills response');
     }
-    if (data is Map && data['data'] is List) {
-      return (data['data'] as List)
-          .whereType<Map>()
-          .map((e) => BackendBill.fromJson(e.cast<String, dynamic>()))
-          .toList();
+
+    final rawCount = data['generated_count'];
+    final rawBills = data['bills'];
+    if (rawCount is! num || rawBills is! List) {
+      throw const FormatException('Malformed generate bills response');
     }
-    return [];
+
+    final bills = <BackendBill>[];
+    for (final item in rawBills) {
+      if (item is! Map) {
+        throw const FormatException(
+          'Malformed bill in generate bills response',
+        );
+      }
+      bills.add(BackendBill.fromJson(item.cast<String, dynamic>()));
+    }
+
+    final generatedCount = rawCount.toInt();
+    if (generatedCount < 0 || generatedCount != bills.length) {
+      throw const FormatException(
+        'generated_count does not match bills response',
+      );
+    }
+
+    return GenerateBillsResult(generatedCount: generatedCount, bills: bills);
   }
 
   /// DELETE /api/v1/bills/{id} — cancel bill
@@ -206,10 +226,7 @@ class IuranApiClient {
     if (billId != null && billId.isNotEmpty) query['bill_id'] = billId;
     if (status != null && status.isNotEmpty) query['status'] = status;
 
-    final response = await dio.get(
-      '/api/v1/payments',
-      queryParameters: query,
-    );
+    final response = await dio.get('/api/v1/payments', queryParameters: query);
     return _parsePaginatedPayments(response.data);
   }
 
@@ -240,9 +257,7 @@ class IuranApiClient {
         if (notes != null && notes.isNotEmpty) 'notes': notes,
         if (proofPath != null && proofPath.isNotEmpty) 'proof_path': proofPath,
       },
-      options: Options(
-        headers: {'Idempotency-Key': idempotencyKey},
-      ),
+      options: Options(headers: {'Idempotency-Key': idempotencyKey}),
     );
 
     final data = response.data;
@@ -280,10 +295,7 @@ class IuranApiClient {
     required String filename,
   }) async {
     final formData = FormData.fromMap({
-      'file': MultipartFile.fromBytes(
-        fileBytes,
-        filename: filename,
-      ),
+      'file': MultipartFile.fromBytes(fileBytes, filename: filename),
     });
 
     final response = await dio.post(
@@ -301,9 +313,7 @@ class IuranApiClient {
   Future<Uint8List> getPaymentProofBytes(String paymentId) async {
     final response = await dio.get<List<int>>(
       '/api/v1/payments/$paymentId/proof',
-      options: Options(
-        responseType: ResponseType.bytes,
-      ),
+      options: Options(responseType: ResponseType.bytes),
     );
 
     if (response.data == null) {
@@ -346,7 +356,16 @@ class IuranApiClient {
   // ─── Helpers ────────────────────────────────────────────────────────
 
   PaginatedResponse<BackendBill> _parsePaginatedBills(dynamic raw) {
-    if (raw is! Map) return const PaginatedResponse(data: [], pagination: PaginationInfo(page: 1, pageSize: 20, total: 0, totalPages: 0));
+    if (raw is! Map)
+      return const PaginatedResponse(
+        data: [],
+        pagination: PaginationInfo(
+          page: 1,
+          pageSize: 20,
+          total: 0,
+          totalPages: 0,
+        ),
+      );
 
     final items = <BackendBill>[];
     final rawList = raw['data'];
@@ -371,7 +390,16 @@ class IuranApiClient {
   }
 
   PaginatedResponse<BackendPayment> _parsePaginatedPayments(dynamic raw) {
-    if (raw is! Map) return const PaginatedResponse(data: [], pagination: PaginationInfo(page: 1, pageSize: 20, total: 0, totalPages: 0));
+    if (raw is! Map)
+      return const PaginatedResponse(
+        data: [],
+        pagination: PaginationInfo(
+          page: 1,
+          pageSize: 20,
+          total: 0,
+          totalPages: 0,
+        ),
+      );
 
     final items = <BackendPayment>[];
     final rawList = raw['data'];

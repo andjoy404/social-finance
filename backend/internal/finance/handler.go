@@ -952,6 +952,110 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(targetW, http.StatusCreated, p)
 }
 
+func (h *Handler) CreateMultiPeriodPayment(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
+	if handled {
+		return
+	}
+	defer finish()
+
+	targetW := w
+	if rec != nil {
+		targetW = rec
+	}
+
+	var in CreateMultiPeriodPaymentInput
+	var uploadedKey string
+
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			httpx.WriteValidationError(targetW, "invalid multipart form or file too large (max 5MB)", nil)
+			return
+		}
+
+		billIDsStr := r.FormValue("bill_ids")
+		if billIDsStr != "" {
+			_ = json.Unmarshal([]byte(billIDsStr), &in.BillIDs)
+		}
+
+		allocationsStr := r.FormValue("allocations")
+		if allocationsStr != "" {
+			_ = json.Unmarshal([]byte(allocationsStr), &in.Allocations)
+		}
+
+		in.Method = PaymentMethod(r.FormValue("method"))
+		if notes := r.FormValue("notes"); notes != "" {
+			in.Notes = &notes
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			file, header, err = r.FormFile("proof")
+		}
+		if err == nil {
+			defer file.Close()
+			if header.Size > 0 {
+				meta, err := h.storage.UploadProof(r.Context(), ac.RTID, "multi", header.Filename, file, header.Size)
+				if err != nil {
+					httpx.WriteValidationError(targetW, err.Error(), nil)
+					return
+				}
+				uploadedKey = meta.Key
+				in.ProofPath = &meta.Key
+				in.ProofOriginalName = &meta.OriginalName
+				in.ProofMimeType = &meta.ContentType
+				in.ProofSizeBytes = &meta.Size
+				in.ProofUploadedBy = &ac.UserID
+			}
+		}
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			httpx.WriteValidationError(targetW, "invalid request body", nil)
+			return
+		}
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		if uploadedKey != "" {
+			_ = h.storage.DeleteProof(r.Context(), uploadedKey)
+		}
+		httpx.WriteInternalServerError(targetW, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	p, err := h.svc.CreateMultiPeriodPayment(r.Context(), tx, ac.RTID, ac.UserID, string(ac.TenantRole), in)
+	if err != nil {
+		if uploadedKey != "" {
+			_ = h.storage.DeleteProof(r.Context(), uploadedKey)
+		}
+		httpx.WriteValidationError(targetW, err.Error(), nil)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		if uploadedKey != "" {
+			_ = h.storage.DeleteProof(r.Context(), uploadedKey)
+		}
+		httpx.WriteInternalServerError(targetW, "commit error")
+		return
+	}
+
+	writeJSON(targetW, http.StatusCreated, p)
+}
+
 func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 	ac, ok := getAuthContext(r)
 	if !ok {

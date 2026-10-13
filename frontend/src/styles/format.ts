@@ -1,3 +1,3 @@
 export function formatRupiah(n: number): string {
-  return new Intl.NumberFormat('id-ID').format(n)
+  return `Rp${new Intl.NumberFormat('id-ID').format(n)}`
 }

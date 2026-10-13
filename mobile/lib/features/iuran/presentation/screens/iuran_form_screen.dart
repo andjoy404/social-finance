@@ -23,11 +23,16 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
+  final _periodCtrl = TextEditingController();
+  final _dueDateCtrl = TextEditingController();
+  BackendDue? _createdDue;
 
   DuePeriodType _periodType = DuePeriodType.monthly;
   PaymentRule _paymentRule = PaymentRule.full;
   bool _isVoluntary = false;
   bool _saving = false;
+  bool _dueCreated = false;
+  String _generationKey = '';
   String? _error;
   List<String> _validationErrors = [];
 
@@ -35,14 +40,53 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
   void initState() {
     super.initState();
     // Auto-focus amount field with sensible default
-    _amountCtrl.text = '';
+    final now = DateTime.now();
+    _periodCtrl.text = _formatPeriod(now, _periodType);
+    _dueDateCtrl.text = _formatDate(now);
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _amountCtrl.dispose();
+    _periodCtrl.dispose();
+    _dueDateCtrl.dispose();
     super.dispose();
+  }
+
+  String _formatDate(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+  String _formatPeriod(DateTime date, DuePeriodType type) {
+    switch (type) {
+      case DuePeriodType.monthly:
+        return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}';
+      case DuePeriodType.yearly:
+        return date.year.toString();
+      case DuePeriodType.oneTime:
+        return _formatDate(date);
+    }
+  }
+
+  void _setPeriodForType(DuePeriodType type) {
+    final parsed = DateTime.tryParse(_dueDateCtrl.text) ?? DateTime.now();
+    _periodCtrl.text = _formatPeriod(parsed, type);
+  }
+
+  Future<void> _pickDueDate() async {
+    final initial = DateTime.tryParse(_dueDateCtrl.text) ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      setState(() {
+        _dueDateCtrl.text = _formatDate(picked);
+        _setPeriodForType(_periodType);
+      });
+    }
   }
 
   bool _validate() {
@@ -63,8 +107,34 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
       errors.add('Nominal sumbangan sukarela harus nol atau lebih.');
     }
 
+    final period = _periodCtrl.text.trim();
+    if (period.isEmpty) {
+      errors.add('Periode harus diisi.');
+    } else {
+      final validPeriod = switch (_periodType) {
+        DuePeriodType.monthly => RegExp(r'^\d{4}-\d{2}$').hasMatch(period),
+        DuePeriodType.yearly => RegExp(r'^\d{4}$').hasMatch(period),
+        DuePeriodType.oneTime => RegExp(
+          r'^\d{4}-\d{2}-\d{2}$',
+        ).hasMatch(period),
+      };
+      if (!validPeriod) errors.add('Format periode tidak sesuai frekuensi.');
+    }
+
+    if (DateTime.tryParse(_dueDateCtrl.text.trim()) == null ||
+        !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(_dueDateCtrl.text.trim())) {
+      errors.add('Tanggal jatuh tempo harus berformat YYYY-MM-DD.');
+    }
+
     setState(() => _validationErrors = errors);
     return errors.isEmpty;
+  }
+
+  String _generateOperationKey(String dueId) {
+    if (_generationKey.isEmpty) {
+      _generationKey = 'iuran-$dueId-${DateTime.now().microsecondsSinceEpoch}';
+    }
+    return _generationKey;
   }
 
   Future<void> _save() async {
@@ -79,7 +149,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
       final amountText = _amountCtrl.text.trim().replaceAll('.', '');
       final amount = int.tryParse(amountText) ?? 0;
 
-      await ref.read(iuranRepositoryProvider).createDue(
+      final due = _createdDue ??= await ref
+          .read(iuranRepositoryProvider)
+          .createDue(
             name: _nameCtrl.text.trim(),
             amount: amount,
             periodType: _periodType,
@@ -87,13 +159,29 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
             isVoluntary: _isVoluntary,
           );
 
-      // Refresh dues list
-      await ref.read(duesProvider.notifier).refresh();
+      _dueCreated = true;
+      final generated = await ref
+          .read(iuranRepositoryProvider)
+          .generateBills(
+            dueId: due.id,
+            period: _periodCtrl.text.trim(),
+            dueDate: _dueDateCtrl.text.trim(),
+            idempotencyKey: _generateOperationKey(due.id),
+          );
+
+      await Future.wait([
+        ref.read(duesProvider.notifier).refresh(),
+        ref.read(billsProvider.notifier).refresh(),
+      ]);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Iuran berhasil ditambahkan.'),
+          SnackBar(
+            content: Text(
+              generated.generatedCount == 0
+                  ? 'Iuran berhasil disimpan. Belum ada tagihan baru yang dibuat.'
+                  : 'Iuran dan ${generated.generatedCount} tagihan berhasil dibuat.',
+            ),
             backgroundColor: AppColors.success,
           ),
         );
@@ -102,7 +190,11 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     } catch (e) {
       final error = ref.read(iuranRepositoryProvider).mapDioError(e);
       if (mounted) {
-        setState(() => _error = error.message);
+        setState(
+          () => _error = _dueCreated
+              ? 'Iuran berhasil disimpan, tetapi tagihan belum berhasil dibuat. Silakan coba proses pembuatan tagihan kembali.'
+              : error.message,
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -155,8 +247,8 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                     side: BorderSide(color: AppColors.danger),
                     backgroundColor:
                         Theme.of(dialogContext).brightness == Brightness.dark
-                            ? AppColors.darkDangerSoft
-                            : AppColors.danger.withValues(alpha: 0.20),
+                        ? AppColors.darkDangerSoft
+                        : AppColors.danger.withValues(alpha: 0.20),
                     foregroundColor: AppColors.danger,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),
@@ -251,10 +343,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                '• ',
-                                style: TextStyle(fontSize: 16),
-                              ),
+                              const Text('• ', style: TextStyle(fontSize: 16)),
                               Expanded(child: Text(e)),
                             ],
                           ),
@@ -352,9 +441,10 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                     ],
                     selected: {_periodType},
                     onSelectionChanged: (selected) {
-                      setState(
-                        () => _periodType = selected.first,
-                      );
+                      setState(() {
+                        _periodType = selected.first;
+                        _setPeriodForType(_periodType);
+                      });
                     },
                     style: SegmentedButton.styleFrom(
                       backgroundColor: isDark
@@ -370,6 +460,31 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              const SizedBox(height: AppSpacing.lg),
+
+              // Periode
+              AppTextField(
+                controller: _periodCtrl,
+                label: 'Periode',
+                hintText: 'YYYY-MM, YYYY, atau YYYY-MM-DD',
+                onChanged: (_) {
+                  if (_validationErrors.isNotEmpty) {
+                    setState(() => _validationErrors = []);
+                  }
+                },
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Tanggal jatuh tempo
+              AppTextField(
+                controller: _dueDateCtrl,
+                label: 'Tanggal Jatuh Tempo',
+                hintText: 'YYYY-MM-DD',
+                readOnly: true,
+                onTap: _pickDueDate,
               ),
               const SizedBox(height: AppSpacing.lg),
 
@@ -399,9 +514,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                     ],
                     selected: {_paymentRule},
                     onSelectionChanged: (selected) {
-                      setState(
-                        () => _paymentRule = selected.first,
-                      );
+                      setState(() => _paymentRule = selected.first);
                     },
                     style: SegmentedButton.styleFrom(
                       backgroundColor: isDark
@@ -435,7 +548,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                     children: [
                       Switch(
                         value: _isVoluntary,
-                        onChanged: _saving ? null : (v) => setState(() => _isVoluntary = v),
+                        onChanged: _saving
+                            ? null
+                            : (v) => setState(() => _isVoluntary = v),
                         activeColor: AppColors.accent,
                       ),
                       const SizedBox(width: AppSpacing.sm),
@@ -445,9 +560,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                               ? 'Aktif — Nominal Rp0 diperbolehkan'
                               : 'Non-aktif — Nominal harus di atas Rp0',
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            color: _isVoluntary
-                                ? AppColors.success
-                                : null,
+                            color: _isVoluntary ? AppColors.success : null,
                           ),
                         ),
                       ),
@@ -474,13 +587,15 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       child: SizedBox(
                         height: 48,
                         child: OutlinedButton(
+                          key: const ValueKey('iuran-save-button'),
                           onPressed: _saving ? null : _save,
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: AppColors.accent),
                             foregroundColor: AppColors.accent,
                             shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.base),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
+                              ),
                             ),
                           ),
                           child: _saving
@@ -496,8 +611,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                                   ),
                                 )
                               : const Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.center,
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(Icons.save_outlined, size: 18),
                                     SizedBox(width: 6),

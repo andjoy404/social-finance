@@ -43,7 +43,19 @@ class IuranRepository {
     );
   }
 
-  // ─── Bills (with paidAmount computation) ────────────────────────────
+  Future<GenerateBillsResult> generateBills({
+    required String dueId,
+    required String period,
+    required String dueDate,
+    required String idempotencyKey,
+  }) async {
+    return apiClient.generateBills(
+      dueId: dueId,
+      period: period,
+      dueDate: dueDate,
+      idempotencyKey: idempotencyKey,
+    );
+  }
 
   /// Fetch paginated bills with computed paidAmount per bill.
   ///
@@ -71,34 +83,27 @@ class IuranRepository {
       final payments = await apiClient.listPayments(billId: bill.id);
       final approvedTotal = payments.data
           .where((p) => p.status == PaymentStatus.approved)
-          .fold<int>(
-            0,
-            (sum, p) => sum + moneyToDisplayRupiah(p.amount),
-          );
+          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
       final pendingTotal = payments.data
           .where((p) => p.status == PaymentStatus.pending)
-          .fold<int>(
-            0,
-            (sum, p) => sum + moneyToDisplayRupiah(p.amount),
-          );
+          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
       final rejectedTotal = payments.data
           .where((p) => p.status == PaymentStatus.rejected)
-          .fold<int>(
-            0,
-            (sum, p) => sum + moneyToDisplayRupiah(p.amount),
-          );
+          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
 
-      uiBills.add(IuranBill(
-        id: bill.id,
-        householdName: bill.headName ?? '—',
-        iuranType: bill.dueName ?? '—',
-        periode: formatPeriod(bill.period),
-        nominal: moneyToDisplayRupiah(bill.amount),
-        paidAmount: approvedTotal,
-        pendingAmount: pendingTotal,
-        rejectedAmount: rejectedTotal,
-        status: _mapBillStatus(bill.status),
-      ));
+      uiBills.add(
+        IuranBill(
+          id: bill.id,
+          householdName: bill.headName ?? '—',
+          iuranType: bill.dueName ?? '—',
+          periode: formatPeriod(bill.period),
+          nominal: moneyToDisplayRupiah(bill.amount),
+          paidAmount: approvedTotal,
+          pendingAmount: pendingTotal,
+          rejectedAmount: rejectedTotal,
+          status: _mapBillStatus(bill.status),
+        ),
+      );
     }
 
     return PaginatedResponse<IuranBill>(
@@ -145,22 +150,13 @@ class IuranRepository {
     final payments = await apiClient.listPayments(billId: bill.id);
     final approvedTotal = payments.data
         .where((p) => p.status == PaymentStatus.approved)
-        .fold<int>(
-          0,
-          (sum, p) => sum + moneyToDisplayRupiah(p.amount),
-        );
+        .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
     final pendingTotal = payments.data
         .where((p) => p.status == PaymentStatus.pending)
-        .fold<int>(
-          0,
-          (sum, p) => sum + moneyToDisplayRupiah(p.amount),
-        );
+        .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
     final rejectedTotal = payments.data
         .where((p) => p.status == PaymentStatus.rejected)
-        .fold<int>(
-          0,
-          (sum, p) => sum + moneyToDisplayRupiah(p.amount),
-        );
+        .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
 
     return IuranBill(
       id: bill.id,
@@ -285,7 +281,9 @@ class IuranRepository {
     }
 
     if (error is FormatException) {
-      return ServerException(message: 'Format respons dari server tidak sesuai.');
+      return ServerException(
+        message: 'Format respons dari server tidak sesuai.',
+      );
     }
 
     if (error is ApiConfigException) {

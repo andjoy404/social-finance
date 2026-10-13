@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeftOutlined,
   DollarOutlined,
@@ -997,8 +997,9 @@ export function IuranDetail({
 
   const isModal = billId !== undefined
   const open = openProp ?? true
-  const handleClose = onCloseProp ?? (() => window.history.back())
-  const onPayment = onPaymentProp ?? (() => { window.history.back(); window.location.href = `/iuran/${effectiveId}/pembayaran` })
+  const navigate = useNavigate()
+  const handleClose = onCloseProp ?? (() => navigate('/iuran'))
+  const onPayment = onPaymentProp ?? (() => { navigate(`/iuran/${effectiveId}/pembayaran`) })
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1175,353 +1176,108 @@ export function IuranDetail({
 
   if (isModal) {
     return (
-      <Modal
-        open={open}
-        onClose={handleClose}
-        width={720}
-        overlayClassName="sf-modal-overlay-detail"
-      >
-        <ModalHeader
-          title="Detail Tagihan"
-          subtitle={
-            bill
-              ? `${bill.iuranType} · ${formatFullPeriodeLabel(bill.periode)}`
-              : `ID: ${effectiveId}`
-          }
+      <>
+        <Modal
+          open={open}
           onClose={handleClose}
-        />
-        <ModalBody>
-          {loading && (
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              padding: 'var(--sp-xl)',
-              color: 'var(--sf-text-muted)',
-              fontSize: '13px',
-            }}>
-              Memuat detail tagihan...
-            </div>
-          )}
-          {error && (
-            <div style={{
-              background: 'var(--sf-danger-soft)',
-              color: 'var(--sf-danger)',
-              border: '1px solid rgba(242,73,92,0.3)',
-              borderRadius: 'var(--sf-radius-sm)',
-              padding: '10px 14px',
-              fontSize: '13px',
-            }}>
-              {error}
-            </div>
-          )}
-          {notFound && (
-            <div style={{
-              textAlign: 'center',
-              padding: 'var(--sp-xl) 0',
-              color: 'var(--sf-text-muted)',
-              fontSize: '13px',
-            }}>
-              Tagihan iuran tidak ditemukan.
-            </div>
-          )}
-          {!loading && !error && !notFound && bill && (
-            <>
-              {/* Header row with status badge */}
+          width={720}
+        >
+          <ModalHeader
+            title="Detail Tagihan"
+            subtitle={
+              bill
+                ? `${bill.iuranType} · ${formatFullPeriodeLabel(bill.periode)}`
+                : `ID: ${effectiveId}`
+            }
+            onClose={handleClose}
+          />
+          <ModalBody>
+            {loading && (
               <div style={{
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '16px',
+                justifyContent: 'center',
+                padding: 'var(--sp-xl)',
+                color: 'var(--sf-text-muted)',
+                fontSize: '13px',
               }}>
-                <div>
-                  <div style={{
-                    fontSize: '15px',
-                    fontWeight: 700,
-                    color: 'var(--sf-text)',
-                  }}>
-                    {bill.householdName}
-                  </div>
-                  <div style={{
-                    fontSize: '12px',
-                    color: 'var(--sf-text-muted)',
-                    marginTop: '2px',
-                  }}>
-                    {bill.iuranType} · {formatFullPeriodeLabel(bill.periode)}
-                  </div>
-                </div>
-                <StatusBadge status={bill.status} />
+                Memuat detail tagihan...
               </div>
-
-              <DetailContent
-                bill={bill}
-                remaining={remaining}
-                onPendingVerify={(payment) => setVerifyingPayment(payment)}
-                onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
-                onPaymentDetail={(payment) => setSelectedPaymentDetail(payment)}
-              />
-            </>
-          )}
-        </ModalBody>
-
-        {/* Footer actions */}
-        {!loading && !error && !notFound && bill && (
-          <ModalFooter>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              width: '100%',
-            }}>
-              <button
-                type="button"
-                onClick={handleClose}
-                style={{
-                  padding: '8px 20px',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: 'var(--sf-text)',
-                  background: 'var(--sf-surface)',
-                  border: '1px solid var(--sf-border)',
-                  borderRadius: 'var(--sf-radius-sm)',
-                  cursor: 'pointer',
-                }}
-              >
-                Tutup
-              </button>
-
-              {remaining > 0 && (
-                <button
-                  type="button"
-                  onClick={() => onPayment(bill.id)}
-                  style={{
-                    padding: '8px 20px',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--sf-accent)',
-                    background: 'var(--sf-accent-soft)',
-                    border: `1px solid var(--sf-accent)`,
-                    borderRadius: 'var(--sf-radius-sm)',
-                    cursor: 'pointer',
-                    transition: 'background 200ms, border-color 200ms',
-                  }}
-                >
-                  Bayar Sekarang
-                </button>
-              )}
-            </div>
-          </ModalFooter>
-        )}
-
-        {/* ── Verification popup ─────────────────────────────────── */}
-        {verifyingPayment && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(0,0,0,0.4)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 10,
-              padding: '20px',
-            }}
-            onClick={() => setVerifyingPayment(null)}
-          >
-            <div
-              style={{
-                background: 'var(--sf-surface)',
-                borderRadius: 'var(--sf-radius-md)',
-                border: '1px solid var(--sf-border)',
-                padding: '20px',
-                width: '100%',
-                maxWidth: '480px',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
+            )}
+            {error && (
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '16px',
-              }}>
-                <div style={{
-                  fontSize: '15px',
-                  fontWeight: 700,
-                  color: 'var(--sf-text)',
-                }}>
-                  Verifikasi Pembayaran
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setVerifyingPayment(null)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--sf-text-muted)',
-                    cursor: 'pointer',
-                    fontSize: '18px',
-                    padding: '4px 8px',
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Payment info */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '12px',
+                background: 'var(--sf-danger-soft)',
+                color: 'var(--sf-danger)',
+                border: '1px solid rgba(242,73,92,0.3)',
                 borderRadius: 'var(--sf-radius-sm)',
-                background: 'var(--sf-warning-soft)',
-                border: '1px solid var(--sf-warning)',
-                marginBottom: '16px',
+                padding: '10px 14px',
+                fontSize: '13px',
               }}>
+                {error}
+              </div>
+            )}
+            {notFound && (
+              <div style={{
+                textAlign: 'center',
+                padding: 'var(--sp-xl) 0',
+                color: 'var(--sf-text-muted)',
+                fontSize: '13px',
+              }}>
+                Tagihan iuran tidak ditemukan.
+              </div>
+            )}
+            {!loading && !error && !notFound && bill && (
+              <>
+                {/* Header row with status badge */}
                 <div style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '50%',
-                  background: 'var(--sf-warning)',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  fontSize: '18px',
-                  flexShrink: 0,
-                }}>
-                  ⏳
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: '16px',
-                    fontWeight: 700,
-                    fontFamily: 'var(--sf-font-mono)',
-                    color: 'var(--sf-text)',
-                  }}>
-                    {formatRupiah(verifyingPayment.nominal)}
-                  </div>
-                  <div style={{
-                    fontSize: '12px',
-                    color: 'var(--sf-text-muted)',
-                    marginTop: '2px',
-                    lineHeight: 1.5,
-                  }}>
-                    {formatDate(verifyingPayment.paidDate)}
-                    {verifyingPayment.method ? ` · ${verifyingPayment.method === 'TRANSFER' ? 'Transfer' : 'Cash'}` : ''}
-                    {verifyingPayment.catatan && ` · ${verifyingPayment.catatan}`}
-                  </div>
-                </div>
-              </div>
-
-              {/* Proof of payment */}
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{
-                  fontSize: '12px',
-                  color: 'var(--sf-text-muted)',
-                  marginBottom: '6px',
-                  fontWeight: 500,
-                }}>
-                  Bukti Pembayaran
-                </div>
-                {verifyingPayment.proofPath ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <ProofImageThumbnail
-                      paymentId={verifyingPayment.id}
-                      onClick={() => setPreviewingProofId(verifyingPayment.id)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setPreviewingProofId(verifyingPayment.id)}
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: '12px',
-                        border: '1px solid var(--sf-border)',
-                        background: 'var(--sf-surface)',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        color: 'var(--sf-text)',
-                      }}
-                    >
-                      Lihat Bukti Ukuran Penuh
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{
-                    fontSize: '12px',
-                    color: 'var(--sf-text-muted)',
-                    fontStyle: 'italic',
-                  }}>
-                    Belum ada bukti pembayaran
-                  </div>
-                )}
-              </div>
-
-              {/* Officer notes */}
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{
-                  fontSize: '12px',
-                  color: 'var(--sf-text-muted)',
-                  marginBottom: '6px',
-                  display: 'block',
-                }}>
-                  Catatan petugas (wajib untuk Tolak, opsional untuk Terima)
-                </label>
-                <textarea
-                  value={officerNotes}
-                  onChange={(e) => setOfficerNotes(e.target.value)}
-                  placeholder="Catatan verifikasi atau persetujuan..."
-                  rows={2}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    fontSize: '12px',
-                    color: 'var(--sf-text)',
-                    background: 'var(--sf-surface-subtle)',
-                    border: '1px solid var(--sf-border)',
-                    borderRadius: 'var(--sf-radius-sm)',
-                    resize: 'vertical',
-                    fontFamily: 'inherit',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = 'var(--sf-accent)'
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = 'var(--sf-border)'
-                  }}
-                />
-              </div>
-
-              {/* Reject error — rendered inline in popup to avoid being covered by z-index:10 overlay */}
-              {rejectError && (
-                <div style={{
+                  justifyContent: 'space-between',
                   marginBottom: '16px',
-                  padding: '8px 12px',
-                  fontSize: '12px',
-                  color: 'var(--sf-danger)',
-                  background: 'var(--sf-danger-soft)',
-                  border: '1px solid rgba(242,73,92,0.2)',
-                  borderRadius: 'var(--sf-radius-sm)',
                 }}>
-                  {rejectError}
+                  <div>
+                    <div style={{
+                      fontSize: '15px',
+                      fontWeight: 700,
+                      color: 'var(--sf-text)',
+                    }}>
+                      {bill.householdName}
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      color: 'var(--sf-text-muted)',
+                      marginTop: '2px',
+                    }}>
+                      {bill.iuranType} · {formatFullPeriodeLabel(bill.periode)}
+                    </div>
+                  </div>
+                  <StatusBadge status={bill.status} />
                 </div>
-              )}
 
-              {/* Actions */}
+                <DetailContent
+                  bill={bill}
+                  remaining={remaining}
+                  onPendingVerify={(payment) => setVerifyingPayment(payment)}
+                  onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
+                  onPaymentDetail={(payment) => setSelectedPaymentDetail(payment)}
+                />
+              </>
+            )}
+          </ModalBody>
+
+          {/* Footer actions */}
+          {!loading && !error && !notFound && bill && (
+            <ModalFooter>
               <div style={{
                 display: 'flex',
-                gap: '8px',
                 justifyContent: 'space-between',
+                alignItems: 'center',
+                width: '100%',
               }}>
                 <button
                   type="button"
-                  onClick={() => {
-                    setVerifyingPayment(null)
-                  }}
+                  onClick={handleClose}
                   style={{
-                    padding: '8px 16px',
+                    padding: '8px 20px',
                     fontSize: '13px',
                     fontWeight: 500,
                     color: 'var(--sf-text)',
@@ -1531,69 +1287,46 @@ export function IuranDetail({
                     cursor: 'pointer',
                   }}
                 >
-                  Batal
+                  Tutup
                 </button>
-                <div style={{ display: 'flex', gap: '8px' }}>
+
+                {remaining > 0 && (
                   <button
                     type="button"
-                    onClick={() => handleReject(verifyingPayment.id)}
-                    disabled={verifyingId === verifyingPayment.id}
+                    onClick={() => onPayment(bill.id)}
                     style={{
-                      padding: '8px 16px',
+                      padding: '8px 20px',
                       fontSize: '13px',
                       fontWeight: 600,
-                      color: 'var(--sf-danger)',
-                      background: 'var(--sf-danger-soft)',
-                      border: '1px solid rgba(242,73,92,0.3)',
+                      color: 'var(--sf-accent)',
+                      background: 'var(--sf-accent-soft)',
+                      border: `1px solid var(--sf-accent)`,
                       borderRadius: 'var(--sf-radius-sm)',
-                      cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
+                      cursor: 'pointer',
                       transition: 'background 200ms, border-color 200ms',
                     }}
                   >
-                    {verifyingId === verifyingPayment.id
-                      ? 'Memproses...'
-                      : (
-                          <>
-                            <CloseCircleOutlined style={{ fontSize: 12 }} />
-                            Tolak
-                          </>
-                        )}
+                    Bayar Sekarang
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleApprove(verifyingPayment.id)}
-                    disabled={verifyingId === verifyingPayment.id}
-                    style={{
-                      padding: '8px 16px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      color: 'var(--sf-success)',
-                      background: 'var(--sf-success-soft)',
-                      border: '1px solid rgba(46,204,113,0.3)',
-                      borderRadius: 'var(--sf-radius-sm)',
-                      cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      transition: 'background 200ms, border-color 200ms',
-                    }}
-                  >
-                    {verifyingId === verifyingPayment.id
-                      ? 'Memproses...'
-                      : (
-                          <>
-                            <CheckCircleOutlined style={{ fontSize: 12 }} />
-                            Terima
-                          </>
-                        )}
-                  </button>
-                </div>
+                )}
               </div>
-            </div>
-          </div>
+            </ModalFooter>
+          )}
+        </Modal>
+
+        {/* ── Verification popup ─────────────────────────────────── */}
+        {verifyingPayment && (
+          <VerificationDialog
+            verifyingPayment={verifyingPayment}
+            verifyingId={verifyingId}
+            officerNotes={officerNotes}
+            rejectError={rejectError}
+            onClose={() => setVerifyingPayment(null)}
+            onNotesChange={setOfficerNotes}
+            onPreviewProof={(paymentId) => setPreviewingProofId(paymentId)}
+            onReject={handleReject}
+            onApprove={handleApprove}
+          />
         )}
 
         {/* Payment Detail Modal in Modal Mode */}
@@ -1612,7 +1345,7 @@ export function IuranDetail({
             onClose={() => setPreviewingProofId(null)}
           />
         )}
-      </Modal>
+      </>
     )
   }
 
@@ -1719,6 +1452,21 @@ export function IuranDetail({
             onPaymentDetail={(payment) => setSelectedPaymentDetail(payment)}
           />
 
+          {/* Verification Dialog in Page Mode */}
+          {verifyingPayment && (
+            <VerificationDialog
+              verifyingPayment={verifyingPayment}
+              verifyingId={verifyingId}
+              officerNotes={officerNotes}
+              rejectError={rejectError}
+              onClose={() => setVerifyingPayment(null)}
+              onNotesChange={setOfficerNotes}
+              onPreviewProof={(paymentId) => setPreviewingProofId(paymentId)}
+              onReject={handleReject}
+              onApprove={handleApprove}
+            />
+          )}
+
           {/* Payment Detail Modal in Page Mode */}
           {selectedPaymentDetail && (
             <PaymentDetailModal
@@ -1737,6 +1485,353 @@ export function IuranDetail({
           )}
         </>
       )}
+    </div>
+  )
+}
+
+function VerificationDialog({
+  verifyingPayment,
+  verifyingId,
+  officerNotes,
+  rejectError,
+  onClose,
+  onNotesChange,
+  onPreviewProof,
+  onReject,
+  onApprove,
+}: {
+  verifyingPayment: IuranPaymentRecord
+  verifyingId: string | null
+  officerNotes: string
+  rejectError: string
+  onClose: () => void
+  onNotesChange: (notes: string) => void
+  onPreviewProof: (paymentId: string) => void
+  onReject: (paymentId: string) => void
+  onApprove: (paymentId: string) => void
+}) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0, 0, 0, 0.65)',
+        backdropFilter: 'blur(3px)',
+        WebkitBackdropFilter: 'blur(3px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1100,
+        padding: '16px',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: 'var(--sf-surface)',
+          borderRadius: '12px',
+          border: '1px solid var(--sf-border)',
+          width: '100%',
+          maxWidth: '480px',
+          maxHeight: 'calc(100vh - 48px)',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 24px 64px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.3)',
+          overflow: 'hidden',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--sf-border)',
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{
+              fontSize: '15px',
+              fontWeight: 700,
+              color: 'var(--sf-text)',
+            }}
+          >
+            Verifikasi Pembayaran
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--sf-text-muted)',
+              cursor: 'pointer',
+              fontSize: '18px',
+              padding: '4px 8px',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Scrollable Body */}
+        <div
+          style={{
+            padding: '16px 20px',
+            overflowY: 'auto',
+            flex: '1 1 auto',
+          }}
+        >
+          {/* Payment info */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px',
+              borderRadius: 'var(--sf-radius-sm)',
+              background: 'var(--sf-warning-soft)',
+              border: '1px solid var(--sf-warning)',
+              marginBottom: '16px',
+            }}
+          >
+            <div
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                background: 'var(--sf-warning)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                fontSize: '18px',
+                flexShrink: 0,
+              }}
+            >
+              ⏳
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: '16px',
+                  fontWeight: 700,
+                  fontFamily: 'var(--sf-font-mono)',
+                  color: 'var(--sf-text)',
+                }}
+              >
+                {formatRupiah(verifyingPayment.nominal)}
+              </div>
+              <div
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--sf-text-muted)',
+                  marginTop: '2px',
+                  lineHeight: 1.5,
+                }}
+              >
+                {formatDate(verifyingPayment.paidDate)}
+                {verifyingPayment.method ? ` · ${verifyingPayment.method === 'TRANSFER' ? 'Transfer' : 'Cash'}` : ''}
+                {verifyingPayment.catatan && ` · ${verifyingPayment.catatan}`}
+              </div>
+            </div>
+          </div>
+
+          {/* Proof of payment */}
+          <div style={{ marginBottom: '16px' }}>
+            <div
+              style={{
+                fontSize: '12px',
+                color: 'var(--sf-text-muted)',
+                marginBottom: '6px',
+                fontWeight: 500,
+              }}
+            >
+              Bukti Pembayaran
+            </div>
+            {verifyingPayment.proofPath ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ProofImageThumbnail
+                  paymentId={verifyingPayment.id}
+                  onClick={() => onPreviewProof(verifyingPayment.id)}
+                />
+                <button
+                  type="button"
+                  onClick={() => onPreviewProof(verifyingPayment.id)}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    border: '1px solid var(--sf-border)',
+                    background: 'var(--sf-surface)',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    color: 'var(--sf-text)',
+                  }}
+                >
+                  Lihat Bukti Ukuran Penuh
+                </button>
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--sf-text-muted)',
+                  fontStyle: 'italic',
+                }}
+              >
+                Belum ada bukti pembayaran
+              </div>
+            )}
+          </div>
+
+          {/* Officer notes */}
+          <div style={{ marginBottom: '16px' }}>
+            <label
+              style={{
+                fontSize: '12px',
+                color: 'var(--sf-text-muted)',
+                marginBottom: '6px',
+                display: 'block',
+              }}
+            >
+              Catatan petugas (wajib untuk Tolak, opsional untuk Terima)
+            </label>
+            <textarea
+              value={officerNotes}
+              onChange={(e) => onNotesChange(e.target.value)}
+              placeholder="Catatan verifikasi atau persetujuan..."
+              rows={2}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                fontSize: '12px',
+                color: 'var(--sf-text)',
+                background: 'var(--sf-surface-subtle)',
+                border: '1px solid var(--sf-border)',
+                borderRadius: 'var(--sf-radius-sm)',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'var(--sf-accent)'
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--sf-border)'
+              }}
+            />
+          </div>
+
+          {/* Reject error */}
+          {rejectError && (
+            <div
+              style={{
+                marginBottom: '8px',
+                padding: '8px 12px',
+                fontSize: '12px',
+                color: 'var(--sf-danger)',
+                background: 'var(--sf-danger-soft)',
+                border: '1px solid rgba(242,73,92,0.2)',
+                borderRadius: 'var(--sf-radius-sm)',
+              }}
+            >
+              {rejectError}
+            </div>
+          )}
+        </div>
+
+        {/* Fixed Footer Actions */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '8px',
+            justifyContent: 'space-between',
+            padding: '14px 20px',
+            borderTop: '1px solid var(--sf-border)',
+            background: 'var(--sf-surface-subtle, var(--sf-surface))',
+            flexShrink: 0,
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: '8px 16px',
+              fontSize: '13px',
+              fontWeight: 500,
+              color: 'var(--sf-text)',
+              background: 'var(--sf-surface)',
+              border: '1px solid var(--sf-border)',
+              borderRadius: 'var(--sf-radius-sm)',
+              cursor: 'pointer',
+            }}
+          >
+            Batal
+          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => onReject(verifyingPayment.id)}
+              disabled={verifyingId === verifyingPayment.id}
+              style={{
+                padding: '8px 16px',
+                fontSize: '13px',
+                fontWeight: 600,
+                color: 'var(--sf-danger)',
+                background: 'var(--sf-danger-soft)',
+                border: '1px solid rgba(242,73,92,0.3)',
+                borderRadius: 'var(--sf-radius-sm)',
+                cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'background 200ms, border-color 200ms',
+              }}
+            >
+              {verifyingId === verifyingPayment.id ? (
+                'Memproses...'
+              ) : (
+                <>
+                  <CloseCircleOutlined style={{ fontSize: 12 }} />
+                  Tolak
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => onApprove(verifyingPayment.id)}
+              disabled={verifyingId === verifyingPayment.id}
+              style={{
+                padding: '8px 16px',
+                fontSize: '13px',
+                fontWeight: 600,
+                color: 'var(--sf-success)',
+                background: 'var(--sf-success-soft)',
+                border: '1px solid rgba(46,204,113,0.3)',
+                borderRadius: 'var(--sf-radius-sm)',
+                cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'background 200ms, border-color 200ms',
+              }}
+            >
+              {verifyingId === verifyingPayment.id ? (
+                'Memproses...'
+              ) : (
+                <>
+                  <CheckCircleOutlined style={{ fontSize: 12 }} />
+                  Terima
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

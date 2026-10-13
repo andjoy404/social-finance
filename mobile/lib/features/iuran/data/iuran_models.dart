@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/utils/rupiah_formatter.dart';
 
 /// Enum representing the status of an iuran (dues) bill.
 enum IuranStatus {
@@ -21,6 +22,10 @@ class IuranBill {
   final int rejectedAmount;
   final IuranStatus status;
 
+  /// True when the bill's due uses payment_rule "full": the backend only
+  /// accepts a payment equal to the remaining balance.
+  final bool requiresFullPayment;
+
   const IuranBill({
     required this.id,
     required this.householdName,
@@ -31,6 +36,7 @@ class IuranBill {
     this.pendingAmount = 0,
     this.rejectedAmount = 0,
     this.status = IuranStatus.belumBayar,
+    this.requiresFullPayment = false,
   });
 
   /// Returns the remaining balance for display purposes.
@@ -52,13 +58,14 @@ class IuranBill {
 }
 
 /// Format a nominal amount in rupiah to Indonesian currency string.
-/// e.g. 50000 → "Rp 50.000"
-String formatRupiah(int amount) {
-  return 'Rp ${amount.toString().replaceAllMapped(
-    RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-    (Match m) => '${m[1]}.',
-  )}';
-}
+/// e.g. 50000 → "Rp50.000", 1500000 → "Rp1.500.000"
+///
+/// Shared Iuran money formatter — delegates to [RupiahFormatter.formatIdr].
+String formatRupiah(int amount) => RupiahFormatter.formatIdr(amount);
+
+/// Format a backend NUMERIC money string (e.g. "50000.00") as "Rp50.000".
+String formatRupiahString(String amount) =>
+    RupiahFormatter.formatMoneyString(amount);
 
 /// Convert IuranStatus enum to a display label.
 String getStatusLabel(IuranStatus status) {

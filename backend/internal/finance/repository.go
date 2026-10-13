@@ -328,7 +328,7 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		pos++
 	}
 	if period != nil && *period != "" {
-		query += fmt.Sprintf(" AND b.period = $%d", pos)
+		query += fmt.Sprintf(" AND b.period LIKE $%d || '%%'", pos)
 		args = append(args, *period)
 		pos++
 	}
@@ -387,7 +387,7 @@ func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID,
 		pos++
 	}
 	if period != nil && *period != "" {
-		query += fmt.Sprintf(" AND b.period = $%d", pos)
+		query += fmt.Sprintf(" AND b.period LIKE $%d || '%%'", pos)
 		args = append(args, *period)
 		pos++
 	}
@@ -440,14 +440,33 @@ func BillGetByIDForUpdate(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bi
 	return &b, nil
 }
 
-// GetApprovedPaymentTotal returns the sum of APPROVED payments for a bill.
-// Returns "0" when no approved payments exist.
+// GetApprovedPaymentTotal returns the total approved payment amount for a bill.
+// A payment targets a bill either directly via payments.bill_id OR through
+// payment_allocations (multi-period payments).
+//
+// For payments that have an allocation for this bill, the allocation amount
+// is used (not the full payments.amount). For legacy single-bill payments
+// without allocations, payments.amount is used.
+//
+// Returns "0" when no approved payments exist for this bill.
 func GetApprovedPaymentTotal(ctx context.Context, tx *sql.Tx, billID string) (string, error) {
 	var totalStr string
 	err := tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(amount), 0)::text
-		 FROM payments
-		 WHERE bill_id = $1 AND status = 'APPROVED'`,
+		`SELECT COALESCE(SUM(amount), 0)::text FROM (
+			-- Path 1: Single-bill payments (or fallback for multi-period without allocation)
+			SELECT p.amount
+			FROM payments p
+			WHERE p.bill_id = $1 AND p.status = 'APPROVED'
+			  AND NOT EXISTS (
+				SELECT 1 FROM payment_allocations pa WHERE pa.payment_id = p.id AND pa.bill_id = $1
+			  )
+			UNION ALL
+			-- Path 2: Multi-period allocations
+			SELECT pa.amount
+			FROM payment_allocations pa
+			JOIN payments p ON p.id = pa.payment_id
+			WHERE pa.bill_id = $1 AND p.status = 'APPROVED'
+		) v`,
 		billID,
 	).Scan(&totalStr)
 	if err != nil {
@@ -456,14 +475,28 @@ func GetApprovedPaymentTotal(ctx context.Context, tx *sql.Tx, billID string) (st
 	return totalStr, nil
 }
 
-// GetApprovedPaymentCount returns the number of APPROVED payments for a bill.
+// GetApprovedPaymentCount returns the number of DISTINCT APPROVED payments visible for a bill.
+// A payment is visible if it targets this bill directly via payments.bill_id OR
+// through payment_allocations (multi-period payments).
 // Returns 0 when no approved payments exist.
 func GetApprovedPaymentCount(ctx context.Context, tx *sql.Tx, billID string) (int, error) {
 	var count int
 	err := tx.QueryRowContext(ctx,
-		`SELECT COUNT(*)
-		 FROM payments
-		 WHERE bill_id = $1 AND status = 'APPROVED'`,
+		`SELECT COUNT(DISTINCT payment_id) FROM (
+			-- Path 1: Single-bill payments
+			SELECT p.id AS payment_id
+			FROM payments p
+			WHERE p.bill_id = $1 AND p.status = 'APPROVED'
+			  AND NOT EXISTS (
+				SELECT 1 FROM payment_allocations pa WHERE pa.payment_id = p.id AND pa.bill_id = $1
+			  )
+			UNION
+			-- Path 2: Multi-period allocations
+			SELECT pa.payment_id
+			FROM payment_allocations pa
+			JOIN payments p ON p.id = pa.payment_id
+			WHERE pa.bill_id = $1 AND p.status = 'APPROVED'
+		) v`,
 		billID,
 	).Scan(&count)
 	if err != nil {
@@ -472,14 +505,33 @@ func GetApprovedPaymentCount(ctx context.Context, tx *sql.Tx, billID string) (in
 	return count, nil
 }
 
-// GetPendingPaymentTotal returns the sum of PENDING payment amounts for a bill.
-// Returns "0" when no pending payments exist.
+// GetPendingPaymentTotal returns the total pending payment amount for a bill.
+// A payment targets a bill either directly via payments.bill_id OR through
+// payment_allocations (multi-period payments).
+//
+// For payments that have an allocation for this bill, the allocation amount
+// is used (not the full payments.amount). For legacy single-bill payments
+// without allocations, payments.amount is used.
+//
+// Returns "0" when no pending payments exist for this bill.
 func GetPendingPaymentTotal(ctx context.Context, tx *sql.Tx, billID string) (string, error) {
 	var totalStr string
 	err := tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(amount), 0)::text
-		 FROM payments
-		 WHERE bill_id = $1 AND status = 'PENDING'`,
+		`SELECT COALESCE(SUM(amount), 0)::text FROM (
+			-- Path 1: Single-bill payments (or fallback for multi-period without allocation)
+			SELECT p.amount
+			FROM payments p
+			WHERE p.bill_id = $1 AND p.status = 'PENDING'
+			  AND NOT EXISTS (
+				SELECT 1 FROM payment_allocations pa WHERE pa.payment_id = p.id AND pa.bill_id = $1
+			  )
+			UNION ALL
+			-- Path 2: Multi-period allocations
+			SELECT pa.amount
+			FROM payment_allocations pa
+			JOIN payments p ON p.id = pa.payment_id
+			WHERE pa.bill_id = $1 AND p.status = 'PENDING'
+		) v`,
 		billID,
 	).Scan(&totalStr)
 	if err != nil {
@@ -1477,4 +1529,68 @@ func CalculateBalanceAll(ctx context.Context, tx *sql.Tx) (*BalanceSummary, erro
 		NetBalance:       netCanon,
 		TransactionCount: count,
 	}, nil
+}
+
+// ─── Payment Allocation Repository ──────────────────────────────────
+
+func PaymentAllocationCreate(ctx context.Context, tx *sql.Tx, paymentID, billID, amount string) (*PaymentAllocation, error) {
+	var a PaymentAllocation
+	err := tx.QueryRowContext(ctx,
+		`INSERT INTO payment_allocations (payment_id, bill_id, amount)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, payment_id, bill_id, amount, created_at`,
+		paymentID, billID, amount,
+	).Scan(&a.ID, &a.PaymentID, &a.BillID, &a.Amount, &a.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create payment allocation: %w", err)
+	}
+	return &a, nil
+}
+
+func PaymentAllocationsByPaymentID(ctx context.Context, tx *sql.Tx, paymentID string) ([]*PaymentAllocation, error) {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, payment_id, bill_id, amount, created_at
+		 FROM payment_allocations
+		 WHERE payment_id = $1
+		 ORDER BY created_at ASC`,
+		paymentID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list payment allocations: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*PaymentAllocation
+	for rows.Next() {
+		var a PaymentAllocation
+		if err := rows.Scan(&a.ID, &a.PaymentID, &a.BillID, &a.Amount, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan payment allocation: %w", err)
+		}
+		list = append(list, &a)
+	}
+	return list, nil
+}
+
+func PaymentAllocationsByBillID(ctx context.Context, tx *sql.Tx, billID string) ([]*PaymentAllocation, error) {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, payment_id, bill_id, amount, created_at
+		 FROM payment_allocations
+		 WHERE bill_id = $1
+		 ORDER BY created_at ASC`,
+		billID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list payment allocations by bill: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*PaymentAllocation
+	for rows.Next() {
+		var a PaymentAllocation
+		if err := rows.Scan(&a.ID, &a.PaymentID, &a.BillID, &a.Amount, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan payment allocation: %w", err)
+		}
+		list = append(list, &a)
+	}
+	return list, nil
 }

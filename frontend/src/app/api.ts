@@ -723,7 +723,43 @@ export async function apiCreateDue(
   return data
 }
 
-// ── Finance (Bills & Payments) ──────────────────────────────────────────────────
+export interface ApiGenerateBillsBody {
+  due_id: string
+  period: string
+  due_date: string
+}
+
+export interface ApiGenerateBillsResponse {
+  generated_count: number
+  bills: ApiBill[]
+}
+
+export async function apiGenerateBills(
+  token: string,
+  body: ApiGenerateBillsBody,
+  idempotencyKey: string,
+): Promise<ApiGenerateBillsResponse> {
+  const res = await authenticatedApiRequest(BASE + '/bills/generate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'Idempotency-Key': idempotencyKey,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiGenerateBillsResponse>(res)
+  if (!res.ok || !data) {
+    const bodyErr = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(bodyErr?.code ?? 'unexpected', bodyErr?.message ?? 'Gagal membuat tagihan.')
+  }
+  if (!Array.isArray(data.bills) || data.generated_count !== data.bills.length) {
+    throw new ApiError('malformed_response', 'Respons pembuatan tagihan tidak valid.')
+  }
+  return data
+}
+
 
 export interface ApiBill {
   id: string

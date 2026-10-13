@@ -81,7 +81,7 @@ export const DUE_PERIOD_TYPE_OPTIONS: { value: DuePeriodType; label: string }[] 
 export type PaymentRuleType = 'full' | 'partial'
 
 export const PAYMENT_RULE_OPTIONS: { value: PaymentRuleType; label: string }[] = [
-  { value: 'full', label: 'Lunas Penuh' },
+  { value: 'full', label: 'Seluruh' },
   { value: 'partial', label: 'Sebagian' },
 ]
 
@@ -105,7 +105,7 @@ export function getStatusLabel(status: IuranStatus): string {
 }
 
 export function formatRupiah(n: number): string {
-  return new Intl.NumberFormat('id-ID').format(n)
+  return `Rp${new Intl.NumberFormat('id-ID').format(n)}`
 }
 
 // Payment status display helpers
@@ -137,10 +137,118 @@ export function getPaymentStatusVariant(status: PaymentStatusDisplay): 'default'
   }
 }
 
-export function parseMoney(value: string): number {
-  const num = parseInt(value, 10)
-  return isNaN(num) ? 0 : num
+export function formatRibuan(value: number | string): string {
+  const digits = typeof value === 'number'
+    ? (isNaN(value) ? '' : String(Math.floor(Math.abs(value))))
+    : value.replace(/\D/g, '')
+  if (!digits) return ''
+  return new Intl.NumberFormat('id-ID').format(parseInt(digits, 10))
 }
+
+export type MoneyParseContract = 'auto' | 'api' | 'rupiah'
+
+export interface ParseMoneyOptions {
+  format?: MoneyParseContract
+}
+
+export function parseMoney(
+  value: string | number | null | undefined,
+  options?: MoneyParseContract | ParseMoneyOptions
+): number {
+  if (value === null || value === undefined) return 0
+
+  if (typeof value === 'number') {
+    if (isNaN(value) || !isFinite(value) || value < 0) return 0
+    return Math.floor(value)
+  }
+
+  if (typeof value !== 'string') return 0
+
+  const trimmed = value.trim()
+  if (!trimmed) return 0
+
+  // Explicit handling for negative values: return 0 (safe financial rule)
+  if (trimmed.startsWith('-') || /-\s*Rp/i.test(trimmed) || /Rp\s*-/i.test(trimmed)) {
+    return 0
+  }
+
+  // Must contain at least one digit
+  if (!/\d/.test(trimmed)) {
+    return 0
+  }
+
+  const contract: MoneyParseContract =
+    typeof options === 'string'
+      ? options
+      : options?.format || 'auto'
+
+  if (contract === 'api') {
+    // API contract: dot (.) is decimal separator (NUMERIC(15,2)).
+    // Extract integer part before decimal separator.
+    const integerPart = trimmed.split('.')[0].replace(/\D/g, '')
+    if (!integerPart) return 0
+    const num = parseInt(integerPart, 10)
+    return isNaN(num) || num < 0 ? 0 : num
+  }
+
+  if (contract === 'rupiah') {
+    // Rupiah contract: dot (.) is thousands separator, comma (,) is decimal cents.
+    // Drop decimal cents if comma is present, then strip all non-digits (dots, Rp, spaces).
+    const beforeComma = trimmed.split(',')[0]
+    const digits = beforeComma.replace(/\D/g, '')
+    if (!digits) return 0
+    const num = parseInt(digits, 10)
+    return isNaN(num) || num < 0 ? 0 : num
+  }
+
+  // 'auto' contract:
+  // 1. Explicit Rupiah indicator (Rp / rp / IDR) or Indonesian comma decimal
+  const hasCurrencyPrefix = /^(?:Rp|IDR)\b/i.test(trimmed) || /Rp/i.test(trimmed)
+  const hasDecimalComma = /,\d{1,2}$/.test(trimmed)
+
+  if (hasCurrencyPrefix || hasDecimalComma) {
+    const beforeComma = trimmed.split(',')[0]
+    const digits = beforeComma.replace(/\D/g, '')
+    if (!digits) return 0
+    const num = parseInt(digits, 10)
+    return isNaN(num) || num < 0 ? 0 : num
+  }
+
+  // 2. Multiple dots: definitely thousands separators (e.g. "1.500.000", "10.000.000")
+  const dotCount = (trimmed.match(/\./g) || []).length
+  if (dotCount > 1) {
+    const digits = trimmed.replace(/\D/g, '')
+    if (!digits) return 0
+    const num = parseInt(digits, 10)
+    return isNaN(num) || num < 0 ? 0 : num
+  }
+
+  // 3. Exactly one dot:
+  if (dotCount === 1) {
+    const [partBefore, partAfter] = trimmed.split('.')
+    // If partAfter has 3 digits and partBefore has 1-3 digits (e.g. "50.000", "1.000", "100.000"):
+    // In Indonesian currency context (and matching formatRibuan output), this is thousands separator.
+    if (/^\d{1,3}$/.test(partBefore) && /^\d{3}$/.test(partAfter)) {
+      const digits = (partBefore + partAfter).replace(/\D/g, '')
+      const num = parseInt(digits, 10)
+      return isNaN(num) || num < 0 ? 0 : num
+    }
+
+    // Otherwise (e.g. "50000.00", "25000.00", "100000.00", "50.00", "123.45"):
+    // It is standard decimal format from PostgreSQL NUMERIC(15, 2) / API. Take partBefore!
+    const digits = partBefore.replace(/\D/g, '')
+    if (!digits) return 0
+    const num = parseInt(digits, 10)
+    return isNaN(num) || num < 0 ? 0 : num
+  }
+
+  // 4. No dots (e.g. "50000", "1000000", "0"):
+  const digits = trimmed.replace(/\D/g, '')
+  if (!digits) return 0
+  const num = parseInt(digits, 10)
+  return isNaN(num) || num < 0 ? 0 : num
+}
+
 
 export function formatPeriodeLabel(periode: string): string {
   const [year, month] = periode.split('-')

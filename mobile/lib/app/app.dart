@@ -19,6 +19,8 @@ import '../features/warga/presentation/screens/household_edit_screen.dart';
 import '../features/warga/presentation/screens/special_resident_create_screen.dart';
 import '../features/warga/presentation/screens/special_resident_edit_screen.dart';
 import '../features/iuran/presentation/screens/iuran_screen.dart';
+import 'package:social_finance/features/iuran/presentation/screens/iuran_form_screen.dart';
+
 import '../features/iuran/presentation/screens/iuran_detail_screen.dart';
 import '../features/iuran/presentation/screens/iuran_payment_screen.dart';
 import '../features/iuran/presentation/screens/iuran_arrears_screen.dart';
@@ -150,21 +152,7 @@ class _AppState extends ConsumerState<App> {
                     GoRoute(
                       path: 'form',
                       name: 'iuran_form',
-                      builder: (context, state) => Scaffold(
-                        appBar: AppBar(
-                          title: const Text('Buat Tagihan'),
-                          leading: IconButton(
-                            icon: const Icon(Icons.arrow_back),
-                            onPressed: () => context.pop(),
-                          ),
-                        ),
-                        body: const Center(
-                          child: Text(
-                            'Halaman pembuatan tagihan akan segera tersedia.',
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
+                      builder: (context, state) => const IuranFormScreen(),
                     ),
                   ],
                 ),
@@ -218,15 +206,19 @@ class _AppState extends ConsumerState<App> {
                       name: 'warga_baru',
                       builder: (context, state) {
                         final authState = ref.read(authRepositoryProvider);
-                        final systemRole = authState?.valueOrNull?['system_role'] as String?;
-                        return HouseholdCreateScreen(isSuperAdmin: systemRole == 'super_admin');
+                        final systemRole =
+                            authState?.valueOrNull?['system_role'] as String?;
+                        return HouseholdCreateScreen(
+                          isSuperAdmin: systemRole == 'super_admin',
+                        );
                       },
                     ),
                     GoRoute(
                       path: 'edit/household/:householdId',
                       name: 'warga_edit',
                       builder: (context, state) {
-                        final householdId = state.pathParameters['householdId']!;
+                        final householdId =
+                            state.pathParameters['householdId']!;
                         return HouseholdEditScreen(householdId: householdId);
                       },
                     ),
@@ -235,8 +227,11 @@ class _AppState extends ConsumerState<App> {
                       name: 'warga_petugas_baru',
                       builder: (context, state) {
                         final authState = ref.read(authRepositoryProvider);
-                        final systemRole = authState?.valueOrNull?['system_role'] as String?;
-                        return SpecialResidentCreateScreen(isSuperAdmin: systemRole == 'super_admin');
+                        final systemRole =
+                            authState?.valueOrNull?['system_role'] as String?;
+                        return SpecialResidentCreateScreen(
+                          isSuperAdmin: systemRole == 'super_admin',
+                        );
                       },
                     ),
                     GoRoute(
@@ -244,7 +239,9 @@ class _AppState extends ConsumerState<App> {
                       name: 'warga_resident_edit',
                       builder: (context, state) {
                         final residentId = state.pathParameters['residentId']!;
-                        return SpecialResidentEditScreen(residentId: residentId);
+                        return SpecialResidentEditScreen(
+                          residentId: residentId,
+                        );
                       },
                     ),
                   ],
