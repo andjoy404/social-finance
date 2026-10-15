@@ -11,6 +11,9 @@ import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_providers.dart';
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
 
+/// Enum representing the type of due (iuran definition).
+enum DueType { regular, voluntary }
+
 /// Screen for creating a new iuran (bill type / due).
 class IuranFormScreen extends ConsumerStatefulWidget {
   const IuranFormScreen({super.key});
@@ -29,7 +32,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
 
   DuePeriodType _periodType = DuePeriodType.monthly;
   PaymentRule _paymentRule = PaymentRule.full;
-  bool _isVoluntary = false;
+  DueType _dueType = DueType.regular;
   bool _saving = false;
   bool _dueCreated = false;
   String _generationKey = '';
@@ -89,6 +92,22 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     }
   }
 
+  /// Reset form when switching due type.
+  void _switchDueType(DueType type) {
+    setState(() {
+      _dueType = type;
+      if (type == DueType.voluntary) {
+        _amountCtrl.text = '';
+        _paymentRule = PaymentRule.partial;
+      } else {
+        _amountCtrl.text = '';
+      }
+      if (_validationErrors.isNotEmpty) {
+        _validationErrors = [];
+      }
+    });
+  }
+
   bool _validate() {
     final errors = <String>[];
 
@@ -101,10 +120,10 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     final amount = int.tryParse(amountText);
     if (amount == null) {
       errors.add('Nominal harus angka yang valid.');
-    } else if (!_isVoluntary && amount <= 0) {
-      errors.add('Nominal harus lebih besar dari 0.');
-    } else if (_isVoluntary && amount < 0) {
+    } else if (_dueType == DueType.voluntary && amount < 0) {
       errors.add('Nominal sumbangan sukarela harus nol atau lebih.');
+    } else if (_dueType == DueType.regular && amount <= 0) {
+      errors.add('Nominal harus lebih besar dari 0.');
     }
 
     final period = _periodCtrl.text.trim();
@@ -155,8 +174,10 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
             name: _nameCtrl.text.trim(),
             amount: amount,
             periodType: _periodType,
-            paymentRule: _paymentRule,
-            isVoluntary: _isVoluntary,
+            paymentRule: _dueType == DueType.voluntary
+                ? PaymentRule.partial
+                : _paymentRule,
+            isVoluntary: _dueType == DueType.voluntary,
           );
 
       _dueCreated = true;
@@ -353,6 +374,85 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   ),
                 ),
 
+              // ── Jenis Iuran — badge toggle ──
+              Text(
+                'Jenis Iuran',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                children: [
+                  // Reguler badge
+                  GestureDetector(
+                    onTap: _saving ? null : () => _switchDueType(DueType.regular),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _dueType == DueType.regular
+                            ? AppColors.accent.withValues(alpha: isDark ? 0.20 : 0.12)
+                            : Colors.transparent,
+                        border: Border.all(
+                          color: _dueType == DueType.regular
+                              ? AppColors.accent
+                              : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          width: 1,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Reguler',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _dueType == DueType.regular
+                              ? AppColors.accent
+                              : (isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Sukarela badge
+                  GestureDetector(
+                    onTap: _saving ? null : () => _switchDueType(DueType.voluntary),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _dueType == DueType.voluntary
+                            ? AppColors.accent.withValues(alpha: isDark ? 0.20 : 0.12)
+                            : Colors.transparent,
+                        border: Border.all(
+                          color: _dueType == DueType.voluntary
+                              ? AppColors.accent
+                              : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          width: 1,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Sukarela',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _dueType == DueType.voluntary
+                              ? AppColors.accent
+                              : (isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
               // Nama Iuran
               AppTextField(
                 controller: _nameCtrl,
@@ -371,7 +471,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Nominal',
+                    'Nominal${_dueType == DueType.regular ? '' : ' (opsional, default Rp0)'}',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -386,7 +486,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       ),
                     ],
                     decoration: InputDecoration(
-                      hintText: 'Contoh: 50000',
+                      hintText: _dueType == DueType.voluntary
+                          ? 'Contoh: 0 untuk sumbangan sukarela'
+                          : 'Contoh: 50000',
                       prefixText: 'Rp ',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(AppRadius.base),
@@ -409,6 +511,38 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
+
+              // Info sukarela
+              if (_dueType == DueType.voluntary)
+                Container(
+                  width: double.maxFinite,
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(alpha: isDark ? 0.15 : 0.08),
+                    border: Border.all(color: AppColors.info.withValues(alpha: isDark ? 0.3 : 0.2)),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: AppColors.info,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Iuran sukarela bersifat opsional. Tidak ada tunggakan atau penalti jika tidak berkontribusi.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_dueType == DueType.voluntary) const SizedBox(height: AppSpacing.lg),
 
               // Frekuensi
               Column(
@@ -463,7 +597,52 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              const SizedBox(height: AppSpacing.lg),
+              // Rule Pembayaran — only for reguler
+              if (_dueType == DueType.regular) ...[
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Aturan Pembayaran',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    SegmentedButton<PaymentRule>(
+                      segments: [
+                        ButtonSegment(
+                          value: PaymentRule.full,
+                          label: const Text('Lunas Penuh'),
+                          icon: const Icon(Icons.payment, size: 16),
+                        ),
+                        ButtonSegment(
+                          value: PaymentRule.partial,
+                          label: const Text('Sebagian'),
+                          icon: const Icon(Icons.attach_money, size: 16),
+                        ),
+                      ],
+                      selected: {_paymentRule},
+                      onSelectionChanged: (selected) {
+                        setState(() => _paymentRule = selected.first);
+                      },
+                      style: SegmentedButton.styleFrom(
+                        backgroundColor: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                        foregroundColor: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                        selectedForegroundColor: AppColors.accent,
+                        selectedBackgroundColor: AppColors.accentSoftColor(
+                          context,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
 
               // Periode
               AppTextField(
@@ -485,88 +664,6 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                 hintText: 'YYYY-MM-DD',
                 readOnly: true,
                 onTap: _pickDueDate,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
-              // Rule Pembayaran
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Aturan Pembayaran',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  SegmentedButton<PaymentRule>(
-                    segments: [
-                      ButtonSegment(
-                        value: PaymentRule.full,
-                        label: const Text('Lunas Penuh'),
-                        icon: const Icon(Icons.payment, size: 16),
-                      ),
-                      ButtonSegment(
-                        value: PaymentRule.partial,
-                        label: const Text('Sebagian'),
-                        icon: const Icon(Icons.attach_money, size: 16),
-                      ),
-                    ],
-                    selected: {_paymentRule},
-                    onSelectionChanged: (selected) {
-                      setState(() => _paymentRule = selected.first);
-                    },
-                    style: SegmentedButton.styleFrom(
-                      backgroundColor: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurface,
-                      foregroundColor: isDark
-                          ? AppColors.darkText
-                          : AppColors.lightText,
-                      selectedForegroundColor: AppColors.accent,
-                      selectedBackgroundColor: AppColors.accentSoftColor(
-                        context,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
-              // Sumbangan Sukarela
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Sumbangan Sukarela',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Switch(
-                        value: _isVoluntary,
-                        onChanged: _saving
-                            ? null
-                            : (v) => setState(() => _isVoluntary = v),
-                        activeColor: AppColors.accent,
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          _isVoluntary
-                              ? 'Aktif — Nominal Rp0 diperbolehkan'
-                              : 'Non-aktif — Nominal harus di atas Rp0',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: _isVoluntary ? AppColors.success : null,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
               ),
               const SizedBox(height: AppSpacing.xxl),
 

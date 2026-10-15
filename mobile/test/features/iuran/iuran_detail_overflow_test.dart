@@ -45,6 +45,43 @@ Widget _buildDetailScreen({required List<BackendPayment> payments}) {
   );
 }
 
+Widget _buildDetailScreenWithError({required Object error}) {
+  final testBill = IuranBill(
+    id: 'test-bill',
+    householdName: 'Rumah 01 — Budi Santoso',
+    iuranType: 'Keamanan',
+    periode: '2026-10',
+    nominal: 50000,
+    paidAmount: 0,
+    status: IuranStatus.belumBayar,
+  );
+  return MaterialApp(
+    home: ProviderScope(
+      overrides: [
+        billDetailProvider('test-bill').overrideWith((ref) async => testBill),
+        billPaymentsProvider('test-bill').overrideWith((ref) async => throw error),
+        canVerifyPaymentProvider.overrideWith((ref) => false),
+        pendingPaymentsProvider(true).overrideWith((ref) async => const []),
+      ],
+      child: const IuranDetailScreen(billId: 'test-bill'),
+    ),
+  );
+}
+
+Widget _buildDetailScreenWithBill({required IuranBill bill}) {
+  return MaterialApp(
+    home: ProviderScope(
+      overrides: [
+        billDetailProvider(bill.id).overrideWith((ref) async => bill),
+        billPaymentsProvider(bill.id).overrideWith((ref) async => const []),
+        canVerifyPaymentProvider.overrideWith((ref) => false),
+        pendingPaymentsProvider(true).overrideWith((ref) async => const []),
+      ],
+      child: IuranDetailScreen(billId: bill.id),
+    ),
+  );
+}
+
 void main() {
   group('IuranDetailScreen — B1 overflow regression', () {
     testWidgets(
@@ -107,7 +144,7 @@ void main() {
 
   group('PaymentProofThumbnail — full image dialog overflow', () {
     /// Generate a minimal 1x1 red PNG for test images.
-    Uint8List _makeRedPng() {
+    Uint8List makeRedPng() {
       // Minimal valid PNG: 1x1 red pixel, then scaled by InteractiveViewer.
       // In practice, flutter_test can render any valid PNG bytes.
       // Use a tiny base64-encoded 1x1 red PNG.
@@ -130,7 +167,7 @@ void main() {
             home: ProviderScope(
               overrides: [
                 paymentProofBytesProvider.overrideWith(
-                  (ref, _) async => _makeRedPng(),
+                  (ref, _) async => makeRedPng(),
                 ),
               ],
               child: Builder(
@@ -164,5 +201,33 @@ void main() {
         // flutter_test throws if constraints are exceeded.
       },
     );
+  });
+
+  group('IuranDetailScreen — Voluntary and Error states', () {
+    testWidgets('renders error card with Coba Lagi button on payment error', (tester) async {
+      await tester.pumpWidget(_buildDetailScreenWithError(error: Exception('Network timeout')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Gagal memuat riwayat pembayaran'), findsOneWidget);
+      expect(find.text('Coba Lagi'), findsOneWidget);
+    });
+
+    testWidgets('renders Status Sukarela for voluntary bill', (tester) async {
+      final voluntaryBill = IuranBill(
+        id: 'vol-bill',
+        householdName: 'Rumah 01 — Budi Santoso',
+        iuranType: 'Kerja Bakti',
+        periode: '2026-12',
+        nominal: 0,
+        paidAmount: 0,
+        status: IuranStatus.sukarela,
+        isVoluntary: true,
+      );
+      await tester.pumpWidget(_buildDetailScreenWithBill(bill: voluntaryBill));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sukarela'), findsWidgets);
+      expect(find.text('Sudah Lunas'), findsNothing);
+    });
   });
 }

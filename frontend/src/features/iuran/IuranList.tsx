@@ -1,14 +1,23 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   DollarOutlined,
   PlusOutlined,
   CloseOutlined,
   DownOutlined,
+  AlertOutlined,
+  EditOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
+import { DatePicker } from 'antd'
+import dayjs from 'dayjs'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
+import { ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
+import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
+import { useAuth } from '@/app/AuthContext'
 import {
   BACKEND_STATUS_MAP,
   formatRupiah,
@@ -19,11 +28,10 @@ import {
   parseMoney,
 } from './iuranTypes'
 import { DueCreate } from './DueCreate'
-import { DueDetailModal } from './DueDetailModal'
 import { IuranDetail } from './IuranDetail'
 import { IuranPayment } from './IuranPayment'
 import type { IuranBill, IuranStatus } from './iuranTypes'
-import { apiListBills, apiListPayments, apiListDues, type ApiBill, type ApiDue, getSessionPair } from '@/app/api'
+import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiTriggerWasteTruckArrival, type ApiBill, type ApiDue, getSessionPair } from '@/app/api'
 
 type FilterType = 'semua' | 'status' | 'periode' | 'jenis'
 
@@ -58,7 +66,7 @@ const colStyles = {
 export function IuranList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [backendBills, setBackendBills] = useState<ApiBill[]>([])
+  const [allBills, setAllBills] = useState<IuranBill[]>([])
 
   // Create Due modal state
   const [showCreateDue, setShowCreateDue] = useState(false)
@@ -69,26 +77,108 @@ export function IuranList() {
   // Payment modal state
   const [showPaymentBillId, setShowPaymentBillId] = useState<string | null>(null)
 
-  // Due Detail modal state (voluntary Rp0)
-  const [showDueDetailDue, setShowDueDetailDue] = useState<ApiDue | null>(null)
+  // Tab state: 'list-iuran' = tagihan, 'kelola-iuran' = konfigurasi iuran
+  type ActiveTab = 'list-iuran' | 'kelola-iuran'
+  const [activeTab, setActiveTab] = useState<ActiveTab>('list-iuran')
 
-  const [filterType, setFilterType] = useState<FilterType>('semua')
-  const [search, setSearch] = useState('')
-  const [statusValue, setStatusValue] = useState<IuranStatus | null>(null)
-  const [periodeValue, setPeriodeValue] = useState<string>('')
-  const [jenisValue, setJenisValue] = useState<string>('')
+  // Dues data for "Kelola Iuran" tab
+  const [dues, setDues] = useState<ApiDue[]>([])
+  const [duesLoading, setDuesLoading] = useState(false)
+  const [duesError, setDuesError] = useState<string | null>(null)
 
-  const [filteredBills, setFilteredBills] = useState<IuranBill[]>([])
+  // Edit Due modal state
+  const [editDueId, setEditDueId] = useState<string | null>(null)
+  const [editDueForm, setEditDueForm] = useState<{ name: string; amount: string; period_type: 'monthly' | 'yearly' | 'one_time'; payment_rule: 'full' | 'partial'; is_voluntary: boolean } | null>(null)
+  const [editDueLoading, setEditDueLoading] = useState(false)
+
+  // Deactivate due state
+  const [deactivateDueId, setDeactivateDueId] = useState<string | null>(null)
+  const [deactivateLoading, setDeactivateLoading] = useState(false)
+
+  // Month filter for Kelola Iuran tab
+  const [kelolaMonth, setKelolaMonth] = useState<string>('')
+
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const initialSearch = searchParams.get('q') || searchParams.get('search') || ''
+  const initialFilter = (searchParams.get('filter') as FilterType) ?? 'semua'
+  const initialStatus = (searchParams.get('status') as IuranStatus) || null
+  const initialPeriode = searchParams.get('periode') ?? ''
+  const initialJenis = searchParams.get('jenis') ?? ''
+  const initialPage = parseInt(searchParams.get('page') || '1', 10) || 1
+  const initialPageSize = parseInt(searchParams.get('page_size') || searchParams.get('per_page') || '', 10) || undefined
+
+  const [filterType, setFilterType] = useState<FilterType>(initialFilter)
+  const [search, setSearch] = useState(initialSearch)
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch)
+  const [statusValue, setStatusValue] = useState<IuranStatus | null>(initialStatus)
+  const [periodeValue, setPeriodeValue] = useState<string>(initialPeriode)
+  const [jenisValue, setJenisValue] = useState<string>(initialJenis)
+
+  const [page, setPage] = useState(initialPage)
+  const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:iuran', [10, 25, 50, 100], initialPageSize)
+
+  // Debounce search input by 300ms to prevent duplicate in-flight requests
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // Synchronize search and filter state to URL search parameters for persistence across refreshes
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim())
+    if (filterType !== 'semua') params.set('filter', filterType)
+    if (statusValue) params.set('status', statusValue)
+    if (periodeValue) params.set('periode', periodeValue)
+    if (jenisValue) params.set('jenis', jenisValue)
+    if (page > 1) params.set('page', String(page))
+    if (pageSize) params.set('page_size', String(pageSize))
+
+    setSearchParams(params, { replace: true })
+  }, [debouncedSearch, filterType, statusValue, periodeValue, jenisValue, page, pageSize, setSearchParams])
+
+  // Notification state
+  const { user } = useAuth()
+  const [wasteTruckStatus, setWasteTruckStatus] = useState<string | null>(null)
+  const [wasteTruckLoading, setWasteTruckLoading] = useState(false)
+
+  const canTriggerWasteTruck = user?.role === 'pengurus' || user?.systemRole === 'super_admin'
+
+  const handleWasteTruckArrival = async () => {
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    setWasteTruckLoading(true)
+    setWasteTruckStatus(null)
+    try {
+      const res = await apiTriggerWasteTruckArrival(token)
+      setWasteTruckStatus(res.message || 'Notifikasi kedatangan truk sampah berhasil dikirim')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengirim notifikasi'
+      setWasteTruckStatus(msg)
+    } finally {
+      setWasteTruckLoading(false)
+    }
+  }
+
+  const fetchedPaymentBillIds = useRef<Set<string>>(new Set())
+  const requestIdRef = useRef(0)
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
 
   // Map backend bill to frontend IuranBill format
   const mapBill = useCallback((b: ApiBill): IuranBill => {
     const iuranType = b.due_name ?? 'Iuran'
     const householdName = b.head_name ?? b.house_number ?? 'Unknown'
     const rt = b.rt_code ? `RT ${b.rt_code}` : 'RT —'
+    const nominal = parseMoney(b.amount)
+    const isVoluntary = Boolean(b.is_voluntary || nominal === 0)
+    const status: IuranStatus = (isVoluntary && nominal === 0)
+      ? 'sukarela'
+      : (BACKEND_STATUS_MAP[b.status] ?? 'belum_bayar')
+
     return {
       id: b.id,
       householdId: b.household_occupancy_id,
@@ -96,18 +186,21 @@ export function IuranList() {
       rt,
       iuranType,
       periode: b.period,
-      nominal: parseMoney(b.amount),
-      paidAmount: 0, // calculated separately from payments
+      nominal,
+      paidAmount: 0,
       pendingAmount: 0,
-      status: BACKEND_STATUS_MAP[b.status] ?? 'belum_bayar',
-      paidDate: undefined,
-      payments: [], // populated in IuranDetail
+      status,
+      isVoluntary,
+      dueId: b.due_id,
+      payments: [],
     }
   }, [])
 
-  const loadData = useCallback(async (p: number, size: number) => {
+  const loadData = useCallback(async () => {
+    const currentReq = ++requestIdRef.current
     setLoading(true)
     setError(null)
+    fetchedPaymentBillIds.current.clear()
 
     try {
       const token = getSessionPair()?.accessToken
@@ -117,156 +210,190 @@ export function IuranList() {
         return
       }
 
-      const params: Record<string, string> = {
-        page: String(p),
-        page_size: String(size),
+      let apiStatus: string | undefined
+      if (statusValue === 'lunas') apiStatus = 'paid'
+      else if (statusValue === 'belum_bayar') apiStatus = 'unpaid'
+      else if (statusValue === 'dibatalkan') apiStatus = 'cancelled'
+
+      const resp = await apiListBills(token, {
+        page,
+        page_size: pageSize,
+        search: debouncedSearch.trim() || undefined,
+        status: apiStatus,
+        period: periodeValue || undefined,
+      })
+
+      if (currentReq !== requestIdRef.current) {
+        return
       }
 
-      // Apply server-side filters
-      if (statusValue) {
-        // Map frontend status back to backend status
-        const statusMap: Record<string, string> = {
-          belum_bayar: 'unpaid',
-          sebagian: 'partial',
-          lunas: 'paid',
-          dibatalkan: 'cancelled',
-        }
-        params.status = statusMap[statusValue] ?? ''
-      }
-      if (periodeValue) {
-        params.period = periodeValue
+      if (!resp?.data) {
+        throw new Error('Gagal memuat data tagihan')
       }
 
-      const [billsResponse, duesResponse] = await Promise.all([
-        apiListBills(token, params),
-        apiListDues(token, { is_active: true, page_size: 100 }).catch(() => null),
-      ])
+      const bills = resp.data.map(mapBill)
+      setAllBills(bills)
 
-      const data = billsResponse?.data ?? []
-      let bills = data.map(mapBill)
+      const serverTotal = resp.pagination?.total ?? bills.length
+      const serverTotalPages = resp.pagination?.total_pages ?? Math.max(1, Math.ceil(serverTotal / pageSize))
+      setTotal(serverTotal)
+      setTotalPages(serverTotalPages)
 
-      // Include active voluntary Rp0 dues (sumbangan sukarela) as informational items in the list
-      // Only include if no specific bill-only status filter is applied, or if 'sukarela' filter is selected
-      if (duesResponse && (!statusValue || statusValue === 'sukarela')) {
-        const duesList: ApiDue[] = Array.isArray(duesResponse)
-          ? duesResponse
-          : Array.isArray(duesResponse.data)
-            ? duesResponse.data
-            : []
-        const voluntaryDues = duesList.filter(
-          (d: ApiDue) => d.is_active && d.is_voluntary && parseMoney(d.amount) === 0
-        )
-        const voluntaryItems: IuranBill[] = voluntaryDues.map((d: ApiDue) => ({
-          id: `voluntary-due-${d.id}`,
-          dueId: d.id,
-          householdId: '',
-          householdName: 'Semua Warga (Sukarela)',
-          rt: d.rt_code ? `RT ${d.rt_code}` : 'RT —',
-          iuranType: d.name,
-          periode: '—',
-          nominal: 0,
-          paidAmount: 0,
-          pendingAmount: 0,
-          status: 'sukarela' as IuranStatus,
-          isVoluntary: true,
-          dueData: d,
-          payments: [],
-        }))
-
-        // Filter out if periode filter is set (voluntary Rp0 dues don't belong to a single mandatory billing period)
-        if (!periodeValue) {
-          bills = [...bills, ...voluntaryItems]
-        }
+      if (serverTotalPages > 0 && page > serverTotalPages) {
+        setPage(serverTotalPages)
       }
-
-      // Load payments for all visible bills to calculate paidAmount
-      // Only load for first page to avoid excessive API calls
-      if (p === 1 && bills.length > 0) {
-        try {
-          // Load payments for each bill to calculate paidAmount AND pending
-          if (token) {
-            const actualBills = bills.filter((b: IuranBill) => !b.isVoluntary)
-            const paymentsPromises = actualBills.map(async (b: IuranBill) => {
-              const res = await apiListPayments(token, { bill_id: b.id }).catch(() => null)
-              return { billId: b.id, data: res }
-            })
-            const paymentsResults = await Promise.all(paymentsPromises)
-
-            paymentsResults.forEach(({ billId: _billId, data }, idx: number) => {
-              if (data && data.data.length > 0) {
-                const approvedPayments = data.data.filter(
-                  (p: { status: string; amount: string }) => p.status === 'APPROVED'
-                )
-                const paidAmount = approvedPayments.reduce(
-                  (sum: number, p: { amount: string }) => sum + parseMoney(p.amount),
-                  0
-                )
-                const pendingPayments = data.data.filter(
-                  (p: { status: string; amount: string }) => p.status === 'PENDING'
-                )
-                const pendingAmount = pendingPayments.reduce(
-                  (sum: number, p: { amount: string }) => sum + parseMoney(p.amount),
-                  0
-                )
-
-                bills[idx] = { ...bills[idx], paidAmount, pendingAmount }
-              }
-            })
-          }
-        } catch {
-          // Silent fail - show paidAmount=0 if payments cannot be loaded
-        }
-      }
-
-      // Client-side search filter (backend doesn't support search)
-      if (search.trim()) {
-        const q = search.trim().toLowerCase()
-        bills = bills.filter(
-          (b) => b.householdName.toLowerCase().includes(q) || b.rt.toLowerCase().includes(q) || b.iuranType.toLowerCase().includes(q)
-        )
-      }
-
-      // Client-side status filter for sukarela
-      if (statusValue === 'sukarela') {
-        bills = bills.filter((b) => b.status === 'sukarela')
-      }
-
-      // Client-side jenis filter (backend doesn't support it)
-      if (jenisValue) {
-        bills = bills.filter((b) => b.iuranType === jenisValue)
-      }
-
-      const totalPages = Math.max(1, Math.ceil(bills.length / size))
-
-      setBackendBills(billsResponse?.data ?? [])
-      setFilteredBills(bills)
-      setTotal(bills.length)
-      setTotalPages(totalPages)
-      setPage(p)
-      setPageSize(size)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal memuat data')
+      if (currentReq === requestIdRef.current) {
+        setAllBills([])
+        setError(err instanceof Error ? err.message : 'Gagal memuat data')
+      }
     } finally {
-      setLoading(false)
+      if (currentReq === requestIdRef.current) {
+        setLoading(false)
+      }
     }
-  }, [mapBill, statusValue, periodeValue, search, jenisValue])
+  }, [page, pageSize, debouncedSearch, statusValue, periodeValue, mapBill])
 
   useEffect(() => {
-    loadData(1, 10)
+    void loadData()
   }, [loadData])
 
-  // Auto-refresh when user returns to tab (e.g., after paying from Android)
+  // Auto-refresh when user returns to tab
   useEffect(() => {
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
-        loadData(1, pageSize)
+        void loadData()
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [loadData, pageSize])
+  }, [loadData])
+
+  // Load dues for "Kelola Iuran" tab
+  const loadDues = useCallback(async () => {
+    const currentReq = ++requestIdRef.current
+    setDuesLoading(true)
+    setDuesError(null)
+    try {
+      const token = getSessionPair()?.accessToken
+      if (!token) {
+        setDuesError('Sesi Anda telah berakhir. Silakan login ulang.')
+        setDuesLoading(false)
+        return
+      }
+      const resp = await apiListDues(token, { is_active: true })
+      if (currentReq !== requestIdRef.current) return
+      if (!resp || !Array.isArray(resp) || resp.length === 0) {
+        if (resp && resp.length === 0) {
+          setDues([])
+          setDuesLoading(false)
+          return
+        }
+        throw new Error('Gagal memuat konfigurasi iuran')
+      }
+      setDues(resp)
+    } catch (err) {
+      if (currentReq === requestIdRef.current) {
+        setDues([])
+        setDuesError(err instanceof Error ? err.message : 'Gagal memuat data')
+      }
+    } finally {
+      if (currentReq === requestIdRef.current) {
+        setDuesLoading(false)
+      }
+    }
+  }, [])
+
+  // Load dues when "Kelola Iuran" tab is activated
+  useEffect(() => {
+    if (activeTab === 'kelola-iuran') {
+      void loadDues()
+    }
+  }, [activeTab, loadDues])
+
+  // Filter returned bills strictly by bill name (nama tagihan / due_name)
+  const filteredBills = useMemo(() => {
+    let result = allBills
+
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.trim().toLowerCase()
+      result = result.filter((b) => b.iuranType.toLowerCase().includes(q))
+    }
+
+    if (statusValue) {
+      if (statusValue === 'sukarela') {
+        result = result.filter((b) => b.status === 'sukarela' || b.isVoluntary)
+      } else {
+        result = result.filter((b) => b.status === statusValue)
+      }
+    }
+
+    if (periodeValue) {
+      result = result.filter((b) => b.periode === periodeValue)
+    }
+
+    if (jenisValue) {
+      result = result.filter((b) => b.iuranType === jenisValue)
+    }
+
+    return result
+  }, [allBills, debouncedSearch, statusValue, periodeValue, jenisValue])
+
+  const displayTotal = total > 0 ? total : filteredBills.length
+  const displayTotalPages = totalPages > 0 ? totalPages : Math.max(1, Math.ceil(displayTotal / pageSize))
+  const paginatedBills = useMemo(() => {
+    if (allBills.length > pageSize) {
+      return filteredBills.slice((page - 1) * pageSize, page * pageSize)
+    }
+    return filteredBills
+  }, [filteredBills, allBills.length, page, pageSize])
+
+  // Load payments for visible bills on active page to calculate paidAmount & pendingAmount
+  useEffect(() => {
+    let cancelled = false
+    const token = getSessionPair()?.accessToken
+    if (!token || paginatedBills.length === 0) return
+
+    const unfetched = paginatedBills.filter((b) => !fetchedPaymentBillIds.current.has(b.id))
+    if (unfetched.length === 0) return
+
+    unfetched.forEach((b) => fetchedPaymentBillIds.current.add(b.id))
+
+    Promise.all(
+      unfetched.map(async (b) => {
+        const res = await apiListPayments(token, { bill_id: b.id }).catch(() => null)
+        return { billId: b.id, data: res }
+      })
+    ).then((results) => {
+      if (cancelled) return
+      setAllBills((prev) => {
+        const paymentMap = new Map<string, { paid: number; pending: number }>()
+        for (const { billId, data } of results) {
+          if (data && Array.isArray(data.data) && data.data.length > 0) {
+            const approved = data.data.filter((p: { status: string }) => p.status === 'APPROVED')
+            const paid = approved.reduce((sum: number, p: { amount: string }) => sum + parseMoney(p.amount), 0)
+            const pending = data.data.filter((p: { status: string }) => p.status === 'PENDING')
+            const pendingAmt = pending.reduce((sum: number, p: { amount: string }) => sum + parseMoney(p.amount), 0)
+            paymentMap.set(billId, { paid, pending: pendingAmt })
+          }
+        }
+        if (paymentMap.size === 0) return prev
+        return prev.map((b) => {
+          const pm = paymentMap.get(b.id)
+          if (pm) {
+            return { ...b, paidAmount: pm.paid, pendingAmount: pm.pending }
+          }
+          return b
+        })
+      })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [paginatedBills])
 
   const handleFilter = (filter: FilterType) => {
     setFilterType(filter)
@@ -278,35 +405,41 @@ export function IuranList() {
     }
   }
 
+  const handleSearchChange = (value: string) => {
+    setSearch(value)
+    setPage(1)
+  }
+
   const handleSearch = (value: string) => {
     setSearch(value)
-    loadData(1, pageSize)
+    setDebouncedSearch(value)
+    setPage(1)
   }
 
   const handlePage = (p: number) => {
-    if (p >= 1 && p <= totalPages) {
-      loadData(p, pageSize)
+    if (p >= 1 && p <= displayTotalPages) {
+      setPage(p)
     }
   }
 
   const handlePageSizeChange = (newSize: number) => {
     setPageSize(newSize)
-    loadData(1, newSize)
+    setPage(1)
   }
 
   const handleStatusSelect = (val: IuranStatus) => {
     setStatusValue(val)
-    loadData(1, pageSize)
+    setPage(1)
   }
 
   const handlePeriodeSelect = (val: string) => {
     setPeriodeValue(val)
-    loadData(1, pageSize)
+    setPage(1)
   }
 
   const handleJenisSelect = (val: string) => {
     setJenisValue(val)
-    loadData(1, pageSize)
+    setPage(1)
   }
 
   const statusLabel: string | null = statusValue ? getStatusLabel(statusValue) : null
@@ -316,22 +449,84 @@ export function IuranList() {
     : null
 
   const uniquePeriodes = useMemo(() => {
-    const s = new Set(backendBills.map((b: ApiBill) => b.period))
+    const s = new Set<string>()
+    allBills.forEach((b) => {
+      if (b.periode) s.add(b.periode)
+    })
     return Array.from(s).sort().reverse()
-  }, [backendBills])
+  }, [allBills])
 
   const uniquePeriodesOptions = useMemo(
     () => uniquePeriodes.map((p) => ({ value: p, label: formatPeriodeLabel(p) })),
     [uniquePeriodes]
   )
 
-  const handleRowClick = useCallback((billId: string, dueData?: ApiDue) => {
-    // Voluntary Rp0 items open DueDetailModal with the ApiDue data
-    if (billId.startsWith('voluntary-due-') && dueData) {
-      setShowDueDetailDue(dueData)
-      return
-    }
+  const handleRowClick = useCallback((billId: string) => {
     setShowDetailBillId(billId)
+  }, [])
+
+  // ═══════════════════════════════════════════════════
+  // Edit Due handlers
+  // ═══════════════════════════════════════════════════
+  const handleOpenEdit = useCallback((due: ApiDue) => {
+    setEditDueId(due.id)
+    setEditDueForm({
+      name: due.name,
+      amount: due.amount,
+      period_type: due.period_type,
+      payment_rule: due.payment_rule ?? 'full',
+      is_voluntary: due.is_voluntary ?? false,
+    })
+  }, [])
+
+  const handleCloseEdit = useCallback(() => {
+    setEditDueId(null)
+    setEditDueForm(null)
+    setEditDueLoading(false)
+  }, [])
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editDueId || !editDueForm) return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    setEditDueLoading(true)
+    try {
+      await apiUpdateDue(token, editDueId, editDueForm)
+      handleCloseEdit()
+      void loadDues()
+    } catch (err) {
+      // keep modal open — error shown in duesError
+      setDuesError(err instanceof Error ? err.message : 'Gagal menyimpan perubahan')
+    } finally {
+      setEditDueLoading(false)
+    }
+  }, [editDueId, editDueForm, loadDues, handleCloseEdit])
+
+  // ═══════════════════════════════════════════════════
+  // Deactivate due handlers
+  // ═══════════════════════════════════════════════════
+  const handleOpenDeactivate = useCallback((dueId: string) => {
+    setDeactivateDueId(dueId)
+  }, [])
+
+  const handleConfirmDeactivate = useCallback(async () => {
+    const token = getSessionPair()?.accessToken
+    if (!token || !deactivateDueId) return
+    setDeactivateLoading(true)
+    try {
+      await apiDeactivateDue(token, deactivateDueId)
+      setDeactivateDueId(null)
+      void loadDues()
+    } catch (err) {
+      setDuesError(err instanceof Error ? err.message : 'Gagal menonaktifkan iuran')
+    } finally {
+      setDeactivateLoading(false)
+    }
+  }, [deactivateDueId, loadDues])
+
+  const handleCloseDeactivate = useCallback(() => {
+    setDeactivateDueId(null)
+    setDeactivateLoading(false)
   }, [])
 
   return (
@@ -367,9 +562,9 @@ export function IuranList() {
             {/* Search */}
             <SearchBox
               value={search}
-              onChange={(v) => setSearch(v)}
+              onChange={handleSearchChange}
               onSearch={handleSearch}
-              placeholder="Cari nama warga/RT..."
+              placeholder="Cari nama tagihan..."
               statusControl={
                 filterType === 'status' ? (
                   <div className="sf-status-selector">
@@ -379,7 +574,7 @@ export function IuranList() {
                         <button
                           type="button"
                           className="sf-status-badge-clear"
-                          onClick={() => { setStatusValue(null); loadData(1, pageSize) }}
+                          onClick={() => { setStatusValue(null); setPage(1); }}
                           aria-label="Hapus filter status"
                           title="Hapus filter status"
                         >
@@ -422,7 +617,7 @@ export function IuranList() {
                         <button
                           type="button"
                           className="sf-status-badge-clear"
-                          onClick={() => { setPeriodeValue(''); loadData(1, pageSize) }}
+                          onClick={() => { setPeriodeValue(''); setPage(1); }}
                           aria-label="Hapus filter periode"
                           title="Hapus filter periode"
                         >
@@ -465,7 +660,7 @@ export function IuranList() {
                         <button
                           type="button"
                           className="sf-status-badge-clear"
-                          onClick={() => { setJenisValue(''); loadData(1, pageSize) }}
+                          onClick={() => { setJenisValue(''); setPage(1); }}
                           aria-label="Hapus filter jenis"
                           title="Hapus filter jenis"
                         >
@@ -503,26 +698,129 @@ export function IuranList() {
                 ) : null
               }
             />
+
+            {/* Month filter for Kelola Iuran tab — in toolbar, horizontal with search */}
+            {activeTab === 'kelola-iuran' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--sf-text-muted)', whiteSpace: 'nowrap' }}>Saring Bulan:</span>
+                <DatePicker
+                  picker="month"
+                  value={kelolaMonth ? dayjs(kelolaMonth, 'YYYY-MM') : null}
+                  onChange={(date) => {
+                    setKelolaMonth(date ? date.format('YYYY-MM') : '')
+                  }}
+                  style={{ width: 160 }}
+                  placeholder="Pilih bulan"
+                  allowClear
+                  format="YYYY-MM"
+                />
+              </div>
+            )}
           </div>
 
-          {/* Create Due button */}
-          <div className="sf-list-toolbar-right">
-            <button
-              type="button"
-              className="sf-btn-primary"
-              onClick={() => setShowCreateDue(true)}
-            >
-              <PlusOutlined style={{ marginRight: 4, fontSize: 12 }} />
-              Tambah Iuran
-            </button>
+          {/* Create Due and Waste Truck buttons */}
+          <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {/* "Tambah Iuran" only shown in "Kelola Iuran" tab */}
+            {activeTab === 'kelola-iuran' && (
+              <button
+                type="button"
+                className="sf-btn-primary"
+                onClick={() => setShowCreateDue(true)}
+              >
+                <PlusOutlined style={{ marginRight: 4, fontSize: 12 }} />
+                Tambah Iuran
+              </button>
+            )}
+            {/* "Truk Sampah Tiba" always visible in "List Iuran" tab */}
+            {activeTab === 'list-iuran' && canTriggerWasteTruck && (
+              <button
+                type="button"
+                className="sf-btn-secondary"
+                disabled={wasteTruckLoading}
+                onClick={() => void handleWasteTruckArrival()}
+                title="Kirim notifikasi kedatangan truk sampah ke seluruh warga RT"
+              >
+                <AlertOutlined style={{ marginRight: 4, fontSize: 12 }} />
+                {wasteTruckLoading ? 'Mengirim...' : 'Truk Sampah Tiba'}
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Tab Navigation */}
+        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '16px' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('list-iuran')}
+            style={{
+              padding: '10px 20px',
+              fontSize: '14px',
+              fontWeight: activeTab === 'list-iuran' ? 600 : 400,
+              color: activeTab === 'list-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              borderBottom: activeTab === 'list-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              background: 'none',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+              transition: 'all 150ms ease',
+            }}
+          >
+            List Iuran
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('kelola-iuran')}
+            style={{
+              padding: '10px 20px',
+              fontSize: '14px',
+              fontWeight: activeTab === 'kelola-iuran' ? 600 : 400,
+              color: activeTab === 'kelola-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              borderBottom: activeTab === 'kelola-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              background: 'none',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderTop: 'none',
+              cursor: 'pointer',
+              transition: 'all 150ms ease',
+            }}
+          >
+            Kelola Iuran
+          </button>
+        </div>
+
+        {wasteTruckStatus && activeTab === 'list-iuran' && (
+          <div
+            className="sf-alert-banner"
+            style={{
+              margin: '8px 0',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              background: 'var(--sf-success-light, #e6f7ed)',
+              color: 'var(--sf-success, #1a7f37)',
+              fontSize: '13px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <span>{wasteTruckStatus}</span>
+            <button
+              type="button"
+              onClick={() => setWasteTruckStatus(null)}
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
+              aria-label="Tutup notifikasi"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Create Due Modal */}
         {showCreateDue && (
           <DueCreate
             onClose={() => setShowCreateDue(false)}
-            onSaved={() => loadData(1, pageSize)}
+            onSaved={() => { void loadData(); void loadDues(); }}
           />
         )}
 
@@ -545,132 +843,391 @@ export function IuranList() {
             billId={showPaymentBillId}
             open={true}
             onClose={() => setShowPaymentBillId(null)}
-            onPaymentSuccess={() => loadData(1, pageSize)}
+            onPaymentSuccess={() => { void loadData(); void loadDues(); }}
           />
         )}
 
-        {/* Due Detail Modal (voluntary Rp0) */}
-        {showDueDetailDue && (
-          <DueDetailModal
-            due={showDueDetailDue}
-            open={!!showDueDetailDue}
-            onClose={() => setShowDueDetailDue(null)}
-          />
-        )}
-
-        {/* Error */}
-        {error && (
-          <div className="sf-error-banner" role="alert">
-            {error}
-          </div>
-        )}
-
-        {/* Loading */}
-        {loading && (
-          <div className="sf-loading-banner">
-            Memuat data iuran...
-          </div>
-        )}
-
-        {/* Empty */}
-        {!loading && !error && filteredBills.length === 0 && (
-          <div className="sf-empty-banner">
-            Tidak ada data iuran.
-          </div>
-        )}
-
-        {/* Bill Table */}
-        {!loading && filteredBills.length > 0 && (
-          <div className="table-wrapper">
-            <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
-              <thead>
-                <tr>
-                  <th style={colStyles.no}>No</th>
-                  <th style={colStyles.name}>WARGA/KK</th>
-                  <th style={colStyles.rt}>RT</th>
-                  <th style={colStyles.type}>JENIS IURAN</th>
-                  <th style={colStyles.periode}>PERIODE</th>
-                  <th style={colStyles.nominal}>NOMINAL</th>
-                  <th style={colStyles.paid}>DIBAYAR</th>
-                  <th style={colStyles.pending}>TERTUNDA</th>
-                  <th style={colStyles.status}>STATUS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredBills.map((bill, idx) => {
-                  const hasPending = (bill.pendingAmount ?? 0) > 0
-
-                  // Extract dueData from bill for voluntary items
-                  const dueData = (bill as IuranBill & { dueData?: ApiDue }).dueData
-
-                  return (
-                    <tr
-                      key={bill.id}
-                      onClick={() => handleRowClick(bill.id, dueData)}
-                      style={{ cursor: bill.isVoluntary ? 'pointer' : 'pointer' }}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          handleRowClick(bill.id, dueData)
-                        }
-                      }}
+        {/* Edit Due Modal */}
+        {editDueId && editDueForm && (
+          <div className="sf-modal-overlay" role="dialog" aria-modal="true">
+            <div className="sf-modal" style={{ width: 480, maxWidth: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
+              <ModalHeader
+                title="Edit Iuran"
+                subtitle="Perubahan akan berlaku untuk tagihan baru yang dibuat setelah ini."
+                onClose={handleCloseEdit}
+              />
+              <ModalBody>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Name */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: 'var(--sf-text-muted)' }}>
+                      Nama Iuran
+                    </label>
+                    <input
+                      type="text"
+                      value={editDueForm.name}
+                      onChange={(e) => setEditDueForm({ ...editDueForm, name: e.target.value })}
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--sf-border)', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}
+                      placeholder="Nama iuran"
+                    />
+                  </div>
+                  {/* Amount / Sukarela toggle */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: 'var(--sf-text-muted)' }}>
+                      Nominal
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <input
+                        type="text"
+                        value={editDueForm.amount}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/\D/g, '')
+                          setEditDueForm({ ...editDueForm, amount: raw || '0' })
+                        }}
+                        disabled={editDueForm.is_voluntary}
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          border: `1px solid ${editDueForm.is_voluntary ? 'var(--sf-border)' : 'var(--sf-border)'}`,
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          fontFamily: 'monospace',
+                          color: editDueForm.is_voluntary ? 'var(--sf-text-muted)' : 'inherit',
+                          background: editDueForm.is_voluntary ? 'var(--sf-bg-secondary)' : 'white',
+                        }}
+                        placeholder="0"
+                      />
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={editDueForm.is_voluntary}
+                          onChange={(e) => setEditDueForm({ ...editDueForm, is_voluntary: e.target.checked })}
+                          style={{ accentColor: 'var(--sf-accent)' }}
+                        />
+                        Sukarela (Rp0)
+                      </label>
+                    </div>
+                  </div>
+                  {/* Period type */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: 'var(--sf-text-muted)' }}>
+                      Frekuensi
+                    </label>
+                    <select
+                      value={editDueForm.period_type}
+                      onChange={(e) => setEditDueForm({ ...editDueForm, period_type: e.target.value as 'monthly' | 'yearly' | 'one_time' })}
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--sf-border)', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}
                     >
-                      <td style={colStyles.no}>
-                        {idx + 1}
-                      </td>
-                      <td style={colStyles.name}>
-                        <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
-                      </td>
-                      <td style={colStyles.rt}>
-                        {bill.rt}
-                      </td>
-                      <td style={colStyles.type}>
-                        {bill.iuranType}
-                      </td>
-                      <td style={colStyles.periode}>
-                        {bill.periode.includes('-') ? formatPeriodeLabel(bill.periode) : bill.periode}
-                      </td>
-                      <td style={colStyles.nominal}>
-                        {formatRupiah(bill.nominal)}
-                      </td>
-                      <td style={colStyles.paid}>
-                        {formatRupiah(bill.paidAmount)}
-                      </td>
-                      <td style={colStyles.pending}>
-                        {hasPending ? (
-                          <span style={{ color: 'var(--sf-warning)' }}>
-                            {formatRupiah(bill.pendingAmount)}
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td style={colStyles.status}>
-                        <Badge variant={getStatusVariant(bill.status)}>
-                          {getStatusLabel(bill.status)}
-                        </Badge>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                      <option value="monthly">Bulanan</option>
+                      <option value="yearly">Tahunan</option>
+                      <option value="one_time">Sekali Waktu</option>
+                    </select>
+                  </div>
+                  {/* Payment rule */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: 'var(--sf-text-muted)' }}>
+                      Aturan Pembayaran
+                    </label>
+                    <select
+                      value={editDueForm.payment_rule}
+                      onChange={(e) => setEditDueForm({ ...editDueForm, payment_rule: e.target.value as 'full' | 'partial' })}
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--sf-border)', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}
+                    >
+                      <option value="full">Seluruh</option>
+                      <option value="partial">Sebagian</option>
+                    </select>
+                  </div>
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <button
+                  type="button"
+                  className="sf-btn-secondary"
+                  onClick={handleCloseEdit}
+                  disabled={editDueLoading}
+                  style={{ marginRight: 'auto' }}
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  className="sf-btn-primary"
+                  onClick={handleSaveEdit}
+                  disabled={editDueLoading || !editDueForm.name.trim() || !editDueForm.amount}
+                >
+                  {editDueLoading ? 'Menyimpan...' : 'Simpan'}
+                </button>
+              </ModalFooter>
+            </div>
           </div>
         )}
 
-        {/* Pagination */}
-        {!loading && filteredBills.length > 0 && (
-          <Pagination
-            page={page}
-            pageSize={pageSize}
-            total={total}
-            totalPages={totalPages}
-            onPageChange={handlePage}
-            onPageSizeChange={handlePageSizeChange}
-            pageSizeOptions={[10, 25, 50, 100]}
-          />
+        {/* Deactivate Confirmation */}
+        {deactivateDueId && (
+          <div className="sf-modal-overlay" role="dialog" aria-modal="true">
+            <div className="sf-modal" style={{ width: 400, maxWidth: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
+              <ModalHeader
+                title="Konfirmasi"
+                onClose={handleCloseDeactivate}
+              />
+              <ModalBody>
+                <p style={{ fontSize: '14px', lineHeight: 1.6 }}>
+                  Apakah Anda yakin ingin menonaktifkan iuran ini? Iuran tidak akan membuat tagihan baru setelah ditonaktifkan.
+                </p>
+              </ModalBody>
+              <ModalFooter>
+                <button
+                  type="button"
+                  className="sf-btn-secondary"
+                  onClick={handleCloseDeactivate}
+                  disabled={deactivateLoading}
+                  style={{ marginRight: 'auto' }}
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  className="sf-btn-danger"
+                  onClick={handleConfirmDeactivate}
+                  disabled={deactivateLoading}
+                >
+                  {deactivateLoading ? 'Menonaktifkan...' : 'Ya, Nonaktifkan'}
+                </button>
+              </ModalFooter>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ TAB: LIST IURAN ═══ */}
+        {activeTab === 'list-iuran' && (
+          <>
+            {/* Error */}
+            {error && (
+              <div className="sf-error-banner" role="alert">
+                {error}
+              </div>
+            )}
+
+            {/* Loading */}
+            {loading && (
+              <div className="sf-loading-banner">
+                Memuat data iuran...
+              </div>
+            )}
+
+            {/* Empty */}
+            {!loading && !error && filteredBills.length === 0 && (
+              <div className="sf-empty-banner">
+                Tidak ada data iuran.
+              </div>
+            )}
+
+            {/* Bill Table */}
+            {!loading && filteredBills.length > 0 && (
+              <div className="table-wrapper">
+                <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
+                  <thead>
+                    <tr>
+                      <th style={colStyles.no}>No</th>
+                      <th style={colStyles.name}>WARGA/KK</th>
+                      <th style={colStyles.rt}>RT</th>
+                      <th style={colStyles.type}>JENIS IURAN</th>
+                      <th style={colStyles.periode}>PERIODE</th>
+                      <th style={colStyles.nominal}>NOMINAL</th>
+                      <th style={colStyles.paid}>DIBAYAR</th>
+                      <th style={colStyles.pending}>TERTUNDA</th>
+                      <th style={colStyles.status}>STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedBills.map((bill, idx) => {
+                      const hasPending = (bill.pendingAmount ?? 0) > 0
+
+                      return (
+                        <tr
+                          key={bill.id}
+                          onClick={() => handleRowClick(bill.id)}
+                          style={{ cursor: 'pointer' }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              handleRowClick(bill.id)
+                            }
+                          }}
+                        >
+                          <td style={colStyles.no}>
+                            {(page - 1) * pageSize + idx + 1}
+                          </td>
+                          <td style={colStyles.name}>
+                            <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
+                          </td>
+                          <td style={colStyles.rt}>
+                            {bill.rt}
+                          </td>
+                          <td style={colStyles.type}>
+                            {bill.iuranType}
+                          </td>
+                          <td style={colStyles.periode}>
+                            {bill.periode.includes('-') ? formatPeriodeLabel(bill.periode) : bill.periode}
+                          </td>
+                          <td style={colStyles.nominal}>
+                            {formatRupiah(bill.nominal)}
+                          </td>
+                          <td style={colStyles.paid}>
+                            {formatRupiah(bill.paidAmount)}
+                          </td>
+                          <td style={colStyles.pending}>
+                            {hasPending ? (
+                              <span style={{ color: 'var(--sf-warning)' }}>
+                                {formatRupiah(bill.pendingAmount)}
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td style={colStyles.status}>
+                            <Badge variant={getStatusVariant(bill.status)}>
+                              {getStatusLabel(bill.status)}
+                            </Badge>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {!loading && filteredBills.length > 0 && (
+              <Pagination
+                page={page}
+                pageSize={pageSize}
+                total={displayTotal}
+                totalPages={displayTotalPages}
+                onPageChange={handlePage}
+                onPageSizeChange={handlePageSizeChange}
+                pageSizeOptions={[10, 25, 50, 100]}
+              />
+            )}
+          </>
+        )}
+
+        {/* ═══ TAB: KELOLA IURAN ═══ */}
+        {activeTab === 'kelola-iuran' && (
+          <>
+            {/* Loading */}
+            {duesLoading && (
+              <div className="sf-loading-banner">
+                Memuat konfigurasi iuran...
+              </div>
+            )}
+
+            {/* Error */}
+            {duesError && (
+              <div className="sf-error-banner" role="alert">
+                {duesError}
+              </div>
+            )}
+
+            {/* Empty */}
+            {!duesLoading && !duesError && dues.length === 0 && (
+              <div className="sf-empty-banner">
+                Belum ada konfigurasi iuran. Klik "Tambah Iuran" untuk membuat.
+              </div>
+            )}
+
+            {/* Dues Table */}
+            {!duesLoading && dues.length > 0 && (() => {
+              // Filter dues by selected month (monthly dues only)
+              const filteredDues = kelolaMonth
+                ? dues.filter((due) => {
+                    // For monthly dues: check period matches
+                    if (due.period_type === 'monthly') {
+                      return due.amount === kelolaMonth
+                    }
+                    // For yearly/one_time/voluntary: always show
+                    return true
+                  })
+                : dues
+
+              if (kelolaMonth && filteredDues.length === 0) {
+                return <div className="sf-empty-banner">Tidak ada iuran bulanan untuk periode {kelolaMonth}.</div>
+              }
+              <div className="table-wrapper">
+                <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...colStyles.name, minWidth: 200, textAlign: 'left' }}>NAMA IURAN</th>
+                      <th style={{ width: 130, minWidth: 130, textAlign: 'right', fontFamily: 'monospace' }}>NOMINAL</th>
+                      <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>FREKUENSI</th>
+                      <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>ATURAN</th>
+                      <th style={{ width: 110, minWidth: 110, textAlign: 'center' }}>TIPE</th>
+                      <th style={{ width: 120, minWidth: 120, textAlign: 'center' }}>AKSI</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredDues.map((due) => {
+                      const isVoluntary = due.is_voluntary ?? false
+                      const periodLabel = due.period_type === 'monthly' ? 'Bulanan'
+                        : due.period_type === 'yearly' ? 'Tahunan'
+                        : 'Sekali Waktu'
+                      const ruleLabel = (due.payment_rule ?? 'full') === 'full' ? 'Seluruh' : 'Sebagian'
+
+                      return (
+                        <tr key={due.id}>
+                          <td style={colStyles.name}>
+                            <span style={{ fontWeight: 600 }}>{due.name}</span>
+                          </td>
+                          <td style={colStyles.nominal}>
+                            {isVoluntary ? (
+                              <span style={{ color: 'var(--sf-info)' }}>Sukarela</span>
+                            ) : (
+                              formatRupiah(parseMoney(due.amount))
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'left' }}>
+                            {periodLabel}
+                          </td>
+                          <td style={{ textAlign: 'left' }}>
+                            {ruleLabel}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <Badge variant={isVoluntary ? 'blue' : 'default'}>
+                              {isVoluntary ? 'Sukarela' : 'Reguler'}
+                            </Badge>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                              <button
+                                type="button"
+                                className="sf-btn-secondary"
+                                onClick={(e) => { e.stopPropagation(); handleOpenEdit(due) }}
+                                title="Edit"
+                              >
+                                <EditOutlined style={{ fontSize: 12 }} />
+                              </button>
+                              <button
+                                type="button"
+                                className="sf-btn-danger"
+                                onClick={(e) => { e.stopPropagation(); handleOpenDeactivate(due.id) }}
+                                title="Nonaktifkan"
+                                disabled={deactivateLoading}
+                              >
+                                <DeleteOutlined style={{ fontSize: 12 }} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            })()}
+          </>
         )}
       </div>
     </>

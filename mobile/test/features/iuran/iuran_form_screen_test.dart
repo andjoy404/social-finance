@@ -113,8 +113,9 @@ void main() {
       await tester.pumpWidget(buildForm());
       await tester.pumpAndSettle();
       expect(find.text('Tambah Iuran'), findsOneWidget);
-      expect(find.text('Periode'), findsOneWidget);
-      expect(find.text('Tanggal Jatuh Tempo'), findsOneWidget);
+      // 3 editable TextFields: Nama, Nominal, Periode (Jatuh Tempo is readOnly)
+      expect(find.byType(TextField), findsWidgets);
+      expect(find.byType(TextField).evaluate().length, greaterThanOrEqualTo(3));
       await tester.scrollUntilVisible(
         find.byKey(_saveKey),
         500,

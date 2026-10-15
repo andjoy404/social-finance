@@ -584,8 +584,8 @@ func TestCheckpointB5_E2E(t *testing.T) {
 		}
 
 		// Super admin without tenant context accessing tenant-scoped mutation
-		// Should be rejected with 403 Forbidden (requires tenant role)
-		tResp, tBody := doRequest(t, http.MethodPatch, "/api/v1/households/"+householdID1, tokenSuperAdmin, map[string]any{"address": "Hacked"})
+		// Should be rejected with 403 Forbidden (requires tenant role / tenant membership)
+		tResp, tBody := doRequest(t, http.MethodPost, "/api/v1/categories", tokenSuperAdmin, map[string]any{"name": "Hacked", "type": "income"})
 		if tResp.StatusCode != http.StatusForbidden {
 			t.Errorf("expected 403 Forbidden for super admin on tenant-only route, got %d: %s", tResp.StatusCode, string(tBody))
 		}

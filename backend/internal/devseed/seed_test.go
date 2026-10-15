@@ -109,7 +109,7 @@ func TestDevSeed_NeverCreatesSuperAdmin(t *testing.T) {
 	}
 
 	var superAdminCount int
-	q := `SELECT COUNT(*) FROM users WHERE system_role = 'super_admin' AND email LIKE '%@example.%'`
+	q := `SELECT COUNT(*) FROM users WHERE system_role = 'super_admin' AND email LIKE '%@local.com'`
 	if err := pool.Raw().QueryRowContext(ctx, q).Scan(&superAdminCount); err != nil {
 		t.Fatalf("query super_admin count: %v", err)
 	}

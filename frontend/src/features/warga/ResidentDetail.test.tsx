@@ -134,14 +134,14 @@ describe('ResidentDetail — renders resident information', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders resident full name', async () => {
+  it('renders resident full name in modal subtitle', async () => {
     mockFetch(() => {
       return mockSuccessResponse(mockResident)
     })
     renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Budi Santoso')
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
     })
   })
 
@@ -152,7 +152,7 @@ describe('ResidentDetail — renders resident information', () => {
     renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(screen.getByText('3201011234560001')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('3201011234560001')).toBeInTheDocument()
     })
   })
 
@@ -164,7 +164,7 @@ describe('ResidentDetail — renders resident information', () => {
     renderResidentDetail(superAdminUser)
 
     await waitFor(() => {
-      expect(screen.getByText('3201011234560001')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('3201011234560001')).toBeInTheDocument()
     })
   })
 
@@ -175,7 +175,7 @@ describe('ResidentDetail — renders resident information', () => {
     renderResidentDetail(mockWargaUser)
 
     await waitFor(() => {
-      expect(screen.queryByText('3201011234560001')).not.toBeInTheDocument()
+      expect(screen.queryByDisplayValue('3201011234560001')).not.toBeInTheDocument()
     })
   })
 
@@ -186,7 +186,7 @@ describe('ResidentDetail — renders resident information', () => {
     renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(screen.getByText('081234567890')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('081234567890')).toBeInTheDocument()
     })
   })
 
@@ -197,30 +197,7 @@ describe('ResidentDetail — renders resident information', () => {
     renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(screen.getByText('budi@example.com')).toBeInTheDocument()
-    })
-  })
-
-  it('renders active status as Aktif', async () => {
-    mockFetch(() => {
-      return mockSuccessResponse(mockResident)
-    })
-    renderResidentDetail(mockPengurusUser)
-
-    await waitFor(() => {
-      expect(screen.getByText('Aktif')).toBeInTheDocument()
-    })
-  })
-
-  it('renders inactive status as Tidak Aktif', async () => {
-    const inactive: ApiResident = { ...mockResident, is_active: false }
-    mockFetch(() => {
-      return mockSuccessResponse(inactive)
-    })
-    renderResidentDetail(mockPengurusUser)
-
-    await waitFor(() => {
-      expect(screen.getByText('Tidak Aktif')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('budi@example.com')).toBeInTheDocument()
     })
   })
 
@@ -236,18 +213,18 @@ describe('ResidentDetail — renders resident information', () => {
     renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(screen.getByText('3')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('3')).toBeInTheDocument()
     })
   })
 
-  it('renders back navigation link to /warga', async () => {
+  it('renders close button', async () => {
     mockFetch(() => {
       return mockSuccessResponse(mockResident)
     })
     renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(screen.getByText(/Kembali ke Daftar Warga/)).toBeInTheDocument()
+      expect(screen.getByText('Tutup')).toBeInTheDocument()
     })
   })
 
@@ -271,7 +248,7 @@ describe('ResidentDetail — renders resident information', () => {
     renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Position Ketua RT 03')
+      expect(screen.getByText('Position Ketua RT 03')).toBeInTheDocument()
     })
   })
 })

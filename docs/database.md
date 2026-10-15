@@ -197,8 +197,10 @@ Indexes & Constraints:
 | `id` | `uuid` | PK, default `gen_random_uuid()` | |
 | `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | Tenant scope |
 | `name` | `text` | NOT NULL | Dues title |
-| `amount` | `numeric(15, 2)` | NOT NULL, CHECK `amount > 0` | Mandatory dues amount (Rupiah) |
+| `amount` | `numeric(15, 2)` | NOT NULL | Mandatory amount must be positive; voluntary dues may be Rp0 |
 | `period_type` | `text` | NOT NULL, CHECK IN (`monthly`, `yearly`, `one_time`) | Billing interval |
+| `payment_rule` | `text` | NOT NULL, CHECK IN (`full`, `partial`) | Bill payment rule |
+| `is_voluntary` | `boolean` | NOT NULL, default `false` | Whether this due definition accepts voluntary donations |
 | `is_active` | `boolean` | NOT NULL, default `true` | Active status |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
@@ -234,7 +236,9 @@ Indexes & Constraints:
 |--------|------|-------------|-------------|
 | `id` | `uuid` | PK, default `gen_random_uuid()` | |
 | `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | Tenant scope |
-| `bill_id` | `uuid` | NOT NULL, FK → `bills.id` ON DELETE RESTRICT | Target bill |
+| `bill_id` | `uuid` | NULL, FK → `bills.id` ON DELETE RESTRICT | Target bill for ordinary payments |
+| `due_id` | `uuid` | NULL, FK → `dues.id` ON DELETE RESTRICT | Target due definition for voluntary donations |
+| `submitted_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Submitter; used to scope warga donation access |
 | `amount` | `numeric(15, 2)` | NOT NULL, CHECK `amount > 0` | Paid amount |
 | `method` | `text` | NOT NULL, CHECK IN (`CASH`, `TRANSFER`) | Payment method |
 | `origin` | `text` | NOT NULL, CHECK IN (`SELF_SUBMITTED`, `STAFF_RECORDED`) | Submission origin |
@@ -251,7 +255,10 @@ Indexes & Constraints:
 Indexes:
 - Index on `(rt_id)`
 - Index on `(bill_id)`
+- Index on `(due_id)`
 - Index on `(status)`
+
+Exactly one of `bill_id` or `due_id` must be non-NULL. A due-targeted payment is accepted only for an active `is_voluntary = true` definition in the authenticated RT. Rp0 voluntary definitions do not create bills or cash ledger entries; a donation requires a positive amount. Pending and rejected payments do not affect the ledger.
 
 ### 4.5 `transactions` — Append-Only Financial Ledger
 
@@ -279,7 +286,7 @@ Indexes:
 
 ### 4.6 `idempotency_keys` & `audit_logs`
 
-- `idempotency_keys`: `PRIMARY KEY (rt_id, key)` storing `request_hash`, `response_code`, `response_body`, `created_at`.
+- `idempotency_keys`: `PRIMARY KEY (rt_id, key)` storing request identity (`user_id`, `request_path`, `request_hash`), `response_code`, `response_body`, and `created_at`. API instances serialize use of a key with a PostgreSQL advisory lock; payment creation and its cached response share one transaction.
 - `audit_logs`: `(id, rt_id, user_id, action, entity_type, entity_id, old_values, new_values, ip_address, created_at)`.
 
 ---
@@ -297,6 +304,7 @@ Indexes:
 | 007 | `007_audit_and_idempotency.up.sql` | Adds foundation audit logging & idempotency tracking | false |
 | 008 | `008_physical_houses_and_occupancies.up.sql` | Adds Option B+ temporal physical house and occupancy normalization | false |
 | 009 | `009_finance.up.sql` | Creates financial categories, dues, bills, payments, transactions ledger | false |
+| 020 | `020_payments_donations.up.sql` | Allows exactly one payment target (`bill_id` or voluntary `due_id`) and records payment submitter | false |
 
 Migration execution: `docker compose run --rm migrate up`
 

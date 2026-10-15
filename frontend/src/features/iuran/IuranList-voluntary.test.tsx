@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { IuranList } from './IuranList';
 import * as api from '../../app/api';
 
@@ -9,64 +10,99 @@ vi.mock('../../app/api', async (importOriginal) => {
     ...actual,
     getSessionPair: vi.fn(),
     apiListBills: vi.fn(),
-    apiListDues: vi.fn(),
     apiListPayments: vi.fn(),
     apiGetBill: vi.fn(),
   };
 });
 
-describe('IuranList - Voluntary Rp0 Dues', () => {
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
+
+describe('IuranList - Voluntary Rp0 Bills', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (api.getSessionPair as any).mockReturnValue({
       accessToken: 'test-token',
       refreshToken: 'test-refresh',
     });
+    (api.apiGetBill as any).mockResolvedValue(null);
   });
 
-  it('renders voluntary Rp0 due in the list with Sukarela badge and nominal Rp0', async () => {
+  it('renders individual Rp0 bills from API (not synthetic rows)', async () => {
     const mockBills: api.ApiBill[] = [
       {
-        id: 'bill-1',
+        id: 'bill-vol-1',
         rt_id: 'rt-1',
-        due_id: 'due-mandatory',
+        due_id: 'due-voluntary-1',
         household_occupancy_id: 'occ-1',
         period: '2026-10',
         due_date: '2026-10-31',
-        amount: '50000.00',
+        amount: '0.00',
         status: 'unpaid',
         head_name: 'Budi Santoso',
-        due_name: 'Iuran Sampah',
+        house_number: '001',
+        due_name: 'Kerja Bakti',
         created_at: '2026-10-01T00:00:00Z',
         updated_at: '2026-10-01T00:00:00Z',
+        rt_code: '001',
+      },
+      {
+        id: 'bill-vol-2',
+        rt_id: 'rt-1',
+        due_id: 'due-voluntary-1',
+        household_occupancy_id: 'occ-2',
+        period: '2026-10',
+        due_date: '2026-10-31',
+        amount: '0.00',
+        status: 'unpaid',
+        head_name: 'Siti Aminah',
+        house_number: '002',
+        due_name: 'Kerja Bakti',
+        created_at: '2026-10-01T00:00:00Z',
+        updated_at: '2026-10-01T00:00:00Z',
+        rt_code: '001',
       },
     ];
 
-    const mockDues: api.ApiDue[] = [
+    (api.apiListBills as any).mockResolvedValue({
+      data: mockBills,
+      pagination: { page: 1, per_page: 20, total: 2, total_pages: 1 },
+    });
+    (api.apiListPayments as any).mockResolvedValue({ data: [] });
+
+    renderWithRouter(<IuranList />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeDefined();
+      expect(screen.getByText('Siti Aminah')).toBeDefined();
+    });
+
+    // Each household has its own bill row
+    const rows = document.querySelectorAll('tbody tr');
+    expect(rows.length).toBe(2);
+
+    // No synthetic collective row
+    expect(screen.queryByText('Semua Warga (Sukarela)')).toBeNull();
+  });
+
+  it('Rp0 bills display correct individual head_name and house_number', async () => {
+    const mockBills: api.ApiBill[] = [
       {
-        id: 'due-voluntary-1',
+        id: 'bill-vol-1',
         rt_id: 'rt-1',
-        rt_code: '001',
-        name: 'Kerja Bakti',
+        due_id: 'due-voluntary-1',
+        household_occupancy_id: 'occ-1',
+        period: '2026-10',
+        due_date: '2026-10-31',
         amount: '0.00',
-        period_type: 'one_time',
-        payment_rule: 'partial',
-        is_voluntary: true,
-        is_active: true,
+        status: 'unpaid',
+        head_name: 'Ahmad Hidayat',
+        house_number: '007',
+        due_name: 'Sumbangan RT',
         created_at: '2026-10-01T00:00:00Z',
         updated_at: '2026-10-01T00:00:00Z',
-      },
-      {
-        id: 'due-mandatory',
-        rt_id: 'rt-1',
-        name: 'Iuran Sampah',
-        amount: '50000.00',
-        period_type: 'monthly',
-        payment_rule: 'partial',
-        is_voluntary: false,
-        is_active: true,
-        created_at: '2026-10-01T00:00:00Z',
-        updated_at: '2026-10-01T00:00:00Z',
+        rt_code: '007',
       },
     ];
 
@@ -74,133 +110,18 @@ describe('IuranList - Voluntary Rp0 Dues', () => {
       data: mockBills,
       pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
     });
-    (api.apiListDues as any).mockResolvedValue(mockDues);
     (api.apiListPayments as any).mockResolvedValue({ data: [] });
 
-    render(<IuranList />);
-
-    // Wait for data to load
-    await waitFor(() => {
-      expect(screen.getByText('Kerja Bakti')).toBeDefined();
-    });
-
-    // Check presence of "Semua Warga (Sukarela)"
-    expect(screen.getByText('Semua Warga (Sukarela)')).toBeDefined();
-
-    // Check badge status "Sukarela"
-    expect(screen.getByText('Sukarela')).toBeDefined();
-
-    // Check Rp0 is rendered
-    expect(screen.getAllByText('Rp0').length).toBeGreaterThan(0);
-  });
-
-  it('voluntary Rp0 period column does NOT display "undefined —"', async () => {
-    const mockBills: api.ApiBill[] = [
-      {
-        id: 'bill-1',
-        rt_id: 'rt-1',
-        due_id: 'due-mandatory',
-        household_occupancy_id: 'occ-1',
-        period: '2026-10',
-        due_date: '2026-10-31',
-        amount: '50000.00',
-        status: 'unpaid',
-        head_name: 'Budi Santoso',
-        due_name: 'Iuran Sampah',
-        created_at: '2026-10-01T00:00:00Z',
-        updated_at: '2026-10-01T00:00:00Z',
-      },
-    ];
-
-    const mockDues: api.ApiDue[] = [
-      {
-        id: 'due-voluntary-1',
-        rt_id: 'rt-1',
-        rt_code: '001',
-        name: 'Kerja Bakti',
-        amount: '0.00',
-        period_type: 'one_time',
-        payment_rule: 'partial',
-        is_voluntary: true,
-        is_active: true,
-        created_at: '2026-10-01T00:00:00Z',
-        updated_at: '2026-10-01T00:00:00Z',
-      },
-    ];
-
-    (api.apiListBills as any).mockResolvedValue({
-      data: mockBills,
-      pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
-    });
-    (api.apiListDues as any).mockResolvedValue(mockDues);
-    (api.apiListPayments as any).mockResolvedValue({ data: [] });
-
-    render(<IuranList />);
+    renderWithRouter(<IuranList />);
 
     await waitFor(() => {
-      expect(screen.getByText('Kerja Bakti')).toBeDefined();
+      expect(screen.getByText('Ahmad Hidayat')).toBeDefined();
     });
 
-    // Verify that "undefined —" does NOT appear anywhere in the table
-    const body = document.body.textContent;
-    expect(body).not.toContain('undefined');
-    expect(body).not.toContain('undefined —');
+    expect(screen.getByText('RT 007')).toBeDefined();
   });
 
-  it('voluntary Rp0 displays correct RT from rt_code', async () => {
-    const mockBills: api.ApiBill[] = [
-      {
-        id: 'bill-1',
-        rt_id: 'rt-1',
-        due_id: 'due-mandatory',
-        household_occupancy_id: 'occ-1',
-        period: '2026-10',
-        due_date: '2026-10-31',
-        amount: '50000.00',
-        status: 'unpaid',
-        head_name: 'Budi Santoso',
-        due_name: 'Iuran Sampah',
-        created_at: '2026-10-01T00:00:00Z',
-        updated_at: '2026-10-01T00:00:00Z',
-        rt_code: '001',
-      },
-    ];
-
-    const mockDues: api.ApiDue[] = [
-      {
-        id: 'due-voluntary-1',
-        rt_id: 'rt-1',
-        rt_code: '001',
-        name: 'Kerja Bakti',
-        amount: '0.00',
-        period_type: 'one_time',
-        payment_rule: 'partial',
-        is_voluntary: true,
-        is_active: true,
-        created_at: '2026-10-01T00:00:00Z',
-        updated_at: '2026-10-01T00:00:00Z',
-      },
-    ];
-
-    (api.apiListBills as any).mockResolvedValue({
-      data: mockBills,
-      pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
-    });
-    (api.apiListDues as any).mockResolvedValue(mockDues);
-    (api.apiListPayments as any).mockResolvedValue({ data: [] });
-
-    render(<IuranList />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Kerja Bakti')).toBeDefined();
-    });
-
-    // Voluntary item should show "RT 001" (not "Semua RT" or UUID)
-    // Both bill and voluntary row show RT 001, so check at least 2 occurrences
-    expect(screen.getAllByText('RT 001').length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('regolar bills still display correctly formatted periode (e.g. "Okt 2026")', async () => {
+  it('regular bills still display correctly formatted periode (e.g. "Okt 2026")', async () => {
     const mockBills: api.ApiBill[] = [
       {
         id: 'bill-okt',
@@ -234,68 +155,35 @@ describe('IuranList - Voluntary Rp0 Dues', () => {
       },
     ];
 
-    const mockDues: api.ApiDue[] = [
-      {
-        id: 'due-mandatory',
-        rt_id: 'rt-1',
-        name: 'Iuran Sampah',
-        amount: '50000.00',
-        period_type: 'monthly',
-        payment_rule: 'partial',
-        is_voluntary: false,
-        is_active: true,
-        created_at: '2026-10-01T00:00:00Z',
-        updated_at: '2026-10-01T00:00:00Z',
-      },
-    ];
-
     (api.apiListBills as any).mockResolvedValue({
       data: mockBills,
       pagination: { page: 1, per_page: 20, total: 2, total_pages: 1 },
     });
-    (api.apiListDues as any).mockResolvedValue(mockDues);
     (api.apiListPayments as any).mockResolvedValue({ data: [] });
 
-    render(<IuranList />);
+    renderWithRouter(<IuranList />);
 
     await waitFor(() => {
       expect(screen.getByText('Budi Santoso')).toBeDefined();
     });
 
-    // Regular bills should still show formatted period
     expect(screen.getByText('Okt 2026')).toBeDefined();
     expect(screen.getByText('Nov 2026')).toBeDefined();
   });
 
-  it('clicking voluntary row opens DueDetailModal with correct due data', async () => {
+  it('clicking a bill row opens IuranDetail (not DueDetailModal)', async () => {
     const mockBills: api.ApiBill[] = [
       {
-        id: 'bill-1',
+        id: 'bill-vol-1',
         rt_id: 'rt-1',
-        due_id: 'due-mandatory',
+        due_id: 'due-voluntary-1',
         household_occupancy_id: 'occ-1',
         period: '2026-10',
         due_date: '2026-10-31',
-        amount: '50000.00',
+        amount: '0.00',
         status: 'unpaid',
         head_name: 'Budi Santoso',
-        due_name: 'Iuran Sampah',
-        created_at: '2026-10-01T00:00:00Z',
-        updated_at: '2026-10-01T00:00:00Z',
-      },
-    ];
-
-    const mockDues: api.ApiDue[] = [
-      {
-        id: 'due-voluntary-1',
-        rt_id: 'rt-1',
-        rt_code: '001',
-        name: 'Kerja Bakti',
-        amount: '0.00',
-        period_type: 'one_time',
-        payment_rule: 'partial',
-        is_voluntary: true,
-        is_active: true,
+        due_name: 'Kerja Bakti',
         created_at: '2026-10-01T00:00:00Z',
         updated_at: '2026-10-01T00:00:00Z',
       },
@@ -305,56 +193,81 @@ describe('IuranList - Voluntary Rp0 Dues', () => {
       data: mockBills,
       pagination: { page: 1, per_page: 20, total: 1, total_pages: 1 },
     });
-    (api.apiListDues as any).mockResolvedValue(mockDues);
     (api.apiListPayments as any).mockResolvedValue({ data: [] });
+    (api.apiGetBill as any).mockResolvedValue(mockBills[0]);
 
-    render(<IuranList />);
+    renderWithRouter(<IuranList />);
 
-    // Wait for data to load
     await waitFor(() => {
-      expect(screen.getByText('Kerja Bakti')).toBeDefined();
+      expect(screen.getByText('Budi Santoso')).toBeDefined();
     });
 
-    // Find the voluntary row (contains "Semua Warga (Sukarela)")
+    // Find the table row
     const rows = document.querySelectorAll('tbody tr');
-    const voluntaryRow = Array.from(rows).find(row =>
-      row.textContent?.includes('Semua Warga (Sukarela)')
-    );
+    expect(rows.length).toBeGreaterThan(0);
 
-    expect(voluntaryRow).toBeDefined();
+    // Click the bill row
+    rows[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-    // Click the voluntary row
-    voluntaryRow?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-    // DueDetailModal should appear with due data
-    // Modal contains aria-label "Detail Definisi Iuran Sukarela"
+    // IuranDetail modal should appear (it uses dialog role in modal mode)
     await waitFor(() => {
       const modal = screen.getByRole('dialog');
       expect(modal).toBeDefined();
     });
 
-    // Verify modal content — query inside dialog to avoid ambiguity with table rows
+    // Should show household name
+    const modal = screen.getByRole('dialog');
+    expect(modal.textContent).toContain('Budi Santoso');
+  });
+
+  it('mix of Rp0 voluntary and regular bills render correctly together', async () => {
+    const mockBills: api.ApiBill[] = [
+      {
+        id: 'bill-regular',
+        rt_id: 'rt-1',
+        due_id: 'due-regular',
+        household_occupancy_id: 'occ-1',
+        period: '2026-10',
+        due_date: '2026-10-31',
+        amount: '50000.00',
+        status: 'unpaid',
+        head_name: 'Budi Santoso',
+        due_name: 'Iuran Sampah',
+        created_at: '2026-10-01T00:00:00Z',
+        updated_at: '2026-10-01T00:00:00Z',
+        rt_code: '001',
+      },
+      {
+        id: 'bill-vol-1',
+        rt_id: 'rt-1',
+        due_id: 'due-voluntary',
+        household_occupancy_id: 'occ-2',
+        period: '2026-10',
+        due_date: '2026-10-31',
+        amount: '0.00',
+        status: 'unpaid',
+        head_name: 'Siti Aminah',
+        due_name: 'Kerja Bakti',
+        created_at: '2026-10-01T00:00:00Z',
+        updated_at: '2026-10-01T00:00:00Z',
+        rt_code: '001',
+      },
+    ];
+
+    (api.apiListBills as any).mockResolvedValue({
+      data: mockBills,
+      pagination: { page: 1, per_page: 20, total: 2, total_pages: 1 },
+    });
+    (api.apiListPayments as any).mockResolvedValue({ data: [] });
+
+    renderWithRouter(<IuranList />);
+
     await waitFor(() => {
-      const modal = screen.getByRole('dialog');
-      // Modal should contain the due name "Kerja Bakti"
-      expect(modal.textContent).toContain('Kerja Bakti');
-      // Modal should show "Sukarela" status
-      expect(modal.textContent).toContain('Sukarela');
-      // Modal should show Rp0
-      expect(modal.textContent).toContain('Rp0');
-      // Modal should show period type
-      expect(modal.textContent).toContain('Sekali Waktu');
-      // Modal should show RT code
-      expect(modal.textContent).toContain('RT 001');
+      expect(screen.getByText('Budi Santoso')).toBeDefined();
+      expect(screen.getByText('Siti Aminah')).toBeDefined();
     });
 
-    // Click close button (it's an <a> link with aria-label="Tutup", not a <button>)
-    const closeButton = screen.getByRole('link', { name: 'Tutup' });
-    (closeButton as HTMLElement).click();
-
-    // Modal should be closed
-    await waitFor(() => {
-      expect(screen.queryByLabelText('Detail Definisi Iuran Sukarela')).toBeNull();
-    });
+    const rows = document.querySelectorAll('tbody tr');
+    expect(rows.length).toBe(2);
   });
 });

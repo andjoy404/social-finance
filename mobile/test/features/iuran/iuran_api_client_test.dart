@@ -1,6 +1,34 @@
 import 'package:dio/dio.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_client.dart';
+import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
+
+class _MockAdapter implements HttpClientAdapter {
+  final Future<ResponseBody> Function(RequestOptions) handler;
+
+  _MockAdapter(this.handler);
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) => handler(options);
+
+  @override
+  void close({bool force = false}) {}
+}
+
+ResponseBody _jsonResponse(Object body, int status) => ResponseBody.fromString(
+  jsonEncode(body),
+  status,
+  headers: {
+    Headers.contentTypeHeader: [Headers.jsonContentType],
+  },
+);
 
 void main() {
   final client = IuranApiClient(dio: Dio());
@@ -62,4 +90,96 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test('reports an unexpected dues response instead of hiding dues', () async {
+    final api = IuranApiClient(dio: Dio());
+    api.dio.httpClientAdapter = _MockAdapter(
+      (_) async => _jsonResponse({'data': []}, 200),
+    );
+
+    await expectLater(api.listDues(), throwsFormatException);
+    api.dio.close();
+  });
+
+  test('creates a donation with due_id and parses nullable bill_id', () async {
+    final api = IuranApiClient(dio: Dio());
+    RequestOptions? request;
+    api.dio.httpClientAdapter = _MockAdapter((options) async {
+      request = options;
+      return _jsonResponse({
+        'id': 'payment-1',
+        'rt_id': 'rt-1',
+        'bill_id': null,
+        'due_id': 'due-voluntary',
+        'amount': '5000.00',
+        'method': 'TRANSFER',
+        'origin': 'SELF_SUBMITTED',
+        'status': 'PENDING',
+      }, 201);
+    });
+
+    final payment = await api.createDonation(
+      dueId: 'due-voluntary',
+      amount: '5000.00',
+      method: PaymentMethod.transfer,
+      notes: 'Sumbangan',
+      idempotencyKey: 'retry-key',
+    );
+
+    expect(request!.data, {
+      'due_id': 'due-voluntary',
+      'amount': '5000.00',
+      'method': 'TRANSFER',
+      'notes': 'Sumbangan',
+    });
+    expect(request!.headers['Idempotency-Key'], 'retry-key');
+    expect(payment.billId, isNull);
+    expect(payment.dueId, 'due-voluntary');
+    expect(payment.status, PaymentStatus.pending);
+    api.dio.close();
+  });
+
+  test('propagates backend validation errors for donation requests', () async {
+    final api = IuranApiClient(dio: Dio());
+    api.dio.httpClientAdapter = _MockAdapter(
+      (_) async => _jsonResponse({
+        'error': {
+          'code': 'validation_error',
+          'message': 'Nominal harus positif',
+        },
+      }, 400),
+    );
+
+    await expectLater(
+      api.createDonation(
+        dueId: 'due-voluntary',
+        amount: '0.00',
+        method: PaymentMethod.transfer,
+      ),
+      throwsA(isA<DioException>()),
+    );
+    api.dio.close();
+  });
+
+  test(
+    'rejects a create request with no target or two targets locally',
+    () async {
+      await expectLater(
+        client.createPayment(
+          billId: '',
+          amount: '1000.00',
+          method: PaymentMethod.cash,
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        client.createDonation(
+          dueId: '',
+          amount: '1000.00',
+          method: PaymentMethod.cash,
+        ),
+        throwsArgumentError,
+      );
+    },
+  );
 }

@@ -49,11 +49,12 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
         ),
       ),
       floatingActionButton: billState.when(
-        data: (bill) => (bill != null && bill.status != IuranStatus.lunas)
-            ? _buildAndroidFAB(context, accentSoft)
-            : null,
+        data: (bill) =>
+            (bill != null && (bill.status != IuranStatus.lunas || bill.isVoluntary))
+                ? _buildAndroidFAB(context, accentSoft)
+                : null,
         loading: () => null,
-        error: (_, __) => null,
+        error: (_, _) => null,
       ),
       body: switch (billState) {
         AsyncLoading() => const Center(child: CircularProgressIndicator()),
@@ -117,7 +118,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     /// `ref.refresh()`, so we use `ref.read(provider.future)` which returns
     /// the underlying `Future` that the provider wraps. This guarantees a
     /// single API call and proper await semantics for RefreshIndicator.
-    Future<void> _onRefresh() async {
+    Future<void> onRefresh() async {
       // Wait for both providers to complete their re-fetch.
       // If either fails the Future throws, but RefreshIndicator catches
       // the exception and keeps the spinner visible until the UI updates.
@@ -128,7 +129,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: _onRefresh,
+      onRefresh: onRefresh,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.base),
         child: Column(
@@ -234,7 +235,15 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   valueColor: AppColors.success,
                 ),
                 const SizedBox(height: AppSpacing.md),
-                if (bill.isInArrears) ...[
+                if (bill.isVoluntary) ...[
+                  _buildPaymentRow(
+                    context,
+                    icon: Icons.volunteer_activism_outlined,
+                    label: 'Status',
+                    value: 'Sukarela',
+                    valueColor: AppColors.info,
+                  ),
+                ] else if (bill.isInArrears) ...[
                   _buildPaymentRow(
                     context,
                     icon: Icons.warning_outlined,
@@ -347,7 +356,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                                         children: [
                                           Flexible(
                                             child: Text(
-                                              'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}',
+                                              'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}${p.submitterName != null && p.submitterName!.isNotEmpty ? ' · ${p.submitterName}' : ''}',
                                               style: theme.textTheme.bodyMedium
                                                   ?.copyWith(
                                                     fontWeight: FontWeight.w600,
@@ -417,7 +426,45 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     child: CircularProgressIndicator(),
                   ),
                 ),
-                error: (_, __) => const SizedBox.shrink(),
+                error: (err, _) => AppCard(
+                  padding: const EdgeInsets.all(AppSpacing.base),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          size: 32,
+                          color: AppColors.warning,
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          'Gagal memuat riwayat pembayaran',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          err.toString(),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: isDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        TextButton.icon(
+                          onPressed: () =>
+                              ref.refresh(billPaymentsProvider(bill.id)),
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: const Text('Coba Lagi'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
 
           const SizedBox(height: AppSpacing.xxl),

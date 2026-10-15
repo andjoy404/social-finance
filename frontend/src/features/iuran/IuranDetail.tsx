@@ -1038,6 +1038,12 @@ export function IuranDetail({
 
         if (cancelled) return
 
+        const nominal = parseMoney(apiBill.amount)
+        const isVoluntary = Boolean(apiBill.is_voluntary || nominal === 0)
+        const status: IuranStatus = (isVoluntary && nominal === 0)
+          ? 'sukarela'
+          : (BACKEND_STATUS_MAP[apiBill.status] ?? 'belum_bayar')
+
         // Map backend bill to frontend format
         const mappedBill: IuranBill = {
           id: apiBill.id,
@@ -1046,10 +1052,12 @@ export function IuranDetail({
           rt: apiBill.rt_code ? `RT ${apiBill.rt_code}` : 'RT —',
           iuranType: apiBill.due_name ?? 'Iuran',
           periode: apiBill.period,
-          nominal: parseMoney(apiBill.amount),
+          nominal,
           paidAmount: 0, // will be calculated from payments
           pendingAmount: 0, // will be calculated from PENDING payments
-          status: BACKEND_STATUS_MAP[apiBill.status] ?? 'belum_bayar',
+          status,
+          isVoluntary,
+          dueId: apiBill.due_id,
           payments: [], // will be loaded separately
         }
 
@@ -1290,7 +1298,7 @@ export function IuranDetail({
                   Tutup
                 </button>
 
-                {remaining > 0 && (
+                {(remaining > 0 || bill.isVoluntary || bill.nominal === 0) && (
                   <button
                     type="button"
                     onClick={() => onPayment(bill.id)}

@@ -214,11 +214,13 @@ async function authenticatedApiRequest(
 
   if (!currentRes.ok) {
     const raw = await currentRes.text()
-    let body: { error?: ApiError } | null = null
+    let body: unknown = null
     try { body = JSON.parse(raw) } catch { /* ignore */ }
-    const apiErr = body?.error
+    // Support both nested { error: { code, message } } and top-level { code, message } formats
+    const nested = body && typeof body === 'object' ? (body as { error?: { code?: string; message?: string } }).error : undefined
+    const apiErr = nested ?? (body && typeof body === 'object' ? body as { code?: string; message?: string } : null)
     if (currentRes.status >= 400 && apiErr?.code) {
-      throw new ApiError(apiErr.code, apiErr.message)
+      throw new ApiError(apiErr.code, apiErr.message ?? 'Unexpected response')
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
@@ -695,19 +697,17 @@ export interface ApiCreateDueBody {
 
 export async function apiListDues(
   token: string,
-  params?: { page?: number; page_size?: number; is_active?: boolean },
-): Promise<ApiPaginated<ApiDue>> {
+  params?: { is_active?: boolean },
+): Promise<ApiDue[]> {
   const q = new URLSearchParams()
-  if (params?.page != null) q.set('page', String(params.page))
-  if (params?.page_size != null) q.set('page_size', String(params.page_size))
   if (params?.is_active != null) q.set('is_active', String(params.is_active))
   const res = await authenticatedApiRequest(BASE + '/dues?' + q.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<ApiPaginated<ApiDue>>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  const data = await json<ApiDue[]>(res)
+  if (!Array.isArray(data)) throw new ApiError('unexpected', 'Response data missing')
   return data
 }
 
@@ -724,6 +724,46 @@ export async function apiCreateDue(
   const data = await json<ApiDue>(res)
   if (!data) throw new ApiError('unexpected', 'Response data missing')
   return data
+}
+
+export interface ApiUpdateDueBody {
+  name?: string
+  amount?: string
+  period_type?: 'monthly' | 'yearly' | 'one_time'
+  payment_rule?: 'full' | 'partial'
+  is_voluntary?: boolean
+  is_active?: boolean
+}
+
+export async function apiUpdateDue(
+  token: string,
+  id: string,
+  body: ApiUpdateDueBody,
+): Promise<ApiDue> {
+  const res = await authenticatedApiRequest(BASE + `/dues/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiDue>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiDeactivateDue(
+  token: string,
+  id: string,
+): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + `/dues/${id}/deactivate`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok && res.status !== 204) {
+    const bodyErr = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(bodyErr?.code ?? 'unexpected', bodyErr?.message ?? 'Gagal menonaktifkan iuran.')
+  }
 }
 
 export interface ApiGenerateBillsBody {
@@ -779,12 +819,16 @@ export interface ApiBill {
   due_name?: string | null
   house_number?: string | null
   head_name?: string | null
+  is_voluntary?: boolean
 }
 
 export interface ApiPayment {
   id: string
   rt_id: string
-  bill_id: string
+  bill_id?: string | null
+  due_id?: string | null
+  submitted_by?: string | null
+  submitter_name?: string | null
   amount: string
   method: 'CASH' | 'TRANSFER'
   origin: 'SELF_SUBMITTED' | 'STAFF_RECORDED'
@@ -808,7 +852,8 @@ export interface ApiPayment {
 }
 
 export interface ApiCreatePaymentBody {
-  bill_id: string
+  bill_id?: string | null
+  due_id?: string | null
   amount: string
   method: 'CASH' | 'TRANSFER'
   proof_path?: string | null
@@ -825,6 +870,7 @@ export async function apiListBills(
     due_id?: string
     status?: string
     period?: string
+    search?: string
   },
 ): Promise<ApiPaginated<ApiBill>> {
   const q = new URLSearchParams()
@@ -834,6 +880,7 @@ export async function apiListBills(
   if (params?.due_id) q.set('due_id', params.due_id)
   if (params?.status) q.set('status', params.status)
   if (params?.period) q.set('period', params.period)
+  if (params?.search) q.set('search', params.search)
   const res = await authenticatedApiRequest(BASE + '/bills?' + q.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
@@ -861,14 +908,18 @@ export async function apiListPayments(
     page?: number
     page_size?: number
     bill_id?: string
+    due_id?: string
     status?: string
+    submitted_by?: string
   },
 ): Promise<ApiPaginated<ApiPayment>> {
   const q = new URLSearchParams()
   if (params?.page != null) q.set('page', String(params.page))
   if (params?.page_size != null) q.set('page_size', String(params.page_size))
   if (params?.bill_id) q.set('bill_id', params.bill_id)
+  if (params?.due_id) q.set('due_id', params.due_id)
   if (params?.status) q.set('status', params.status)
+  if (params?.submitted_by) q.set('submitted_by', params.submitted_by)
   const res = await authenticatedApiRequest(BASE + '/payments?' + q.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
@@ -893,11 +944,16 @@ export async function apiGetPayment(token: string, id: string): Promise<ApiPayme
 export async function apiCreatePayment(
   token: string,
   body: ApiCreatePaymentBody,
+  idempotencyKey: string = crypto.randomUUID(),
 ): Promise<ApiPayment> {
+  if (Boolean(body.bill_id) === Boolean(body.due_id)) {
+    throw new ApiError('validation_error', 'Pilih tepat satu target tagihan atau iuran sukarela.')
+  }
   let res: Response
   if (body.file) {
     const formData = new FormData()
-    formData.append('bill_id', body.bill_id)
+    if (body.bill_id) formData.append('bill_id', body.bill_id)
+    if (body.due_id) formData.append('due_id', body.due_id)
     formData.append('amount', body.amount)
     formData.append('method', body.method)
     if (body.notes) formData.append('notes', body.notes)
@@ -907,7 +963,7 @@ export async function apiCreatePayment(
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Idempotency-Key': crypto.randomUUID(),
+        'Idempotency-Key': idempotencyKey,
       },
       body: formData,
       ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
@@ -918,10 +974,11 @@ export async function apiCreatePayment(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
-        'Idempotency-Key': crypto.randomUUID(),
+        'Idempotency-Key': idempotencyKey,
       },
       body: JSON.stringify({
         bill_id: body.bill_id,
+        due_id: body.due_id,
         amount: body.amount,
         method: body.method,
         notes: body.notes,
@@ -931,15 +988,17 @@ export async function apiCreatePayment(
     })
   }
 
-  const data = await json<ApiPayment>(res)
-  if (!res.ok || !data) {
-    const bodyErr = await json<ApiError>(res).catch(() => null)
+  const data = await json<unknown>(res)
+  if (!res.ok || !data || typeof data !== 'object' || !('id' in data)) {
+    const bodyErr = data && typeof data === 'object' && 'error' in data
+      ? (data as { error?: ApiError }).error
+      : undefined
     if (res.status >= 400 && bodyErr?.code) {
       throw new ApiError(bodyErr.code, bodyErr.message)
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
-  return data
+  return data as ApiPayment
 }
 
 export async function apiUploadPaymentProof(
@@ -1021,6 +1080,79 @@ export async function apiVerifyPayment(
       throw new ApiError(body.code, body.message)
     }
     throw new ApiError('unexpected', 'Unexpected response')
+  }
+  return data
+}
+
+export async function apiRegisterDevice(
+  token: string,
+  fcmToken: string,
+  platform: 'web' | 'android' | 'ios' = 'web',
+  deviceId?: string,
+): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/devices', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      fcm_token: fcmToken,
+      platform,
+      ...(deviceId ? { device_id: deviceId } : {}),
+    }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const body = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && body?.code) {
+      throw new ApiError(body.code, body.message)
+    }
+    throw new ApiError('unexpected', 'Failed to register device')
+  }
+}
+
+export async function apiUnregisterDevice(token: string, fcmToken: string): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/devices', {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ fcm_token: fcmToken }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const body = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && body?.code) {
+      throw new ApiError(body.code, body.message)
+    }
+    throw new ApiError('unexpected', 'Failed to unregister device')
+  }
+}
+
+export async function apiTriggerWasteTruckArrival(
+  token: string,
+  message?: string,
+): Promise<{ status: string; message: string }> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/waste-truck', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      ...(message ? { message } : {}),
+    }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ status: string; message: string }>(res)
+  if (!res.ok || !data) {
+    const body = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && body?.code) {
+      throw new ApiError(body.code, body.message)
+    }
+    throw new ApiError('unexpected', 'Failed to trigger waste truck arrival notification')
   }
   return data
 }

@@ -25,6 +25,7 @@ type Config struct {
 	RustFSSecretKey string
 	RustFSBucket    string
 	RustFSUseSSL    bool
+	FCMCredentialsPath string
 }
 
 // Load reads required configuration from environment variables and returns
@@ -49,6 +50,7 @@ func Load() (Config, error) {
 		RustFSSecretKey: get("RUSTFS_SECRET_KEY", get("RUSTFS_ROOT_PASSWORD", "rustfsadmin123")),
 		RustFSBucket:    get("RUSTFS_BUCKET", "social-finance-payment-proofs"),
 		RustFSUseSSL:    get("RUSTFS_USE_SSL", "false") == "true",
+		FCMCredentialsPath: get("FCM_CREDENTIALS", ""),
 	}
 
 	port, err := getPort("HTTP_PORT", 8080)

@@ -47,51 +47,51 @@ func TestLogin_EmailAndPhoneVariants(t *testing.T) {
 		{
 			name: "Pengurus RT 03 login by email",
 			body: map[string]string{
-				"email":    "pengurus.rt03@example.com",
+				"email":    "ketua-003@local.com",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "pengurus.rt03@example.com",
+			wantEmail:  "ketua-003@local.com",
 			wantRole:   "pengurus",
 		},
 		{
 			name: "Pengurus RT 03 login by canonical phone (+62)",
 			body: map[string]string{
-				"phone":    "+6281300000003",
+				"phone":    "+628130000100",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "pengurus.rt03@example.com",
+			wantEmail:  "ketua-003@local.com",
 			wantRole:   "pengurus",
 		},
 		{
 			name: "Pengurus RT 03 login by local phone (08...)",
 			body: map[string]string{
-				"phone":    "081300000003",
+				"phone":    "08130000100",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "pengurus.rt03@example.com",
+			wantEmail:  "ketua-003@local.com",
 			wantRole:   "pengurus",
 		},
 		{
 			name: "Pengurus RT 03 login by identifier field",
 			body: map[string]string{
-				"identifier": "081300000003",
+				"identifier": "08130000100",
 				"password":   devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "pengurus.rt03@example.com",
+			wantEmail:  "ketua-003@local.com",
 			wantRole:   "pengurus",
 		},
 		{
 			name: "Warga RT 04 login by email",
 			body: map[string]string{
-				"email":    "warga.rt04@example.com",
+				"email":    "warga.rt04@local.com",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "warga.rt04@example.com",
+			wantEmail:  "warga.rt04@local.com",
 			wantRole:   "warga",
 		},
 		{
@@ -101,13 +101,13 @@ func TestLogin_EmailAndPhoneVariants(t *testing.T) {
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "warga.rt04@example.com",
+			wantEmail:  "warga.rt04@local.com",
 			wantRole:   "warga",
 		},
 		{
 			name: "Invalid password rejected",
 			body: map[string]string{
-				"email":    "pengurus.rt03@example.com",
+				"email":    "ketua-003@local.com",
 				"password": "WrongPassword123!",
 			},
 			wantStatus: http.StatusUnauthorized,

@@ -64,7 +64,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
       if (_selectedKategori != 'semua' && tx.kategori.label != _selectedKategori) return false;
       if (query.isNotEmpty &&
           !tx.keterangan.toLowerCase().contains(query) &&
-          !tx.kategori.label.toLowerCase().contains(query)) return false;
+          !tx.kategori.label.toLowerCase().contains(query)) {
+        return false;
+      }
       return true;
     }).toList();
   }

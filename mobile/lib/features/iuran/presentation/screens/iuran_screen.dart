@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -36,8 +35,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
 
   /// Sync search controller text to provider.
   void _syncSearchToProvider() {
-    ref.read(iuranSearchQueryProvider.notifier).state =
-        _searchController.text.trim();
+    ref.read(iuranSearchQueryProvider.notifier).state = _searchController.text
+        .trim();
   }
 
   /// Check whether the current user can create bills (pengurus, super_admin).
@@ -75,8 +74,7 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
           ? _buildWebFAB(accentSoft)
           : _buildAndroidFAB(accentSoft),
       body: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(billsProvider.notifier).refresh(),
+        onRefresh: () => ref.read(billsProvider.notifier).refresh(),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -130,8 +128,10 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                     const SizedBox(width: AppSpacing.sm),
                     GestureDetector(
                       onTap: () {
-                        ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
-                        ref.read(iuranSelectedStatusProvider.notifier).state = '';
+                        ref.read(iuranSelectedPeriodeProvider.notifier).state =
+                            '';
+                        ref.read(iuranSelectedStatusProvider.notifier).state =
+                            '';
                         setState(() {});
                       },
                       child: Icon(
@@ -146,7 +146,7 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                   const Spacer(),
                   // Count label — right-aligned
                   Text(
-                    '${filtered.length} Tagihan',
+                    '${filtered.length} Iuran',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
@@ -160,64 +160,78 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
             Expanded(
               child: switch (billsState) {
                 AsyncLoading() => const Center(
-                    child: CircularProgressIndicator(),
-                  ),
+                  child: CircularProgressIndicator(),
+                ),
                 AsyncError(:final error) => Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: EmptyState(
-                        icon: Icons.error_outline,
-                        title: 'Gagal Memuat Data',
-                        description: error.toString(),
-                        actionText: 'Coba Lagi',
-                        onAction: () =>
-                            ref.read(billsProvider.notifier).refresh(),
-                      ),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: EmptyState(
+                      icon: Icons.error_outline,
+                      title: 'Gagal Memuat Data',
+                      description: error.toString(),
+                      actionText: 'Coba Lagi',
+                      onAction: () =>
+                          ref.read(billsProvider.notifier).refresh(),
                     ),
                   ),
-                _ => filtered.isEmpty
-                    ? Center(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(AppSpacing.lg),
-                          child: _searchController.text.trim().isNotEmpty ||
-                                  periode.isNotEmpty ||
-                                  status.isNotEmpty
-                              ? EmptyState(
-                                  icon: Icons.receipt_long_outlined,
-                                  title: 'Tagihan Tidak Ditemukan',
-                                  description:
-                                      'Tidak ada tagihan yang sesuai dengan filter saat ini.',
-                                  actionText: 'Reset Filter',
-                                  onAction: () {
-                                    _searchController.clear();
-                                    ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
-                                    ref.read(iuranSelectedStatusProvider.notifier).state = '';
-                                    setState(() {});
-                                  },
-                                )
-                              : const EmptyState(
-                                  icon: Icons.receipt_long_outlined,
-                                  title: 'Belum Ada Tagihan',
-                                  description:
-                                      'Tagihan iuran RT belum tersedia.',
-                                ),
+                ),
+                _ =>
+                  filtered.isEmpty
+                      ? Center(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(AppSpacing.lg),
+                            child:
+                                _searchController.text.trim().isNotEmpty ||
+                                    periode.isNotEmpty ||
+                                    status.isNotEmpty
+                                ? EmptyState(
+                                    icon: Icons.receipt_long_outlined,
+                                    title: 'Tagihan Tidak Ditemukan',
+                                    description:
+                                        'Tidak ada tagihan yang sesuai dengan filter saat ini.',
+                                    actionText: 'Reset Filter',
+                                    onAction: () {
+                                      _searchController.clear();
+                                      ref
+                                              .read(
+                                                iuranSelectedPeriodeProvider
+                                                    .notifier,
+                                              )
+                                              .state =
+                                          '';
+                                      ref
+                                              .read(
+                                                iuranSelectedStatusProvider
+                                                    .notifier,
+                                              )
+                                              .state =
+                                          '';
+                                      setState(() {});
+                                    },
+                                  )
+                                : const EmptyState(
+                                    icon: Icons.receipt_long_outlined,
+                                    title: 'Belum Ada Tagihan',
+                                    description:
+                                        'Tagihan iuran RT belum tersedia.',
+                                  ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.base,
+                            AppSpacing.xs,
+                            AppSpacing.base,
+                            AppSpacing.xl,
+                          ),
+                          itemCount: filtered.length,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: AppSpacing.sm),
+                          itemBuilder: (context, index) {
+                            final bill = filtered[index];
+                            return _IuranCard(bill: bill);
+                          },
                         ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.base,
-                          AppSpacing.xs,
-                          AppSpacing.base,
-                          AppSpacing.xl,
-                        ),
-                        itemCount: filtered.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: AppSpacing.sm),
-                        itemBuilder: (context, index) {
-                          final bill = filtered[index];
-                          return _IuranCard(bill: bill);
-                        },
-                      ),
               },
             ),
           ],
@@ -333,15 +347,15 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
           color: selected
               ? AppColors.accent.withValues(alpha: 0.12)
               : (Theme.of(context).brightness == Brightness.dark
-                  ? AppColors.darkSurface
-                  : AppColors.lightSurface),
+                    ? AppColors.darkSurface
+                    : AppColors.lightSurface),
           borderRadius: BorderRadius.circular(AppRadius.base),
           border: Border.all(
             color: selected
                 ? AppColors.accent
                 : (Theme.of(context).brightness == Brightness.dark
-                    ? AppColors.darkBorder
-                    : AppColors.lightBorder),
+                      ? AppColors.darkBorder
+                      : AppColors.lightBorder),
           ),
         ),
         child: Row(
@@ -355,8 +369,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                 color: selected
                     ? AppColors.accent
                     : (Theme.of(context).brightness == Brightness.dark
-                        ? AppColors.darkTextMuted
-                        : AppColors.lightTextMuted),
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted),
               ),
             ),
             const SizedBox(width: 4),
@@ -366,8 +380,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
               color: selected
                   ? AppColors.accent
                   : (Theme.of(context).brightness == Brightness.dark
-                      ? AppColors.darkTextMuted
-                      : AppColors.lightTextMuted),
+                        ? AppColors.darkTextMuted
+                        : AppColors.lightTextMuted),
             ),
           ],
         ),
@@ -396,16 +410,13 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                     value: '',
                     groupValue: periode,
                     onChanged: (value) {
-                      ref
-                          .read(iuranSelectedPeriodeProvider.notifier)
-                          .state = value ?? '';
+                      ref.read(iuranSelectedPeriodeProvider.notifier).state =
+                          value ?? '';
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
                   onTap: () {
-                    ref
-                        .read(iuranSelectedPeriodeProvider.notifier)
-                        .state = '';
+                    ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
                     Navigator.of(dialogCtx).pop();
                   },
                 ),
@@ -418,16 +429,13 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                       value: p,
                       groupValue: periode,
                       onChanged: (value) {
-                        ref
-                            .read(iuranSelectedPeriodeProvider.notifier)
-                            .state = value ?? '';
+                        ref.read(iuranSelectedPeriodeProvider.notifier).state =
+                            value ?? '';
                         Navigator.of(dialogCtx).pop();
                       },
                     ),
                     onTap: () {
-                      ref
-                          .read(iuranSelectedPeriodeProvider.notifier)
-                          .state = p;
+                      ref.read(iuranSelectedPeriodeProvider.notifier).state = p;
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
@@ -458,16 +466,13 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                     value: '',
                     groupValue: status,
                     onChanged: (value) {
-                      ref
-                          .read(iuranSelectedStatusProvider.notifier)
-                          .state = value ?? '';
+                      ref.read(iuranSelectedStatusProvider.notifier).state =
+                          value ?? '';
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
                   onTap: () {
-                    ref
-                        .read(iuranSelectedStatusProvider.notifier)
-                        .state = '';
+                    ref.read(iuranSelectedStatusProvider.notifier).state = '';
                     Navigator.of(dialogCtx).pop();
                   },
                 ),
@@ -479,16 +484,14 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                       value: s.name,
                       groupValue: status,
                       onChanged: (value) {
-                        ref
-                            .read(iuranSelectedStatusProvider.notifier)
-                            .state = value ?? '';
+                        ref.read(iuranSelectedStatusProvider.notifier).state =
+                            value ?? '';
                         Navigator.of(dialogCtx).pop();
                       },
                     ),
                     onTap: () {
-                      ref
-                          .read(iuranSelectedStatusProvider.notifier)
-                          .state = s.name;
+                      ref.read(iuranSelectedStatusProvider.notifier).state =
+                          s.name;
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
@@ -504,8 +507,9 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
   List<String> _uniquePeriodes() {
     final billsState = ref.read(billsProvider);
     return switch (billsState) {
-      AsyncData(:final value) => value.map((b) => b.periode).toSet().toList()
-        ..sort((a, b) => b.compareTo(a)),
+      AsyncData(:final value) =>
+        value.map((b) => b.periode).toSet().toList()
+          ..sort((a, b) => b.compareTo(a)),
       _ => const [],
     };
   }
@@ -515,187 +519,9 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
 class _IuranCard extends StatelessWidget {
   final IuranBill bill;
 
-  const _IuranCard({required this.bill});
-
-  void _showDueDetailDialog(BuildContext dialogCtx) {
-    final theme = Theme.of(dialogCtx);
-    final isDark = theme.brightness == Brightness.dark;
-    final rtLabel = bill.dueRtCode?.isNotEmpty == true
-        ? 'RT: ${bill.dueRtCode}'
-        : 'RT: —';
-
-    // Local state for input fields — no persistence needed (UI only)
-    final sumbanganController = TextEditingController();
-    final catatanController = TextEditingController();
-
-    showDialog<void>(
-      context: dialogCtx,
-      builder: (builderCtx) {
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.base),
-              ),
-              title: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    color: AppColors.info,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      bill.iuranType,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Status badge
-                    AppBadge(
-                      label: 'Sukarela',
-                      textColor: AppColors.info,
-                      backgroundColor: AppColors.info.withValues(alpha: isDark ? 0.25 : 0.12),
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    // Info rows
-                    _infoRow(theme, 'Nominal', 'Rp0'),
-                    _infoRow(theme, 'Periode', bill.duePeriodType ?? '—'),
-                    _infoRow(theme, 'RT', rtLabel),
-                    // Spacing before form fields
-                    const SizedBox(height: AppSpacing.md),
-                    // Sumbangan input
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Nominal Sumbangan (Rp)',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        AppTextField(
-                          controller: sumbanganController,
-                          hintText: 'Masukkan nominal sumbangan',
-                          keyboardType: TextInputType.number,
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        // Catatan input
-                        Text(
-                          'Catatan (opsional)',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        AppTextField(
-                          controller: catatanController,
-                          hintText: 'Tambahkan catatan jika diperlukan',
-                        ),
-                      ],
-                    ),
-                    // Spacing before info note
-                    const SizedBox(height: AppSpacing.md),
-                    // Info note — moved to bottom
-                    Container(
-                      width: double.maxFinite,
-                      padding: const EdgeInsets.all(AppSpacing.sm),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.darkSurface
-                            : AppColors.lightSurface,
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        border: Border.all(
-                          color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder,
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            size: 16,
-                            color: AppColors.info,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              'Ini adalah definisi iuran sukarela (sumbangan) dengan nominal Rp0. Tagihan hanya terbentuk ketika pengurus membuat tagihan manual untuk periode tertentu.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(builderCtx).pop(),
-                  child: const Text('Batal'),
-                ),
-                TextButton(
-                  onPressed: null, // Bayar not available yet
-                  child: Text(
-                    'Bayar',
-                    style: TextStyle(
-                      color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _infoRow(ThemeData theme, String label, String value) {
-    final isDark = theme.brightness == Brightness.dark;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.xs),
-          Expanded(
-            child: Text(
-              value,
-              style: theme.textTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  const _IuranCard({
+    required this.bill,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -706,11 +532,7 @@ class _IuranCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          if (bill.isVoluntary) {
-            _showDueDetailDialog(context);
-          } else {
-            context.push('/home/iuran/detail/${bill.id}');
-          }
+          context.push('/home/iuran/detail/${bill.id}');
         },
         borderRadius: BorderRadius.circular(AppRadius.base),
         child: AppCard(
@@ -751,8 +573,10 @@ class _IuranCard extends StatelessWidget {
                   AppBadge(
                     label: getStatusLabel(bill.status),
                     textColor: getStatusColor(bill.status, context),
-                    backgroundColor: getStatusColor(bill.status, context)
-                        .withValues(alpha: isDark ? 0.18 : 0.10),
+                    backgroundColor: getStatusColor(
+                      bill.status,
+                      context,
+                    ).withValues(alpha: isDark ? 0.18 : 0.10),
                   ),
                 ],
               ),
@@ -772,15 +596,17 @@ class _IuranCard extends StatelessWidget {
                       AppBadge(
                         label: bill.iuranType,
                         textColor: AppColors.info,
-                        backgroundColor: AppColors.info
-                            .withValues(alpha: isDark ? 0.25 : 0.12),
+                        backgroundColor: AppColors.info.withValues(
+                          alpha: isDark ? 0.25 : 0.12,
+                        ),
                       ),
                       const SizedBox(height: 6),
                       AppBadge(
                         label: bill.periode.toUpperCase(),
                         textColor: AppColors.accent,
-                        backgroundColor: AppColors.accent
-                            .withValues(alpha: isDark ? 0.25 : 0.12),
+                        backgroundColor: AppColors.accent.withValues(
+                          alpha: isDark ? 0.25 : 0.12,
+                        ),
                       ),
                     ],
                   ),

@@ -21,16 +21,17 @@ const _kBillId = 'test-bill-id';
 
 late IuranBill _kTestBill;
 
-Widget _buildApp() {
-  _kTestBill = IuranBill(
-    id: _kBillId,
-    householdName: 'Bpk. Ahmad',
-    iuranType: 'Iuran Keamanan',
-    periode: 'Oktober 2026',
-    nominal: 50000,
-    paidAmount: 0,
-    status: IuranStatus.belumBayar,
-  );
+Widget _buildApp({IuranBill? bill}) {
+  _kTestBill = bill ??
+      IuranBill(
+        id: _kBillId,
+        householdName: 'Bpk. Ahmad',
+        iuranType: 'Iuran Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 50000,
+        paidAmount: 0,
+        status: IuranStatus.belumBayar,
+      );
   return MaterialApp(
     home: ProviderScope(
       overrides: [
@@ -44,8 +45,8 @@ Widget _buildApp() {
 }
 
 /// Pump once to kick off futures, then wait for idle.
-Future<void> _pumpPage(WidgetTester tester) async {
-  await tester.pumpWidget(_buildApp());
+Future<void> _pumpPage(WidgetTester tester, {IuranBill? bill}) async {
+  await tester.pumpWidget(_buildApp(bill: bill));
   await tester.pump();
   await tester.pumpAndSettle(const Duration(seconds: 5));
 }
@@ -290,6 +291,34 @@ void main() {
       expect(find.text('Bukti Pembayaran (Opsional)', skipOffstage: false), findsOneWidget);
       expect(find.text('Galeri', skipOffstage: false), findsOneWidget);
       expect(find.text('Kamera', skipOffstage: false), findsOneWidget);
+    });
+  });
+
+  group('IuranPaymentScreen — Voluntary Bill', () {
+    testWidgets('renders Sukarela summary and allows any donation amount', (tester) async {
+      final voluntaryBill = IuranBill(
+        id: _kBillId,
+        householdName: 'Bpk. Ahmad',
+        iuranType: 'Kerja Bakti',
+        periode: '2026-12',
+        nominal: 0,
+        paidAmount: 0,
+        status: IuranStatus.sukarela,
+        isVoluntary: true,
+      );
+      await _pumpPage(tester, bill: voluntaryBill);
+
+      expect(find.text('Sukarela', skipOffstage: false), findsWidgets);
+
+      await tester.enterText(find.byType(TextField).at(0), '100000');
+      await tester.pumpAndSettle();
+
+      await _scrollToVisible(tester, find.text('Bayar', skipOffstage: false));
+      await tester.tap(find.text('Bayar', skipOffstage: false));
+      await tester.pump();
+
+      expect(find.text('Nominal melebihi sisa tagihan.'), findsNothing);
+      await tester.pumpAndSettle();
     });
   });
 }

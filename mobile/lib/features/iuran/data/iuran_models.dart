@@ -4,12 +4,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 
 /// Enum representing the status of an iuran (dues) bill.
-enum IuranStatus {
-  belumBayar,
-  sebagian,
-  lunas,
-  sukarela,
-}
+enum IuranStatus { belumBayar, sebagian, lunas, sukarela }
 
 /// Iuran bill model for the IURAN feature.
 class IuranBill {
@@ -33,6 +28,7 @@ class IuranBill {
   final String? duePeriodType;
   final String? dueRtCode;
   final bool? dueIsVoluntary;
+  final String? dueId;
 
   const IuranBill({
     required this.id,
@@ -50,6 +46,7 @@ class IuranBill {
     this.duePeriodType,
     this.dueRtCode,
     this.dueIsVoluntary,
+    this.dueId,
   });
 
   /// Returns the remaining balance for display purposes.
@@ -61,10 +58,9 @@ class IuranBill {
   /// Returns the maximum amount that can still be paid.
   /// Accounts for approved and pending payments to prevent overpayment.
   /// Rejected payments do NOT affect capacity.
-  int get paymentCapacity =>
-      nominal - paidAmount - pendingAmount < 0
-          ? 0
-          : nominal - paidAmount - pendingAmount;
+  int get paymentCapacity => nominal - paidAmount - pendingAmount < 0
+      ? 0
+      : nominal - paidAmount - pendingAmount;
 
   /// Returns true if this bill is in arrears (not yet paid or partially paid).
   /// Voluntary Rp0 items are never in arrears.

@@ -5,8 +5,6 @@
 
 import 'package:flutter/foundation.dart';
 
-import 'iuran_models.dart' show IuranStatus;
-
 // ─── Pagination (reusable) ────────────────────────────────────────────
 
 /// Mirrors `PaginatedResponse` from Warga pattern.
@@ -16,10 +14,7 @@ class PaginatedResponse<T> {
   final List<T> data;
   final PaginationInfo pagination;
 
-  const PaginatedResponse({
-    required this.data,
-    required this.pagination,
-  });
+  const PaginatedResponse({required this.data, required this.pagination});
 }
 
 @immutable
@@ -52,6 +47,12 @@ enum PaymentMethod { cash, transfer }
 enum PaymentOrigin { selfSubmitted, staffRecorded }
 
 enum PaymentStatus { pending, approved, rejected }
+
+String donationStatusMessage(PaymentStatus status) => switch (status) {
+  PaymentStatus.pending => 'Donasi berhasil diajukan dan menunggu verifikasi.',
+  PaymentStatus.approved => 'Donasi disetujui dan telah dicatat.',
+  PaymentStatus.rejected => 'Donasi ditolak dan tidak menambah kas.',
+};
 
 enum TransactionType { income, expense }
 
@@ -190,6 +191,7 @@ class BackendBill {
   final String? dueName;
   final String? houseNumber;
   final String? headName;
+  final bool isVoluntary;
 
   const BackendBill({
     required this.id,
@@ -205,6 +207,7 @@ class BackendBill {
     this.dueName,
     this.houseNumber,
     this.headName,
+    this.isVoluntary = false,
   });
 
   factory BackendBill.fromJson(Map<String, dynamic> json) {
@@ -222,6 +225,7 @@ class BackendBill {
       dueName: json['due_name'] as String?,
       houseNumber: json['house_number'] as String?,
       headName: json['head_name'] as String?,
+      isVoluntary: json['is_voluntary'] as bool? ?? false,
     );
   }
 }
@@ -247,7 +251,10 @@ BillStatus _parseBillStatus(String? value) {
 class BackendPayment {
   final String id;
   final String rtId;
-  final String billId;
+  final String? billId;
+  final String? dueId;
+  final String? submittedBy;
+  final String? submitterName;
   final String amount;
   final PaymentMethod method;
   final PaymentOrigin origin;
@@ -273,6 +280,9 @@ class BackendPayment {
     required this.id,
     required this.rtId,
     required this.billId,
+    this.dueId,
+    this.submittedBy,
+    this.submitterName,
     required this.amount,
     required this.method,
     required this.origin,
@@ -299,7 +309,10 @@ class BackendPayment {
     return BackendPayment(
       id: json['id'] as String? ?? '',
       rtId: json['rt_id'] as String? ?? '',
-      billId: json['bill_id'] as String? ?? '',
+      billId: json['bill_id'] as String?,
+      dueId: json['due_id'] as String?,
+      submittedBy: json['submitted_by'] as String?,
+      submitterName: json['submitter_name'] as String?,
       amount: json['amount'] as String? ?? '',
       method: _parsePaymentMethod(json['method'] as String?),
       origin: _parsePaymentOrigin(json['origin'] as String?),
@@ -409,21 +422,6 @@ String billStatusToFilter(BillStatus status) {
       return 'lunas';
     case BillStatus.cancelled:
       return 'lunas';
-  }
-}
-
-/// Map backend [BillStatus] to [IuranStatus] (used by iuran_models.dart).
-/// Returns the display status enum matching existing IuranStatus.
-IuranStatus _billStatusToIuranStatus(BillStatus status) {
-  switch (status) {
-    case BillStatus.unpaid:
-      return IuranStatus.belumBayar;
-    case BillStatus.partial:
-      return IuranStatus.sebagian;
-    case BillStatus.paid:
-      return IuranStatus.lunas;
-    case BillStatus.cancelled:
-      return IuranStatus.lunas;
   }
 }
 

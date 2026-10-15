@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1952,8 +1953,8 @@ func setupSystemOnlySuperAdmin(t *testing.T, pool *database.Pool, email, fullNam
 }
 
 // SetupCrossRFFinanceData creates the full finance dataset across two RTs.
-// Returns (rta, rtb, occIDA, occIDB, amounts: {incomeA, expenseB}).
-func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occIDA, occIDB string, incomeA, expenseB int64) {
+// Returns (rta, rtb, occIDA, occIDB, txIDIncomeA, txIDExpenseB, amounts: {incomeA, expenseB}).
+func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occIDA, occIDB string, txIDIncomeA, txIDExpenseB string, incomeA, expenseB int64) {
 	t.Helper()
 	// RT-A
 	rta = setupTestRT(t, pool, "Cross RT RT-A", 1, "CRRTA")
@@ -2011,12 +2012,16 @@ func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occID
 	{
 		tx, _ := pool.BeginTx(ctx)
 		_, _ = PaymentCreate(ctx, tx, rta, CreatePaymentInput{
-			BillID: billA1ID, Amount: "200000", Method: PaymentMethodTransfer,
+			BillID: &billA1ID, Amount: "200000", Method: PaymentMethodTransfer,
 		}, PaymentOriginStaffRecorded, PaymentStatusApproved, nil, nil)
-		_, _ = TransactionCreate(ctx, tx, rta, CreateTransactionInput{
+		txInc, err := TransactionCreate(ctx, tx, rta, CreateTransactionInput{
 			CategoryID: catA1, Amount: "200000", Type: TransactionTypeIncome,
 			Description: "Sumbangan RT-A",
 		}, TransactionStatusPosted, nil, nil, time.Now())
+		if err != nil {
+			t.Fatalf("create RT-A income transaction: %v", err)
+		}
+		txIDIncomeA = txInc.ID
 		tx.Commit()
 	}
 
@@ -2055,14 +2060,18 @@ func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occID
 	expenseB = 150000
 	{
 		tx, _ := pool.BeginTx(ctx)
-		_, _ = TransactionCreate(ctx, tx, rtb, CreateTransactionInput{
+		txExp, err := TransactionCreate(ctx, tx, rtb, CreateTransactionInput{
 			CategoryID: catB2, Amount: "150000", Type: TransactionTypeExpense,
 			Description: "Beli Sapu RT-B",
 		}, TransactionStatusPosted, nil, nil, time.Now())
+		if err != nil {
+			t.Fatalf("create RT-B expense transaction: %v", err)
+		}
+		txIDExpenseB = txExp.ID
 		tx.Commit()
 	}
 
-	return rta, rtb, occIDA, occIDB, incomeA, expenseB
+	return rta, rtb, occIDA, occIDB, txIDIncomeA, txIDExpenseB, incomeA, expenseB
 }
 
 func TestSuperAdminCrossRTAccess(t *testing.T) {
@@ -2071,7 +2080,7 @@ func TestSuperAdminCrossRTAccess(t *testing.T) {
 	router := setupFinanceRouter(pool)
 
 	// 1. Create two RTs with finance data
-	rta, rtb, _, _, incA, expB := SetupCrossRFFinanceData(t, pool)
+	rta, rtb, _, _, txIDA, txIDB, _, _ := SetupCrossRFFinanceData(t, pool)
 	defer cleanupTestRT(t, pool, rta)
 	defer cleanupTestRT(t, pool, rtb)
 
@@ -2175,6 +2184,48 @@ func TestSuperAdminCrossRTAccess(t *testing.T) {
 		}
 		if resp.Pagination.Total < 3 {
 			t.Errorf("expected >= 3 bills total, got %d", resp.Pagination.Total)
+		}
+	})
+
+	t.Run("GET bills with search filter matches due_name", func(t *testing.T) {
+		code, body := jsonGet("/api/v1/bills?search=RT-A")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", code, string(body))
+		}
+		var resp struct {
+			Data       []*Bill `json:"data"`
+			Pagination struct {
+				Total int `json:"total"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal bills: %v", err)
+		}
+		if len(resp.Data) == 0 {
+			t.Fatal("expected bills matching 'RT-A', got none")
+		}
+		for _, b := range resp.Data {
+			if b.DueName == nil || !strings.Contains(*b.DueName, "RT-A") {
+				t.Errorf("expected due_name to contain 'RT-A', got %v", b.DueName)
+			}
+		}
+
+		// Searching non-matching query returns empty
+		codeEmpty, bodyEmpty := jsonGet("/api/v1/bills?search=NonExistentDueName123")
+		if codeEmpty != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", codeEmpty, string(bodyEmpty))
+		}
+		var respEmpty struct {
+			Data       []*Bill `json:"data"`
+			Pagination struct {
+				Total int `json:"total"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(bodyEmpty, &respEmpty); err != nil {
+			t.Fatalf("unmarshal empty bills: %v", err)
+		}
+		if len(respEmpty.Data) != 0 || respEmpty.Pagination.Total != 0 {
+			t.Errorf("expected 0 bills for non-matching search, got %d", len(respEmpty.Data))
 		}
 	})
 
@@ -2373,9 +2424,42 @@ func TestSuperAdminCrossRTAccess(t *testing.T) {
 		}
 	})
 
-	// ── 10. GET /reports/balance (aggregate across RTs) ──
+	// ── 10. Verify balance aggregate across both RTs ──
+	// (Global balance /reports/balance aggregates ALL RTs and may include leftover
+	//  transactions from other test runs, so we assert fixture transactions first,
+	//  then verify the global balance includes our fixture contribution.)
 	t.Run("GET balance aggregate across both RTs", func(t *testing.T) {
-		code, body := jsonGet("/api/v1/reports/balance")
+		// First: verify fixture transactions exist via GET /transactions?per_page=100
+		code, body := jsonGet("/api/v1/transactions?per_page=100")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", code, string(body))
+		}
+		var resp struct {
+			Data []*Transaction `json:"data"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			t.Fatalf("unmarshal transactions: %v", err)
+		}
+		// Find the two fixture transactions
+		var foundIncome, foundExpense bool
+		for _, tx := range resp.Data {
+			if tx.ID == txIDA && tx.RTID == rta && tx.Type == TransactionTypeIncome && tx.Amount == "200000.00" {
+				foundIncome = true
+			}
+			if tx.ID == txIDB && tx.RTID == rtb && tx.Type == TransactionTypeExpense && tx.Amount == "150000.00" {
+				foundExpense = true
+			}
+		}
+		if !foundIncome {
+			t.Errorf("fixture income transaction %s not found or mismatched in /transactions", txIDA[:8])
+		}
+		if !foundExpense {
+			t.Errorf("fixture expense transaction %s not found or mismatched in /transactions", txIDB[:8])
+		}
+		// Also assert balance via global endpoint — this still proves the superadmin
+		// aggregates income and expense from both RTs (even if leftover data from
+		// other tests shifts the exact number).
+		code, body = jsonGet("/api/v1/reports/balance")
 		if code != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", code, string(body))
 		}
@@ -2383,17 +2467,17 @@ func TestSuperAdminCrossRTAccess(t *testing.T) {
 		if err := json.Unmarshal(body, &summary); err != nil {
 			t.Fatalf("unmarshal balance: %v", err)
 		}
-		// Net balance should be sum of both RTs: (incA) - (expB)
-		expectedNet := incA - expB
 		if summary.NetBalance == "" {
 			t.Fatal("net_balance is empty")
 		}
+		// Fixture contributes: 200000 income - 150000 expense = 50000 net.
+		// Global endpoint may include leftover transactions, so assert minimum.
 		actual, err := strconv.ParseFloat(summary.NetBalance, 64)
 		if err != nil {
 			t.Fatalf("parse net_balance %q: %v", summary.NetBalance, err)
 		}
-		if int64(actual) != expectedNet {
-			t.Errorf("expected net balance %d, got %s", expectedNet, summary.NetBalance)
+		if int64(actual) < 50000 {
+			t.Errorf("expected net balance >= 50000 (fixture contribution), got %s", summary.NetBalance)
 		}
 	})
 }
@@ -2934,14 +3018,14 @@ func TestPaymentProofEndpoints(t *testing.T) {
 	warga2UserID, warga2MID := setupTestUserWithMembership(t, pool, "warga2-proof@example.com", "Warga 2 Proof", warga2Phone, rtID, "warga")
 	warga2Token := makeToken(t, auth.TokenClaims{UserID: warga2UserID, MID: warga2MID, Role: string(auth.RoleWarga), RTID: rtID})
 
-	t.Run("get payment proof as other warga in same RT is forbidden", func(t *testing.T) {
+	t.Run("get payment proof as other warga in same RT is not found", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID+"/proof", nil)
 		req.Header.Set("Authorization", "Bearer "+warga2Token)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("expected 403 Forbidden for same-RT different household warga, got %d: %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("expected 404 Not Found for same-RT different household warga, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 

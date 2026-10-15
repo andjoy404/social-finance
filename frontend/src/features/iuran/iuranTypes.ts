@@ -41,6 +41,8 @@ export interface IuranPaymentRecord {
   paymentNo?: string
   status?: PaymentStatusDisplay
   method?: 'CASH' | 'TRANSFER'
+  submitterName?: string
+  submittedBy?: string | null
   proofPath?: string | null
   proofOriginalName?: string | null
   proofMimeType?: string | null
@@ -267,6 +269,10 @@ export function formatPeriodeLabel(periode: string): string {
 }
 
 export function formatFullPeriodeLabel(periode: string): string {
+  // Guard for non-period values (e.g. voluntary Rp0 donations with periode '—')
+  if (!periode || periode === '—' || !periode.includes('-')) {
+    return periode ?? ''
+  }
   const [year, month] = periode.split('-')
   const monthNames = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',

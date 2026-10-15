@@ -437,6 +437,12 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		if p := r.URL.Query().Get("period"); p != "" {
 			period = &p
 		}
+		var search *string
+		if s := r.URL.Query().Get("search"); s != "" {
+			search = &s
+		} else if q := r.URL.Query().Get("q"); q != "" {
+			search = &q
+		}
 
 		tx, err := h.pool.BeginTx(r.Context())
 		if err != nil {
@@ -453,13 +459,13 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		page, pageSize := parsePagination(r)
 		offset := (page - 1) * pageSize
 
-		total, err := BillCountAll(r.Context(), tx, occupancyID, dueID, status, period)
+		total, err := BillCountAll(r.Context(), tx, occupancyID, dueID, status, period, search)
 		if err != nil {
 			httpx.WriteInternalServerError(w, err.Error())
 			return
 		}
 
-		bills, err := BillListAll(r.Context(), tx, occupancyID, dueID, status, period, offset, pageSize)
+		bills, err := BillListAll(r.Context(), tx, occupancyID, dueID, status, period, search, offset, pageSize)
 		if err != nil {
 			httpx.WriteInternalServerError(w, err.Error())
 			return
@@ -521,17 +527,23 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	if p := r.URL.Query().Get("period"); p != "" {
 		period = &p
 	}
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	} else if q := r.URL.Query().Get("q"); q != "" {
+		search = &q
+	}
 
 	page, pageSize := parsePagination(r)
 	offset := (page - 1) * pageSize
 
-	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period)
+	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, search)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
 
-	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, offset, pageSize)
+	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, search, offset, pageSize)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
@@ -619,11 +631,11 @@ func (h *Handler) GenerateBills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
+	handled, rec, idem := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
 	if handled {
 		return
 	}
-	defer finish()
+	defer idem.Finish()
 
 	targetW := w
 	if rec != nil {
@@ -653,6 +665,12 @@ func (h *Handler) GenerateBills(w http.ResponseWriter, r *http.Request) {
 		slog.Error("GenerateBills commit failed", "error", err, "rt_id", ac.RTID, "due_id", in.DueID, "period", in.Period)
 		httpx.WriteInternalServerError(targetW, "commit error")
 		return
+	}
+
+	if h.svc.Notifier() != nil {
+		for _, b := range bills {
+			h.svc.Notifier().NotifyBillCreated(r.Context(), ac.RTID, b.ID, nil)
+		}
 	}
 
 	writeJSON(targetW, http.StatusCreated, map[string]any{
@@ -695,6 +713,11 @@ func (h *Handler) CreateBill(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternalServerError(w, "commit error")
 		return
 	}
+
+	if h.svc.Notifier() != nil && bill != nil {
+		h.svc.Notifier().NotifyBillCreated(r.Context(), ac.RTID, bill.ID, nil)
+	}
+
 	writeJSON(w, http.StatusCreated, bill)
 }
 
@@ -713,6 +736,10 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 		if b := r.URL.Query().Get("bill_id"); b != "" {
 			billID = &b
 		}
+		var dueID *string
+		if d := r.URL.Query().Get("due_id"); d != "" {
+			dueID = &d
+		}
 		var status *string
 		if s := r.URL.Query().Get("status"); s != "" {
 			status = &s
@@ -728,13 +755,13 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 		page, pageSize := parsePagination(r)
 		offset := (page - 1) * pageSize
 
-		total, err := PaymentCountAll(r.Context(), tx, billID, status)
+		total, err := PaymentCountAll(r.Context(), tx, billID, dueID, status)
 		if err != nil {
 			httpx.WriteInternalServerError(w, err.Error())
 			return
 		}
 
-		payments, err := PaymentListAll(r.Context(), tx, billID, status, offset, pageSize)
+		payments, err := PaymentListAll(r.Context(), tx, billID, dueID, status, offset, pageSize)
 		if err != nil {
 			httpx.WriteInternalServerError(w, err.Error())
 			return
@@ -768,21 +795,37 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 	if b := r.URL.Query().Get("bill_id"); b != "" {
 		billID = &b
 	}
+	var dueID *string
+	if d := r.URL.Query().Get("due_id"); d != "" {
+		dueID = &d
+	}
 	var status *string
 	if s := r.URL.Query().Get("status"); s != "" {
 		status = &s
+	}
+	var submittedBy, occupancyID *string
+	if ac.TenantRole == auth.RoleWarga {
+		submittedBy = &ac.UserID
+		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
+		if err != nil {
+			httpx.WriteInternalServerError(w, "error verifying warga occupancy")
+			return
+		}
+		if occID != "" {
+			occupancyID = &occID
+		}
 	}
 
 	page, pageSize := parsePagination(r)
 	offset := (page - 1) * pageSize
 
-	total, err := PaymentCount(r.Context(), tx, ac.RTID, billID, status)
+	total, err := PaymentCount(r.Context(), tx, ac.RTID, billID, dueID, status, submittedBy, occupancyID)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
 
-	payments, err := PaymentList(r.Context(), tx, ac.RTID, billID, status, offset, pageSize)
+	payments, err := PaymentList(r.Context(), tx, ac.RTID, billID, dueID, status, submittedBy, occupancyID, offset, pageSize)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
@@ -838,7 +881,21 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := PaymentGetByID(r.Context(), tx, id, ac.RTID)
+	var p *Payment
+	if ac.TenantRole == auth.RoleWarga {
+		var occupancyID *string
+		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
+		if err != nil {
+			httpx.WriteInternalServerError(w, "error verifying warga occupancy")
+			return
+		}
+		if occID != "" {
+			occupancyID = &occID
+		}
+		p, err = PaymentGetByIDForUser(r.Context(), tx, id, ac.RTID, ac.UserID, occupancyID)
+	} else {
+		p, err = PaymentGetByID(r.Context(), tx, id, ac.RTID)
+	}
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			httpx.WriteNotFound(w, "payment not found")
@@ -862,11 +919,11 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
+	handled, rec, idem := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
 	if handled {
 		return
 	}
-	defer finish()
+	defer idem.Finish()
 
 	targetW := w
 	if rec != nil {
@@ -882,11 +939,20 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteValidationError(targetW, "invalid multipart form or file too large (max 5MB)", nil)
 			return
 		}
-		in.BillID = r.FormValue("bill_id")
+		if billID := strings.TrimSpace(r.FormValue("bill_id")); billID != "" {
+			in.BillID = &billID
+		}
+		if dueID := strings.TrimSpace(r.FormValue("due_id")); dueID != "" {
+			in.DueID = &dueID
+		}
 		in.Amount = r.FormValue("amount")
 		in.Method = PaymentMethod(r.FormValue("method"))
 		if notes := r.FormValue("notes"); notes != "" {
 			in.Notes = &notes
+		}
+		if err := in.Validate(); err != nil {
+			httpx.WriteValidationError(targetW, err.Error(), nil)
+			return
 		}
 
 		file, header, err := r.FormFile("file")
@@ -896,7 +962,13 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			defer file.Close()
 			if header.Size > 0 {
-				meta, err := h.storage.UploadProof(r.Context(), ac.RTID, in.BillID, header.Filename, file, header.Size)
+				proofTarget := ""
+				if in.BillID != nil {
+					proofTarget = *in.BillID
+				} else if in.DueID != nil {
+					proofTarget = "donation-" + *in.DueID
+				}
+				meta, err := h.storage.UploadProof(r.Context(), ac.RTID, proofTarget, header.Filename, file, header.Size)
 				if err != nil {
 					httpx.WriteValidationError(targetW, err.Error(), nil)
 					return
@@ -916,7 +988,7 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tx, err := h.pool.BeginTx(r.Context())
+	tx, err := idem.BeginTx(r.Context(), h.pool)
 	if err != nil {
 		if uploadedKey != "" {
 			_ = h.storage.DeleteProof(r.Context(), uploadedKey)
@@ -943,15 +1015,37 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if idem != nil {
+		writeJSON(targetW, http.StatusCreated, p)
+		if err := idem.Save(tx); err != nil {
+			rec.replace(0, "")
+			httpx.WriteInternalServerError(targetW, "could not persist idempotency response")
+			return
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		if uploadedKey != "" {
 			_ = h.storage.DeleteProof(r.Context(), uploadedKey)
+		}
+		if idem != nil {
+			rec.replace(0, "")
 		}
 		httpx.WriteInternalServerError(targetW, "commit error")
 		return
 	}
 
-	writeJSON(targetW, http.StatusCreated, p)
+	if h.svc.Notifier() != nil && p != nil {
+		billID := ""
+		if p.BillID != nil {
+			billID = *p.BillID
+		}
+		h.svc.Notifier().NotifyPaymentSubmitted(r.Context(), ac.RTID, billID, p.ID)
+	}
+
+	if idem == nil {
+		writeJSON(targetW, http.StatusCreated, p)
+	}
 }
 
 func (h *Handler) CreateMultiPeriodPayment(w http.ResponseWriter, r *http.Request) {
@@ -965,11 +1059,11 @@ func (h *Handler) CreateMultiPeriodPayment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
+	handled, rec, idem := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
 	if handled {
 		return
 	}
-	defer finish()
+	defer idem.Finish()
 
 	targetW := w
 	if rec != nil {
@@ -1055,6 +1149,14 @@ func (h *Handler) CreateMultiPeriodPayment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if h.svc.Notifier() != nil && p != nil && p.Payment != nil {
+		firstBillID := ""
+		if len(in.BillIDs) > 0 {
+			firstBillID = in.BillIDs[0]
+		}
+		h.svc.Notifier().NotifyPaymentSubmitted(r.Context(), ac.RTID, firstBillID, p.Payment.ID)
+	}
+
 	writeJSON(targetW, http.StatusCreated, p)
 }
 
@@ -1107,7 +1209,21 @@ func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	payment, err := PaymentGetByID(r.Context(), tx, paymentID, ac.RTID)
+	var payment *Payment
+	if ac.TenantRole == auth.RoleWarga {
+		var occupancyID *string
+		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
+		if err != nil {
+			httpx.WriteInternalServerError(w, "error verifying warga occupancy")
+			return
+		}
+		if occID != "" {
+			occupancyID = &occID
+		}
+		payment, err = PaymentGetByIDForUser(r.Context(), tx, paymentID, ac.RTID, ac.UserID, occupancyID)
+	} else {
+		payment, err = PaymentGetByID(r.Context(), tx, paymentID, ac.RTID)
+	}
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			httpx.WriteNotFound(w, "payment not found")
@@ -1115,23 +1231,6 @@ func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 		}
 		httpx.WriteInternalServerError(w, err.Error())
 		return
-	}
-
-	if string(ac.TenantRole) == "warga" {
-		bill, err := BillGetByID(r.Context(), tx, payment.BillID, ac.RTID)
-		if err != nil {
-			httpx.WriteNotFound(w, "bill not found")
-			return
-		}
-		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
-		if err != nil {
-			httpx.WriteInternalServerError(w, "error verifying residency")
-			return
-		}
-		if occID == "" || bill.HouseholdOccupancyID != occID {
-			httpx.WriteForbidden(w, "cannot upload proof for another household's payment")
-			return
-		}
 	}
 
 	if payment.Status == PaymentStatusRejected {
@@ -1192,7 +1291,20 @@ func (h *Handler) GetPaymentProof(w http.ResponseWriter, r *http.Request) {
 		if !requireTenantContext(ac, w) {
 			return
 		}
-		p, err = PaymentGetByID(r.Context(), tx, paymentID, ac.RTID)
+		if ac.TenantRole == auth.RoleWarga {
+			var occupancyID *string
+			occID, lookupErr := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
+			if lookupErr != nil {
+				httpx.WriteInternalServerError(w, "error verifying warga occupancy")
+				return
+			}
+			if occID != "" {
+				occupancyID = &occID
+			}
+			p, err = PaymentGetByIDForUser(r.Context(), tx, paymentID, ac.RTID, ac.UserID, occupancyID)
+		} else {
+			p, err = PaymentGetByID(r.Context(), tx, paymentID, ac.RTID)
+		}
 	}
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -1201,23 +1313,6 @@ func (h *Handler) GetPaymentProof(w http.ResponseWriter, r *http.Request) {
 		}
 		httpx.WriteInternalServerError(w, err.Error())
 		return
-	}
-
-	if string(ac.TenantRole) == "warga" {
-		bill, err := BillGetByID(r.Context(), tx, p.BillID, ac.RTID)
-		if err != nil {
-			httpx.WriteNotFound(w, "bill not found")
-			return
-		}
-		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
-		if err != nil {
-			httpx.WriteInternalServerError(w, "error verifying residency")
-			return
-		}
-		if occID == "" || bill.HouseholdOccupancyID != occID {
-			httpx.WriteForbidden(w, "cannot view proof for another household's payment")
-			return
-		}
 	}
 
 	if p.ProofPath == nil || *p.ProofPath == "" {
@@ -1307,6 +1402,26 @@ func (h *Handler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(); err != nil {
 		httpx.WriteInternalServerError(w, "commit error")
 		return
+	}
+
+	if h.svc.Notifier() != nil && res.Payment != nil {
+		submitterID := ""
+		if res.Payment.SubmittedBy != nil {
+			submitterID = *res.Payment.SubmittedBy
+		}
+		billID := ""
+		if res.Payment.BillID != nil {
+			billID = *res.Payment.BillID
+		}
+		rejectionReason := ""
+		if in.Action == "reject" && in.RejectionReason != nil {
+			rejectionReason = *in.RejectionReason
+		}
+		status := "APPROVED"
+		if in.Action == "reject" {
+			status = "REJECTED"
+		}
+		h.svc.Notifier().NotifyPaymentVerified(r.Context(), ac.RTID, billID, res.Payment.ID, submitterID, status, rejectionReason)
 	}
 
 	writeJSON(w, http.StatusOK, res.Payment)
@@ -1492,11 +1607,11 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
+	handled, rec, idem := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
 	if handled {
 		return
 	}
-	defer finish()
+	defer idem.Finish()
 
 	targetW := w
 	if rec != nil {
@@ -1547,11 +1662,11 @@ func (h *Handler) ReverseTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handled, rec, finish := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
+	handled, rec, idem := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
 	if handled {
 		return
 	}
-	defer finish()
+	defer idem.Finish()
 
 	targetW := w
 	if rec != nil {

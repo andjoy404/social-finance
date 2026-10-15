@@ -16,6 +16,7 @@ import (
 
 	chi "github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	httpx "social-finance/internal/http"
@@ -30,7 +31,9 @@ var rtCounter int64 = time.Now().UnixNano() % 100000
 
 func testPool(t *testing.T) *database.Pool {
 	t.Helper()
-	return testutil.GetTestPool(t)
+	p := testutil.GetTestPool(t)
+	auth.AuthDBPool = p
+	return p
 }
 
 func getEnv(key, fallback string) string {
@@ -42,6 +45,13 @@ func getEnv(key, fallback string) string {
 
 func signingSecret() {
 	auth.SigningSecret = []byte(testSigningKey)
+}
+
+func toUUID(s string) string {
+	if _, err := uuid.Parse(s); err == nil {
+		return s
+	}
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(s)).String()
 }
 
 func makeToken(t *testing.T, claims auth.TokenClaims) string {
@@ -58,17 +68,68 @@ func makeToken(t *testing.T, claims auth.TokenClaims) string {
 }
 
 func makeTenantToken(t *testing.T, userID, membershipID, rtID string, role auth.Role) string {
+	t.Helper()
+	realUserID := toUUID(userID)
+	realMID := toUUID(membershipID)
+
+	if auth.AuthDBPool != nil {
+		db := auth.AuthDBPool.Raw()
+		ctx := context.Background()
+
+		// Upsert test user
+		_, err := db.ExecContext(ctx,
+			`INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+			 VALUES ($1, $2, '08123456789', 'dummyhash', $3, true)
+			 ON CONFLICT (id) DO UPDATE SET is_active = true`,
+			realUserID, fmt.Sprintf("%s@test.com", realUserID), "Test User "+userID,
+		)
+		if err != nil {
+			t.Fatalf("failed to insert test user %s: %v", userID, err)
+		}
+
+		// If rtID is a valid UUID, upsert test membership
+		if _, err := uuid.Parse(rtID); err == nil {
+			_, err = db.ExecContext(ctx,
+				`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
+				 VALUES ($1, $2, $3, $4, true)
+				 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, is_active = true, rt_id = EXCLUDED.rt_id`,
+				realMID, realUserID, rtID, string(role),
+			)
+			if err != nil {
+				t.Fatalf("failed to insert test membership %s: %v", membershipID, err)
+			}
+		}
+	}
+
 	return makeToken(t, auth.TokenClaims{
-		UserID: userID,
-		MID:    membershipID,
+		UserID: realUserID,
+		MID:    realMID,
 		RTID:   rtID,
 		Role:   string(role),
 	})
 }
 
 func makeSuperAdminToken(t *testing.T) string {
+	t.Helper()
+	realUserID := toUUID("super-admin-user-uuid")
+
+	if auth.AuthDBPool != nil {
+		db := auth.AuthDBPool.Raw()
+		ctx := context.Background()
+
+		_, err := db.ExecContext(ctx,
+			`INSERT INTO users (id, email, phone, password_hash, full_name, system_role, is_active)
+			 VALUES ($1, $2, '08123456789', 'dummyhash', 'Test Super Admin', 'super_admin', true)
+			 ON CONFLICT (id) DO UPDATE SET system_role = 'super_admin', is_active = true`,
+			realUserID, fmt.Sprintf("%s@test.com", realUserID),
+		)
+		if err != nil {
+			t.Fatalf("failed to insert test super_admin user: %v", err)
+		}
+	}
+
 	return makeToken(t, auth.TokenClaims{
-		UserID:  "super-admin-user-uuid",
+		UserID:  realUserID,
 		SysRole: "super_admin",
 	})
 }

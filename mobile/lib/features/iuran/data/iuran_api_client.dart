@@ -24,6 +24,8 @@ String _generateUuid() {
       '${hex(12)}';
 }
 
+String newPaymentIdempotencyKey() => _generateUuid();
+
 class GenerateBillsResult {
   final int generatedCount;
   final List<BackendBill> bills;
@@ -37,7 +39,7 @@ class GenerateBillsResult {
 class IuranApiClient {
   final Dio dio;
 
-  IuranApiClient({required Dio dio}) : dio = dio;
+  IuranApiClient({required this.dio});
 
   // ─── Dues ───────────────────────────────────────────────────────────
 
@@ -49,12 +51,18 @@ class IuranApiClient {
     final response = await dio.get('/api/v1/dues', queryParameters: query);
 
     final data = response.data;
-    if (data is! List) return [];
+    if (data is! List) {
+      throw const FormatException('Unexpected dues response');
+    }
 
-    return data
-        .whereType<Map>()
-        .map((e) => BackendDue.fromJson(e.cast<String, dynamic>()))
-        .toList();
+    final dues = <BackendDue>[];
+    for (final item in data) {
+      if (item is! Map) {
+        throw const FormatException('Malformed due in response');
+      }
+      dues.add(BackendDue.fromJson(item.cast<String, dynamic>()));
+    }
+    return dues;
   }
 
   /// POST /api/v1/dues — Pengurus only
@@ -97,10 +105,12 @@ class IuranApiClient {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (amount != null) body['amount'] = amount;
-    if (periodType != null)
+    if (periodType != null) {
       body['period_type'] = _serializePeriodType(periodType);
-    if (paymentRule != null)
+    }
+    if (paymentRule != null) {
       body['payment_rule'] = _serializePaymentRule(paymentRule);
+    }
     if (isVoluntary != null) body['is_voluntary'] = isVoluntary;
     if (isActive != null) body['is_active'] = isActive;
 
@@ -215,6 +225,7 @@ class IuranApiClient {
   /// GET /api/v1/payments
   Future<PaginatedResponse<BackendPayment>> listPayments({
     String? billId,
+    String? dueId,
     String? status,
     int page = 1,
     int pageSize = 20,
@@ -224,6 +235,7 @@ class IuranApiClient {
       'page_size': pageSize.toString(),
     };
     if (billId != null && billId.isNotEmpty) query['bill_id'] = billId;
+    if (dueId != null && dueId.isNotEmpty) query['due_id'] = dueId;
     if (status != null && status.isNotEmpty) query['status'] = status;
 
     final response = await dio.get('/api/v1/payments', queryParameters: query);
@@ -245,19 +257,61 @@ class IuranApiClient {
     required PaymentMethod method,
     String? proofPath,
     String? notes,
+    String? idempotencyKey,
   }) async {
-    final idempotencyKey = _generateUuid();
+    return _createPayment(
+      billId: billId,
+      amount: amount,
+      method: method,
+      proofPath: proofPath,
+      notes: notes,
+      idempotencyKey: idempotencyKey,
+    );
+  }
 
+  Future<BackendPayment> createDonation({
+    required String dueId,
+    required String amount,
+    required PaymentMethod method,
+    String? notes,
+    String? idempotencyKey,
+  }) async {
+    return _createPayment(
+      dueId: dueId,
+      amount: amount,
+      method: method,
+      notes: notes,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  Future<BackendPayment> _createPayment({
+    String? billId,
+    String? dueId,
+    required String amount,
+    required PaymentMethod method,
+    String? proofPath,
+    String? notes,
+    String? idempotencyKey,
+  }) async {
+    final hasBill = billId?.trim().isNotEmpty == true;
+    final hasDue = dueId?.trim().isNotEmpty == true;
+    if (hasBill == hasDue) {
+      throw ArgumentError('Exactly one of billId or dueId is required.');
+    }
     final response = await dio.post(
       '/api/v1/payments',
       data: {
-        'bill_id': billId,
+        if (billId != null) 'bill_id': billId,
+        if (dueId != null) 'due_id': dueId,
         'amount': amount,
         'method': _serializePaymentMethod(method),
         if (notes != null && notes.isNotEmpty) 'notes': notes,
         if (proofPath != null && proofPath.isNotEmpty) 'proof_path': proofPath,
       },
-      options: Options(headers: {'Idempotency-Key': idempotencyKey}),
+      options: Options(
+        headers: {'Idempotency-Key': idempotencyKey ?? _generateUuid()},
+      ),
     );
 
     final data = response.data;
@@ -356,7 +410,7 @@ class IuranApiClient {
   // ─── Helpers ────────────────────────────────────────────────────────
 
   PaginatedResponse<BackendBill> _parsePaginatedBills(dynamic raw) {
-    if (raw is! Map)
+    if (raw is! Map) {
       return const PaginatedResponse(
         data: [],
         pagination: PaginationInfo(
@@ -366,6 +420,7 @@ class IuranApiClient {
           totalPages: 0,
         ),
       );
+    }
 
     final items = <BackendBill>[];
     final rawList = raw['data'];
@@ -390,7 +445,7 @@ class IuranApiClient {
   }
 
   PaginatedResponse<BackendPayment> _parsePaginatedPayments(dynamic raw) {
-    if (raw is! Map)
+    if (raw is! Map) {
       return const PaginatedResponse(
         data: [],
         pagination: PaginationInfo(
@@ -400,6 +455,7 @@ class IuranApiClient {
           totalPages: 0,
         ),
       );
+    }
 
     final items = <BackendPayment>[];
     final rawList = raw['data'];

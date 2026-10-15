@@ -127,10 +127,11 @@ type Bill struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 
-	// Projected fields
-	DueName     *string `json:"due_name,omitempty"`
-	HouseNumber *string `json:"house_number,omitempty"`
-	HeadName    *string `json:"head_name,omitempty"`
+	// Enriched fields from JOIN queries
+	DueName      *string `json:"due_name,omitempty"`
+	HouseNumber  *string `json:"house_number,omitempty"`
+	HeadName     *string `json:"head_name,omitempty"`
+	IsVoluntary  bool    `json:"is_voluntary"`
 }
 
 type CreateBillInput struct {
@@ -172,11 +173,16 @@ const (
 	PaymentStatusRejected PaymentStatus = "REJECTED"
 )
 
-// Payment represents a recorded payment for a bill.
+// Payment represents a recorded payment for a bill or a voluntary donation.
+// For bill payments, BillID is set and DueID is NULL.
+// For donations, DueID is set and BillID is NULL.
 type Payment struct {
 	ID                string        `json:"id"`
 	RTID              string        `json:"rt_id"`
-	BillID            string        `json:"bill_id"`
+	BillID            *string       `json:"bill_id"`
+	DueID             *string       `json:"due_id,omitempty"`
+	SubmittedBy       *string       `json:"submitted_by,omitempty"`
+	SubmitterName     *string       `json:"submitter_name,omitempty"`
 	Amount            string        `json:"amount"` // String decimal
 	Method            PaymentMethod `json:"method"`
 	Origin            PaymentOrigin `json:"origin"`
@@ -200,7 +206,9 @@ type Payment struct {
 }
 
 type CreatePaymentInput struct {
-	BillID            string        `json:"bill_id"`
+	BillID            *string       `json:"bill_id,omitempty"`
+	DueID             *string       `json:"due_id,omitempty"`
+	SubmittedBy       *string       `json:"-"`
 	Amount            string        `json:"amount"`
 	Method            PaymentMethod `json:"method"`
 	ProofPath         *string       `json:"proof_path,omitempty"`
@@ -388,8 +396,26 @@ func (b *CreateBillInput) Validate() error {
 }
 
 func (p *CreatePaymentInput) Validate() error {
-	if strings.TrimSpace(p.BillID) == "" {
-		return errors.New("bill_id is required")
+	hasBill := p.BillID != nil && strings.TrimSpace(*p.BillID) != ""
+	hasDue := p.DueID != nil && strings.TrimSpace(*p.DueID) != ""
+	if hasBill == hasDue {
+		return errors.New("exactly one of bill_id or due_id is required")
+	}
+	if p.BillID != nil {
+		value := strings.TrimSpace(*p.BillID)
+		if value == "" {
+			p.BillID = nil
+		} else {
+			p.BillID = &value
+		}
+	}
+	if p.DueID != nil {
+		value := strings.TrimSpace(*p.DueID)
+		if value == "" {
+			p.DueID = nil
+		} else {
+			p.DueID = &value
+		}
 	}
 	if p.Method != PaymentMethodCash && p.Method != PaymentMethodTransfer {
 		return errors.New("invalid payment method: must be CASH or TRANSFER")

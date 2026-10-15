@@ -7,6 +7,7 @@
 /// - Existing behaviors: `isInArrears`, `formatRupiah`, `getStatusLabel`
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_models.dart';
 
 void main() {
@@ -15,155 +16,128 @@ void main() {
   // Pending does NOT reduce the displayed balance.
 
   group('IuranBill.remainingAmount', () {
-    test(
-      'nominal 25000, approved 0, pending 0 → sisa 25000',
-      () {
-        final bill = const IuranBill(
-          id: 'b1',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 0,
-          pendingAmount: 0,
-        );
-        expect(bill.remainingAmount, equals(25000));
-      },
-    );
+    test('nominal 25000, approved 0, pending 0 → sisa 25000', () {
+      final bill = const IuranBill(
+        id: 'b1',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 0,
+        pendingAmount: 0,
+      );
+      expect(bill.remainingAmount, equals(25000));
+    });
 
-    test(
-      'nominal 25000, approved 0, pending 10000 → sisa 25000',
-      () {
-        final bill = const IuranBill(
-          id: 'b2',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 0,
-          pendingAmount: 10000,
-        );
-        // Pending payment does NOT reduce display — still shows full nominal
-        expect(bill.remainingAmount, equals(25000));
-      },
-    );
+    test('nominal 25000, approved 0, pending 10000 → sisa 25000', () {
+      final bill = const IuranBill(
+        id: 'b2',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 0,
+        pendingAmount: 10000,
+      );
+      // Pending payment does NOT reduce display — still shows full nominal
+      expect(bill.remainingAmount, equals(25000));
+    });
 
-    test(
-      'nominal 25000, approved 10000, pending 5000 → sisa 15000',
-      () {
-        final bill = const IuranBill(
-          id: 'b3',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 10000,
-          pendingAmount: 5000,
-        );
-        expect(bill.remainingAmount, equals(15000));
-      },
-    );
+    test('nominal 25000, approved 10000, pending 5000 → sisa 15000', () {
+      final bill = const IuranBill(
+        id: 'b3',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 10000,
+        pendingAmount: 5000,
+      );
+      expect(bill.remainingAmount, equals(15000));
+    });
 
-    test(
-      'nominal 25000, approved 25000, pending 0 → sisa 0',
-      () {
-        final bill = const IuranBill(
-          id: 'b4',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 25000,
-          pendingAmount: 0,
-        );
-        expect(bill.remainingAmount, equals(0));
-      },
-    );
+    test('nominal 25000, approved 25000, pending 0 → sisa 0', () {
+      final bill = const IuranBill(
+        id: 'b4',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 25000,
+        pendingAmount: 0,
+      );
+      expect(bill.remainingAmount, equals(0));
+    });
 
-    test(
-      'nominal 25000, approved 25000, pending 10000 → sisa 0',
-      () {
-        final bill = const IuranBill(
-          id: 'b5',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 25000,
-          pendingAmount: 10000,
-        );
-        expect(bill.remainingAmount, equals(0));
-      },
-    );
+    test('nominal 25000, approved 25000, pending 10000 → sisa 0', () {
+      final bill = const IuranBill(
+        id: 'b5',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 25000,
+        pendingAmount: 10000,
+      );
+      expect(bill.remainingAmount, equals(0));
+    });
   });
 
   // ─── paymentCapacity ──────────────────────────────────────────────────
   // Rule 4: Payment capacity = max(0, nominal - paidAmount - pendingAmount)
 
   group('IuranBill.paymentCapacity', () {
-    test(
-      'nominal 25000, approved 0, pending 0 → kapasitas 25000',
-      () {
-        final bill = const IuranBill(
-          id: 'b1',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 0,
-          pendingAmount: 0,
-        );
-        expect(bill.paymentCapacity, equals(25000));
-      },
-    );
+    test('nominal 25000, approved 0, pending 0 → kapasitas 25000', () {
+      final bill = const IuranBill(
+        id: 'b1',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 0,
+        pendingAmount: 0,
+      );
+      expect(bill.paymentCapacity, equals(25000));
+    });
 
-    test(
-      'nominal 25000, approved 0, pending 10000 → kapasitas 15000',
-      () {
-        final bill = const IuranBill(
-          id: 'b2',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 0,
-          pendingAmount: 10000,
-        );
-        expect(bill.paymentCapacity, equals(15000));
-      },
-    );
+    test('nominal 25000, approved 0, pending 10000 → kapasitas 15000', () {
+      final bill = const IuranBill(
+        id: 'b2',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 0,
+        pendingAmount: 10000,
+      );
+      expect(bill.paymentCapacity, equals(15000));
+    });
 
-    test(
-      'nominal 25000, approved 10000, pending 5000 → kapasitas 10000',
-      () {
-        final bill = const IuranBill(
-          id: 'b3',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 10000,
-          pendingAmount: 5000,
-        );
-        expect(bill.paymentCapacity, equals(10000));
-      },
-    );
+    test('nominal 25000, approved 10000, pending 5000 → kapasitas 10000', () {
+      final bill = const IuranBill(
+        id: 'b3',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 10000,
+        pendingAmount: 5000,
+      );
+      expect(bill.paymentCapacity, equals(10000));
+    });
 
-    test(
-      'nominal 25000, approved 25000, pending 0 → kapasitas 0',
-      () {
-        final bill = const IuranBill(
-          id: 'b4',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 25000,
-          pendingAmount: 0,
-        );
-        expect(bill.paymentCapacity, equals(0));
-      },
-    );
+    test('nominal 25000, approved 25000, pending 0 → kapasitas 0', () {
+      final bill = const IuranBill(
+        id: 'b4',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 25000,
+        pendingAmount: 0,
+      );
+      expect(bill.paymentCapacity, equals(0));
+    });
 
     test(
       'nominal 25000, approved 20000, pending 10000 → kapasitas 0 (not negative)',
@@ -229,69 +203,60 @@ void main() {
   });
 
   group('remainingAmount with rejectedAmount', () {
-    test(
-      'rejected does NOT reduce remaining display',
-      () {
-        final bill = const IuranBill(
-          id: 'b-rem-rej',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 100000,
-          paidAmount: 50000,
-          pendingAmount: 25000,
-          rejectedAmount: 25000,
-        );
-        // Remaining = nominal - paidAmount only
-        expect(bill.remainingAmount, equals(50000));
-      },
-    );
+    test('rejected does NOT reduce remaining display', () {
+      final bill = const IuranBill(
+        id: 'b-rem-rej',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 100000,
+        paidAmount: 50000,
+        pendingAmount: 25000,
+        rejectedAmount: 25000,
+      );
+      // Remaining = nominal - paidAmount only
+      expect(bill.remainingAmount, equals(50000));
+    });
   });
 
   group('paymentCapacity with rejectedAmount', () {
-    test(
-      'rejected does NOT reduce capacity',
-      () {
-        final bill = const IuranBill(
-          id: 'b-cap-rej',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 100000,
-          paidAmount: 50000,
-          pendingAmount: 25000,
-          rejectedAmount: 25000,
-        );
-        // Capacity = max(0, nominal - paid - pending) = 100000 - 50000 - 25000 = 25000
-        // Rejected does NOT affect capacity
-        expect(bill.paymentCapacity, equals(25000));
-      },
-    );
+    test('rejected does NOT reduce capacity', () {
+      final bill = const IuranBill(
+        id: 'b-cap-rej',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 100000,
+        paidAmount: 50000,
+        pendingAmount: 25000,
+        rejectedAmount: 25000,
+      );
+      // Capacity = max(0, nominal - paid - pending) = 100000 - 50000 - 25000 = 25000
+      // Rejected does NOT affect capacity
+      expect(bill.paymentCapacity, equals(25000));
+    });
   });
 
   // ─── Key Distinction ─────────────────────────────────────────────────
 
   group('remainingAmount vs paymentCapacity distinction', () {
-    test(
-      'pending reduces capacity but NOT remaining display',
-      () {
-        final bill = const IuranBill(
-          id: 'b-diff',
-          householdName: 'Test',
-          iuranType: 'Keamanan',
-          periode: 'Oktober 2026',
-          nominal: 25000,
-          paidAmount: 0,
-          pendingAmount: 10000,
-        );
+    test('pending reduces capacity but NOT remaining display', () {
+      final bill = const IuranBill(
+        id: 'b-diff',
+        householdName: 'Test',
+        iuranType: 'Keamanan',
+        periode: 'Oktober 2026',
+        nominal: 25000,
+        paidAmount: 0,
+        pendingAmount: 10000,
+      );
 
-        // Display shows full remaining (what user sees as "Sisa Tagihan")
-        expect(bill.remainingAmount, equals(25000));
+      // Display shows full remaining (what user sees as "Sisa Tagihan")
+      expect(bill.remainingAmount, equals(25000));
 
-        // Validation cap accounts for pending (what can still be paid)
-        expect(bill.paymentCapacity, equals(15000));
-      },
-    );
+      // Validation cap accounts for pending (what can still be paid)
+      expect(bill.paymentCapacity, equals(15000));
+    });
   });
 
   // ─── isInArrears ──────────────────────────────────────────────────────
@@ -387,6 +352,27 @@ void main() {
 
     test('unknown value defaults to belumBayar', () {
       expect(parseStatus('unknown'), equals(IuranStatus.belumBayar));
+    });
+  });
+
+  group('donationStatusMessage', () {
+    test('clearly distinguishes pending, approved, and rejected', () {
+      expect(
+        donationStatusMessage(PaymentStatus.pending),
+        contains('menunggu verifikasi'),
+      );
+      expect(
+        donationStatusMessage(PaymentStatus.approved),
+        contains('disetujui'),
+      );
+      expect(
+        donationStatusMessage(PaymentStatus.rejected),
+        contains('ditolak'),
+      );
+      expect(
+        donationStatusMessage(PaymentStatus.rejected),
+        isNot(contains('berhasil dicatat')),
+      );
     });
   });
 }

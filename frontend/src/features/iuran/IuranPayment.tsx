@@ -13,12 +13,14 @@ import {
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
 import {
+  BACKEND_STATUS_MAP,
   formatRupiah,
   formatRibuan,
   getStatusVariant,
   getStatusLabel,
   parseMoney,
   type IuranBill,
+  type IuranStatus,
 } from './iuranTypes'
 import {
   apiGetBill,
@@ -50,6 +52,7 @@ function IuranPaymentContent({
   handleClose: () => void
   onPaymentSuccess: (payment: ApiPayment) => void
 }) {
+  const isVoluntary = Boolean(bill.isVoluntary || bill.nominal === 0)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
@@ -63,10 +66,10 @@ function IuranPaymentContent({
   const [successPayment, setSuccessPayment] = useState<ApiPayment | null>(null)
 
   useEffect(() => {
-    if (!nominal && remaining > 0) {
+    if (!nominal && remaining > 0 && !isVoluntary) {
       setNominal(String(remaining))
     }
-  }, [remaining])
+  }, [remaining, isVoluntary])
 
   // Clean up object URL on unmount or file change
   useEffect(() => {
@@ -123,7 +126,7 @@ function IuranPaymentContent({
       errs.push('Nominal pembayaran harus diisi.')
     } else if (isNaN(nominalNum) || nominalNum <= 0) {
       errs.push('Nominal pembayaran harus lebih dari 0.')
-    } else if (nominalNum > remaining) {
+    } else if (!isVoluntary && nominalNum > remaining) {
       errs.push(`Nominal pembayaran melebihi sisa tagihan (${formatRupiah(remaining)}).`)
     }
     if (!payDate) {
@@ -351,14 +354,14 @@ function IuranPaymentContent({
           {/* Sisa */}
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="ip-sisa">
-              <WarningOutlined style={{ marginRight: 4, color: 'var(--sf-warning)' }} />
+              <WarningOutlined style={{ marginRight: 4, color: isVoluntary ? 'var(--sf-accent)' : 'var(--sf-warning)' }} />
               Sisa Tagihan
             </label>
             <input
               id="ip-sisa"
               className="sf-form-input"
-              style={{ fontWeight: 700, color: 'var(--sf-warning)' }}
-              value={formatRupiah(remaining)}
+              style={{ fontWeight: 700, color: isVoluntary ? 'var(--sf-accent)' : 'var(--sf-warning)' }}
+              value={isVoluntary ? 'Sukarela' : formatRupiah(remaining)}
               disabled
             />
           </div>
@@ -422,10 +425,10 @@ function IuranPaymentContent({
                 setNominal(rawDigits)
                 setValidationErrors([])
               }}
-              placeholder={`Maksimal ${formatRibuan(remaining)}`}
+              placeholder={isVoluntary ? 'Masukkan nominal sumbangan' : `Maksimal ${formatRibuan(remaining)}`}
               autoFocus
             />
-            {remaining <= 0 && (
+            {remaining <= 0 && !isVoluntary && (
               <div style={{ fontSize: 12, color: 'var(--sf-success)', marginTop: 4 }}>
                 Tagihan sudah lunas.
               </div>
@@ -591,7 +594,7 @@ function IuranPaymentContent({
           <button
             type="submit"
             className="sf-btn-primary"
-            disabled={submitting || remaining <= 0}
+            disabled={submitting || (remaining <= 0 && !isVoluntary)}
           >
             {submitting ? 'Menyimpan...' : 'Bayar'}
           </button>
@@ -654,6 +657,12 @@ export function IuranPayment({
         const apiBill = await apiGetBill(token, effectiveId)
         if (cancelled) return
 
+        const nominal = parseMoney(apiBill.amount)
+        const isVoluntary = Boolean(apiBill.is_voluntary || nominal === 0)
+        const status: IuranStatus = (isVoluntary && nominal === 0)
+          ? 'sukarela'
+          : (BACKEND_STATUS_MAP[apiBill.status] ?? 'belum_bayar')
+
         // Map backend bill to frontend format
         const mappedBill: IuranBill = {
           id: apiBill.id,
@@ -662,10 +671,12 @@ export function IuranPayment({
           rt: apiBill.rt_code ? `RT ${apiBill.rt_code}` : 'RT —',
           iuranType: apiBill.due_name ?? 'Iuran',
           periode: apiBill.period,
-          nominal: parseMoney(apiBill.amount),
+          nominal,
           paidAmount: 0, // calculated separately from payments
           pendingAmount: 0, // calculated separately from PENDING payments
-          status: 'belum_bayar', // default, will be mapped
+          status,
+          isVoluntary,
+          dueId: apiBill.due_id,
           payments: [],
         }
 

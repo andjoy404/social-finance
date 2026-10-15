@@ -126,18 +126,8 @@ func TestWargaImportPreviewAndCommitFlow(t *testing.T) {
 
 	rtID := setupTestRT(t, pool, "Warga IO RT Flow", 1, "WIO1")
 
-	tokenPengurus := makeToken(t, auth.TokenClaims{
-		UserID: "00000000-0000-0000-0000-000000000001",
-		MID:    "mid-p",
-		RTID:   rtID,
-		Role:   string(auth.RolePengurus),
-	})
-	tokenWarga := makeToken(t, auth.TokenClaims{
-		UserID: "00000000-0000-0000-0000-000000000002",
-		MID:    "mid-w",
-		RTID:   rtID,
-		Role:   string(auth.RoleWarga),
-	})
+	tokenPengurus := makeTenantToken(t, "user-p-1", "mid-p-1", rtID, auth.RolePengurus)
+	tokenWarga := makeTenantToken(t, "user-w-1", "mid-w-1", rtID, auth.RoleWarga)
 
 	nowNano := time.Now().UnixNano()
 	house1 := fmt.Sprintf("H-%d-A", nowNano%10000)
@@ -264,12 +254,7 @@ func TestWargaImportMultipartForm(t *testing.T) {
 
 	rtID := setupTestRT(t, pool, "Warga IO Multipart RT", 1, "WIOMP")
 
-	tokenPengurus := makeToken(t, auth.TokenClaims{
-		UserID: "00000000-0000-0000-0000-000000000001",
-		MID:    "mid-p",
-		RTID:   rtID,
-		Role:   string(auth.RolePengurus),
-	})
+	tokenPengurus := makeTenantToken(t, "user-p-mp", "mid-p-mp", rtID, auth.RolePengurus)
 
 	nowNano := time.Now().UnixNano()
 	csvData := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
@@ -332,12 +317,7 @@ H-B-%d,Warga RT B,OWNER,Jl. B,Warga RT B,3171010000000022,0822,wargab@test.com,H
 		t.Fatalf("commit RT B: %v", err)
 	}
 
-	tokenPengurusA := makeToken(t, auth.TokenClaims{
-		UserID: "00000000-0000-0000-0000-000000000001",
-		MID:    "mid-a",
-		RTID:   rtA,
-		Role:   string(auth.RolePengurus),
-	})
+	tokenPengurusA := makeTenantToken(t, "user-p-a", "mid-a", rtA, auth.RolePengurus)
 
 	// RT A exports
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/warga/export", nil)

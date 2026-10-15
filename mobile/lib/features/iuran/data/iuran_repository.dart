@@ -36,7 +36,7 @@ class IuranRepository {
   }) async {
     return apiClient.createDue(
       name: name,
-      amount: '${amount}.00',
+      amount: '$amount.00',
       periodType: periodType,
       paymentRule: paymentRule,
       isVoluntary: isVoluntary,
@@ -91,17 +91,26 @@ class IuranRepository {
           .where((p) => p.status == PaymentStatus.rejected)
           .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
 
+      final nominalVal = moneyToDisplayRupiah(bill.amount);
+      final isVol = bill.isVoluntary || nominalVal == 0;
       uiBills.add(
         IuranBill(
           id: bill.id,
           householdName: bill.headName ?? '—',
           iuranType: bill.dueName ?? '—',
           periode: formatPeriod(bill.period),
-          nominal: moneyToDisplayRupiah(bill.amount),
+          nominal: nominalVal,
           paidAmount: approvedTotal,
           pendingAmount: pendingTotal,
           rejectedAmount: rejectedTotal,
-          status: _mapBillStatus(bill.status),
+          status: _mapBillStatus(bill.status, isVoluntary: isVol, nominal: nominalVal),
+          isVoluntary: isVol,
+          requiresFullPayment: bill.status == BillStatus.unpaid,
+          dueId: bill.dueId,
+          dueName: bill.dueName,
+          duePeriodType: null,
+          dueRtCode: null,
+          dueIsVoluntary: isVol,
         ),
       );
     }
@@ -132,41 +141,8 @@ class IuranRepository {
       currentPage++;
     } while (currentPage <= totalPages);
 
-    // Include active voluntary dues with Rp0 as informational items
-    try {
-      final dues = await apiClient.listDues(isActive: true);
-      for (final d in dues) {
-        if (d.isVoluntary && moneyToDisplayRupiah(d.amount) == 0) {
-          final periodTypeLabel = switch (d.periodType) {
-            DuePeriodType.monthly => 'Bulanan',
-            DuePeriodType.yearly => 'Tahunan',
-            DuePeriodType.oneTime => 'Sekali Waktu',
-          };
-          allBills.add(
-            IuranBill(
-              id: 'voluntary-due-${d.id}',
-              householdName: 'Semua Warga (Sukarela)',
-              iuranType: d.name,
-              periode: '—',
-              nominal: 0,
-              paidAmount: 0,
-              pendingAmount: 0,
-              rejectedAmount: 0,
-              status: IuranStatus.sukarela,
-              isVoluntary: true,
-              dueName: d.name,
-              duePeriodType: periodTypeLabel,
-              dueRtCode: d.rtId,
-              dueIsVoluntary: d.isVoluntary,
-            ),
-          );
-        }
-      }
-    } catch (_) {
-      // Do not fail bill loading if dues query fails
-    }
-
-    // Apply search filter client-side if needed
+    // No synthetic voluntary rows — all bills come from the API.
+    // Search filter is applied client-side if needed.
     if (search != null && search.trim().isNotEmpty) {
       final query = search.trim().toLowerCase();
       return allBills.where((b) {
@@ -192,16 +168,25 @@ class IuranRepository {
         .where((p) => p.status == PaymentStatus.rejected)
         .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
 
+    final nominalVal = moneyToDisplayRupiah(bill.amount);
+    final isVol = bill.isVoluntary || nominalVal == 0;
     return IuranBill(
       id: bill.id,
       householdName: bill.headName ?? '—',
       iuranType: bill.dueName ?? '—',
       periode: formatPeriod(bill.period),
-      nominal: moneyToDisplayRupiah(bill.amount),
+      nominal: nominalVal,
       paidAmount: approvedTotal,
       pendingAmount: pendingTotal,
       rejectedAmount: rejectedTotal,
-      status: _mapBillStatus(bill.status),
+      status: _mapBillStatus(bill.status, isVoluntary: isVol, nominal: nominalVal),
+      isVoluntary: isVol,
+      requiresFullPayment: bill.status == BillStatus.unpaid,
+      dueId: bill.dueId,
+      dueName: bill.dueName,
+      duePeriodType: null,
+      dueRtCode: null,
+      dueIsVoluntary: isVol,
     );
   }
 
@@ -213,12 +198,28 @@ class IuranRepository {
     return response.data;
   }
 
+  /// Fetch payments for a specific due (voluntary donations).
+  Future<List<BackendPayment>> listPaymentsForDue(String dueId) async {
+    final response = await apiClient.listPayments(dueId: dueId);
+    return response.data;
+  }
+
+  /// Fetch payments for a bill target. Always queries by billId to prevent leaking.
+  Future<List<BackendPayment>> listPaymentsForBillTarget({
+    required String billId,
+    String? dueId,
+    bool isVoluntary = false,
+  }) async {
+    return listPaymentsForBill(billId);
+  }
+
   Future<BackendPayment> createPayment({
     required String billId,
     required int amount, // rupiah in int (display format)
     required PaymentMethod method,
     String? proofPath,
     String? notes,
+    String? idempotencyKey,
   }) async {
     return apiClient.createPayment(
       billId: billId,
@@ -226,6 +227,26 @@ class IuranRepository {
       method: method,
       proofPath: proofPath,
       notes: notes,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  Future<BackendPayment> createDonation({
+    required String dueId,
+    required int amount,
+    required PaymentMethod method,
+    String? notes,
+    String? idempotencyKey,
+  }) async {
+    if (dueId.trim().isEmpty || amount <= 0) {
+      throw ArgumentError('Donation requires a due and a positive amount.');
+    }
+    return apiClient.createDonation(
+      dueId: dueId,
+      amount: _formatMoney(amount),
+      method: method,
+      notes: notes,
+      idempotencyKey: idempotencyKey,
     );
   }
 
@@ -263,6 +284,17 @@ class IuranRepository {
   Future<List<BackendPayment>> fetchPendingPayments() async {
     final response = await apiClient.listPayments(status: 'PENDING');
     return response.data;
+  }
+
+  Future<List<BackendPayment>> fetchPendingDonations(String dueId) async {
+    final response = await apiClient.listPayments(
+      dueId: dueId,
+      status: 'PENDING',
+      pageSize: 100,
+    );
+    return response.data
+        .where((payment) => payment.billId == null && payment.dueId == dueId)
+        .toList();
   }
 
   // ─── Reports ────────────────────────────────────────────────────────
@@ -329,7 +361,10 @@ class IuranRepository {
 
   // ─── Helpers ────────────────────────────────────────────────────────
 
-  IuranStatus _mapBillStatus(BillStatus status) {
+  IuranStatus _mapBillStatus(BillStatus status, {bool isVoluntary = false, int nominal = 0}) {
+    if (isVoluntary || nominal == 0) {
+      return IuranStatus.sukarela;
+    }
     switch (status) {
       case BillStatus.unpaid:
         return IuranStatus.belumBayar;
@@ -345,7 +380,7 @@ class IuranRepository {
   /// Convert display int (rupiah) to backend money string.
   /// e.g. 50000 → "50000.00"
   String _formatMoney(int amount) {
-    return '${amount}.00';
+    return '$amount.00';
   }
 }
 

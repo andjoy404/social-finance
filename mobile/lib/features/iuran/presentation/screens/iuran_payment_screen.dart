@@ -182,19 +182,21 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       final state = ref.read(billDetailProvider(widget.billId));
       if (state is AsyncData<IuranBill?> && state.value != null) {
         final bill = state.value!;
-        final capacity = bill.paymentCapacity;
-        if (amount > capacity && capacity > 0) {
-          if (mounted) {
-            setState(() => _error = 'Nominal melebihi sisa tagihan.');
+        if (!bill.isVoluntary) {
+          final capacity = bill.paymentCapacity;
+          if (amount > capacity && capacity > 0) {
+            if (mounted) {
+              setState(() => _error = 'Nominal melebihi sisa tagihan.');
+            }
+            return false;
           }
-          return false;
-        }
-        if (bill.requiresFullPayment && amount != capacity && capacity > 0) {
-          if (mounted) {
-            setState(() => _error =
-                'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(capacity)}).');
+          if (bill.requiresFullPayment && amount != capacity && capacity > 0) {
+            if (mounted) {
+              setState(() => _error =
+                  'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(capacity)}).');
+            }
+            return false;
           }
-          return false;
         }
       }
     }
@@ -511,14 +513,16 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   if (state is AsyncData<IuranBill?> &&
                       state.value != null) {
                     final bill = state.value!;
-                    if (amount > bill.paymentCapacity &&
-                        bill.paymentCapacity > 0) {
-                      return 'Nominal melebihi sisa tagihan.';
-                    }
-                    if (bill.requiresFullPayment &&
-                        amount != bill.paymentCapacity &&
-                        bill.paymentCapacity > 0) {
-                      return 'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(bill.paymentCapacity)}).';
+                    if (!bill.isVoluntary) {
+                      if (amount > bill.paymentCapacity &&
+                          bill.paymentCapacity > 0) {
+                        return 'Nominal melebihi sisa tagihan.';
+                      }
+                      if (bill.requiresFullPayment &&
+                          amount != bill.paymentCapacity &&
+                          bill.paymentCapacity > 0) {
+                        return 'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(bill.paymentCapacity)}).';
+                      }
                     }
                   }
                   return null;
@@ -850,16 +854,16 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  'Sisa Tagihan',
+                  bill.isVoluntary ? 'Sifat Tagihan' : 'Sisa Tagihan',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
               Text(
-                formatRupiah(bill.remainingAmount),
+                bill.isVoluntary ? 'Sukarela' : formatRupiah(bill.remainingAmount),
                 style: theme.textTheme.titleLarge?.copyWith(
-                  color: AppColors.accent,
+                  color: bill.isVoluntary ? AppColors.info : AppColors.accent,
                   fontWeight: FontWeight.bold,
                 ),
               ),

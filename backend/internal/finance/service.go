@@ -14,10 +14,18 @@ import (
 	"social-finance/internal/storage"
 )
 
+// Notifier defines the interface for emitting notifications from the finance domain.
+type Notifier interface {
+	NotifyBillCreated(ctx context.Context, rtID, billID string, recipientUserIDs []string)
+	NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paymentID string)
+	NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string)
+}
+
 // Service encapsulates business logic for the Finance domain.
 type Service struct {
-	pool    *database.Pool
-	storage storage.Service
+	pool     *database.Pool
+	storage  storage.Service
+	notifier Notifier
 }
 
 func NewService(pool *database.Pool, opts ...storage.Service) *Service {
@@ -28,6 +36,14 @@ func NewService(pool *database.Pool, opts ...storage.Service) *Service {
 		store = storage.NewMockStorage()
 	}
 	return &Service{pool: pool, storage: store}
+}
+
+func (s *Service) SetNotifier(n Notifier) {
+	s.notifier = n
+}
+
+func (s *Service) Notifier() Notifier {
+	return s.notifier
 }
 
 func (s *Service) Storage() storage.Service {
@@ -42,16 +58,22 @@ func (s *Service) AttachPaymentProof(ctx context.Context, tx *sql.Tx, rtID, user
 
 	// Verify permissions
 	if userRole == "warga" {
-		bill, err := BillGetByID(ctx, tx, payment.BillID, rtID)
-		if err != nil {
-			return nil, fmt.Errorf("bill not found: %w", err)
-		}
-		occID, err := GetOccupancyIDForUser(ctx, tx, rtID, userID)
-		if err != nil {
-			return nil, fmt.Errorf("error verifying warga occupancy: %w", err)
-		}
-		if occID == "" || bill.HouseholdOccupancyID != occID {
-			return nil, errors.New("cannot attach proof to another household's payment")
+		if payment.BillID == nil {
+			if payment.SubmittedBy == nil || *payment.SubmittedBy != userID {
+				return nil, errors.New("cannot attach proof to another user's donation")
+			}
+		} else {
+			bill, err := BillGetByID(ctx, tx, *payment.BillID, rtID)
+			if err != nil {
+				return nil, fmt.Errorf("bill not found: %w", err)
+			}
+			occID, err := GetOccupancyIDForUser(ctx, tx, rtID, userID)
+			if err != nil {
+				return nil, fmt.Errorf("error verifying warga occupancy: %w", err)
+			}
+			if occID == "" || bill.HouseholdOccupancyID != occID {
+				return nil, errors.New("cannot attach proof to another household's payment")
+			}
 		}
 	}
 
@@ -234,22 +256,6 @@ func (s *Service) GenerateBills(ctx context.Context, tx *sql.Tx, rtID, userID st
 		return nil, fmt.Errorf("invalid due_date format (YYYY-MM-DD): %w", err)
 	}
 
-	// If the due is voluntary with zero amount (sumbangan sukarela Rp0),
-	// do NOT generate mandatory bills or debts for residents.
-	// Voluntary contributions are paid voluntarily and should not produce zero-amount bills.
-	cents, _, err := ParseMoney(due.Amount)
-	if err == nil && due.IsVoluntary && cents == 0 {
-		_ = AuditLogInsert(ctx, tx, AuditLog{
-			RTID:       rtID,
-			UserID:     &userID,
-			Action:     "generate_bills",
-			EntityType: "bill",
-			EntityID:   in.Period,
-			NewValues:  json.RawMessage(fmt.Sprintf(`{"due_id":"%s","period":"%s","count":0,"note":"voluntary_zero_amount"}`, in.DueID, in.Period)),
-		})
-		return []*Bill{}, nil
-	}
-
 	occupancyIDs, err := GetActiveCurrentOccupancyIDs(ctx, tx, rtID)
 	if err != nil {
 		return nil, err
@@ -266,7 +272,10 @@ func (s *Service) GenerateBills(ctx context.Context, tx *sql.Tx, rtID, userID st
 		}
 		bill, err := BillCreate(ctx, tx, rtID, createInput)
 		if err != nil {
-			// Skip duplicates if already billed
+			return nil, err
+		}
+		if bill == nil {
+			// ON CONFLICT DO NOTHING — already exists for this occupancy+due+period
 			continue
 		}
 		generated = append(generated, bill)
@@ -311,28 +320,6 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		return nil, err
 	}
 
-	bill, err := BillGetByIDForUpdate(ctx, tx, in.BillID, rtID)
-	if err != nil {
-		return nil, fmt.Errorf("bill not found in this RT: %w", err)
-	}
-	if bill.Status == BillStatusPaid {
-		return nil, ErrBillAlreadyPaid
-	}
-	if bill.Status == BillStatusCancelled {
-		return nil, ErrBillCancelled
-	}
-
-	// If user is warga, verify ownership
-	if userRole == "warga" {
-		occID, err := GetOccupancyIDForUser(ctx, tx, rtID, userID)
-		if err != nil {
-			return nil, fmt.Errorf("error verifying warga occupancy: %w", err)
-		}
-		if occID != "" && bill.HouseholdOccupancyID != occID {
-			return nil, errors.New("cannot pay bill belonging to another household")
-		}
-	}
-
 	var origin PaymentOrigin
 	var status PaymentStatus
 	var verifiedBy *string
@@ -349,11 +336,77 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		now := time.Now()
 		verifiedAt = &now
 	}
+	in.SubmittedBy = &userID
 
-	// Fetch the due to determine payment_rule for amount validation
+	if in.DueID != nil {
+		due, err := DueGetByIDForUpdate(ctx, tx, *in.DueID, rtID)
+		if err != nil {
+			return nil, fmt.Errorf("due not found in this RT: %w", err)
+		}
+		if !due.IsActive {
+			return nil, errors.New("cannot donate to an inactive due")
+		}
+		if !due.IsVoluntary {
+			return nil, errors.New("donation target must be a voluntary due")
+		}
+		dueCents, _, err := ParseMoney(due.Amount)
+		if err != nil || dueCents != 0 {
+			return nil, errors.New("donation target must have a configured amount of Rp0")
+		}
+		if userRole == "warga" {
+			occID, err := GetOccupancyIDForUser(ctx, tx, rtID, userID)
+			if err != nil {
+				return nil, fmt.Errorf("error verifying warga occupancy: %w", err)
+			}
+			if occID == "" {
+				return nil, errors.New("warga must belong to an active household to donate")
+			}
+		}
+
+		payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
+		if err != nil {
+			return nil, fmt.Errorf("create donation: %w", err)
+		}
+		if status == PaymentStatusApproved {
+			if err := postPaymentIncome(ctx, tx, rtID, payment, fmt.Sprintf("Voluntary donation for due %s", due.Name)); err != nil {
+				return nil, err
+			}
+		}
+		auditPayload, _ := json.Marshal(payment)
+		_ = AuditLogInsert(ctx, tx, AuditLog{
+			RTID: rtID, UserID: &userID, Action: "create_payment", EntityType: "payment",
+			EntityID: payment.ID, NewValues: auditPayload,
+		})
+		return payment, nil
+	}
+
+	bill, err := BillGetByIDForUpdate(ctx, tx, *in.BillID, rtID)
+	if err != nil {
+		return nil, fmt.Errorf("bill not found in this RT: %w", err)
+	}
+
+	// Fetch the due to determine payment_rule and voluntary status for amount validation
 	due, err := DueGetByID(ctx, tx, bill.DueID, rtID)
 	if err != nil {
 		return nil, fmt.Errorf("due not found: %w", err)
+	}
+	isVoluntary := due.IsVoluntary
+
+	if !isVoluntary && bill.Status == BillStatusPaid {
+		return nil, ErrBillAlreadyPaid
+	}
+	if bill.Status == BillStatusCancelled {
+		return nil, ErrBillCancelled
+	}
+
+	if userRole == "warga" {
+		occID, err := GetOccupancyIDForUser(ctx, tx, rtID, userID)
+		if err != nil {
+			return nil, fmt.Errorf("error verifying warga occupancy: %w", err)
+		}
+		if occID == "" || bill.HouseholdOccupancyID != occID {
+			return nil, errors.New("cannot pay bill belonging to another household")
+		}
 	}
 
 	// Compute approved total BEFORE branching — both APPROVED and PENDING need it
@@ -379,15 +432,17 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 			return nil, fmt.Errorf("parse payment amount: %w", err)
 		}
 
-		remaining := billCents - approvedCents
-		if paymentCents > remaining {
-			return nil, fmt.Errorf("payment amount %s exceeds remaining balance %s", in.Amount, FormatMoney(remaining))
-		}
+		if !isVoluntary {
+			remaining := billCents - approvedCents
+			if paymentCents > remaining {
+				return nil, fmt.Errorf("payment amount %s exceeds remaining balance %s", in.Amount, FormatMoney(remaining))
+			}
 
-		// Enforce payment_rule: "full" requires payment == remaining
-		if due.PaymentRule == PaymentRuleFull {
-			if paymentCents != remaining {
-				return nil, fmt.Errorf("this iuran requires full payment: amount must be %s", FormatMoney(remaining))
+			// Enforce payment_rule: "full" requires payment == remaining
+			if due.PaymentRule == PaymentRuleFull {
+				if paymentCents != remaining {
+					return nil, fmt.Errorf("this iuran requires full payment: amount must be %s", FormatMoney(remaining))
+				}
 			}
 		}
 
@@ -398,14 +453,20 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		}
 
 		// Update bill status
-		newTotal := approvedCents + paymentCents
-		if newTotal >= billCents {
+		if isVoluntary {
 			if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPaid); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPartial); err != nil {
-				return nil, err
+			newTotal := approvedCents + paymentCents
+			if newTotal >= billCents {
+				if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPaid); err != nil {
+					return nil, err
+				}
+			} else {
+				if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPartial); err != nil {
+					return nil, err
+				}
 			}
 		}
 
@@ -415,6 +476,9 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 			return nil, err
 		}
 		desc := fmt.Sprintf("Payment for bill %s (Period: %s)", bill.ID, bill.Period)
+		if isVoluntary {
+			desc = fmt.Sprintf("Voluntary contribution for due %s (Bill: %s)", due.Name, bill.ID)
+		}
 		now := time.Now()
 		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 			CategoryID:  catID,
@@ -457,15 +521,17 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		return nil, fmt.Errorf("parse pending total: %w", err)
 	}
 
-	remaining := billCents - approvedCents - pendingCents
-	if paymentCents > remaining {
-		return nil, fmt.Errorf("payment amount %s exceeds remaining balance %s", in.Amount, FormatMoney(remaining))
-	}
+	if !isVoluntary {
+		remaining := billCents - approvedCents - pendingCents
+		if paymentCents > remaining {
+			return nil, fmt.Errorf("payment amount %s exceeds remaining balance %s", in.Amount, FormatMoney(remaining))
+		}
 
-	// Enforce payment_rule: "full" requires payment == remaining
-	if due.PaymentRule == PaymentRuleFull {
-		if paymentCents != remaining {
-			return nil, fmt.Errorf("this iuran requires full payment: amount must be %s", FormatMoney(remaining))
+		// Enforce payment_rule: "full" requires payment == remaining
+		if due.PaymentRule == PaymentRuleFull {
+			if paymentCents != remaining {
+				return nil, fmt.Errorf("this iuran requires full payment: amount must be %s", FormatMoney(remaining))
+			}
 		}
 	}
 
@@ -487,8 +553,22 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	return payment, nil
 }
 
+func postPaymentIncome(ctx context.Context, tx *sql.Tx, rtID string, payment *Payment, description string) error {
+	catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
+	if err != nil {
+		return err
+	}
+	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
+		CategoryID: catID, Amount: payment.Amount, Type: TransactionTypeIncome, Description: description,
+	}, TransactionStatusPosted, nil, &payment.ID, time.Now())
+	if err != nil {
+		return fmt.Errorf("post ledger transaction for payment: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierID, paymentID string, in VerifyPaymentInput) (*VerifyPaymentResult, error) {
-	payment, err := PaymentGetByID(ctx, tx, paymentID, rtID)
+	payment, err := PaymentGetByIDForUpdate(ctx, tx, paymentID, rtID)
 	if err != nil {
 		return nil, err
 	}
@@ -530,6 +610,36 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	}
 
 	// action == "approve"
+	if payment.BillID == nil {
+		if payment.DueID == nil {
+			return nil, errors.New("payment has no target")
+		}
+		due, err := DueGetByID(ctx, tx, *payment.DueID, rtID)
+		if err != nil {
+			return nil, fmt.Errorf("donation due not found: %w", err)
+		}
+		if !due.IsVoluntary {
+			return nil, errors.New("donation target is no longer voluntary")
+		}
+		officerNotes := ""
+		if in.OfficerNotes != nil {
+			officerNotes = strings.TrimSpace(*in.OfficerNotes)
+		}
+		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes)
+		if err != nil {
+			return nil, fmt.Errorf("approve donation: %w", err)
+		}
+		if err := postPaymentIncome(ctx, tx, rtID, verifiedPayment, fmt.Sprintf("Voluntary donation for due %s", due.Name)); err != nil {
+			return nil, err
+		}
+		auditPayload, _ := json.Marshal(verifiedPayment)
+		_ = AuditLogInsert(ctx, tx, AuditLog{
+			RTID: rtID, UserID: &verifierID, Action: "verify_payment", EntityType: "payment",
+			EntityID: verifiedPayment.ID, NewValues: auditPayload,
+		})
+		return &VerifyPaymentResult{Payment: verifiedPayment}, nil
+	}
+
 	// Detect whether this is a multi-period payment by querying allocations.
 	allocs, err := PaymentAllocationsByPaymentID(ctx, tx, paymentID)
 	if err != nil {
@@ -547,11 +657,21 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 
 // verifySinglePayment handles legacy single-bill payment approval.
 func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID, rtID, verifierID string, payment *Payment, in VerifyPaymentInput) (*VerifyPaymentResult, error) {
-	bill, err := BillGetByIDForUpdate(ctx, tx, payment.BillID, rtID)
+	if payment.BillID == nil {
+		return nil, errors.New("bill payment has no bill target")
+	}
+	bill, err := BillGetByIDForUpdate(ctx, tx, *payment.BillID, rtID)
 	if err != nil {
 		return nil, fmt.Errorf("bill not found: %w", err)
 	}
-	if bill.Status == BillStatusPaid {
+	due, err := DueGetByID(ctx, tx, bill.DueID, rtID)
+	if err != nil {
+		return nil, fmt.Errorf("due not found: %w", err)
+	}
+
+	isVoluntary := due.IsVoluntary
+
+	if !isVoluntary && bill.Status == BillStatusPaid {
 		return nil, ErrBillAlreadyPaid
 	}
 	if bill.Status == BillStatusCancelled {
@@ -578,38 +698,40 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 		return nil, fmt.Errorf("parse approved total: %w", err)
 	}
 
-	remaining := billCents - approvedCents
-	if paymentCents > remaining {
-		// Overpayment detected — reject the payment atomically.
-		var rejectionReason string
-		if in.RejectionReason != nil && strings.TrimSpace(*in.RejectionReason) != "" {
-			rejectionReason = strings.TrimSpace(*in.RejectionReason)
-		} else {
-			rejectionReason = "Payment amount exceeds remaining balance"
-		}
-		officerNotes := ""
-		if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
-			officerNotes = strings.TrimSpace(*in.OfficerNotes)
-		}
-		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusRejected, rejectionReason, officerNotes)
-		if err != nil {
-			return nil, fmt.Errorf("reject overpayment: %w", err)
-		}
+	if !isVoluntary {
+		remaining := billCents - approvedCents
+		if paymentCents > remaining {
+			// Overpayment detected — reject the payment atomically.
+			var rejectionReason string
+			if in.RejectionReason != nil && strings.TrimSpace(*in.RejectionReason) != "" {
+				rejectionReason = strings.TrimSpace(*in.RejectionReason)
+			} else {
+				rejectionReason = "Payment amount exceeds remaining balance"
+			}
+			officerNotes := ""
+			if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
+				officerNotes = strings.TrimSpace(*in.OfficerNotes)
+			}
+			verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusRejected, rejectionReason, officerNotes)
+			if err != nil {
+				return nil, fmt.Errorf("reject overpayment: %w", err)
+			}
 
-		auditPayload, _ := json.Marshal(verifiedPayment)
-		_ = AuditLogInsert(ctx, tx, AuditLog{
-			RTID:       rtID,
-			UserID:     &verifierID,
-			Action:     "verify_payment",
-			EntityType: "payment",
-			EntityID:   verifiedPayment.ID,
-			NewValues:  auditPayload,
-		})
+			auditPayload, _ := json.Marshal(verifiedPayment)
+			_ = AuditLogInsert(ctx, tx, AuditLog{
+				RTID:       rtID,
+				UserID:     &verifierID,
+				Action:     "verify_payment",
+				EntityType: "payment",
+				EntityID:   verifiedPayment.ID,
+				NewValues:  auditPayload,
+			})
 
-		return &VerifyPaymentResult{
-			Payment:             verifiedPayment,
-			OverpaymentRejected: true,
-		}, nil
+			return &VerifyPaymentResult{
+				Payment:             verifiedPayment,
+				OverpaymentRejected: true,
+			}, nil
+		}
 	}
 
 	// Overpayment check passed — approve the payment
@@ -623,14 +745,20 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 	}
 
 	// Update bill status based on new total (this payment + previously approved)
-	newTotal := approvedCents + paymentCents
-	if newTotal >= billCents {
+	if isVoluntary {
 		if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPaid); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPartial); err != nil {
-			return nil, err
+		newTotal := approvedCents + paymentCents
+		if newTotal >= billCents {
+			if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPaid); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := BillUpdateStatus(ctx, tx, bill.ID, rtID, BillStatusPartial); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -640,6 +768,9 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 		return nil, err
 	}
 	desc := fmt.Sprintf("Payment for bill %s (Period: %s)", bill.ID, bill.Period)
+	if isVoluntary {
+		desc = fmt.Sprintf("Voluntary contribution for due %s (Bill: %s)", due.Name, bill.ID)
+	}
 	now := time.Now()
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 		CategoryID:  catID,
@@ -1132,19 +1263,19 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 	var payment Payment
 	var err error
 	err = tx.QueryRowContext(ctx,
-		`INSERT INTO payments (rt_id, bill_id, amount, method, origin, status,
+		`INSERT INTO payments (rt_id, bill_id, due_id, submitted_by, amount, method, origin, status,
 		 proof_path, notes, proof_original_name, proof_mime_type, proof_size_bytes,
 		 proof_uploaded_by, verified_by, verified_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
+		 VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		 RETURNING id, rt_id, bill_id, due_id, submitted_by, amount::text, method, origin, status, proof_path, paid_at,
 		          verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes,
 		          created_at, updated_at, proof_original_name, proof_mime_type, proof_size_bytes,
 		          proof_uploaded_at, proof_uploaded_by`,
-		rtID, in.Allocations[0].BillID, totalCanon, in.Method, origin, status,
+		rtID, in.Allocations[0].BillID, userID, totalCanon, in.Method, origin, status,
 		in.ProofPath, in.Notes,
 		in.ProofOriginalName, in.ProofMimeType, in.ProofSizeBytes, in.ProofUploadedBy,
 		verifiedBy, verifiedAt,
-	).Scan(&payment.ID, &payment.RTID, &payment.BillID, &payment.Amount,
+	).Scan(&payment.ID, &payment.RTID, &payment.BillID, &payment.DueID, &payment.SubmittedBy, &payment.Amount,
 		&payment.Method, &payment.Origin, &payment.Status,
 		&payment.ProofPath, &payment.PaidAt,
 		&payment.VerifiedBy, &payment.VerifiedAt, &payment.VerifiedByName,

@@ -6,8 +6,6 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
-import 'package:social_finance/core/widgets/app_badge.dart';
-import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/section_header.dart';

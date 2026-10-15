@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -95,21 +94,6 @@ class _KasReportScreenState extends State<KasReportScreen> {
   List<KasTransaction> _getRecentTransactions() {
     final transactions = KasMockData.getTransactions();
     return transactions.take(5).toList();
-  }
-
-  Color _jenisTextColor(KasJenis jenis) {
-    return jenis == KasJenis.masuk ? AppColors.success : AppColors.danger;
-  }
-
-  Color _jenisBgColor(KasJenis jenis, Brightness brightness) {
-    final isIncoming = jenis == KasJenis.masuk;
-    return isIncoming
-        ? (brightness == Brightness.dark
-            ? AppColors.darkSuccessSoft
-            : AppColors.lightSuccessSoft)
-        : (brightness == Brightness.dark
-            ? AppColors.darkDangerSoft
-            : AppColors.lightDangerSoft);
   }
 
   IconData _jenisIcon(KasJenis jenis) {

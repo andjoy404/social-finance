@@ -67,7 +67,7 @@ describe('authenticatedApiRequest — nested error parsing (Bug B regression)', 
     }
   })
 
-  it('throws "Unexpected response" when backend returns error without nested structure', async () => {
+  it('returns top-level code when backend returns { code, message } (not nested)', async () => {
     setupFetchMock((_input, _init) =>
       failResponse(400, { code: 'bad', message: 'direct' })
     )
@@ -77,7 +77,7 @@ describe('authenticatedApiRequest — nested error parsing (Bug B regression)', 
       expect.fail('should have thrown')
     } catch (err: unknown) {
       const apiErr = err as import('./api').ApiError
-      expect(apiErr.code).toBe('unexpected')
+      expect(apiErr.code).toBe('bad')
     }
   })
 

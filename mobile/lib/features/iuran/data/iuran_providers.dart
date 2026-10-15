@@ -180,12 +180,14 @@ final billDetailProvider =
   return repository.fetchBillDetail(billId);
 });
 
-/// List of all payments for a specific bill (for history and proof inspection)
+/// List of all payments for a specific bill (for history and proof inspection).
 final billPaymentsProvider =
-    FutureProvider.family.autoDispose<List<BackendPayment>, String>((ref, billId) {
-  final repository = ref.read(iuranRepositoryProvider);
-  return repository.listPaymentsForBill(billId);
-});
+    FutureProvider.family.autoDispose<List<BackendPayment>, String>(
+      (ref, billId) {
+    final repository = ref.read(iuranRepositoryProvider);
+    return repository.listPaymentsForBill(billId);
+  },
+);
 
 // ─── Dues List ────────────────────────────────────────────────────────
 

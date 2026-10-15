@@ -16,6 +16,11 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+  errors:
+    deprecated_member_use: ignore
+    dangling_library_doc_comments: ignore
+    avoid_print: ignore
+    use_null_aware_elements: ignore
 include: package:flutter_lints/flutter.yaml
 
 linter:

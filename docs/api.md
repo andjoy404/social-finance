@@ -681,7 +681,7 @@ Optional query parameters. No implicit sorting unless specified.
 
 ### 9.3 Bills
 
-- `GET /api/v1/bills`: List bills (Bendahara, Pengurus, Warga [scoped to own household occupancy]).
+- `GET /api/v1/bills`: List bills (Bendahara, Pengurus, Warga [scoped to own household occupancy]). Query parameters: `page`, `page_size`, `household_occupancy_id`, `due_id`, `status`, `period`, `search` / `q` (case-insensitive substring filter matching bill/due name).
 - `GET /api/v1/bills/{id}`: Get bill by ID.
 - `POST /api/v1/bills/generate`: Batch generate bills for a due & period across active occupancies (Bendahara, Pengurus).
 - `POST /api/v1/bills`: Create single bill (Bendahara, Pengurus).
@@ -690,8 +690,8 @@ Optional query parameters. No implicit sorting unless specified.
 
 - `GET /api/v1/payments`: List payments (Bendahara, Pengurus, Warga [scoped to own payments]).
 - `GET /api/v1/payments/{id}`: Get payment by ID.
-- `POST /api/v1/payments`: Create payment (Warga [self-submitted with proof], Bendahara/Pengurus [staff-recorded]). Supports `Idempotency-Key` header.
-- `POST /api/v1/payments/{id}/verify`: Verify payment (`action`: `approve`|`reject`) (Bendahara, Pengurus). Approval marks bill paid and posts income transaction to ledger.
+- `POST /api/v1/payments`: Create payment (Warga [self-submitted with proof], Bendahara/Pengurus [staff-recorded]). Supports `Idempotency-Key` header. Concurrent requests with the same key are serialized in PostgreSQL; an identical request replays its stored response, while reusing the key with a different user, path, or payload returns `409 Conflict`. The payment and its idempotency response are committed atomically. The request must contain exactly one target: `bill_id` for ordinary bill payments or `due_id` for donations against an active, voluntary, Rp0 due in the authenticated RT. Donation responses include `bill_id: null` and the selected `due_id`. `amount` must be positive and `method` must be `CASH` or `TRANSFER`. A voluntary Rp0 due creates no bill; pending donations do not affect the ledger.
+- `POST /api/v1/payments/{id}/verify`: Verify payment (`action`: `approve`|`reject`) (Bendahara, Pengurus). Approval marks an ordinary bill paid and posts one income transaction to the ledger; approval of a donation posts one income transaction without attempting to update a bill. Rejected payments do not affect the ledger. Only the submitter can read or manage their own donation as a Warga.
 
 ### 9.5 Transactions & Ledger
 
@@ -745,4 +745,3 @@ Optional query parameters. No implicit sorting unless specified.
       "imported_residents": 12
     }
     ```
-

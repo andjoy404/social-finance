@@ -24,6 +24,7 @@ import (
 	httpmw "social-finance/internal/http"
 	httpx "social-finance/internal/http"
 	"social-finance/internal/migration"
+	"social-finance/internal/notification"
 	rtpkg "social-finance/internal/rt"
 	"social-finance/internal/storage"
 )
@@ -651,6 +652,29 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
 		r.Post("/api/v1/transactions", finH.CreateTransaction)
 		r.Post("/api/v1/transactions/{id}/reverse", finH.ReverseTransaction)
+	})
+
+	// Notification module
+	notifRepo := notification.NewRepository(pool)
+	notifProvider := notification.NewFCMProvider(os.Getenv("FCM_CREDENTIALS"))
+	notifSvc := notification.NewService(notifRepo, notifProvider)
+	notifH := notification.NewHandler(notifSvc)
+
+	// Wire notification into finance service
+	finSvc.SetNotifier(notifSvc)
+
+	// Notification device token management
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Post("/api/v1/notifications/devices", notifH.RegisterDevice)
+		r.Delete("/api/v1/notifications/devices", notifH.UnregisterDevice)
+	})
+
+	// Waste truck arrival manual trigger: pengurus or security
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireRole(auth.RolePengurus))
+		r.Post("/api/v1/notifications/waste-truck", notifH.TriggerWasteTruckArrival)
 	})
 
 	return r

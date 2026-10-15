@@ -11,16 +11,20 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { PlusOutlined } from '@ant-design/icons'
+import { DatePicker } from 'antd'
+import dayjs from 'dayjs'
 import { DUE_PERIOD_TYPE_OPTIONS, type DuePeriodType, PAYMENT_RULE_OPTIONS, type PaymentRuleType } from './iuranTypes'
 
 /* ── Form shape ─────────────────────────────────────────────────────── */
+
+type DueType = 'regular' | 'voluntary'
 
 interface DueFormState {
   name: string
   amount: string
   period_type: DuePeriodType
   payment_rule: PaymentRuleType
-  is_voluntary: boolean
+  due_type: DueType
 }
 
 const emptyForm: DueFormState = {
@@ -28,7 +32,7 @@ const emptyForm: DueFormState = {
   amount: '',
   period_type: 'monthly',
   payment_rule: 'full',
-  is_voluntary: false,
+  due_type: 'regular',
 }
 
 /* ── Authorization gate ─────────────────────────────────────────────── */
@@ -54,6 +58,71 @@ function hasFinanceCreateAccess(user: {
   }
 }
 
+/* ── Badge toggle for Due Type ──────────────────────────────────────── */
+
+function DueTypeBadge({
+  selected,
+  onSelect,
+}: {
+  selected: DueType
+  onSelect: (type: DueType) => void
+}) {
+  const style = (type: DueType): React.CSSProperties => ({
+    padding: '4px 14px',
+    fontSize: '12px',
+    fontWeight: 600,
+    borderRadius: '6px',
+    border: selected === type ? '1px solid var(--sf-accent)' : '1px solid var(--sf-border)',
+    background: selected === type ? 'var(--sf-accent-soft)' : 'transparent',
+    color: selected === type ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+    cursor: 'pointer',
+    transition: 'all 150ms ease',
+    outline: 'none',
+    userSelect: 'none',
+  })
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Jenis Iuran"
+      style={{ display: 'flex', gap: '8px' }}
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected === 'regular'}
+        tabIndex={selected === 'regular' ? 0 : -1}
+        onClick={() => onSelect('regular')}
+        onKeyDown={(e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault()
+            onSelect('regular')
+          }
+        }}
+        style={style('regular')}
+      >
+        Reguler
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected === 'voluntary'}
+        tabIndex={selected === 'voluntary' ? 0 : -1}
+        onClick={() => onSelect('voluntary')}
+        onKeyDown={(e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault()
+            onSelect('voluntary')
+          }
+        }}
+        style={style('voluntary')}
+      >
+        Sukarela
+      </button>
+    </div>
+  )
+}
+
 /* ── Shared inner form ──────────────────────────────────────────────── */
 
 function DueFormFields({
@@ -67,6 +136,17 @@ function DueFormFields({
 }) {
   return (
     <>
+      {/* Jenis Iuran — badge toggle */}
+      <div className="sf-form-field">
+        <label className="sf-form-label">
+          Jenis Iuran <span style={{ color: 'var(--sf-danger)' }}>*</span>
+        </label>
+        <DueTypeBadge
+          selected={form.due_type}
+          onSelect={(type) => onChange('due_type', type)}
+        />
+      </div>
+
       {/* Nama Iuran */}
       <div className="sf-form-field">
         <label className="sf-form-label" htmlFor="df-name">
@@ -89,7 +169,7 @@ function DueFormFields({
       {/* Nominal */}
       <div className="sf-form-field">
         <label className="sf-form-label" htmlFor="df-amount">
-          Nominal <span style={{ color: 'var(--sf-danger)' }}>*</span>
+          Nominal {form.due_type === 'voluntary' ? '' : <span style={{ color: 'var(--sf-danger)' }}>*</span>}
         </label>
         <input
           id="df-amount"
@@ -97,13 +177,28 @@ function DueFormFields({
           type="number"
           value={form.amount}
           onChange={(e) => onChange('amount', e.target.value)}
-          placeholder={form.is_voluntary ? 'Contoh: 0 untuk sumbangan sukarela' : 'Contoh: 50000'}
-          required
-          min={form.is_voluntary ? '0' : '1'}
+          placeholder={form.due_type === 'voluntary' ? 'Contoh: 0 untuk sumbangan sukarela' : 'Contoh: 50000'}
+          required={form.due_type !== 'voluntary'}
+          min={form.due_type === 'voluntary' ? '0' : '1'}
           inputMode="numeric"
           disabled={disabled}
         />
       </div>
+
+      {/* Informasi Sukarela */}
+      {form.due_type === 'voluntary' && (
+        <div style={{
+          padding: '10px 14px',
+          background: 'var(--sf-info-soft)',
+          border: '1px solid var(--sf-info)',
+          borderRadius: 'var(--sf-radius-sm)',
+          fontSize: '12px',
+          color: 'var(--sf-text)',
+          marginBottom: '0',
+        }}>
+          Iuran sukarela bersifat opsional. Tidak ada tunggakan atau penalti jika tidak berkontribusi.
+        </div>
+      )}
 
       {/* Frekuensi */}
       <div className="sf-form-field">
@@ -125,40 +220,27 @@ function DueFormFields({
         </select>
       </div>
 
-      {/* Rule Pembayaran */}
-      <div className="sf-form-field">
-        <label className="sf-form-label" htmlFor="df-payment-rule">
-          Aturan Pembayaran <span style={{ color: 'var(--sf-danger)' }}>*</span>
-        </label>
-        <select
-          id="df-payment-rule"
-          className="sf-form-select"
-          value={form.payment_rule}
-          onChange={(e) => onChange('payment_rule', e.target.value)}
-          disabled={disabled}
-        >
-          {PAYMENT_RULE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Sumbangan Sukarela */}
-      <div className="sf-form-field">
-        <label className="sf-form-label" htmlFor="df-voluntary">
-          <input
-            id="df-voluntary"
-            type="checkbox"
-            checked={form.is_voluntary}
-            onChange={(e) => onChange('is_voluntary', String(e.target.checked))}
+      {/* Rule Pembayaran — only for reguler */}
+      {form.due_type === 'regular' && (
+        <div className="sf-form-field">
+          <label className="sf-form-label" htmlFor="df-payment-rule">
+            Aturan Pembayaran <span style={{ color: 'var(--sf-danger)' }}>*</span>
+          </label>
+          <select
+            id="df-payment-rule"
+            className="sf-form-select"
+            value={form.payment_rule}
+            onChange={(e) => onChange('payment_rule', e.target.value)}
             disabled={disabled}
-            style={{ marginRight: 8, width: 'auto', accentColor: 'var(--sf-accent)' }}
-          />
-          Sumbangan Sukarela (Nominal Rp0 diperbolehkan)
-        </label>
-      </div>
+          >
+            {PAYMENT_RULE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </>
   )
 }
@@ -191,9 +273,14 @@ export function DueCreate({
   const handleChange = (field: string, value: string) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value }
-      // Convert string back to boolean for is_voluntary
-      if (field === 'is_voluntary') {
-        next.is_voluntary = value === 'true'
+      // Reset dependent fields when type changes
+      if (field === 'due_type') {
+        if (value === 'voluntary') {
+          next.amount = '0'
+          next.payment_rule = 'full'
+        } else {
+          next.amount = ''
+        }
       }
       return next
     })
@@ -204,13 +291,21 @@ export function DueCreate({
   const validate = (): boolean => {
     const errs: string[] = []
     if (!form.name.trim()) errs.push('Nama iuran harus diisi.')
-    if (!form.amount || !/^\d+(\.\d+)?$/.test(form.amount)) {
-      errs.push('Nominal harus angka yang valid.')
-    } else if (!form.is_voluntary && Number(form.amount) <= 0) {
-      errs.push('Nominal harus lebih besar dari 0.')
-    } else if (form.is_voluntary && Number(form.amount) < 0) {
-      errs.push('Nominal harus nol atau lebih.')
+
+    if (form.due_type === 'voluntary') {
+      if (!form.amount || !/^\d+(\.\d+)?$/.test(form.amount)) {
+        errs.push('Nominal harus angka yang valid.')
+      } else if (Number(form.amount) < 0) {
+        errs.push('Nominal harus nol atau lebih.')
+      }
+    } else {
+      if (!form.amount || !/^\d+(\.\d+)?$/.test(form.amount)) {
+        errs.push('Nominal harus angka yang valid.')
+      } else if (Number(form.amount) <= 0) {
+        errs.push('Nominal harus lebih besar dari 0.')
+      }
     }
+
     if (!form.period_type) errs.push('Frekuensi harus dipilih.')
     if (!period || !/^\d{4}(-\d{2})?$/.test(period)) errs.push('Periode harus YYYY-MM atau YYYY.')
     if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) errs.push('Tanggal jatuh tempo harus YYYY-MM-DD.')
@@ -234,10 +329,10 @@ export function DueCreate({
 
       const body: ApiCreateDueBody = {
         name: form.name.trim(),
-        amount: form.amount,
+        amount: form.due_type === 'voluntary' ? '0' : (form.amount || '0'),
         period_type: form.period_type,
-        payment_rule: form.payment_rule,
-        is_voluntary: form.is_voluntary,
+        payment_rule: form.due_type === 'voluntary' ? 'partial' : form.payment_rule,
+        is_voluntary: form.due_type === 'voluntary',
       }
 
       const due = await apiCreateDue(pair.accessToken, body)
@@ -300,7 +395,16 @@ export function DueCreate({
           <DueFormFields form={form} onChange={handleChange} disabled={loading} />
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="df-period-value">Periode</label>
-            <input id="df-period-value" className="sf-form-input" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="YYYY-MM / YYYY" disabled={loading} />
+            <DatePicker
+              id="df-period-value"
+              picker="month"
+              value={period ? dayjs(period, 'YYYY-MM') : null}
+              onChange={(date) => setPeriod(date?.format('YYYY-MM') || '')}
+              allowClear={false}
+              placeholder="Bulan dan Tahun"
+              disabled={loading}
+              style={{ width: '100%' }}
+            />
           </div>
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="df-due-date">Tanggal Jatuh Tempo</label>

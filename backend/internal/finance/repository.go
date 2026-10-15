@@ -152,6 +152,22 @@ func DueGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Due, error) 
 	return &d, nil
 }
 
+func DueGetByIDForUpdate(ctx context.Context, tx *sql.Tx, id, rtID string) (*Due, error) {
+	var d Due
+	err := tx.QueryRowContext(ctx,
+		`SELECT id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $2) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at
+		 FROM dues WHERE id = $1 AND rt_id = $2 LIMIT 1 FOR UPDATE`,
+		id, rtID,
+	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get due by id for update: %w", err)
+	}
+	return &d, nil
+}
+
 func DueList(ctx context.Context, tx *sql.Tx, rtID string, isActive *bool) ([]*Due, error) {
 	query := `SELECT d.id, d.rt_id, rts.rt as rt_code, d.name, d.amount::text, d.period_type, d.payment_rule, d.is_voluntary, d.is_active, d.created_at, d.updated_at
 	          FROM dues d JOIN rts ON rts.id = d.rt_id WHERE d.rt_id = $1`
@@ -251,10 +267,14 @@ func BillCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateBillInput
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, amount, period, due_date, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, 'unpaid')
+		 ON CONFLICT (household_occupancy_id, due_id, period) DO NOTHING
 		 RETURNING id, rt_id, (SELECT rts.rt FROM rts WHERE id = $1) as rt_code, household_occupancy_id, due_id, amount::text, period, due_date, status, created_at, updated_at`,
 		rtID, in.HouseholdOccupancyID, in.DueID, in.Amount, in.Period, in.DueDate,
 	).Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("create bill: %w", err)
 	}
 	b.DueDate = dueDate.Format("2006-01-02")
@@ -298,9 +318,9 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 	return &b, nil
 }
 
-func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period *string, offset, limit int) ([]*Bill, error) {
+func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period, search *string, offset, limit int) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
-	                 d.name as due_name, ph.house_number, h.head_name
+	                 d.name as due_name, ph.house_number, h.head_name, d.is_voluntary
 	          FROM bills b
 	          JOIN dues d ON b.due_id = d.id
 	          JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
@@ -332,6 +352,11 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		args = append(args, *period)
 		pos++
 	}
+	if search != nil && *search != "" {
+		query += fmt.Sprintf(" AND d.name ILIKE $%d", pos)
+		args = append(args, "%"+*search+"%")
+		pos++
+	}
 
 	query += fmt.Sprintf(" ORDER BY b.created_at DESC OFFSET $%d LIMIT $%d", pos, pos+1)
 	args = append(args, offset, limit)
@@ -348,7 +373,7 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		var dueDate time.Time
 		var dueName, houseNum, headName sql.NullString
 		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
-			&dueName, &houseNum, &headName); err != nil {
+			&dueName, &houseNum, &headName, &b.IsVoluntary); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}
 		b.DueDate = dueDate.Format("2006-01-02")
@@ -366,8 +391,8 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 	return list, nil
 }
 
-func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period *string) (int, error) {
-	query := `SELECT COUNT(*) FROM bills b WHERE b.rt_id = $1`
+func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period, search *string) (int, error) {
+	query := `SELECT COUNT(*) FROM bills b JOIN dues d ON b.due_id = d.id WHERE b.rt_id = $1`
 	args := []interface{}{rtID}
 	pos := 2
 
@@ -389,6 +414,11 @@ func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID,
 	if period != nil && *period != "" {
 		query += fmt.Sprintf(" AND b.period LIKE $%d || '%%'", pos)
 		args = append(args, *period)
+		pos++
+	}
+	if search != nil && *search != "" {
+		query += fmt.Sprintf(" AND d.name ILIKE $%d", pos)
+		args = append(args, "%"+*search+"%")
 		pos++
 	}
 
@@ -589,73 +619,168 @@ func GetOccupancyIDForUser(ctx context.Context, tx *sql.Tx, rtID, userID string)
 
 // --- Payments Repository ---
 
-func PaymentCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreatePaymentInput, origin PaymentOrigin, status PaymentStatus, verifiedBy *string, verifiedAt *time.Time) (*Payment, error) {
+// paymentColumns contains only columns from the payments table (no JOINs).
+// Use this for INSERT...RETURNING and UPDATE...RETURNING where CTEs handle the JOIN.
+const paymentColumns = `id, rt_id, bill_id, due_id, submitted_by,
+	amount::text, method, origin, status, proof_path, paid_at,
+	verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes, payment_no, created_at, updated_at,
+	proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by`
+
+// paymentJoinedColumns includes the submitter_name column derived from a LEFT JOIN
+// on users.full_name. Only use with queries that have:
+//
+//	FROM payments p LEFT JOIN users u ON u.id = p.submitted_by
+const paymentJoinedColumns = `p.id, p.rt_id, p.bill_id, p.due_id, p.submitted_by,
+	COALESCE(NULLIF(u.full_name, ''), '—') AS submitter_name,
+	p.amount::text, p.method, p.origin, p.status, p.proof_path, p.paid_at,
+	p.verified_by, p.verified_at, p.verified_by_name, p.rejection_reason, p.notes, p.officer_notes, p.payment_no, p.created_at, p.updated_at,
+	p.proof_original_name, p.proof_mime_type, p.proof_size_bytes, p.proof_uploaded_at, p.proof_uploaded_by`
+
+type paymentScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanPayment(row paymentScanner) (*Payment, error) {
 	var p Payment
+	err := row.Scan(&p.ID, &p.RTID, &p.BillID, &p.DueID, &p.SubmittedBy, &p.SubmitterName, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
+		&p.VerifiedBy, &p.VerifiedAt, &p.VerifiedByName, &p.RejectionReason, &p.Notes, &p.OfficerNotes, &p.PaymentNo, &p.CreatedAt, &p.UpdatedAt,
+		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
+	return &p, err
+}
+
+func PaymentCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreatePaymentInput, origin PaymentOrigin, status PaymentStatus, verifiedBy *string, verifiedAt *time.Time) (*Payment, error) {
 	var uploadedAt *time.Time
 	if in.ProofPath != nil {
 		now := time.Now()
 		uploadedAt = &now
 	}
 
-	err := tx.QueryRowContext(ctx,
-		`INSERT INTO payments (rt_id, bill_id, amount, method, origin, status, proof_path, notes, officer_notes, verified_by, verified_at, verified_by_name, payment_no,
-		                      proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-		           verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes, payment_no,
-		           created_at, updated_at, proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by`,
-		rtID, in.BillID, in.Amount, in.Method, origin, status, in.ProofPath, in.Notes, nil, verifiedBy, verifiedAt, nil, nil,
+	p, err := scanPayment(tx.QueryRowContext(ctx,
+		`WITH ins AS (
+			INSERT INTO payments (rt_id, bill_id, due_id, submitted_by, amount, method, origin, status, proof_path, notes, officer_notes, verified_by, verified_at, verified_by_name, payment_no,
+			                      proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+			 RETURNING `+paymentColumns+`
+		)
+		SELECT ins.id, ins.rt_id, ins.bill_id, ins.due_id, ins.submitted_by,
+			COALESCE(NULLIF(u.full_name, ''), '—') AS submitter_name,
+			ins.amount::text, ins.method, ins.origin, ins.status, ins.proof_path, ins.paid_at,
+			ins.verified_by, ins.verified_at, ins.verified_by_name, ins.rejection_reason, ins.notes, ins.officer_notes, ins.payment_no, ins.created_at, ins.updated_at,
+			ins.proof_original_name, ins.proof_mime_type, ins.proof_size_bytes, ins.proof_uploaded_at, ins.proof_uploaded_by
+		FROM ins LEFT JOIN users u ON u.id = ins.submitted_by`,
+		rtID, in.BillID, in.DueID, in.SubmittedBy, in.Amount, in.Method, origin, status, in.ProofPath, in.Notes, nil, verifiedBy, verifiedAt, nil, nil,
 		in.ProofOriginalName, in.ProofMimeType, in.ProofSizeBytes, uploadedAt, in.ProofUploadedBy,
-	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.VerifiedByName, &p.RejectionReason, &p.Notes, &p.OfficerNotes, &p.PaymentNo,
-		&p.CreatedAt, &p.UpdatedAt,
-		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
+	))
 	if err != nil {
 		return nil, fmt.Errorf("create payment: %w", err)
 	}
-	return &p, nil
+	return p, nil
 }
 
 func PaymentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Payment, error) {
-	var p Payment
-	err := tx.QueryRowContext(ctx,
-		`SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-		        verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes, payment_no, created_at, updated_at,
-		        proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by
-		 FROM payments WHERE id = $1 AND rt_id = $2 LIMIT 1`,
+	p, err := scanPayment(tx.QueryRowContext(ctx,
+		`SELECT `+paymentJoinedColumns+` FROM payments p LEFT JOIN users u ON u.id = p.submitted_by WHERE p.id = $1 AND p.rt_id = $2 LIMIT 1`,
 		id, rtID,
-	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.VerifiedByName, &p.RejectionReason, &p.Notes, &p.OfficerNotes, &p.PaymentNo, &p.CreatedAt, &p.UpdatedAt,
-		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
+	))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get payment by id: %w", err)
 	}
-	return &p, nil
+	return p, nil
 }
 
-func PaymentList(ctx context.Context, tx *sql.Tx, rtID string, billID, status *string, offset, limit int) ([]*Payment, error) {
-	query := `SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-	                 verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes, payment_no, created_at, updated_at,
-	                 proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by
-	          FROM payments WHERE rt_id = $1`
+// paymentForUpdateColumns is identical to paymentColumns but includes a scalar subquery
+// for submitter_name. Using a scalar subquery (instead of LEFT JOIN) allows FOR UPDATE
+// to be applied without the "nullable side of an outer join" error.
+const paymentForUpdateColumns = `id, rt_id, bill_id, due_id, submitted_by,
+	(SELECT COALESCE(NULLIF(u.full_name, ''), '—') FROM users u WHERE u.id = p.submitted_by) AS submitter_name,
+	amount::text, method, origin, status, proof_path, paid_at,
+	verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes, payment_no, created_at, updated_at,
+	proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by`
+
+func PaymentGetByIDForUpdate(ctx context.Context, tx *sql.Tx, id, rtID string) (*Payment, error) {
+	p, err := scanPayment(tx.QueryRowContext(ctx,
+		`SELECT `+paymentForUpdateColumns+` FROM payments p WHERE p.id = $1 AND p.rt_id = $2 FOR UPDATE`,
+		id, rtID,
+	))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get payment for update: %w", err)
+	}
+	return p, nil
+}
+
+func PaymentGetByIDForUser(ctx context.Context, tx *sql.Tx, id, rtID, userID string, occupancyID *string) (*Payment, error) {
+	query := `SELECT p.id, p.rt_id, p.bill_id, p.due_id, p.submitted_by,
+		COALESCE(NULLIF(u.full_name, ''), '—') AS submitter_name,
+		p.amount::text, p.method, p.origin, p.status, p.proof_path, p.paid_at,
+		                 p.verified_by, p.verified_at, p.verified_by_name, p.rejection_reason, p.notes, p.officer_notes, p.payment_no, p.created_at, p.updated_at,
+	                 p.proof_original_name, p.proof_mime_type, p.proof_size_bytes, p.proof_uploaded_at, p.proof_uploaded_by
+	          FROM payments p LEFT JOIN users u ON u.id = p.submitted_by
+	          WHERE p.id = $1 AND p.rt_id = $2
+	          AND (p.submitted_by = $3`
+	args := []interface{}{id, rtID, userID}
+	if occupancyID != nil && *occupancyID != "" {
+		query += ` OR EXISTS (
+			SELECT 1 FROM bills b
+			WHERE b.id = p.bill_id AND b.rt_id = p.rt_id AND b.household_occupancy_id = $4
+		)`
+		args = append(args, *occupancyID)
+	}
+	query += `)`
+	p, err := scanPayment(tx.QueryRowContext(ctx, query, args...))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get payment for user: %w", err)
+	}
+	return p, nil
+}
+
+func PaymentList(ctx context.Context, tx *sql.Tx, rtID string, billID, dueID, status, submittedBy, occupancyID *string, offset, limit int) ([]*Payment, error) {
+	query := `SELECT p.id, p.rt_id, p.bill_id, p.due_id, p.submitted_by,
+		COALESCE(NULLIF(u.full_name, ''), '—') AS submitter_name,
+		p.amount::text, p.method, p.origin, p.status, p.proof_path, p.paid_at,
+	                 p.verified_by, p.verified_at, p.verified_by_name, p.rejection_reason, p.notes, p.officer_notes, p.payment_no, p.created_at, p.updated_at,
+	                 p.proof_original_name, p.proof_mime_type, p.proof_size_bytes, p.proof_uploaded_at, p.proof_uploaded_by
+	          FROM payments p LEFT JOIN users u ON u.id = p.submitted_by
+	          WHERE p.rt_id = $1`
 	args := []interface{}{rtID}
 	pos := 2
 
 	if billID != nil && *billID != "" {
-		query += fmt.Sprintf(" AND bill_id = $%d", pos)
+		query += fmt.Sprintf(" AND p.bill_id = $%d", pos)
 		args = append(args, *billID)
 		pos++
 	}
+	if dueID != nil && *dueID != "" {
+		query += fmt.Sprintf(" AND p.due_id = $%d", pos)
+		args = append(args, *dueID)
+		pos++
+	}
+	if submittedBy != nil {
+		query += fmt.Sprintf(" AND (p.submitted_by = $%d", pos)
+		args = append(args, *submittedBy)
+		pos++
+		if occupancyID != nil && *occupancyID != "" {
+			query += fmt.Sprintf(" OR EXISTS (SELECT 1 FROM bills b WHERE b.id = p.bill_id AND b.rt_id = p.rt_id AND b.household_occupancy_id = $%d)", pos)
+			args = append(args, *occupancyID)
+			pos++
+		}
+		query += ")"
+	}
 	if status != nil && *status != "" {
-		query += fmt.Sprintf(" AND status = $%d", pos)
+		query += fmt.Sprintf(" AND p.status = $%d", pos)
 		args = append(args, *status)
 		pos++
 	}
 
-	query += fmt.Sprintf(" ORDER BY created_at DESC OFFSET $%d LIMIT $%d", pos, pos+1)
+	query += fmt.Sprintf(" ORDER BY p.created_at DESC OFFSET $%d LIMIT $%d", pos, pos+1)
 	args = append(args, offset, limit)
 
 	rows, err := tx.QueryContext(ctx, query, args...)
@@ -666,29 +791,43 @@ func PaymentList(ctx context.Context, tx *sql.Tx, rtID string, billID, status *s
 
 	list := make([]*Payment, 0)
 	for rows.Next() {
-		var p Payment
-		if err := rows.Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-			&p.VerifiedBy, &p.VerifiedAt, &p.VerifiedByName, &p.RejectionReason, &p.Notes, &p.OfficerNotes, &p.PaymentNo, &p.CreatedAt, &p.UpdatedAt,
-			&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy); err != nil {
+		p, err := scanPayment(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan payment: %w", err)
 		}
-		list = append(list, &p)
+		list = append(list, p)
 	}
 	return list, nil
 }
 
-func PaymentCount(ctx context.Context, tx *sql.Tx, rtID string, billID, status *string) (int, error) {
-	query := `SELECT COUNT(*) FROM payments WHERE rt_id = $1`
+func PaymentCount(ctx context.Context, tx *sql.Tx, rtID string, billID, dueID, status, submittedBy, occupancyID *string) (int, error) {
+	query := `SELECT COUNT(*) FROM payments p WHERE p.rt_id = $1`
 	args := []interface{}{rtID}
 	pos := 2
 
 	if billID != nil && *billID != "" {
-		query += fmt.Sprintf(" AND bill_id = $%d", pos)
+		query += fmt.Sprintf(" AND p.bill_id = $%d", pos)
 		args = append(args, *billID)
 		pos++
 	}
+	if dueID != nil && *dueID != "" {
+		query += fmt.Sprintf(" AND p.due_id = $%d", pos)
+		args = append(args, *dueID)
+		pos++
+	}
+	if submittedBy != nil {
+		query += fmt.Sprintf(" AND (p.submitted_by = $%d", pos)
+		args = append(args, *submittedBy)
+		pos++
+		if occupancyID != nil && *occupancyID != "" {
+			query += fmt.Sprintf(" OR EXISTS (SELECT 1 FROM bills b WHERE b.id = p.bill_id AND b.rt_id = p.rt_id AND b.household_occupancy_id = $%d)", pos)
+			args = append(args, *occupancyID)
+			pos++
+		}
+		query += ")"
+	}
 	if status != nil && *status != "" {
-		query += fmt.Sprintf(" AND status = $%d", pos)
+		query += fmt.Sprintf(" AND p.status = $%d", pos)
 		args = append(args, *status)
 		pos++
 	}
@@ -700,7 +839,6 @@ func PaymentCount(ctx context.Context, tx *sql.Tx, rtID string, billID, status *
 
 func PaymentVerify(ctx context.Context, tx *sql.Tx, id, rtID, verifierID string, status PaymentStatus, reason, officerNotes string) (*Payment, error) {
 	var p Payment
-
 	// 1. Lookup verifier name
 	var verifierName string
 	err := tx.QueryRowContext(ctx,
@@ -750,50 +888,55 @@ func PaymentVerify(ctx context.Context, tx *sql.Tx, id, rtID, verifierID string,
 		officerNotesPtr = &officerNotes
 	}
 
-	err = tx.QueryRowContext(ctx,
-		`UPDATE payments
-		 SET status = $1, verified_by = $2, verified_at = CURRENT_TIMESTAMP, rejection_reason = $3,
-		     officer_notes = $4, verified_by_name = $5, payment_no = $6, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = $7 AND rt_id = $8
-		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-		           verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes, payment_no,
-		           created_at, updated_at,
-		           proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by`,
+	verifiedPayment, err := scanPayment(tx.QueryRowContext(ctx,
+		`WITH upd AS (
+			UPDATE payments
+			SET status = $1, verified_by = $2, verified_at = CURRENT_TIMESTAMP, rejection_reason = $3,
+			    officer_notes = $4, verified_by_name = $5, payment_no = $6, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $7 AND rt_id = $8
+			RETURNING `+paymentColumns+`
+		)
+		SELECT upd.id, upd.rt_id, upd.bill_id, upd.due_id, upd.submitted_by,
+			COALESCE(NULLIF(u.full_name, ''), '—') AS submitter_name,
+			upd.amount::text, upd.method, upd.origin, upd.status, upd.proof_path, upd.paid_at,
+			upd.verified_by, upd.verified_at, upd.verified_by_name, upd.rejection_reason, upd.notes, upd.officer_notes, upd.payment_no, upd.created_at, upd.updated_at,
+			upd.proof_original_name, upd.proof_mime_type, upd.proof_size_bytes, upd.proof_uploaded_at, upd.proof_uploaded_by
+		FROM upd LEFT JOIN users u ON u.id = upd.submitted_by`,
 		status, verifierID, reasonPtr, officerNotesPtr, verifierName, p.PaymentNo, id, rtID,
-	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.VerifiedByName, &p.RejectionReason, &p.Notes, &p.OfficerNotes, &p.PaymentNo,
-		&p.CreatedAt, &p.UpdatedAt,
-		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
+	))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("verify payment: %w", err)
 	}
-	return &p, nil
+	return verifiedPayment, nil
 }
 
 func PaymentAttachProof(ctx context.Context, tx *sql.Tx, paymentID, rtID, proofPath, originalName, mimeType string, size int64, uploadedBy string) (*Payment, error) {
-	var p Payment
-	err := tx.QueryRowContext(ctx,
-		`UPDATE payments
-		 SET proof_path = $1, proof_original_name = $2, proof_mime_type = $3, proof_size_bytes = $4,
-		     proof_uploaded_at = CURRENT_TIMESTAMP, proof_uploaded_by = $5, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = $6 AND rt_id = $7
-		 RETURNING id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-		           verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
-		           proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by`,
+	p, err := scanPayment(tx.QueryRowContext(ctx,
+		`WITH upd AS (
+			UPDATE payments
+			SET proof_path = $1, proof_original_name = $2, proof_mime_type = $3, proof_size_bytes = $4,
+			    proof_uploaded_at = CURRENT_TIMESTAMP, proof_uploaded_by = $5, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $6 AND rt_id = $7
+			RETURNING `+paymentColumns+`
+		)
+		SELECT upd.id, upd.rt_id, upd.bill_id, upd.due_id, upd.submitted_by,
+			COALESCE(NULLIF(u.full_name, ''), '—') AS submitter_name,
+			upd.amount::text, upd.method, upd.origin, upd.status, upd.proof_path, upd.paid_at,
+			upd.verified_by, upd.verified_at, upd.verified_by_name, upd.rejection_reason, upd.notes, upd.officer_notes, upd.payment_no, upd.created_at, upd.updated_at,
+			upd.proof_original_name, upd.proof_mime_type, upd.proof_size_bytes, upd.proof_uploaded_at, upd.proof_uploaded_by
+		FROM upd LEFT JOIN users u ON u.id = upd.submitted_by`,
 		proofPath, originalName, mimeType, size, uploadedBy, paymentID, rtID,
-	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
-		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
+	))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("attach proof to payment: %w", err)
 	}
-	return &p, nil
+	return p, nil
 }
 
 // --- Transactions (Immutable Ledger) Repository ---
@@ -1023,6 +1166,9 @@ func FindOrCreateDefaultIncomeCategory(ctx context.Context, tx *sql.Tx, rtID, na
 // --- Idempotency Repository ---
 
 type CachedResponse struct {
+	UserID       string
+	RequestPath  string
+	RequestHash  string
 	ResponseCode int
 	ResponseBody string
 }
@@ -1030,10 +1176,10 @@ type CachedResponse struct {
 func IdempotencyGet(ctx context.Context, tx *sql.Tx, rtID, key string) (*CachedResponse, error) {
 	var resp CachedResponse
 	err := tx.QueryRowContext(ctx,
-		`SELECT response_code, response_body FROM idempotency_keys
+		`SELECT user_id::text, request_path, request_hash, response_code, response_body FROM idempotency_keys
 		 WHERE rt_id = $1 AND key = $2 LIMIT 1`,
 		rtID, key,
-	).Scan(&resp.ResponseCode, &resp.ResponseBody)
+	).Scan(&resp.UserID, &resp.RequestPath, &resp.RequestHash, &resp.ResponseCode, &resp.ResponseBody)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -1046,9 +1192,7 @@ func IdempotencyGet(ctx context.Context, tx *sql.Tx, rtID, key string) (*CachedR
 func IdempotencySave(ctx context.Context, tx *sql.Tx, rtID, key, userID, reqPath, reqHash string, code int, body string) error {
 	_, err := tx.ExecContext(ctx,
 		`INSERT INTO idempotency_keys (rt_id, key, user_id, request_path, request_hash, response_code, response_body)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
-		 ON CONFLICT (rt_id, key) DO UPDATE
-		 SET response_code = EXCLUDED.response_code, response_body = EXCLUDED.response_body`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		rtID, key, userID, reqPath, reqHash, code, body,
 	)
 	if err != nil {
@@ -1180,7 +1324,7 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 	return &b, nil
 }
 
-func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period *string, offset, limit int) ([]*Bill, error) {
+func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period, search *string, offset, limit int) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
 	                 d.name as due_name, ph.house_number, h.head_name
 	          FROM bills b
@@ -1212,6 +1356,11 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pe
 	if period != nil && *period != "" {
 		whereParts = append(whereParts, fmt.Sprintf("b.period = $%d", pos))
 		args = append(args, *period)
+		pos++
+	}
+	if search != nil && *search != "" {
+		whereParts = append(whereParts, fmt.Sprintf("d.name ILIKE $%d", pos))
+		args = append(args, "%"+*search+"%")
 		pos++
 	}
 
@@ -1252,8 +1401,8 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pe
 	return list, nil
 }
 
-func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period *string) (int, error) {
-	query := `SELECT COUNT(*) FROM bills b WHERE 1=1`
+func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period, search *string) (int, error) {
+	query := `SELECT COUNT(*) FROM bills b JOIN dues d ON b.due_id = d.id WHERE 1=1`
 	var args []interface{}
 	pos := 1
 
@@ -1277,6 +1426,11 @@ func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, p
 		args = append(args, *period)
 		pos++
 	}
+	if search != nil && *search != "" {
+		query += fmt.Sprintf(" AND d.name ILIKE $%d", pos)
+		args = append(args, "%"+*search+"%")
+		pos++
+	}
 
 	var count int
 	err := tx.QueryRowContext(ctx, query, args...).Scan(&count)
@@ -1286,30 +1440,21 @@ func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, p
 // --- Payments ---
 
 func PaymentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Payment, error) {
-	var p Payment
-	err := tx.QueryRowContext(ctx,
-		`SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-		        verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
-		        proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by
-		 FROM payments WHERE id = $1 LIMIT 1`,
+	p, err := scanPayment(tx.QueryRowContext(ctx,
+		`SELECT `+paymentJoinedColumns+` FROM payments p LEFT JOIN users u ON u.id = p.submitted_by WHERE p.id = $1 LIMIT 1`,
 		id,
-	).Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-		&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
-		&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy)
+	))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get payment by id (all RTs): %w", err)
 	}
-	return &p, nil
+	return p, nil
 }
 
-func PaymentListAll(ctx context.Context, tx *sql.Tx, billID, status *string, offset, limit int) ([]*Payment, error) {
-	query := `SELECT id, rt_id, bill_id, amount::text, method, origin, status, proof_path, paid_at,
-	                 verified_by, verified_at, rejection_reason, notes, created_at, updated_at,
-	                 proof_original_name, proof_mime_type, proof_size_bytes, proof_uploaded_at, proof_uploaded_by
-	          FROM payments WHERE 1=1`
+func PaymentListAll(ctx context.Context, tx *sql.Tx, billID, dueID, status *string, offset, limit int) ([]*Payment, error) {
+	query := `SELECT ` + paymentJoinedColumns + ` FROM payments p LEFT JOIN users u ON u.id = p.submitted_by WHERE 1=1`
 	var args []interface{}
 	pos := 1
 
@@ -1318,13 +1463,18 @@ func PaymentListAll(ctx context.Context, tx *sql.Tx, billID, status *string, off
 		args = append(args, *billID)
 		pos++
 	}
+	if dueID != nil && *dueID != "" {
+		query += fmt.Sprintf(" AND due_id = $%d", pos)
+		args = append(args, *dueID)
+		pos++
+	}
 	if status != nil && *status != "" {
 		query += fmt.Sprintf(" AND status = $%d", pos)
 		args = append(args, *status)
 		pos++
 	}
 
-	query += fmt.Sprintf(" ORDER BY created_at DESC OFFSET $%d LIMIT $%d", pos, pos+1)
+	query += fmt.Sprintf(" ORDER BY p.created_at DESC OFFSET $%d LIMIT $%d", pos, pos+1)
 	args = append(args, offset, limit)
 
 	rows, err := tx.QueryContext(ctx, query, args...)
@@ -1335,18 +1485,16 @@ func PaymentListAll(ctx context.Context, tx *sql.Tx, billID, status *string, off
 
 	list := make([]*Payment, 0)
 	for rows.Next() {
-		var p Payment
-		if err := rows.Scan(&p.ID, &p.RTID, &p.BillID, &p.Amount, &p.Method, &p.Origin, &p.Status, &p.ProofPath, &p.PaidAt,
-			&p.VerifiedBy, &p.VerifiedAt, &p.RejectionReason, &p.Notes, &p.CreatedAt, &p.UpdatedAt,
-			&p.ProofOriginalName, &p.ProofMimeType, &p.ProofSizeBytes, &p.ProofUploadedAt, &p.ProofUploadedBy); err != nil {
+		p, err := scanPayment(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan payment: %w", err)
 		}
-		list = append(list, &p)
+		list = append(list, p)
 	}
 	return list, nil
 }
 
-func PaymentCountAll(ctx context.Context, tx *sql.Tx, billID, status *string) (int, error) {
+func PaymentCountAll(ctx context.Context, tx *sql.Tx, billID, dueID, status *string) (int, error) {
 	query := `SELECT COUNT(*) FROM payments WHERE 1=1`
 	var args []interface{}
 	pos := 1
@@ -1354,6 +1502,11 @@ func PaymentCountAll(ctx context.Context, tx *sql.Tx, billID, status *string) (i
 	if billID != nil && *billID != "" {
 		query += fmt.Sprintf(" AND bill_id = $%d", pos)
 		args = append(args, *billID)
+		pos++
+	}
+	if dueID != nil && *dueID != "" {
+		query += fmt.Sprintf(" AND due_id = $%d", pos)
+		args = append(args, *dueID)
 		pos++
 	}
 	if status != nil && *status != "" {

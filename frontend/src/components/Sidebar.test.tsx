@@ -187,40 +187,40 @@ describe('Sidebar — navigation items', () => {
     clearSidebarLocalStorage()
   })
 
-  it('has exactly 3 nav items for warga: Beranda, Warga', () => {
+  it('has exactly 4 nav items for warga: Beranda, Warga, Iuran, KAS', () => {
     renderSidebar()
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(2) // Beranda, Warga
+    expect(links.length).toBe(4) // Beranda, Warga, Iuran, KAS
     expect(buttons.length).toBe(1) // pin toggle
   })
 
-  it('has exactly 4 nav items for SuperAdmin: Beranda, Warga, RT', () => {
+  it('has exactly 5 nav items for SuperAdmin: Beranda, Warga, Iuran, KAS, RT', () => {
     renderSidebar(mockSuperAdminUser)
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(3) // Beranda, Warga, RT
+    expect(links.length).toBe(5) // Beranda, Warga, Iuran, KAS, RT
     expect(buttons.length).toBe(1) // pin toggle
   })
 
-  it('does not contain nav entry for /iuran (dead route removed)', () => {
+  it('contains nav entry for /iuran (active route)', () => {
     renderSidebar()
-    expect(screen.queryByText(/Iuran/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Iuran/i)).toBeInTheDocument()
   })
 
-  it('does not contain nav entry for /kas (dead route removed)', () => {
+  it('contains nav entry for /kas (active route)', () => {
     renderSidebar()
-    expect(screen.queryByText(/Kas/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Kas/i)).toBeInTheDocument()
   })
 
-  it('does not contain nav entry for /laporan (dead route removed)', () => {
+  it('does not contain nav entry for /laporan (not implemented)', () => {
     renderSidebar()
     expect(screen.queryByText(/Laporan/i)).not.toBeInTheDocument()
   })
 
-  it('does not contain nav entry for /profil (dead route removed)', () => {
+  it('does not contain nav entry for /profil (not implemented)', () => {
     renderSidebar()
     expect(screen.queryByText(/Profil/i)).not.toBeInTheDocument()
   })

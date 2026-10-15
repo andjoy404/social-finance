@@ -1,0 +1,269 @@
+package notification
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+)
+
+// Service defines notification operations.
+type Service interface {
+	RegisterDevice(ctx context.Context, userID string, in RegisterDeviceInput) error
+	UnregisterDevice(ctx context.Context, userID, token string) error
+	NotifyBillCreated(ctx context.Context, rtID, billID string, recipientUserIDs []string)
+	NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paymentID string)
+	NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string)
+	NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserID, message string)
+}
+
+type service struct {
+	repo     Repository
+	provider PushProvider
+}
+
+// NewService creates a new notification service.
+func NewService(repo Repository, provider PushProvider) Service {
+	if provider == nil {
+		provider = NewMockPushProvider()
+	}
+	return &service{
+		repo:     repo,
+		provider: provider,
+	}
+}
+
+func (s *service) RegisterDevice(ctx context.Context, userID string, in RegisterDeviceInput) error {
+	token := strings.TrimSpace(in.FCMToken)
+	if token == "" {
+		return fmt.Errorf("fcm_token is required")
+	}
+	platform := strings.ToLower(strings.TrimSpace(in.Platform))
+	if platform != PlatformAndroid && platform != PlatformIOS && platform != PlatformWeb {
+		return fmt.Errorf("invalid platform: must be android, ios, or web")
+	}
+	return s.repo.RegisterDevice(ctx, userID, token, platform, in.DeviceID)
+}
+
+func (s *service) UnregisterDevice(ctx context.Context, userID, token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fmt.Errorf("fcm_token is required")
+	}
+	return s.repo.UnregisterDevice(ctx, userID, token)
+}
+
+// NotifyBillCreated sends notification to residents associated with a newly created bill.
+// Executed asynchronously and decoupled from database transactions.
+func (s *service) NotifyBillCreated(ctx context.Context, rtID, billID string, recipientUserIDs []string) {
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		var targets []string
+		if len(recipientUserIDs) > 0 {
+			targets = recipientUserIDs
+		} else {
+			var err error
+			targets, err = s.repo.GetRecipientUserIDsForBill(bgCtx, rtID, billID)
+			if err != nil {
+				slog.Error("failed to find recipients for bill notification", "bill_id", billID, "error", err)
+				return
+			}
+		}
+
+		title := "Tagihan Iuran Baru"
+		body := "Tagihan iuran baru telah tersedia. Silakan periksa rincian tagihan Anda."
+		payload := NotificationPayload{
+			Type:     EventBillCreated,
+			RTID:     rtID,
+			BillID:   billID,
+			DeepLink: fmt.Sprintf("/iuran/%s", billID),
+		}
+
+		for _, uid := range targets {
+			dedupKey := fmt.Sprintf("bill:%s:%s", billID, uid)
+			ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, uid, EventBillCreated, dedupKey, title, body, payload.ToMap())
+			if err != nil {
+				slog.Warn("notification dedup check failed", "user_id", uid, "error", err)
+			}
+			if !ok {
+				continue // deduplicated
+			}
+
+			tokens, err := s.repo.GetTokensForUser(bgCtx, uid)
+			if err != nil {
+				slog.Error("failed to get tokens for bill recipient", "user_id", uid, "error", err)
+				continue
+			}
+
+			s.sendPushToTokens(bgCtx, tokens, title, body, payload.ToMap())
+		}
+	}()
+}
+
+// NotifyPaymentSubmitted notifies authorized verification staff (Bendahara) in the affected RT.
+func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paymentID string) {
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		title := "Pembayaran Iuran Masuk"
+		body := "Ada pembayaran iuran baru yang menunggu verifikasi."
+		payload := NotificationPayload{
+			Type:      EventPaymentSubmitted,
+			RTID:      rtID,
+			BillID:    billID,
+			PaymentID: paymentID,
+			Status:    "PENDING",
+			DeepLink:  fmt.Sprintf("/iuran/%s", billID),
+		}
+
+		dedupKey := fmt.Sprintf("payment_submitted:%s", paymentID)
+
+		tokens, err := s.repo.GetTokensForRTAndRole(bgCtx, rtID, "bendahara")
+		if err != nil {
+			slog.Error("failed to get bendahara tokens for payment submission", "rt_id", rtID, "error", err)
+			return
+		}
+
+		// Also check deduplication for the RT event log
+		ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentSubmitted, dedupKey, title, body, payload.ToMap())
+		if err != nil {
+			slog.Warn("payment submitted dedup check failed", "payment_id", paymentID, "error", err)
+		}
+		if !ok {
+			return // duplicate event
+		}
+
+		s.sendPushToTokens(bgCtx, tokens, title, body, payload.ToMap())
+	}()
+}
+
+// NotifyPaymentVerified notifies strictly the resident who submitted the payment.
+// Officer notes are NEVER included.
+func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string) {
+	if submitterUserID == "" {
+		return
+	}
+
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		var title, body string
+		if status == "APPROVED" {
+			title = "Pembayaran Iuran Diverifikasi"
+			body = "Pembayaran iuran Anda telah disetujui dan dicatat dalam pembukuan."
+		} else {
+			title = "Pembayaran Iuran Ditolak"
+			if strings.TrimSpace(rejectionReason) != "" {
+				body = fmt.Sprintf("Pembayaran iuran Anda ditolak: %s", rejectionReason)
+			} else {
+				body = "Pembayaran iuran Anda ditolak oleh bendahara. Silakan periksa kembali bukti transfer Anda."
+			}
+		}
+
+		payload := NotificationPayload{
+			Type:      EventPaymentVerified,
+			RTID:      rtID,
+			BillID:    billID,
+			PaymentID: paymentID,
+			Status:    status,
+			DeepLink:  fmt.Sprintf("/iuran/%s", billID),
+		}
+
+		dedupKey := fmt.Sprintf("payment_verified:%s:%s", paymentID, status)
+
+		ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, submitterUserID, EventPaymentVerified, dedupKey, title, body, payload.ToMap())
+		if err != nil {
+			slog.Warn("payment verified dedup check failed", "payment_id", paymentID, "error", err)
+		}
+		if !ok {
+			return // already notified
+		}
+
+		tokens, err := s.repo.GetTokensForUser(bgCtx, submitterUserID)
+		if err != nil {
+			slog.Error("failed to get tokens for payment submitter", "user_id", submitterUserID, "error", err)
+			return
+		}
+
+		s.sendPushToTokens(bgCtx, tokens, title, body, payload.ToMap())
+	}()
+}
+
+// NotifyWasteTruckArrival dispatches manual notification to all warga in the sender's RT.
+func (s *service) NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserID, customMessage string) {
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+		title := "Mobil Pengangkut Sampah Sudah Tiba"
+		body := "Mobil pengangkut sampah sudah sampai di depan gerbang RT. Silakan keluarkan sampah Anda."
+		if strings.TrimSpace(customMessage) != "" {
+			body = strings.TrimSpace(customMessage)
+		}
+
+		payload := NotificationPayload{
+			Type:     EventWasteTruckArrival,
+			RTID:     rtID,
+			DeepLink: "/iuran",
+		}
+
+		// Cooldown deduplication: one notification per 30 minutes window per RT
+		timeSlot := time.Now().Format("2006-01-02-15")
+		if time.Now().Minute() >= 30 {
+			timeSlot += "-30"
+		} else {
+			timeSlot += "-00"
+		}
+		dedupKey := fmt.Sprintf("waste_truck:%s:%s", rtID, timeSlot)
+
+		ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, senderUserID, EventWasteTruckArrival, dedupKey, title, body, payload.ToMap())
+		if err != nil {
+			slog.Warn("waste truck arrival dedup check failed", "error", err)
+		}
+		if !ok {
+			slog.Info("waste truck notification skipped due to cooldown dedup", "rt_id", rtID)
+			return
+		}
+
+		tokens, err := s.repo.GetTokensForRT(bgCtx, rtID)
+		if err != nil {
+			slog.Error("failed to get RT tokens for waste truck arrival", "rt_id", rtID, "error", err)
+			return
+		}
+
+		s.sendPushToTokens(bgCtx, tokens, title, body, payload.ToMap())
+	}()
+}
+
+func (s *service) sendPushToTokens(ctx context.Context, tokens []string, title, body string, payload map[string]string) {
+	for _, tok := range tokens {
+		if err := s.provider.Send(ctx, tok, title, body, payload); err != nil {
+			slog.Warn("push send failed", "token", maskToken(tok), "error", err)
+			if isInvalidTokenError(err) {
+				if dErr := s.repo.DeactivateToken(ctx, tok); dErr != nil {
+					slog.Warn("failed to deactivate invalid token", "token", maskToken(tok), "error", dErr)
+				} else {
+					slog.Info("deactivated invalid/unregistered token", "token", maskToken(tok))
+				}
+			}
+		}
+	}
+}
+
+func isInvalidTokenError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrTokenInvalid) || errors.Is(err, ErrTokenUnregistered) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "unregistered") || strings.Contains(lower, "invalid_argument") || strings.Contains(lower, "invalid device token")
+}
+

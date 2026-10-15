@@ -26,8 +26,30 @@ const (
 func superAdminToken(t *testing.T) string {
 	t.Helper()
 	auth.SigningSecret = []byte(testSigningKey)
+
+	var userID string
+	if auth.AuthDBPool != nil {
+		db := auth.AuthDBPool.Raw()
+		err := db.QueryRowContext(context.Background(),
+			`SELECT id FROM users WHERE system_role = 'super_admin' AND is_active = true LIMIT 1`,
+		).Scan(&userID)
+		if err != nil {
+			err = db.QueryRowContext(context.Background(),
+				`INSERT INTO users (email, phone, password_hash, full_name, system_role, is_active)
+				 VALUES ($1, '08123456789', 'dummyhash', 'Test Super Admin', 'super_admin', true)
+				 RETURNING id`,
+				fmt.Sprintf("superadmin_%d@test.com", time.Now().UnixNano()),
+			).Scan(&userID)
+			if err != nil {
+				t.Fatalf("failed to insert superadmin fixture: %v", err)
+			}
+		}
+	} else {
+		userID = "test-user-uuid-12345"
+	}
+
 	claims := auth.TokenClaims{
-		UserID:  "test-user-uuid-12345",
+		UserID:  userID,
 		SysRole: "super_admin",
 	}
 	claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(15 * time.Minute))
@@ -92,6 +114,7 @@ func insertRT(t *testing.T, pool *database.Pool, name string, rw int, rt string)
 
 // buildRouter creates a chi router with RT routes.
 func buildRouter(pool *database.Pool) *chi.Mux {
+	auth.AuthDBPool = pool
 	svc := NewService()
 	h := NewHandler(svc, pool)
 
