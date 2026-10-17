@@ -4,8 +4,11 @@ class AuthUser {
   final String name;
   final String role;
   final String? rtId;
+  final String? rtCode;
   final String? systemRole;
   final String? jabatan;
+  final List<String> effectivePermissions;
+  final bool effectivePermissionsAvailable;
 
   const AuthUser({
     required this.id,
@@ -13,21 +16,38 @@ class AuthUser {
     required this.name,
     required this.role,
     this.rtId,
+    this.rtCode,
     this.systemRole,
     this.jabatan,
+    this.effectivePermissions = const [],
+    this.effectivePermissionsAvailable = false,
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
+    final rawRt = json['rt'];
+    final rtCode =
+        (json['rt_rt'] ?? (rawRt is Map ? rawRt['rt'] : null)) as String?;
+    final rtId =
+        json['rt_id'] as String? ??
+        (rawRt is Map ? rawRt['id'] as String? : null);
+    final rawPermissions = json['effective_permissions'];
+    final effectivePermissionsAvailable =
+        rawPermissions is List &&
+        rawPermissions.every((permission) => permission is String);
+    final effectivePermissions = effectivePermissionsAvailable
+        ? List<String>.unmodifiable(rawPermissions.cast<String>())
+        : const <String>[];
     return AuthUser(
       id: json['id'] as String? ?? '',
       email: json['email'] as String? ?? '',
       name: (json['name'] ?? json['full_name']) as String? ?? '',
       role: json['role'] as String? ?? '',
-      rtId:
-          json['rt_id'] as String? ??
-          (json['rt'] is Map ? json['rt']['id'] as String? : null),
+      rtId: rtId,
+      rtCode: rtCode,
       systemRole: json['system_role'] as String?,
       jabatan: json['jabatan'] as String?,
+      effectivePermissions: effectivePermissions,
+      effectivePermissionsAvailable: effectivePermissionsAvailable,
     );
   }
 
@@ -37,8 +57,10 @@ class AuthUser {
     'name': name,
     'role': role,
     if (rtId != null) 'rt_id': rtId,
+    if (rtCode != null) 'rt_rt': rtCode,
     if (systemRole != null) 'system_role': systemRole,
     if (jabatan != null) 'jabatan': jabatan,
+    'effective_permissions': effectivePermissions,
   };
 }
 

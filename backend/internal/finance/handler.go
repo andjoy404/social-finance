@@ -6,14 +6,21 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	httpx "social-finance/internal/http"
 	"social-finance/internal/storage"
+)
+
+var (
+	periodRegex = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+	dateRegex   = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$`)
 )
 
 type Handler struct {
@@ -423,8 +430,11 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// System-only SUPER_ADMIN: query across all RTs with optional filters
+	// System-only SUPER_ADMIN: query across all RTs with optional rt_id filter
 	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		// Check if ?rt_id= query param is present → use tenant-scoped query
+		rtQuery := r.URL.Query().Get("rt_id")
+
 		var dueID *string
 		if d := r.URL.Query().Get("due_id"); d != "" {
 			dueID = &d
@@ -443,6 +453,10 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		} else if q := r.URL.Query().Get("q"); q != "" {
 			search = &q
 		}
+		var dueName *string
+		if dn := r.URL.Query().Get("due_name"); dn != "" {
+			dueName = &dn
+		}
 
 		tx, err := h.pool.BeginTx(r.Context())
 		if err != nil {
@@ -459,16 +473,33 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		page, pageSize := parsePagination(r)
 		offset := (page - 1) * pageSize
 
-		total, err := BillCountAll(r.Context(), tx, occupancyID, dueID, status, period, search)
-		if err != nil {
-			httpx.WriteInternalServerError(w, err.Error())
-			return
-		}
+		var total int
+		var bills []*Bill
 
-		bills, err := BillListAll(r.Context(), tx, occupancyID, dueID, status, period, search, offset, pageSize)
-		if err != nil {
-			httpx.WriteInternalServerError(w, err.Error())
-			return
+		if rtQuery != "" {
+			// Tenant-scoped query for specific RT (cross-tenant admin filtering)
+			total, err = BillCount(r.Context(), tx, rtQuery, occupancyID, dueID, status, period, search, dueName)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+			bills, err = BillList(r.Context(), tx, rtQuery, occupancyID, dueID, status, period, search, dueName, offset, pageSize)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+		} else {
+			// Cross-tenant query (admin viewing all RTs)
+			total, err = BillCountAll(r.Context(), tx, occupancyID, dueID, status, period, search, dueName)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+			bills, err = BillListAll(r.Context(), tx, occupancyID, dueID, status, period, search, dueName, offset, pageSize)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
 		}
 
 		totalPages := 0
@@ -497,8 +528,8 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	var occupancyID *string
-	// If warga, restrict strictly to citizen's own active household occupancy!
-	if ac.TenantRole == auth.RoleWarga {
+	// If warga or ?my_bills=true, restrict strictly to user's own active household occupancy!
+	if ac.TenantRole == auth.RoleWarga || r.URL.Query().Get("my_bills") == "true" {
 		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
 		if err != nil || occID == "" {
 			// No occupancy tied to warga -> empty collection
@@ -533,17 +564,21 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	} else if q := r.URL.Query().Get("q"); q != "" {
 		search = &q
 	}
+	var dueName *string
+	if dn := r.URL.Query().Get("due_name"); dn != "" {
+		dueName = &dn
+	}
 
 	page, pageSize := parsePagination(r)
 	offset := (page - 1) * pageSize
 
-	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, search)
+	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, search, dueName)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
 
-	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, search, offset, pageSize)
+	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, search, dueName, offset, pageSize)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
@@ -730,8 +765,11 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// System-only SUPER_ADMIN: query across all RTs with optional filters
+	// System-only SUPER_ADMIN: query across all RTs with optional rt_id filter
 	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		// Check if ?rt_id= query param is present → use tenant-scoped query
+		rtQuery := r.URL.Query().Get("rt_id")
+
 		var billID *string
 		if b := r.URL.Query().Get("bill_id"); b != "" {
 			billID = &b
@@ -755,16 +793,33 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 		page, pageSize := parsePagination(r)
 		offset := (page - 1) * pageSize
 
-		total, err := PaymentCountAll(r.Context(), tx, billID, dueID, status)
-		if err != nil {
-			httpx.WriteInternalServerError(w, err.Error())
-			return
-		}
+		var total int
+		var payments []*Payment
 
-		payments, err := PaymentListAll(r.Context(), tx, billID, dueID, status, offset, pageSize)
-		if err != nil {
-			httpx.WriteInternalServerError(w, err.Error())
-			return
+		if rtQuery != "" {
+			// Tenant-scoped query for specific RT (cross-tenant admin filtering)
+			total, err = PaymentCount(r.Context(), tx, rtQuery, billID, dueID, status, nil, nil)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+			payments, err = PaymentList(r.Context(), tx, rtQuery, billID, dueID, status, nil, nil, offset, pageSize)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+		} else {
+			// Cross-tenant query (admin viewing all RTs)
+			total, err = PaymentCountAll(r.Context(), tx, billID, dueID, status)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+			payments, err = PaymentListAll(r.Context(), tx, billID, dueID, status, offset, pageSize)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
 		}
 
 		totalPages := 0
@@ -877,6 +932,10 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteInternalServerError(w, err.Error())
 			return
 		}
+		if p == nil {
+			httpx.WriteNotFound(w, "payment not found")
+			return
+		}
 		writeJSON(w, http.StatusOK, p)
 		return
 	}
@@ -884,8 +943,8 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 	var p *Payment
 	if ac.TenantRole == auth.RoleWarga {
 		var occupancyID *string
-		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
-		if err != nil {
+		occID, occErr := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
+		if occErr != nil {
 			httpx.WriteInternalServerError(w, "error verifying warga occupancy")
 			return
 		}
@@ -904,7 +963,10 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
-
+	if p == nil {
+		httpx.WriteNotFound(w, "payment not found")
+		return
+	}
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -1212,8 +1274,8 @@ func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 	var payment *Payment
 	if ac.TenantRole == auth.RoleWarga {
 		var occupancyID *string
-		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
-		if err != nil {
+		occID, occErr := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
+		if occErr != nil {
 			httpx.WriteInternalServerError(w, "error verifying warga occupancy")
 			return
 		}
@@ -1230,6 +1292,10 @@ func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+	if payment == nil {
+		httpx.WriteNotFound(w, "payment not found")
 		return
 	}
 
@@ -1436,8 +1502,11 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// System-only SUPER_ADMIN: query across all RTs with optional filters
+	// System-only SUPER_ADMIN: query across all RTs with optional rt_id filter
 	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+		// Check if ?rt_id= query param is present → use tenant-scoped query
+		rtQuery := r.URL.Query().Get("rt_id")
+
 		var categoryID, transType, status, startDate, endDate *string
 		if c := r.URL.Query().Get("category_id"); c != "" {
 			categoryID = &c
@@ -1454,6 +1523,27 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		if ed := r.URL.Query().Get("end_date"); ed != "" {
 			endDate = &ed
 		}
+		if p := r.URL.Query().Get("period"); p != "" && startDate == nil && endDate == nil {
+			if !periodRegex.MatchString(p) {
+				httpx.WriteError(w, http.StatusBadRequest, "bad_request", "invalid period format, expected YYYY-MM")
+				return
+			}
+			loc, _ := time.LoadLocation("Asia/Jakarta")
+			if loc == nil {
+				loc = time.FixedZone("WIB", 7*3600)
+			}
+			t, err := time.ParseInLocation("2006-01", p, loc)
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "bad_request", "invalid period format, expected YYYY-MM")
+				return
+			}
+			st := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc)
+			et := st.AddDate(0, 1, 0).Add(-time.Microsecond)
+			sdStr := st.Format(time.RFC3339)
+			edStr := et.Format(time.RFC3339)
+			startDate = &sdStr
+			endDate = &edStr
+		}
 
 		tx, err := h.pool.BeginTx(r.Context())
 		if err != nil {
@@ -1465,16 +1555,33 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		page, pageSize := parsePagination(r)
 		offset := (page - 1) * pageSize
 
-		total, err := TransactionCountAll(r.Context(), tx, categoryID, transType, status, startDate, endDate)
-		if err != nil {
-			httpx.WriteInternalServerError(w, err.Error())
-			return
-		}
+		var total int
+		var transactions []*Transaction
 
-		transactions, err := TransactionListAll(r.Context(), tx, categoryID, transType, status, startDate, endDate, offset, pageSize)
-		if err != nil {
-			httpx.WriteInternalServerError(w, err.Error())
-			return
+		if rtQuery != "" {
+			// Tenant-scoped query for specific RT (cross-tenant admin filtering)
+			total, err = TransactionCount(r.Context(), tx, rtQuery, categoryID, transType, status, startDate, endDate)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+			transactions, err = TransactionList(r.Context(), tx, rtQuery, categoryID, transType, status, startDate, endDate, offset, pageSize)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+		} else {
+			// Cross-tenant query (admin viewing all RTs)
+			total, err = TransactionCountAll(r.Context(), tx, categoryID, transType, status, startDate, endDate)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+			transactions, err = TransactionListAll(r.Context(), tx, categoryID, transType, status, startDate, endDate, offset, pageSize)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
 		}
 
 		totalPages := 0
@@ -1509,6 +1616,27 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	if ed := r.URL.Query().Get("end_date"); ed != "" {
 		endDate = &ed
+	}
+	if p := r.URL.Query().Get("period"); p != "" && startDate == nil && endDate == nil {
+		if !periodRegex.MatchString(p) {
+			httpx.WriteError(w, http.StatusBadRequest, "bad_request", "invalid period format, expected YYYY-MM")
+			return
+		}
+		loc, _ := time.LoadLocation("Asia/Jakarta")
+		if loc == nil {
+			loc = time.FixedZone("WIB", 7*3600)
+		}
+		t, err := time.ParseInLocation("2006-01", p, loc)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "bad_request", "invalid period format, expected YYYY-MM")
+			return
+		}
+		st := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc)
+		et := st.AddDate(0, 1, 0).Add(-time.Microsecond)
+		sdStr := st.Format(time.RFC3339)
+		edStr := et.Format(time.RFC3339)
+		startDate = &sdStr
+		endDate = &edStr
 	}
 
 	page, pageSize := parsePagination(r)
@@ -1705,10 +1833,70 @@ func (h *Handler) ReverseTransaction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(targetW, http.StatusOK, reversal)
 }
 
+func parsePeriodOrDateRange(r *http.Request) (periodStr string, startTime, endTime *time.Time, errCode int, errMsg string) {
+	period := strings.TrimSpace(r.URL.Query().Get("period"))
+	startDate := strings.TrimSpace(r.URL.Query().Get("start_date"))
+	endDate := strings.TrimSpace(r.URL.Query().Get("end_date"))
+
+	if period == "" && startDate == "" && endDate == "" {
+		return "", nil, nil, 0, ""
+	}
+
+	if period != "" && (startDate != "" || endDate != "") {
+		return "", nil, nil, http.StatusBadRequest, "cannot combine period with start_date or end_date"
+	}
+
+	if (startDate != "" && endDate == "") || (startDate == "" && endDate != "") {
+		return "", nil, nil, http.StatusBadRequest, "start_date and end_date must be provided together"
+	}
+
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	if loc == nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+
+	if period != "" {
+		if !periodRegex.MatchString(period) {
+			return "", nil, nil, http.StatusBadRequest, "invalid period format, expected YYYY-MM"
+		}
+		t, err := time.ParseInLocation("2006-01", period, loc)
+		if err != nil {
+			return "", nil, nil, http.StatusBadRequest, "invalid period format, expected YYYY-MM"
+		}
+		st := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc)
+		et := st.AddDate(0, 1, 0)
+		return period, &st, &et, 0, ""
+	}
+
+	// Explicit startDate and endDate
+	if !dateRegex.MatchString(startDate) || !dateRegex.MatchString(endDate) {
+		return "", nil, nil, http.StatusBadRequest, "invalid date format, expected YYYY-MM-DD"
+	}
+	st, err := time.ParseInLocation("2006-01-02", startDate, loc)
+	if err != nil {
+		return "", nil, nil, http.StatusBadRequest, "invalid start_date format, expected YYYY-MM-DD"
+	}
+	et, err := time.ParseInLocation("2006-01-02", endDate, loc)
+	if err != nil {
+		return "", nil, nil, http.StatusBadRequest, "invalid end_date format, expected YYYY-MM-DD"
+	}
+	if !st.Before(et) {
+		return "", nil, nil, http.StatusBadRequest, "start_date must be before end_date"
+	}
+
+	return "", &st, &et, 0, ""
+}
+
 func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	ac, ok := getAuthContext(r)
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	periodStr, startTime, endTime, errCode, errMsg := parsePeriodOrDateRange(r)
+	if errCode != 0 {
+		httpx.WriteError(w, errCode, "bad_request", errMsg)
 		return
 	}
 
@@ -1719,9 +1907,20 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// System-only SUPER_ADMIN: query across all RTs
-	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
-		summary, err := CalculateBalanceAll(r.Context(), tx)
+	// If no period or date range specified: backward-compatible cumulative balance
+	if startTime == nil || endTime == nil {
+		// System-only SUPER_ADMIN: query across all RTs
+		if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
+			summary, err := CalculateBalanceAll(r.Context(), tx)
+			if err != nil {
+				httpx.WriteInternalServerError(w, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, summary)
+			return
+		}
+
+		summary, err := CalculateBalance(r.Context(), tx, ac.RTID)
 		if err != nil {
 			httpx.WriteInternalServerError(w, err.Error())
 			return
@@ -1730,13 +1929,73 @@ func (h *Handler) GetBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := CalculateBalance(r.Context(), tx, ac.RTID)
+	// Period balance requested
+	if ac.RTID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "rt_id is required for period balance")
+		return
+	}
+
+	summary, err := CalculatePeriodBalance(r.Context(), tx, ac.RTID, periodStr, *startTime, *endTime)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (h *Handler) UpdateOpeningBalance(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	period := chi.URLParam(r, "period")
+	if period == "" || !periodRegex.MatchString(period) {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "invalid period format, expected YYYY-MM")
+		return
+	}
+
+	var input UpdateOpeningBalanceInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if _, _, err := ParseMoney(input.OpeningBalance); err != nil {
+		httpx.WriteValidationError(w, "invalid opening_balance: must be a positive decimal number with up to 2 decimal places", nil)
+		return
+	}
+
+	input.Reason = strings.TrimSpace(input.Reason)
+	if input.Reason == "" {
+		httpx.WriteValidationError(w, "reason is required", nil)
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	resp, err := SetPeriodOpeningBalance(r.Context(), tx, ac.RTID, period, input.OpeningBalance, input.Reason, ac.UserID)
+	if err != nil {
+		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteInternalServerError(w, "commit error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) CancelBill(w http.ResponseWriter, r *http.Request) {
@@ -1782,3 +2041,82 @@ func (h *Handler) CancelBill(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (h *Handler) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+
+	var in UpdateTransactionInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	trans, err := h.svc.UpdateManualTransaction(r.Context(), tx, ac.RTID, ac.UserID, id, in)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "transaction not found")
+			return
+		}
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteInternalServerError(w, "commit error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, trans)
+}
+
+func (h *Handler) GetDashboardSummary(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	period := r.URL.Query().Get("period")
+	summary, err := h.svc.GetDashboardSummary(r.Context(), tx, ac.RTID, period)
+	if err != nil {
+		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+
+	_ = tx.Commit()
+
+	writeJSON(w, http.StatusOK, summary)
+}
+

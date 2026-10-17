@@ -21,7 +21,7 @@ type JabatanValue = 'keamanan' | 'kebersihan_pembangunan'
 
 const jabatanOptions: { value: JabatanValue; label: string }[] = [
   { value: 'keamanan', label: 'Keamanan' },
-  { value: 'kebersihan_pembangunan', label: 'Kebersihan & Pembangunan' },
+  { value: 'kebersihan_pembangunan', label: 'Operasional' },
 ]
 
 interface SpecialResidentFormState {
@@ -361,7 +361,7 @@ export function SpecialResidentEdit() {
             </div>
           </ModalBody>
           <ModalFooter>
-            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+            <button type="button" className="sf-btn-ghost sf-btn-cancel-red" onClick={handleClose}>
               Batal
             </button>
             <button type="submit" className="sf-btn-primary" disabled={saving}>

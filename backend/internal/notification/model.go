@@ -56,6 +56,7 @@ type NotificationPayload struct {
 	PaymentID string `json:"payment_id,omitempty"`
 	Status    string `json:"status,omitempty"`
 	DeepLink  string `json:"deep_link,omitempty"`
+	SentAt    string `json:"sent_at,omitempty"`
 }
 
 // ToMap converts NotificationPayload to string map for FCM Data payload.
@@ -75,6 +76,9 @@ func (p NotificationPayload) ToMap() map[string]string {
 	}
 	if p.DeepLink != "" {
 		m["deep_link"] = p.DeepLink
+	}
+	if p.SentAt != "" {
+		m["sent_at"] = p.SentAt
 	}
 	return m
 }

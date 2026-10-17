@@ -259,6 +259,7 @@ func setupFinanceRouter(pool *database.Pool, storageMock ...storage.Service) htt
 		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
 		r.Post("/api/v1/transactions", finH.CreateTransaction)
 		r.Post("/api/v1/transactions/{id}/reverse", finH.ReverseTransaction)
+		r.Put("/api/v1/reports/balance/opening/{period}", finH.UpdateOpeningBalance)
 	})
 
 	return r
@@ -2017,7 +2018,7 @@ func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occID
 		txInc, err := TransactionCreate(ctx, tx, rta, CreateTransactionInput{
 			CategoryID: catA1, Amount: "200000", Type: TransactionTypeIncome,
 			Description: "Sumbangan RT-A",
-		}, TransactionStatusPosted, nil, nil, time.Now())
+		}, TransactionStatusPosted, nil, nil, nil, time.Now())
 		if err != nil {
 			t.Fatalf("create RT-A income transaction: %v", err)
 		}
@@ -2063,7 +2064,7 @@ func SetupCrossRFFinanceData(t *testing.T, pool *database.Pool) (rta, rtb, occID
 		txExp, err := TransactionCreate(ctx, tx, rtb, CreateTransactionInput{
 			CategoryID: catB2, Amount: "150000", Type: TransactionTypeExpense,
 			Description: "Beli Sapu RT-B",
-		}, TransactionStatusPosted, nil, nil, time.Now())
+		}, TransactionStatusPosted, nil, nil, nil, time.Now())
 		if err != nil {
 			t.Fatalf("create RT-B expense transaction: %v", err)
 		}
@@ -2516,7 +2517,7 @@ func TestTenantIsolationCrossRTRegression(t *testing.T) {
 		_, _ = TransactionCreate(ctx, tx, rta, CreateTransactionInput{
 			CategoryID: catAID, Amount: "50000", Type: TransactionTypeIncome,
 			Description: "Isolation test income A",
-		}, TransactionStatusPosted, nil, nil, time.Now())
+		}, TransactionStatusPosted, nil, nil, nil, time.Now())
 		tx.Commit()
 	}
 
@@ -2529,7 +2530,7 @@ func TestTenantIsolationCrossRTRegression(t *testing.T) {
 		_, _ = TransactionCreate(ctx, tx, rtb, CreateTransactionInput{
 			CategoryID: catBID, Amount: "30000", Type: TransactionTypeExpense,
 			Description: "Isolation test expense B",
-		}, TransactionStatusPosted, nil, nil, time.Now())
+		}, TransactionStatusPosted, nil, nil, nil, time.Now())
 		tx.Commit()
 	}
 
@@ -3063,6 +3064,493 @@ func TestPaymentProofEndpoints(t *testing.T) {
 
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("expected 400 for text file, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestGetPaymentDetail(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupFinanceRouter(pool)
+
+	rtID := setupTestRT(t, pool, "Payment Detail RT", 1, "PMR1")
+	defer cleanupTestRT(t, pool, rtID)
+
+	bendaharaUserID, bendaharaMID := setupTestUserWithMembership(t, pool, "bendahara-pmr@example.com", "Bendahara PMR", "081999888771", rtID, "bendahara")
+	bendaharaToken := makeToken(t, auth.TokenClaims{UserID: bendaharaUserID, MID: bendaharaMID, Role: string(auth.RoleBendahara), RTID: rtID})
+
+	warga1Phone := fmt.Sprintf("081%08d", time.Now().UnixNano()%100000000)
+	occID1 := setupTestOccupancyWithResident(t, pool, rtID, warga1Phone)
+	warga1UserID, warga1MID := setupTestUserWithMembership(t, pool, "warga1-pmr@example.com", "Warga 1 PMR", warga1Phone, rtID, "warga")
+	warga1Token := makeToken(t, auth.TokenClaims{UserID: warga1UserID, MID: warga1MID, Role: string(auth.RoleWarga), RTID: rtID})
+
+	warga2Phone := fmt.Sprintf("082%08d", (time.Now().UnixNano()+1)%100000000)
+	setupTestOccupancyWithResident(t, pool, rtID, warga2Phone)
+	warga2UserID, warga2MID := setupTestUserWithMembership(t, pool, "warga2-pmr@example.com", "Warga 2 PMR", warga2Phone, rtID, "warga")
+	warga2Token := makeToken(t, auth.TokenClaims{UserID: warga2UserID, MID: warga2MID, Role: string(auth.RoleWarga), RTID: rtID})
+
+	var saID string
+	err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO users (email, phone, password_hash, full_name, system_role, is_active)
+		 VALUES ($1, $2, 'dummyhash', 'Super Admin', 'super_admin', true) RETURNING id`,
+		fmt.Sprintf("sa_%d@example.com", time.Now().UnixNano()), fmt.Sprintf("089%08d", time.Now().UnixNano()%100000000),
+	).Scan(&saID)
+	if err != nil {
+		t.Fatalf("failed to insert test superadmin: %v", err)
+	}
+	superAdminToken := makeToken(t, auth.TokenClaims{UserID: saID, SysRole: string(auth.SystemRoleSuperAdmin)})
+
+	// Create Due & Bill for Warga 1
+	dueBody := `{"name":"Kebersihan PMR","amount":"25000","period_type":"monthly"}`
+	dueReq := httptest.NewRequest(http.MethodPost, "/api/v1/dues", bytes.NewBufferString(dueBody))
+	dueReq.Header.Set("Authorization", "Bearer "+bendaharaToken)
+	dueReq.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, dueReq)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create due failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var due Due
+	json.Unmarshal(rec.Body.Bytes(), &due)
+
+	billBody := fmt.Sprintf(`{"household_occupancy_id":"%s","due_id":"%s","period":"2026-10","amount":"25000","due_date":"2026-10-31"}`, occID1, due.ID)
+	billReq := httptest.NewRequest(http.MethodPost, "/api/v1/bills", bytes.NewBufferString(billBody))
+	billReq.Header.Set("Authorization", "Bearer "+bendaharaToken)
+	billReq.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, billReq)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create bill failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var bill Bill
+	json.Unmarshal(rec.Body.Bytes(), &bill)
+
+	// Create Payment submitted by Warga 1
+	payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"25000.00","method":"TRANSFER","notes":"Bayar kebersihan"}`, bill.ID)
+	payReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
+	payReq.Header.Set("Authorization", "Bearer "+warga1Token)
+	payReq.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, payReq)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create payment failed: %d %s", rec.Code, rec.Body.String())
+	}
+	var payment Payment
+	json.Unmarshal(rec.Body.Bytes(), &payment)
+
+	t.Run("authorized warga gets own payment", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID, nil)
+		req.Header.Set("Authorization", "Bearer "+warga1Token)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var p Payment
+		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if p.ID != payment.ID {
+			t.Errorf("expected payment id %s, got %s", payment.ID, p.ID)
+		}
+	})
+
+	t.Run("unrelated warga gets 404 for another warga payment (never 200 null)", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID, nil)
+		req.Header.Set("Authorization", "Bearer "+warga2Token)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if bytes.Equal(bytes.TrimSpace(rec.Body.Bytes()), []byte("null")) {
+			t.Fatalf("endpoint must not return null body")
+		}
+	})
+
+	t.Run("warga gets 404 for nonexistent payment", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/00000000-0000-0000-0000-000000000000", nil)
+		req.Header.Set("Authorization", "Bearer "+warga1Token)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("bendahara gets payment detail", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID, nil)
+		req.Header.Set("Authorization", "Bearer "+bendaharaToken)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("bendahara gets 404 for nonexistent payment", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/00000000-0000-0000-0000-000000000000", nil)
+		req.Header.Set("Authorization", "Bearer "+bendaharaToken)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("superadmin gets 404 for nonexistent payment", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/00000000-0000-0000-0000-000000000000", nil)
+		req.Header.Set("Authorization", "Bearer "+superAdminToken)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestPeriodBalanceAndOpeningBalanceCorrection(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupFinanceRouter(pool)
+
+	rtID := setupTestRT(t, pool, "RT Neraca Kas", 1, "KAS")
+	defer cleanupTestRT(t, pool, rtID)
+
+	rtOtherID := setupTestRT(t, pool, "RT Other Kas", 2, "KASO")
+	defer cleanupTestRT(t, pool, rtOtherID)
+
+	userB, midB := setupTestUserWithMembership(t, pool, "bendahara-kas@social.test", "Bendahara Kas", "+628111111", rtID, "bendahara")
+	userW, midW := setupTestUserWithMembership(t, pool, "warga-kas@social.test", "Warga Kas", "+628222222", rtID, "warga")
+
+	var saID string
+	err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO users (id, email, password_hash, full_name, phone, system_role)
+		 VALUES (gen_random_uuid(), $1, 'hash', 'Super Admin', $2, 'super_admin')
+		 RETURNING id`,
+		fmt.Sprintf("sa_%d@example.com", time.Now().UnixNano()), fmt.Sprintf("089%08d", time.Now().UnixNano()%100000000),
+	).Scan(&saID)
+	if err != nil {
+		t.Fatalf("failed to insert test superadmin: %v", err)
+	}
+
+	tokenBendahara := makeToken(t, auth.TokenClaims{
+		UserID: userB,
+		MID:    midB,
+		RTID:   rtID,
+		Role:   string(auth.RoleBendahara),
+	})
+	tokenWarga := makeToken(t, auth.TokenClaims{
+		UserID: userW,
+		MID:    midW,
+		RTID:   rtID,
+		Role:   string(auth.RoleWarga),
+	})
+	tokenSuperAdmin := makeToken(t, auth.TokenClaims{
+		UserID:  saID,
+		SysRole: string(auth.SystemRoleSuperAdmin),
+	})
+
+	var catIncome, catExpense string
+	err = pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO financial_categories (id, rt_id, name, type, is_active)
+		 VALUES (gen_random_uuid(), $1, 'Iuran Warga Test', 'income', true) RETURNING id`,
+		rtID).Scan(&catIncome)
+	if err != nil {
+		t.Fatalf("insert catIncome: %v", err)
+	}
+
+	err = pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO financial_categories (id, rt_id, name, type, is_active)
+		 VALUES (gen_random_uuid(), $1, 'Kebersihan Test', 'expense', true) RETURNING id`,
+		rtID).Scan(&catExpense)
+	if err != nil {
+		t.Fatalf("insert catExpense: %v", err)
+	}
+
+	// 1. Backward compatibility: without params returns cumulative balance
+	t.Run("cumulative balance without params", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var res map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &res)
+		if _, ok := res["net_balance"]; !ok {
+			t.Fatalf("expected net_balance field in cumulative response")
+		}
+	})
+
+	// 2. Empty period returns all 0.00
+	t.Run("empty period returns 0.00", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-01", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var p PeriodBalanceSummary
+		json.Unmarshal(rec.Body.Bytes(), &p)
+		if p.OpeningBalance != "0.00" || p.TotalIncome != "0.00" || p.TotalExpense != "0.00" ||
+			p.NetMovement != "0.00" || p.ClosingBalance != "0.00" || p.TransactionCount != 0 {
+			t.Fatalf("expected all 0.00, got %+v", p)
+		}
+	})
+
+	// 3. Validation AC-5, AC-6, AC-7
+	t.Run("validation invalid period format", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-13", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("validation conflicting period and dates", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-10&start_date=2026-10-01", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("validation start_date without end_date", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?start_date=2026-10-01", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("validation reversed dates", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?start_date=2026-10-10&end_date=2026-10-01", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	// 4. Post transactions across periods and verify period balance
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	if loc == nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+	tMay := time.Date(2026, 5, 10, 10, 0, 0, 0, loc)
+	tJun := time.Date(2026, 6, 15, 11, 0, 0, 0, loc)
+	tJul := time.Date(2026, 7, 20, 14, 0, 0, 0, loc)
+
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`INSERT INTO transactions (id, rt_id, category_id, amount, type, status, description, occurred_at)
+		 VALUES (gen_random_uuid(), $1, $2, 500000.00, 'income', 'posted', 'Iuran Mei', $3)`,
+		rtID, catIncome, tMay)
+	if err != nil {
+		t.Fatalf("insert tx1: %v", err)
+	}
+
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`INSERT INTO transactions (id, rt_id, category_id, amount, type, status, description, occurred_at)
+		 VALUES (gen_random_uuid(), $1, $2, 150000.00, 'expense', 'posted', 'Sampah Juni', $3)`,
+		rtID, catExpense, tJun)
+	if err != nil {
+		t.Fatalf("insert tx2: %v", err)
+	}
+
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`INSERT INTO transactions (id, rt_id, category_id, amount, type, status, description, occurred_at)
+		 VALUES (gen_random_uuid(), $1, $2, 200000.00, 'income', 'posted', 'Iuran Juli', $3)`,
+		rtID, catIncome, tJul)
+	if err != nil {
+		t.Fatalf("insert tx3: %v", err)
+	}
+
+	// Also insert draft and cancelled transactions which should NOT affect balance
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`INSERT INTO transactions (id, rt_id, category_id, amount, type, status, description, occurred_at)
+		 VALUES (gen_random_uuid(), $1, $2, 999999.00, 'income', 'draft', 'Draft tx', $3)`,
+		rtID, catIncome, tMay)
+	if err != nil {
+		t.Fatalf("insert draft tx: %v", err)
+	}
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`INSERT INTO transactions (id, rt_id, category_id, amount, type, status, description, occurred_at)
+		 VALUES (gen_random_uuid(), $1, $2, 888888.00, 'income', 'cancelled', 'Cancelled tx', $3)`,
+		rtID, catIncome, tMay)
+	if err != nil {
+		t.Fatalf("insert cancelled tx: %v", err)
+	}
+
+	// Verify May: Opening 0.00, Income 500000.00, Expense 0.00, Closing 500000.00, count 1
+	t.Run("May 2026 balance", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-05", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var p PeriodBalanceSummary
+		json.Unmarshal(rec.Body.Bytes(), &p)
+		if p.OpeningBalance != "0.00" || p.TotalIncome != "500000.00" || p.TotalExpense != "0.00" ||
+			p.NetMovement != "500000.00" || p.ClosingBalance != "500000.00" || p.TransactionCount != 1 {
+			t.Fatalf("unexpected May balance: %+v", p)
+		}
+	})
+
+	// Verify June: Opening 500000.00, Income 0.00, Expense 150000.00, Closing 350000.00, count 1
+	t.Run("June 2026 balance", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-06", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var p PeriodBalanceSummary
+		json.Unmarshal(rec.Body.Bytes(), &p)
+		if p.OpeningBalance != "500000.00" || p.TotalIncome != "0.00" || p.TotalExpense != "150000.00" ||
+			p.NetMovement != "-150000.00" || p.ClosingBalance != "350000.00" || p.TransactionCount != 1 {
+			t.Fatalf("unexpected June balance: %+v", p)
+		}
+	})
+
+	// Verify July: Opening 350000.00, Income 200000.00, Expense 0.00, Closing 550000.00, count 1
+	t.Run("July 2026 balance", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-07", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var p PeriodBalanceSummary
+		json.Unmarshal(rec.Body.Bytes(), &p)
+		if p.OpeningBalance != "350000.00" || p.TotalIncome != "200000.00" || p.TotalExpense != "0.00" ||
+			p.NetMovement != "200000.00" || p.ClosingBalance != "550000.00" || p.TransactionCount != 1 {
+			t.Fatalf("unexpected July balance: %+v", p)
+		}
+	})
+
+	// 5. Manual correction test: Bendahara corrects July opening balance to 400000.00
+	t.Run("manual correction of opening balance", func(t *testing.T) {
+		body := `{"opening_balance": "400000.00", "reason": "Penyesuaian kas fisik"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/reports/balance/opening/2026-07", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var resp PeriodOpeningBalanceResponse
+		json.Unmarshal(rec.Body.Bytes(), &resp)
+		if resp.OpeningBalanceBefore != "350000.00" || resp.OpeningBalanceAfter != "400000.00" || resp.Source != "manual" {
+			t.Fatalf("unexpected correction response: %+v", resp)
+		}
+
+		// Now query July: Opening should be 400000.00, closing should be 600000.00
+		reqJuly := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-07", nil)
+		reqJuly.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		recJuly := httptest.NewRecorder()
+		router.ServeHTTP(recJuly, reqJuly)
+		var pJuly PeriodBalanceSummary
+		json.Unmarshal(recJuly.Body.Bytes(), &pJuly)
+		if pJuly.OpeningBalance != "400000.00" || pJuly.ClosingBalance != "600000.00" {
+			t.Fatalf("expected opening 400000.00, closing 600000.00, got %+v", pJuly)
+		}
+
+		// August auto-propagates from July's corrected closing (600000.00)
+		reqAug := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-08", nil)
+		reqAug.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		recAug := httptest.NewRecorder()
+		router.ServeHTTP(recAug, reqAug)
+		var pAug PeriodBalanceSummary
+		json.Unmarshal(recAug.Body.Bytes(), &pAug)
+		if pAug.OpeningBalance != "600000.00" || pAug.ClosingBalance != "600000.00" {
+			t.Fatalf("expected August opening 600000.00, got %+v", pAug)
+		}
+	})
+
+	// 6. Warga cannot correct opening balance (403)
+	t.Run("warga forbidden from correcting opening balance", func(t *testing.T) {
+		body := `{"opening_balance": "500000.00", "reason": "Hacking"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/reports/balance/opening/2026-07", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+tokenWarga)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d", rec.Code)
+		}
+	})
+
+	// 7. SuperAdmin without RT cannot query period balance (400)
+	t.Run("superadmin without RT cannot query period balance", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reports/balance?period=2026-07", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenSuperAdmin)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", rec.Code)
+		}
+	})
+
+	// 8. Transactions period filtering
+	t.Run("transactions period filtering", func(t *testing.T) {
+		// All statuses in May: 3 transactions (posted, draft, cancelled)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?period=2026-05", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var listResp map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &listResp)
+		data := listResp["data"].([]any)
+		if len(data) != 3 {
+			t.Fatalf("expected 3 transactions in May, got %d", len(data))
+		}
+
+		// Only posted in May: 1 transaction
+		reqPosted := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?period=2026-05&status=posted", nil)
+		reqPosted.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		recPosted := httptest.NewRecorder()
+		router.ServeHTTP(recPosted, reqPosted)
+		var listPosted map[string]any
+		json.Unmarshal(recPosted.Body.Bytes(), &listPosted)
+		dataPosted := listPosted["data"].([]any)
+		if len(dataPosted) != 1 {
+			t.Fatalf("expected 1 posted transaction in May, got %d", len(dataPosted))
+		}
+
+		// April (empty period): 0 transactions
+		reqApr := httptest.NewRequest(http.MethodGet, "/api/v1/transactions?period=2026-04", nil)
+		reqApr.Header.Set("Authorization", "Bearer "+tokenBendahara)
+		recApr := httptest.NewRecorder()
+		router.ServeHTTP(recApr, reqApr)
+		var listApr map[string]any
+		json.Unmarshal(recApr.Body.Bytes(), &listApr)
+		pag := listApr["pagination"].(map[string]any)
+		if int(pag["total"].(float64)) != 0 {
+			t.Fatalf("expected 0 transactions in April, got %v", pag["total"])
 		}
 	})
 }

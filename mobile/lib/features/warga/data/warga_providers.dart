@@ -25,8 +25,6 @@ class WargaListNotifier extends AutoDisposeAsyncNotifier<List<MappedResident>> {
     final repository = ref.read(wargaRepositoryProvider);
     final query = ref.read(wargaSearchQueryProvider).trim();
 
-    state = const AsyncLoading();
-
     try {
       final response = await repository.fetchResidentsWithHouseholds(
         page: 1,
@@ -34,15 +32,14 @@ class WargaListNotifier extends AutoDisposeAsyncNotifier<List<MappedResident>> {
         search: query.isEmpty ? null : query,
       );
       return response.data;
-    } catch (e, st) {
-      final error = repository.mapDioError(e);
-      state = AsyncError(error, st);
-      return [];
+    } catch (e) {
+      throw repository.mapDioError(e);
     }
   }
 
   Future<void> refresh() async {
-    await _fetch();
+    state = const AsyncLoading<List<MappedResident>>().copyWithPrevious(state);
+    state = await AsyncValue.guard(() => _fetch());
   }
 }
 
@@ -52,13 +49,7 @@ final filteredWargaListProvider = Provider<List<MappedResident>>((ref) {
   final wargaState = ref.watch(wargaListProvider);
   final query = ref.watch(wargaSearchQueryProvider).trim().toLowerCase();
 
-  // If loading or error, return empty so the screen shows the appropriate state.
-  final residents = switch (wargaState) {
-    AsyncData(:final value) => value,
-    AsyncLoading() => <MappedResident>[],
-    AsyncError() => <MappedResident>[],
-    _ => <MappedResident>[],
-  };
+  final residents = wargaState.valueOrNull ?? <MappedResident>[];
 
   if (query.isEmpty) {
     return residents;

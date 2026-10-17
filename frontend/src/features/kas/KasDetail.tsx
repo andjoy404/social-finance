@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeftOutlined, CalendarOutlined, TagOutlined, FileTextOutlined, LinkOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CalendarOutlined, TagOutlined, FileTextOutlined } from '@ant-design/icons'
 import { useAuth } from '@/app/AuthContext'
-import { KAS_TRANSACTIONS } from './kasMockData'
-import type { KasTransaction } from './kasTypes'
-import { formatRupiah, formatTanggal, getJenisVariant, getJenisLabel, formatKeteranganKas } from './kasTypes'
+import { apiGetTransaction, type ApiTransaction, getSessionPair } from '@/app/api'
+import { formatTanggal, getJenisVariant, getJenisLabel, formatKeteranganKas } from './kasTypes'
 import { Badge } from '@/components/Badge'
 
 export function KasDetail() {
@@ -18,14 +17,23 @@ export function KasDetail() {
     return null
   }
 
-  const [transaction, setTransaction] = useState<KasTransaction | null>(null)
+  const [transaction, setTransaction] = useState<ApiTransaction | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const fetchTransaction = useCallback(() => {
+  const fetchTransaction = useCallback(async () => {
+    if (!id) return
     setLoading(true)
-    const found = KAS_TRANSACTIONS.find((t) => t.id === id)
-    setTransaction(found ?? null)
-    setLoading(false)
+    setError(null)
+    try {
+      const token = getSessionPair()?.accessToken ?? ''
+      const data = await apiGetTransaction(token, id)
+      setTransaction(data)
+    } catch (e: any) {
+      setError(e?.message ?? 'Gagal memuat detail')
+    } finally {
+      setLoading(false)
+    }
   }, [id])
 
   useEffect(() => {
@@ -42,6 +50,14 @@ export function KasDetail() {
     )
   }
 
+  if (error) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center', color: 'var(--sf-danger)' }}>
+        {error}
+      </div>
+    )
+  }
+
   if (!transaction) {
     return (
       <div style={{ padding: 24, textAlign: 'center', color: 'var(--sf-text-muted)' }}>
@@ -50,18 +66,13 @@ export function KasDetail() {
     )
   }
 
-  const isMasuk = transaction.jenis === 'masuk'
+  const isMasuk = transaction.type === 'income'
 
   return (
     <>
       {/* Back button header */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-        <button
-          type="button"
-          className="sf-btn-ghost"
-          onClick={handleClose}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }}
-        >
+        <button type="button" className="sf-btn-ghost" onClick={handleClose} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }}>
           <ArrowLeftOutlined />
           Kembali
         </button>
@@ -71,11 +82,18 @@ export function KasDetail() {
       <div className="sf-content-surface" style={{ padding: 0 }}>
         {/* Type badge + title */}
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--sf-border)' }}>
-          <Badge variant={getJenisVariant(transaction.jenis)} style={{ height: 24, padding: '0 10px', fontSize: 12, marginBottom: 8 }}>
-            {getJenisLabel(transaction.jenis)}
+          <Badge variant={getJenisVariant(transaction.type === 'income' ? 'masuk' : 'keluar')} style={{ height: 24, padding: '0 10px', fontSize: 12, marginBottom: 8 }}>
+            {getJenisLabel(transaction.type === 'income' ? 'masuk' : 'keluar')}
           </Badge>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--sf-text)' }}>
-            {transaction.keterangan}
+            {transaction.due_name && transaction.citizen_name ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Badge variant="blue">{transaction.due_name}</Badge>
+                <span>{transaction.citizen_name}{transaction.house_number ? ` · ${transaction.house_number}` : ''}</span>
+              </div>
+            ) : (
+              transaction.description.replace(/\s*\(Bill:\s*[a-f0-9-]+\)/gi, '').replace(/Payment for bill [a-f0-9-]+\s*\(Period:\s*([^)]+)\)/i, 'Pembayaran Iuran ($1)')
+            )}
           </div>
         </div>
 
@@ -84,65 +102,54 @@ export function KasDetail() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             {/* Tanggal */}
             <div>
-              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>
-                Tanggal
-              </div>
+              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Tanggal</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--sf-text)' }}>
                 <CalendarOutlined style={{ color: 'var(--sf-text-muted)', fontSize: 14 }} />
-                {formatTanggal(transaction.tanggal)}
+                {formatTanggal(transaction.occurred_at)}
               </div>
             </div>
 
             {/* Nominal */}
             <div>
-              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>
-                Nominal
-              </div>
+              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Nominal</div>
               <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'monospace', color: isMasuk ? 'var(--sf-success)' : 'var(--sf-danger)' }}>
-                {formatKeteranganKas(transaction.nominal, transaction.jenis)}
+                {formatKeteranganKas(transaction.amount, transaction.type === 'income' ? 'masuk' : 'keluar')}
               </div>
             </div>
 
             {/* Kategori */}
             <div>
-              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>
-                Kategori
-              </div>
+              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Kategori</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--sf-text)' }}>
                 <TagOutlined style={{ color: 'var(--sf-text-muted)', fontSize: 14 }} />
-                {transaction.kategori}
+                {transaction.category_name || '\u2014'}
               </div>
             </div>
 
-            {/* Saldo */}
+            {/* Status */}
             <div>
-              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>
-                Saldo Berjalan
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'monospace', color: transaction.saldo >= 0 ? 'var(--sf-success)' : 'var(--sf-danger)' }}>
-                {formatRupiah(transaction.saldo)}
-              </div>
+              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Status</div>
+              <Badge variant={transaction.status === 'posted' ? 'green' : transaction.status === 'cancelled' ? 'red' : 'amber'}>
+                {transaction.status === 'posted' ? 'Diposting' : transaction.status === 'cancelled' ? 'Dibatalkan' : 'Draft'}
+              </Badge>
             </div>
+
+            {/* Referensi Pembayaran */}
+            {(transaction.payment_no || transaction.payment_id) && (
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Referensi Pembayaran</div>
+                <div style={{ fontSize: 14, fontFamily: 'monospace', fontWeight: 600, color: 'var(--sf-accent)' }}>
+                  {transaction.payment_no || `PAY-${transaction.payment_id?.slice(0, 8)}`}
+                </div>
+              </div>
+            )}
 
             {/* Keterangan */}
             <div style={{ gridColumn: '1 / -1' }}>
-              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>
-                Keterangan
-              </div>
+              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Keterangan</div>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 14, color: 'var(--sf-text)' }}>
                 <FileTextOutlined style={{ color: 'var(--sf-text-muted)', fontSize: 14, marginTop: 2 }} />
-                {transaction.keterangan}
-              </div>
-            </div>
-
-            {/* Referensi */}
-            <div style={{ gridColumn: '1 / -1' }}>
-              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>
-                Referensi
-              </div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 14, color: 'var(--sf-text-muted)' }}>
-                <LinkOutlined style={{ color: 'var(--sf-text-muted)', fontSize: 14, marginTop: 2 }} />
-                {transaction.referensi || 'Tidak ada referensi'}
+                {transaction.description.replace(/\s*\(Bill:\s*[a-f0-9-]+\)/gi, '').replace(/Payment for bill [a-f0-9-]+\s*\(Period:\s*([^)]+)\)/i, 'Pembayaran Iuran ($1)')}
               </div>
             </div>
           </div>

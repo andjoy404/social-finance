@@ -520,6 +520,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
   const [error, setError] = useState<ApiErrorType | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [form, setForm] = useState<HouseholdFormState>(emptyHouseholdForm)
+  const [startDate, setStartDate] = useState('')
   const [validationErrors, setValidationErrors] = useState<string[]>([])
 
   const fetchHousehold = useCallback(async () => {
@@ -542,6 +543,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         occupancy_status: (data.occupancy_status as OccupancyStatus) || 'OWNER',
         is_active: data.is_active,
       })
+      setStartDate(data.start_date ? data.start_date.slice(0, 10) : new Date().toISOString().slice(0, 10))
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
@@ -581,6 +583,9 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       errs.push('Format email tidak valid.')
     }
+    if (!startDate.trim()) {
+      errs.push('Tanggal mulai hunian harus diisi.')
+    }
     if (errs.length > 0) { setValidationErrors(errs); return false }
     return true
   }
@@ -604,6 +609,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         email: form.email.trim(),
         address: form.address.trim() || null,
         occupancy_status: form.occupancy_status,
+        start_date: startDate.trim() || undefined,
         is_active: form.is_active,
       }
 
@@ -670,6 +676,9 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
               form={form}
               onChange={handleChange}
               disabled={saving}
+              showStartDate
+              startDate={startDate}
+              onStartDateChange={setStartDate}
             />
 
             <StatusField
@@ -679,7 +688,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
             />
           </ModalBody>
           <ModalFooter>
-            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+            <button type="button" className="sf-btn-ghost sf-btn-cancel-red" onClick={handleClose}>
               Batal
             </button>
             <button type="submit" className="sf-btn-primary" disabled={saving}>

@@ -437,8 +437,8 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 	positionPermissions := map[string][]string{
 		"ketua":                  {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read", "rt.settings.read", "rt.settings.manage"},
 		"wakil_ketua":            {"warga.read", "warga.create", "warga.update", "finance.read", "reports.read", "rt.settings.read"},
-		"sekretaris":             {"warga.read", "warga.create", "warga.update", "reports.read"},
-		"bendahara":              {"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read"},
+		"sekretaris":             {"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "reports.read", "rt.settings.read"},
+		"bendahara":              {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read"},
 		"keamanan":               {"warga.read", "reports.read"},
 		"sosial":                 {"warga.read", "reports.read"},
 		"kebersihan_pembangunan": {"warga.read", "reports.read"},
@@ -577,62 +577,7 @@ func seedFinancialData(ctx context.Context, tx *sql.Tx, summary *SeedSummary) er
 	summary.PaymentsCount = len(CanonicalPayments)
 	slog.Info("seeded payments", "count", summary.PaymentsCount)
 
-	// --- 11e. Update bill statuses based on approved payments ---
-	// The backend computes bill status from payments:
-	//   paid (lunas):    total APPROVED payments >= bill.amount
-	//   partial (sebagian): 0 < total APPROVED payments < bill.amount
-	//   unpaid:          0 approved payments
-	// Since we seed payments directly (bypassing service layer), we must
-	// update bill statuses manually to match.
-	type billPaymentTotal struct {
-		billID   string
-		amount   string
-		total    string
-	}
-	var totals []billPaymentTotal
-
-	tRows, err := tx.QueryContext(ctx, `
-		SELECT b.id, b.amount,
-		       COALESCE(SUM(CASE WHEN p.status = 'APPROVED' THEN p.amount ELSE 0 END), '0')
-		FROM bills b
-		LEFT JOIN payments p ON p.bill_id = b.id
-		GROUP BY b.id, b.amount
-	`)
-	if err != nil {
-		return fmt.Errorf("query bill payment totals: %w", err)
-	}
-
-	for tRows.Next() {
-		var t billPaymentTotal
-		if err := tRows.Scan(&t.billID, &t.amount, &t.total); err != nil {
-			tRows.Close()
-			return fmt.Errorf("scan bill payment total: %w", err)
-		}
-		totals = append(totals, t)
-	}
-	tRows.Close()
-	if err := tRows.Err(); err != nil {
-		return fmt.Errorf("iterating bill payment totals: %w", err)
-	}
-
-	// Now update all bill statuses after closing the query cursor
-	for _, t := range totals {
-		var newStatus string
-		if t.total == "0" {
-			newStatus = "unpaid"
-		} else if compareMoney(t.total, t.amount) >= 0 {
-			newStatus = "paid"
-		} else {
-			newStatus = "partial"
-		}
-
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE bills SET status = $1, updated_at = now() WHERE id = $2`,
-			newStatus, t.billID); err != nil {
-			return fmt.Errorf("update bill %s status to %s: %w", t.billID, newStatus, err)
-		}
-	}
-
+	// No bills or payments are seeded; transactional data must be 0 on fresh install.
 	return nil
 }
 

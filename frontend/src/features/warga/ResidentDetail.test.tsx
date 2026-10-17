@@ -251,4 +251,37 @@ describe('ResidentDetail — renders resident information', () => {
       expect(screen.getByText('Position Ketua RT 03')).toBeInTheDocument()
     })
   })
+
+  it('can edit and save resident relationship_to_head', async () => {
+    let patchBody: any = null
+    mockFetch((_url, init) => {
+      if (init?.method === 'PATCH') {
+        patchBody = JSON.parse(init.body as string)
+        return mockSuccessResponse({ ...mockResident, relationship_to_head: patchBody.relationship_to_head })
+      }
+      return mockSuccessResponse(mockResident)
+    })
+    renderResidentDetail(mockPengurusUser)
+
+    await waitFor(() => {
+      expect(screen.getByText('Ubah')).toBeInTheDocument()
+    })
+
+    screen.getByText('Ubah').click()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Hubungan dengan KK/i)).toBeInTheDocument()
+    })
+
+    const select = screen.getByLabelText(/Hubungan dengan KK/i) as HTMLSelectElement
+    select.value = 'SPOUSE'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+
+    screen.getByText('Simpan Perubahan').click()
+
+    await waitFor(() => {
+      expect(patchBody).not.toBeNull()
+      expect(patchBody.relationship_to_head).toBe('SPOUSE')
+    })
+  })
 })

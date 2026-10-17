@@ -23,7 +23,7 @@ type JabatanValue = 'keamanan' | 'kebersihan_pembangunan'
 
 const jabatanOptions: { value: JabatanValue; label: string }[] = [
   { value: 'keamanan', label: 'Keamanan' },
-  { value: 'kebersihan_pembangunan', label: 'Kebersihan & Pembangunan' },
+  { value: 'kebersihan_pembangunan', label: 'Operasional' },
 ]
 
 interface SpecialResidentFormState {
@@ -191,7 +191,7 @@ export function SpecialResidentCreate() {
     <Modal open onClose={handleClose} width={560}>
       <ModalHeader
         title="Tambah Petugas Khusus"
-        subtitle="Data petugas keamanan / kebersihan pembangunan"
+        subtitle="Data petugas keamanan / operasional"
         onClose={handleClose}
       />
       <form onSubmit={handleSubmit}>

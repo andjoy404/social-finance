@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  KAS_TRANSACTIONS,
-  getTotalKasMasuk,
-  getTotalKasKeluar,
-  getFilteredTransactions,
-} from './kasMockData'
+  apiListTransactions,
+  apiGetBalance,
+  type ApiTransaction,
+  getSessionPair,
+} from '@/app/api'
 import {
   formatRupiah,
   formatTanggal,
@@ -13,12 +13,14 @@ import {
   getJenisLabel,
   formatKeteranganKas,
 } from './kasTypes'
+import { FileTextOutlined } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
 import { RowActionMenu } from '@/components/RowActionMenu'
+import { useAuth } from '@/app/AuthContext'
 
 type FilterType = 'semua' | 'jenis' | 'kategori' | 'periode'
 
@@ -45,12 +47,8 @@ const jenisFilterOptions = [
   { value: 'jenis' as const, label: 'Jenis' },
 ]
 
-const jenisValueOptions = [
-  { value: 'masuk', label: 'Kas Masuk' },
-  { value: 'keluar', label: 'Kas Keluar' },
-]
-
 export function KasReport() {
+  const { user } = useAuth()
   const navigate = useNavigate()
 
   const [search, setSearch] = useState('')
@@ -62,188 +60,158 @@ export function KasReport() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:kas-report', [10, 25, 50, 100])
 
-  const allFiltered = useMemo(
-    () => getFilteredTransactions(search, jenisValue, kategoriValue, periodeValue, KAS_TRANSACTIONS),
-    [search, jenisValue, kategoriValue, periodeValue]
-  )
+  const [allTransactions, setAllTransactions] = useState<ApiTransaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [total, setTotal] = useState(0)
+  const [balance, setBalance] = useState<{ total_income: string; total_expense: string; net_balance: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const totalPages = Math.max(1, Math.ceil(allFiltered.length / pageSize))
-  const paginated = useMemo(
-    () => allFiltered.slice((page - 1) * pageSize, page * pageSize),
-    [allFiltered, page, pageSize]
-  )
+  const fetchData = useCallback(async () => {
+    if (!user?.rt?.id) return
+    setLoading(true)
+    setError(null)
+    try {
+      const token = getSessionPair()?.accessToken ?? ''
+      const [res, bal] = await Promise.all([
+        apiListTransactions(token, {
+          page: 1,
+          page_size: 1000, // fetch all for report
+          type: jenisValue === 'masuk' ? 'income' : jenisValue === 'keluar' ? 'expense' : undefined,
+          start_date: periodeValue ? `${periodeValue}-01` : undefined,
+          end_date: periodeValue ? `${periodeValue}-28` : undefined,
+        }),
+        apiGetBalance(token),
+      ])
+      setAllTransactions(res.data ?? [])
+      setTotal(res.pagination.total)
+      setBalance({ total_income: bal.total_income, total_expense: bal.total_expense, net_balance: bal.net_balance })
+    } catch (e: any) {
+      setError(e?.message ?? 'Gagal memuat laporan')
+    } finally {
+      setLoading(false)
+    }
+  }, [user?.rt?.id, jenisValue, periodeValue])
 
-  const totalMasuk = getTotalKasMasuk()
-  const totalKeluar = getTotalKasKeluar()
-  const saldo = totalMasuk - totalKeluar
+  useEffect(() => {
+    void fetchData()
+  }, [fetchData])
 
-  // Category breakdown
+  // Client-side search + category filter
+  const filtered = useMemo(() => {
+    let result = allTransactions
+    if (kategoriValue) {
+      result = result.filter(t => t.category_name === kategoriValue)
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter(t =>
+        t.description.toLowerCase().includes(q) ||
+        (t.category_name ?? '').toLowerCase().includes(q)
+      )
+    }
+    return result
+  }, [allTransactions, kategoriValue, search])
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+  const totalMasuk = balance?.total_income ?? '0'
+  const totalKeluar = balance?.total_expense ?? '0'
+  const saldo = balance?.net_balance ?? '0'
+
+  // Category breakdown from API data
   const categoryBreakdown = useMemo(() => {
     const map: Record<string, { masuk: number; keluar: number }> = {}
-    for (const t of KAS_TRANSACTIONS) {
-      if (!map[t.kategori]) map[t.kategori] = { masuk: 0, keluar: 0 }
-      if (t.jenis === 'masuk') map[t.kategori].masuk += t.nominal
-      else map[t.kategori].keluar += t.nominal
+    for (const t of allTransactions) {
+      const cat = t.category_name || 'Lainnya'
+      if (!map[cat]) map[cat] = { masuk: 0, keluar: 0 }
+      if (t.type === 'income') map[cat].masuk += Number(t.amount)
+      else map[cat].keluar += Number(t.amount)
     }
     return Object.entries(map)
       .map(([kategori, amounts]) => ({ kategori, ...amounts }))
       .sort((a, b) => b.masuk + b.keluar - (a.masuk + a.keluar))
-  }, [])
+  }, [allTransactions])
 
-  // Period filter values
-  const periodeValues = useMemo(() => {
+  const allKategoriValues = useMemo(() => {
     const set = new Set<string>()
-    for (const t of KAS_TRANSACTIONS) set.add(t.tanggal.substring(0, 7))
-    return Array.from(set).sort().reverse()
-  }, [])
-
-  const kategoriValues = useMemo(() => {
-    const set = new Set<string>()
-    for (const t of KAS_TRANSACTIONS) set.add(t.kategori)
+    for (const t of allTransactions) if (t.category_name) set.add(t.category_name)
     return Array.from(set).sort()
-  }, [])
+  }, [allTransactions])
 
-  const handleDetail = (id: string) => {
-    navigate(`/kas/${id}`)
-  }
+  const allPeriodeValues = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of allTransactions) set.add(t.occurred_at.substring(0, 7))
+    return Array.from(set).sort().reverse()
+  }, [allTransactions])
 
-  const handlePage = (p: number) => {
-    if (p >= 1 && p <= totalPages) setPage(p)
-  }
+  const handleDetail = (id: string) => navigate(`/kas/${id}`)
 
-  const handlePageSizeChange = (newSize: number) => {
-    setPageSize(newSize)
-    setPage(1)
-  }
-
-  const handleFilter = (filter: FilterType) => {
-    setFilterType(filter)
-    setPage(1)
-    if (filter === 'semua') {
-      setJenisValue(null)
-      setKategoriValue(null)
-      setPeriodeValue(null)
-    }
-  }
-
-  const handleSearch = (value: string) => {
-    setSearch(value)
-    setPage(1)
-  }
-
-  const handleJenisSelect = (val: string) => {
-    setJenisValue(val)
-    setPage(1)
-  }
-
-  const handleJenisClear = () => setJenisValue(null)
-
-  const handleKategoriSelect = (val: string) => {
-    setKategoriValue(val)
-    setPage(1)
-  }
-
+  const handlePage = (p: number) => { if (p >= 1 && p <= totalPages) setPage(p) }
+  const handlePageSizeChange = (newSize: number) => { setPageSize(newSize); setPage(1) }
+  const handleFilter = (filter: FilterType) => { setFilterType(filter); setPage(1); if (filter === 'semua') { setJenisValue(null); setKategoriValue(null); setPeriodeValue(null) } }
+  const handleSearch = (value: string) => { setSearch(value); setPage(1) }
+  const handleKategoriSelect = (val: string) => { setKategoriValue(val); setPage(1) }
   const handleKategoriClear = () => setKategoriValue(null)
-
-  const handlePeriodeSelect = (val: string) => {
-    setPeriodeValue(val)
-    setPage(1)
-  }
-
+  const handlePeriodeSelect = (val: string) => { setPeriodeValue(val); setPage(1) }
   const handlePeriodeClear = () => setPeriodeValue(null)
 
   return (
     <>
-      {/* Back button */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-        <button
-          type="button"
-          className="sf-btn-ghost"
-          onClick={() => navigate('/kas')}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }}
-        >
+        <button type="button" className="sf-btn-ghost" onClick={() => navigate('/kas')} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px' }}>
           ← Kembali
         </button>
       </div>
 
-      {/* PageHeader */}
       <div className="sf-page-header-surface">
         <div className="sf-page-header-left">
+          <span className="sf-page-header-icon">
+            <FileTextOutlined style={{ fontSize: 14 }} />
+          </span>
           <div className="sf-page-header-copy">
             <div className="sf-page-header-title-text">Laporan KAS</div>
-            <div className="sf-page-header-subtitle">
-              Ringkasan dan rincian arus kas RT
-            </div>
+            <div className="sf-page-header-subtitle">Ringkasan dan rincian arus kas RT</div>
           </div>
         </div>
       </div>
 
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 12, marginBottom: 12 }}>
-        <div style={{ background: 'var(--sf-surface)', borderRadius: 'var(--sf-radius-md)', border: '1px solid var(--sf-border)', padding: '16px' }}>
-          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-            Saldo Berjalan
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: saldo >= 0 ? 'var(--sf-success)' : 'var(--sf-danger)' }}>
-            {formatRupiah(saldo)}
-          </div>
+        <div style={{ background: 'color-mix(in srgb, var(--sf-info) 8%, var(--sf-bg))', borderRadius: 'var(--sf-radius-md)', border: '1px solid color-mix(in srgb, var(--sf-info) 35%, var(--sf-border))', padding: '16px', boxShadow: '0 0 10px rgba(87, 148, 242, 0.08)' }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-info)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>Saldo Berjalan</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sf-info)' }}>Rp {formatRupiah(saldo)}</div>
         </div>
-        <div style={{ background: 'var(--sf-surface)', borderRadius: 'var(--sf-radius-md)', border: '1px solid var(--sf-border)', padding: '16px' }}>
-          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-            Total Kas Masuk
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sf-success)' }}>
-            {formatRupiah(totalMasuk)}
-          </div>
+        <div style={{ background: 'color-mix(in srgb, var(--sf-success) 8%, var(--sf-bg))', borderRadius: 'var(--sf-radius-md)', border: '1px solid color-mix(in srgb, var(--sf-success) 35%, var(--sf-border))', padding: '16px', boxShadow: '0 0 10px rgba(115, 191, 105, 0.08)' }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-success)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>Total Kas Masuk</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sf-success)' }}>+Rp {formatRupiah(totalMasuk)}</div>
         </div>
-        <div style={{ background: 'var(--sf-surface)', borderRadius: 'var(--sf-radius-md)', border: '1px solid var(--sf-border)', padding: '16px' }}>
-          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-            Total Kas Keluar
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sf-danger)' }}>
-            {formatRupiah(totalKeluar)}
-          </div>
+        <div style={{ background: 'color-mix(in srgb, var(--sf-danger) 8%, var(--sf-bg))', borderRadius: 'var(--sf-radius-md)', border: '1px solid color-mix(in srgb, var(--sf-danger) 35%, var(--sf-border))', padding: '16px', boxShadow: '0 0 10px rgba(242, 73, 92, 0.08)' }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-danger)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>Total Kas Keluar</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sf-danger)' }}>-Rp {formatRupiah(totalKeluar)}</div>
         </div>
       </div>
 
       {/* Category Breakdown */}
       <div style={{ marginTop: 12, marginBottom: 12 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--sf-text)', margin: '0 0 10px 0', textTransform: 'uppercase' }}>
-          Rincian per Kategori
-        </h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--sf-text)', margin: '0 0 10px 0', textTransform: 'uppercase' }}>Rincian per Kategori</h3>
         <div className="sf-content-surface" style={{ padding: 0 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
-                  Kategori
-                </th>
-                <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
-                  Pemasukan
-                </th>
-                <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
-                  Pengeluaran
-                </th>
-                <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
-                  Saldo
-                </th>
+                <th style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>Kategori</th>
+                <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>Pemasukan</th>
+                <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>Pengeluaran</th>
+                <th style={{ textAlign: 'right', padding: '10px 16px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>Saldo</th>
               </tr>
             </thead>
             <tbody>
               {categoryBreakdown.map((cat) => (
                 <tr key={cat.kategori}>
-                  <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--sf-border)', color: 'var(--sf-text)' }}>
-                    {cat.kategori}
-                  </td>
-                  <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', color: 'var(--sf-success)', fontWeight: 600 }}>
-                    {formatRupiah(cat.masuk)}
-                  </td>
-                  <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', color: 'var(--sf-danger)', fontWeight: 600 }}>
-                    {formatRupiah(cat.keluar)}
-                  </td>
-                  <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: cat.masuk - cat.keluar >= 0 ? 'var(--sf-success)' : 'var(--sf-danger)' }}>
-                    {formatRupiah(cat.masuk - cat.keluar)}
-                  </td>
+                  <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--sf-border)', color: 'var(--sf-text)' }}>{cat.kategori}</td>
+                  <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', color: 'var(--sf-success)', fontWeight: 600 }}>{formatRupiah(String(cat.masuk))}</td>
+                  <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', color: 'var(--sf-danger)', fontWeight: 600 }}>{formatRupiah(String(cat.keluar))}</td>
+                  <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: cat.masuk - cat.keluar >= 0 ? 'var(--sf-success)' : 'var(--sf-danger)' }}>{formatRupiah(String(cat.masuk - cat.keluar))}</td>
                 </tr>
               ))}
             </tbody>
@@ -261,12 +229,7 @@ export function KasReport() {
         {/* Toolbar */}
         <div className="sf-list-toolbar">
           <div className="sf-list-toolbar-left">
-            <FilterDropdown
-              value={filterType}
-              options={jenisFilterOptions}
-              onChange={handleFilter}
-              ariaLabel="Tipe filter"
-            />
+            <FilterDropdown value={filterType} options={jenisFilterOptions} onChange={handleFilter} ariaLabel="Tipe filter" />
 
             <SearchBox
               value={search}
@@ -274,27 +237,7 @@ export function KasReport() {
               onSearch={handleSearch}
               placeholder="Cari keterangan, kategori..."
               statusControl={
-                filterType === 'jenis' ? (
-                  <div className="sf-status-selector">
-                    {filterLabel('jenis', jenisValue) ? (
-                      <span className={`sf-status-badge ${jenisValue === 'masuk' ? 'sf-status-badge__active' : 'sf-status-badge__inactive'}`}>
-                        {filterLabel('jenis', jenisValue)}
-                        <button type="button" className="sf-status-badge-clear" onClick={handleJenisClear}>×</button>
-                      </span>
-                    ) : (
-                      <div className="sf-status-dropdown">
-                        <button type="button" className="sf-status-selector-trigger" onClick={() => {}}>
-                          Pilih Jenis <span style={{ fontSize: 9, color: 'var(--sf-text-muted)' }}>▼</span>
-                        </button>
-                        <div className="sf-status-dropdown-menu" role="listbox">
-                          {jenisValueOptions.map((opt) => (
-                            <button key={opt.value} type="button" className={`sf-status-dropdown-item ${jenisValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`} onClick={() => handleJenisSelect(opt.value)}>{opt.label}</button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : filterType === 'kategori' ? (
+                filterType === 'kategori' ? (
                   <div className="sf-status-selector">
                     {filterLabel('kategori', kategoriValue) ? (
                       <span className="sf-status-badge sf-status-badge__active">
@@ -304,10 +247,10 @@ export function KasReport() {
                     ) : (
                       <div className="sf-status-dropdown">
                         <button type="button" className="sf-status-selector-trigger" onClick={() => {}}>
-                          Pilih Kategori <span style={{ fontSize: 9, color: 'var(--sf-text-muted)' }}>▼</span>
+                          Pilih Kategori<span style={{ fontSize: 9, color: 'var(--sf-text-muted)' }}>▼</span>
                         </button>
                         <div className="sf-status-dropdown-menu" role="listbox">
-                          {kategoriValues.map((kat) => (
+                          {allKategoriValues.map((kat) => (
                             <button key={kat} type="button" className={`sf-status-dropdown-item ${kategoriValue === kat ? 'sf-status-dropdown-item-active' : ''}`} onClick={() => handleKategoriSelect(kat)}>{kat}</button>
                           ))}
                         </div>
@@ -324,10 +267,10 @@ export function KasReport() {
                     ) : (
                       <div className="sf-status-dropdown">
                         <button type="button" className="sf-status-selector-trigger" onClick={() => {}}>
-                          Pilih Periode <span style={{ fontSize: 9, color: 'var(--sf-text-muted)' }}>▼</span>
+                          Pilih Periode<span style={{ fontSize: 9, color: 'var(--sf-text-muted)' }}>▼</span>
                         </button>
                         <div className="sf-status-dropdown-menu" role="listbox">
-                          {periodeValues.map((p) => {
+                          {allPeriodeValues.map((p) => {
                             const [year, month] = p.split('-')
                             const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
                             return (
@@ -346,8 +289,18 @@ export function KasReport() {
           </div>
         </div>
 
+        {/* Error */}
+        {error && (
+          <div className="sf-error-banner" role="alert">
+            {error}
+          </div>
+        )}
+
+        {/* Loading */}
+        {loading && <div className="sf-loading-banner">Memuat laporan...</div>}
+
         {/* Transaction Table */}
-        {paginated.length > 0 && (
+        {!loading && !error && paginated.length > 0 && (
           <div className="table-wrapper">
             <table style={{ width: 'max-content', minWidth: '100%' }}>
               <thead>
@@ -363,14 +316,14 @@ export function KasReport() {
               <tbody>
                 {paginated.map((t) => (
                   <tr key={t.id}>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13 }}>{formatTanggal(t.tanggal)}</td>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13 }}>{formatTanggal(t.occurred_at)}</td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)' }}>
-                      <Badge variant={getJenisVariant(t.jenis)}>{getJenisLabel(t.jenis)}</Badge>
+                      <Badge variant={getJenisVariant(t.type === 'income' ? 'masuk' : 'keluar')}>{getJenisLabel(t.type === 'income' ? 'masuk' : 'keluar')}</Badge>
                     </td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13 }}>{t.kategori}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.keterangan}</td>
-                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, fontWeight: 600, textAlign: 'right', fontFamily: 'monospace', color: t.jenis === 'masuk' ? 'var(--sf-success)' : 'var(--sf-danger)' }}>
-                      {formatKeteranganKas(t.nominal, t.jenis)}
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13 }}>{t.category_name ?? '\u2014'}</td>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.description}</td>
+                    <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, fontWeight: 600, textAlign: 'right', fontFamily: 'monospace', color: t.type === 'income' ? 'var(--sf-success)' : 'var(--sf-danger)' }}>
+                      {formatKeteranganKas(t.amount, t.type === 'income' ? 'masuk' : 'keluar')}
                     </td>
                     <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'center' }}>
                       <RowActionMenu items={[{ label: 'Detail', onClick: () => handleDetail(t.id) }]} />
@@ -383,11 +336,11 @@ export function KasReport() {
         )}
 
         {/* Pagination */}
-        {paginated.length > 0 && (
+        {!loading && paginated.length > 0 && (
           <Pagination
             page={page}
             pageSize={pageSize}
-            total={allFiltered.length}
+            total={total}
             totalPages={totalPages}
             onPageChange={handlePage}
             onPageSizeChange={handlePageSizeChange}

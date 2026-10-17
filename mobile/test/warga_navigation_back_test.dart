@@ -94,7 +94,7 @@ rp.ProviderScope _app() {
         repo.state = rp.AsyncData<Map<String, dynamic>?>({
           'name': 'Budi Santoso',
           'role': AppRole.bendahara,
-          'rt': '01',
+          'rt': '002',
           'rw': '05',
         });
         return repo;

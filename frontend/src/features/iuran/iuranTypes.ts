@@ -53,6 +53,7 @@ export interface IuranBill {
   id: string
   householdId: string
   householdName: string
+  houseNumber?: string
   rt: string
   iuranType: string
   periode: string

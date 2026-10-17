@@ -398,6 +398,7 @@ export function DueCreate({
             <DatePicker
               id="df-period-value"
               picker="month"
+              format="MMMM YYYY"
               value={period ? dayjs(period, 'YYYY-MM') : null}
               onChange={(date) => setPeriod(date?.format('YYYY-MM') || '')}
               allowClear={false}
@@ -408,21 +409,16 @@ export function DueCreate({
           </div>
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="df-due-date">Tanggal Jatuh Tempo</label>
-            <input
+            <DatePicker
               id="df-due-date"
-              className="sf-form-input"
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              onClick={(e) => {
-                try {
-                  (e.currentTarget as HTMLInputElement).showPicker?.()
-                } catch {
-                  // Fallback for browsers that do not support showPicker or restrict invocation
-                }
-              }}
-              style={{ cursor: 'pointer' }}
+              picker="date"
+              value={dueDate ? dayjs(dueDate) : null}
+              onChange={(date) => setDueDate(date?.format('YYYY-MM-DD') || '')}
+              allowClear={false}
+              placeholder="DD/MM/YYYY"
+              format="DD/MM/YYYY"
               disabled={loading}
+              style={{ width: '100%' }}
             />
           </div>
         </ModalBody>

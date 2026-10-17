@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "751187536578",
+    "project_id": "social-finance-andjoy",
+    "storage_bucket": "social-finance-andjoy.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:751187536578:android:68d1c910b1afc1bb70695b",
+        "android_client_info": {
+          "package_name": "com.example.social_finance"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBoXipV8H1ga9SDpz4HS0E_G80vwDkz8MU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

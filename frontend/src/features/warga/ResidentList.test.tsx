@@ -353,7 +353,7 @@ describe('W4.2C — Aksi row navigation', () => {
     vi.restoreAllMocks()
   })
 
-  it('Detail action navigates to /warga/<resident-id>', async () => {
+  it('row click navigates to /warga/<resident-id>', async () => {
     mockFetch(() => {
       return mockSuccessResponse(mockPaginatedResponse([mockResident]))
     })
@@ -363,13 +363,11 @@ describe('W4.2C — Aksi row navigation', () => {
       expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
     })
 
-    // Open Aksi menu
-    const aksiBtn = screen.getByRole('button', { name: /Aksi/i })
-    fireEvent.click(aksiBtn)
-
-    // Click Detail
-    const detailLink = screen.getByRole('menuitem', { name: 'Detail' })
-    fireEvent.click(detailLink)
+    // Click the row (role=button on <tr>, accessible name spans all cells)
+    const rows = screen.getAllByRole('button')
+    const residentRow = rows.find(row => row.textContent?.includes('Budi Santoso'))
+    expect(residentRow).toBeInTheDocument()
+    fireEvent.click(residentRow!)
 
     // Verify navigation to resident detail page
     await waitFor(() => {
@@ -377,7 +375,7 @@ describe('W4.2C — Aksi row navigation', () => {
     })
   })
 
-  it('Ubah action navigates to /warga/<household-id>/edit', async () => {
+  it('row Enter key navigates to /warga/<resident-id>', async () => {
     mockFetch(() => {
       return mockSuccessResponse(mockPaginatedResponse([mockResident]))
     })
@@ -387,17 +385,16 @@ describe('W4.2C — Aksi row navigation', () => {
       expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
     })
 
-    // Open Aksi menu
-    const aksiBtn = screen.getByRole('button', { name: /Aksi/i })
-    fireEvent.click(aksiBtn)
+    // Focus the row and press Enter
+    const rows = screen.getAllByRole('button')
+    const residentRow = rows.find(row => row.textContent?.includes('Budi Santoso'))
+    expect(residentRow).toBeInTheDocument()
+    fireEvent.focus(residentRow!)
+    fireEvent.keyDown(residentRow!, { key: 'Enter' })
 
-    // Click Ubah
-    const ubahLink = screen.getByRole('menuitem', { name: 'Ubah' })
-    fireEvent.click(ubahLink)
-
-    // Verify navigation to edit page
+    // Verify navigation to resident detail page
     await waitFor(() => {
-      expect(screen.getByTestId('location')).toHaveTextContent('/warga/hh-1/edit')
+      expect(screen.getByTestId('location')).toHaveTextContent('/warga/res-1')
     })
   })
 })
@@ -411,7 +408,7 @@ describe('W4.2C — Authorization write action visibility', () => {
     vi.restoreAllMocks()
   })
 
-  it('hides Tambah and Ubah for read-only position keamanan', async () => {
+  it('hides Tambah for read-only position keamanan', async () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
       user: {
         ...mockUser,
@@ -439,17 +436,9 @@ describe('W4.2C — Authorization write action visibility', () => {
 
     // Tambah button must NOT be present
     expect(screen.queryByRole('button', { name: /\+ Tambah/i })).not.toBeInTheDocument()
-
-    // Open Aksi menu
-    const aksiBtn = screen.getByRole('button', { name: /Aksi/i })
-    fireEvent.click(aksiBtn)
-
-    // Detail must be present, Ubah must NOT be present
-    expect(screen.getByRole('menuitem', { name: 'Detail' })).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Ubah' })).not.toBeInTheDocument()
   })
 
-  it('shows Tambah and Ubah for authorized position ketua', async () => {
+  it('shows Tambah for authorized position ketua', async () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
       user: {
         ...mockUser,
@@ -477,13 +466,165 @@ describe('W4.2C — Authorization write action visibility', () => {
 
     // Tambah button MUST be present
     expect(screen.getByRole('button', { name: /\+ Tambah/i })).toBeInTheDocument()
+  })
 
-    // Open Aksi menu
-    const aksiBtn = screen.getByRole('button', { name: /Aksi/i })
-    fireEvent.click(aksiBtn)
+  it('shows Import Warga button for authorized position ketua and opens modal on click', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        jabatan: 'ketua',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
 
-    // Both Detail and Ubah must be present
-    expect(screen.getByRole('menuitem', { name: 'Detail' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'Ubah' })).toBeInTheDocument()
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    const importBtn = screen.getByRole('button', { name: /Import Warga/i })
+    expect(importBtn).toBeInTheDocument()
+
+    // Click Import Warga
+    fireEvent.click(importBtn)
+
+    // Modal header should appear
+    expect(screen.getByText('Import Data Warga')).toBeInTheDocument()
+    expect(screen.getByText(/Unggah spreadsheet Excel/i)).toBeInTheDocument()
+  })
+
+  it('shows Import Warga button for legacy role pengurus', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        role: 'pengurus',
+        jabatan: null,
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    expect(screen.getByRole('button', { name: /Import Warga/i })).toBeInTheDocument()
+  })
+
+  it('hides Import Warga button for unauthorized roles and positions', async () => {
+    // warga role
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        role: 'warga',
+        jabatan: null,
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByRole('button', { name: /Import Warga/i })).not.toBeInTheDocument()
+    unmount()
+
+    // bendahara with jabatan bendahara
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        role: 'warga',
+        jabatan: 'keamanan',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByRole('button', { name: /Import Warga/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Export Warga/i })).not.toBeInTheDocument()
+  })
+
+  it('shows Import Warga and Export Warga button for authorized position bendahara', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        role: 'pengurus',
+        jabatan: 'bendahara',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    expect(screen.getByRole('button', { name: /Import Warga/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Export Warga/i })).toBeInTheDocument()
   })
 })

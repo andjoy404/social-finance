@@ -198,14 +198,16 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
       if (point.income > max) max = point.income.toDouble();
       if (point.expense > max) max = point.expense.toDouble();
     }
+    if (max <= 0) return 5000000.0;
     // Round up to nearest clean million for a tidy Y-axis scale.
     final roundedUp = (max / 1000000).ceil() * 1000000;
-    return roundedUp.toDouble();
+    return roundedUp <= 0 ? 5000000.0 : roundedUp.toDouble();
   }
 
   double _calcInterval() {
     // Five equal steps across the Y-axis (clean million-level steps).
-    return _calculateMaxY() / 5;
+    final interval = _calculateMaxY() / 5;
+    return interval > 0 ? interval : 1000000.0;
   }
 }
 

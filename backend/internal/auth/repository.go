@@ -451,19 +451,33 @@ func FindRTByID(ctx context.Context, tx *sql.Tx, rtID string) (name string, isAc
 	return name, isActive, nil
 }
 
+// FindRTDetailsByID finds an RT by UUID and returns its name, rt code, rw, and active status.
+func FindRTDetailsByID(ctx context.Context, tx *sql.Tx, rtID string) (name string, rt string, rw int, isActive bool, err error) {
+	query := `SELECT name, rt, rw, is_active FROM rts WHERE id = $1 LIMIT 1`
+	err = tx.QueryRowContext(ctx, query, rtID).Scan(&name, &rt, &rw, &isActive)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", 0, false, ErrNotAuthorized
+		}
+		return "", "", 0, false, fmt.Errorf("find rt details: %w", err)
+	}
+	return name, rt, rw, isActive, nil
+}
+
 // UserForMe returns user info plus their active RT details for the /me endpoint.
 type UserForMe struct {
-	ID         string  `json:"id"`
-	Fullname   string  `json:"full_name"`
-	Email      string  `json:"email"` // NOT NULL after migration
-	Phone      *string `json:"phone,omitempty"`
-	TenantRole Role    `json:"role"`
-	SystemRole string  `json:"system_role,omitempty"` // "super_admin" if present
-	Jabatan    *string `json:"jabatan"`               // RT organizational position, null if not assigned
-	RTID       string  `json:"rt_id"`
-	RTName     string  `json:"rt_name"`
-	RT_rw      int     `json:"rt_rw"`
-	RT_rt      string  `json:"rt_rt"`
+	ID                   string   `json:"id"`
+	Fullname             string   `json:"full_name"`
+	Email                string   `json:"email"` // NOT NULL after migration
+	Phone                *string  `json:"phone,omitempty"`
+	TenantRole           Role     `json:"role"`
+	SystemRole           string   `json:"system_role,omitempty"` // "super_admin" if present
+	Jabatan              *string  `json:"jabatan"`               // RT organizational position, null if not assigned
+	EffectivePermissions []string `json:"effective_permissions"`
+	RTID                 string   `json:"rt_id"`
+	RTName               string   `json:"rt_name"`
+	RT_rw                int      `json:"rt_rw"`
+	RT_rt                string   `json:"rt_rt"`
 }
 
 // GetProfile returns user info plus their active RT details for the /me endpoint.

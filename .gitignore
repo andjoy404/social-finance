@@ -1,6 +1,17 @@
 # Environment
 .env
 .w43-auth.env
+# Firebase / FCM server credentials
+/secrets/
+**/secrets/
+/secret/
+**/secret/
+*service-account*.json
+*service_account*.json
+firebase-adminsdk*.json
+*-adminsdk-*.json
+social-finance-andjoy-*.json
+
 
 # Dependencies
 backend/vendor/

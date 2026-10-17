@@ -1,10 +1,15 @@
 package auth
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"social-finance/internal/testutil"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -951,5 +956,146 @@ func TestRequireRoleEmptyAllowedList(t *testing.T) {
 	}
 	if received {
 		t.Error("handler should not be reached with empty role list")
+	}
+}
+
+func setupTenantIdentityWithRTCode(t *testing.T, userID, membershipID, rtID, email, rtCode string, role Role, isActive bool) {
+	t.Helper()
+	pool := testutil.GetTestPool(t)
+
+	counter := atomic.AddInt64(&tenantIDCounter, 1)
+	rtName := fmt.Sprintf("test-tenant-rt-%d", counter)
+
+	uuidUser := testUUID(userID)
+	uuidMember := testUUID(membershipID)
+	uuidRT := testUUID(rtID)
+
+	db := pool.Raw()
+
+	_, err := db.ExecContext(context.Background(),
+		`INSERT INTO rts (id, name, rw, rt, address, head_name, is_active)
+		 VALUES ($1, $2, 99, $3, 'Test Address', 'Test Head', $4)
+		 ON CONFLICT (id) DO UPDATE SET is_active = $4, rt = $3`,
+		uuidRT, rtName, rtCode, isActive,
+	)
+	if err != nil {
+		t.Fatalf("insert test RT: %v", err)
+	}
+
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO users (id, email, phone, password_hash, full_name, system_role, is_active)
+		 VALUES ($1, $2, NULL, 'dummy', 'Test User', NULL, true)
+		 ON CONFLICT (id) DO UPDATE SET system_role = NULL, is_active = true`,
+		uuidUser, email,
+	)
+	if err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
+		 VALUES ($1, $2, $3, $4, true)
+		 ON CONFLICT (id) DO UPDATE SET role = $4, is_active = true`,
+		uuidMember, uuidUser, uuidRT, string(role),
+	)
+	if err != nil {
+		t.Fatalf("insert test membership: %v", err)
+	}
+}
+
+// TestRequireAllowedRT verifies that only allowed RTs (002 and 003) can access operational routes.
+func TestRequireAllowedRT(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	pool := testutil.GetTestPool(t)
+	oldPool := AuthDBPool
+	AuthDBPool = pool
+	t.Cleanup(func() {
+		AuthDBPool = oldPool
+	})
+
+	// 1. RT 002 allowed
+	setupTenantIdentityWithRTCode(t, "user-rt002", "member-rt002", "rt-uuid-002", "test-rt002@example.com", "002", RoleBendahara, true)
+	claims002 := TokenClaims{
+		UserID: testUUID("user-rt002"),
+		MID:    testUUID("member-rt002"),
+		RTID:   testUUID("rt-uuid-002"),
+		Role:   "bendahara",
+	}
+	token002, err := GenerateAccessToken(claims002)
+	if err != nil {
+		t.Fatalf("token002 err: %v", err)
+	}
+
+	handler := RequireAuth(RequireAllowedRT(pool)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	req := httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+token002)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for RT 002, got %d", rec.Code)
+	}
+
+	// 2. RT 003 allowed
+	setupTenantIdentityWithRTCode(t, "user-rt003", "member-rt003", "rt-uuid-003", "test-rt003@example.com", "003", RoleBendahara, true)
+	claims003 := TokenClaims{
+		UserID: testUUID("user-rt003"),
+		MID:    testUUID("member-rt003"),
+		RTID:   testUUID("rt-uuid-003"),
+		Role:   "bendahara",
+	}
+	token003, err := GenerateAccessToken(claims003)
+	if err != nil {
+		t.Fatalf("token003 err: %v", err)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+token003)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for RT 003, got %d", rec.Code)
+	}
+
+	// 3. RT 004 NOT allowed -> 403
+	setupTenantIdentityWithRTCode(t, "user-rt004", "member-rt004", "rt-uuid-004", "test-rt004@example.com", "004", RoleBendahara, true)
+	claims004 := TokenClaims{
+		UserID: testUUID("user-rt004"),
+		MID:    testUUID("member-rt004"),
+		RTID:   testUUID("rt-uuid-004"),
+		Role:   "bendahara",
+	}
+	token004, err := GenerateAccessToken(claims004)
+	if err != nil {
+		t.Fatalf("token004 err: %v", err)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+token004)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for RT 004, got %d", rec.Code)
+	}
+
+	// 4. System-only super admin with no RTID passes through
+	setupSystemOnlyIdentity(t, "user-superadmin-rt", "test-superadmin-rt@example.com")
+	claimsSA := TokenClaims{
+		UserID:  testUUID("user-superadmin-rt"),
+		SysRole: "super_admin",
+	}
+	tokenSA, err := GenerateAccessToken(claimsSA)
+	if err != nil {
+		t.Fatalf("tokenSA err: %v", err)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenSA)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for system-only super admin, got %d", rec.Code)
 	}
 }

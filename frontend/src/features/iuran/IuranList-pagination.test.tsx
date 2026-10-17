@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { IuranList } from './IuranList'
 import * as api from '../../app/api'
+import type { AuthUser } from '@/app/AuthContext'
 
 vi.mock('../../app/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../app/api')>()
@@ -12,8 +13,57 @@ vi.mock('../../app/api', async (importOriginal) => {
     apiListBills: vi.fn(),
     apiListPayments: vi.fn(),
     apiGetBill: vi.fn(),
+    apiListDues: vi.fn(),
   }
 })
+
+// ─── AUTH CONTEXT MOCK ─────────────────────────────────────────────────
+// Fixtures defined BEFORE the mutable ref so references are valid.
+// The vi.mock closure reads mockCurrentUser at call time, allowing tests
+// to override it between renders.
+
+const wargaUser: AuthUser = {
+  id: 'user-warga',
+  name: 'Warga Test',
+  email: 'warga@test.com',
+  systemRole: null,
+  role: 'warga',
+  jabatan: null,
+  rt: { id: 'rt-1', name: 'RT 01' },
+}
+
+const pengurusKetuaUser: AuthUser = {
+  id: 'user-ketua',
+  name: 'Ketua RT',
+  email: 'ketua@test.com',
+  systemRole: null,
+  role: 'pengurus',
+  jabatan: 'ketua',
+  rt: { id: 'rt-1', name: 'RT 01' },
+}
+
+const superAdminUser: AuthUser = {
+  id: 'user-super',
+  name: 'Super Admin',
+  email: 'super@test.com',
+  systemRole: 'super_admin',
+  role: 'super_admin',
+  jabatan: null,
+  rt: null,
+}
+
+// Mutable reference — vi.mock closure reads this at call time.
+let mockCurrentUser: AuthUser | null = null
+
+vi.mock('@/app/AuthContext', () => ({
+  useAuth: () => ({
+    user: mockCurrentUser,
+    isAuthenticated: mockCurrentUser !== null,
+    isInitializing: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+  }),
+}))
 
 describe('IuranList - Pagination and Bill Name Search', () => {
   const sampleBills: api.ApiBill[] = [
@@ -352,5 +402,144 @@ describe('IuranList - Pagination and Bill Name Search', () => {
       expect(screen.getByText('Iuran Sukarela')).toBeDefined()
       expect(screen.queryByText('Iuran Keamanan')).toBeNull()
     })
+  })
+})
+
+// ─── ROLE-BASED IURAN TAB RESTRICTION TESTS ───────────────────────────
+
+describe('IuranList - Role-Based Tab Restriction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    ;(api.getSessionPair as any).mockReturnValue({
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+    })
+    ;(api.apiGetBill as any).mockResolvedValue(null)
+    ;(api.apiListPayments as any).mockResolvedValue({ data: [] })
+    ;(api.apiListDues as any).mockResolvedValue([])
+    // Reset to warga (no access) so tests explicitly set the user they want
+    mockCurrentUser = wargaUser
+  })
+
+  it('WARGA user does not see List Iuran or Kelola Iuran tabs', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = wargaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    // WARGA tabs should NOT be visible
+    expect(screen.queryByRole('button', { name: 'List Iuran' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
+  })
+
+  it('WARGA user cannot access ?tab=kelola-iuran via URL', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = wargaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran?tab=kelola-iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    // WARGA cannot see any tab buttons even with URL param
+    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'List Iuran' })).toBeNull()
+  })
+
+  it('Bendahara user sees both List Iuran and Kelola Iuran tabs', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    const bendaharaUser: AuthUser = {
+      id: 'user-bendahara',
+      name: 'Bendahara',
+      email: 'bendahara@test.com',
+      systemRole: null,
+      role: 'bendahara',
+      jabatan: 'bendahara',
+      rt: { id: 'rt-1', name: 'RT 01' },
+    }
+    mockCurrentUser = bendaharaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+  })
+
+  it('Pengurus (ketua) user sees both List Iuran and Kelola Iuran tabs', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+  })
+
+  it('Super-admin user sees both List Iuran and Kelola Iuran tabs', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = superAdminUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 })

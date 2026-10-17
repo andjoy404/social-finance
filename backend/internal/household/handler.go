@@ -855,6 +855,31 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		// When rt_id query param is present, use tenant-scoped list (single-RT view for super_admin).
+		// When absent, use cross-tenant view (admin managing all RTs).
+		rtQueryPtr := parseStringQuery(r, "rt_id")
+		if rtQueryPtr != nil && *rtQueryPtr != "" {
+			residents, err := svc.ListResidents(ctx, tx, *rtQueryPtr, householdID, isActive, search, offset, pageSize)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list residents")
+				return
+			}
+
+			total, err := svc.CountResidents(ctx, tx, *rtQueryPtr, householdID, isActive)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to count residents")
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list residents")
+				return
+			}
+
+			writePaginated(w, http.StatusOK, residents, page, pageSize, total)
+			return
+		}
+
 		residents, err := svc.ListAllResidents(ctx, tx, householdID, isActive, search, offset, pageSize)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list residents")

@@ -301,15 +301,55 @@ type Transaction struct {
 	CreatedAt             time.Time         `json:"created_at"`
 	UpdatedAt             time.Time         `json:"updated_at"`
 
-	CategoryName *string `json:"category_name,omitempty"`
+	CategoryName  *string `json:"category_name,omitempty"`
+	PaymentNo     *string `json:"payment_no,omitempty"`
+	PaymentMethod *string `json:"payment_method,omitempty"`
+	CreatedBy     *string `json:"created_by,omitempty"`
+	OfficerName   *string `json:"officer_name,omitempty"`
+	DueName       *string `json:"due_name,omitempty"`
+	CitizenName   *string `json:"citizen_name,omitempty"`
+	HouseNumber   *string `json:"house_number,omitempty"`
 }
 
 type CreateTransactionInput struct {
-	CategoryID  string          `json:"category_id"`
-	Amount      string          `json:"amount"`
-	Type        TransactionType `json:"type"`
-	Description string          `json:"description"`
-	OccurredAt  *string         `json:"occurred_at,omitempty"` // RFC3339 or YYYY-MM-DD
+	CategoryID    string          `json:"category_id,omitempty"`
+	Amount        string          `json:"amount"`
+	Type          TransactionType `json:"type"`
+	Description   string          `json:"description"`
+	OccurredAt    *string         `json:"occurred_at,omitempty"` // RFC3339 or YYYY-MM-DD
+	PaymentMethod *string         `json:"payment_method,omitempty"`
+}
+
+type UpdateTransactionInput struct {
+	CategoryID    *string          `json:"category_id,omitempty"`
+	Amount        *string          `json:"amount,omitempty"`
+	Type          *TransactionType `json:"type,omitempty"`
+	Description   *string          `json:"description,omitempty"`
+	OccurredAt    *string          `json:"occurred_at,omitempty"`
+	PaymentMethod *string          `json:"payment_method,omitempty"`
+}
+
+type DashboardSummary struct {
+	Balance            string                `json:"balance"`
+	MonthlyIncome      string                `json:"monthly_income"`
+	MonthlyExpense     string                `json:"monthly_expense"`
+	NetMovement        string                `json:"net_movement"`
+	DuesProgress       DashboardDuesProgress `json:"dues_progress"`
+	Chart              []DashboardChartPoint `json:"chart"`
+	RecentTransactions []*Transaction        `json:"recent_transactions"`
+}
+
+type DashboardDuesProgress struct {
+	PaidHouseholds  int `json:"paid_households"`
+	TotalHouseholds int `json:"total_households"`
+	Percentage      int `json:"percentage"`
+}
+
+type DashboardChartPoint struct {
+	Month   string `json:"month"`
+	Period  string `json:"period"`
+	Income  int64  `json:"income"`
+	Expense int64  `json:"expense"`
 }
 
 type ReverseTransactionInput struct {
@@ -322,6 +362,33 @@ type BalanceSummary struct {
 	TotalExpense     string `json:"total_expense"`
 	NetBalance       string `json:"net_balance"`
 	TransactionCount int    `json:"transaction_count"`
+}
+
+// PeriodBalanceSummary represents monthly/period balance sheet.
+type PeriodBalanceSummary struct {
+	OpeningBalance   string `json:"opening_balance"`
+	TotalIncome      string `json:"total_income"`
+	TotalExpense     string `json:"total_expense"`
+	NetMovement      string `json:"net_movement"`
+	ClosingBalance   string `json:"closing_balance"`
+	TransactionCount int    `json:"transaction_count"`
+}
+
+// UpdateOpeningBalanceInput represents request payload for opening balance correction.
+type UpdateOpeningBalanceInput struct {
+	OpeningBalance string `json:"opening_balance"`
+	Reason         string `json:"reason"`
+}
+
+// PeriodOpeningBalanceResponse represents response for opening balance correction.
+type PeriodOpeningBalanceResponse struct {
+	Period               string `json:"period"`
+	OpeningBalanceBefore string `json:"opening_balance_before"`
+	OpeningBalanceAfter  string `json:"opening_balance_after"`
+	Source               string `json:"source"`
+	CorrectedBy          string `json:"corrected_by"`
+	CorrectedAt          string `json:"corrected_at"`
+	Reason               string `json:"reason"`
 }
 
 // AuditLog represents an immutable record in audit_logs.
@@ -436,7 +503,12 @@ func (t *CreateTransactionInput) Validate() error {
 	if t.Description == "" {
 		return errors.New("description is required")
 	}
-	if t.Type != TransactionTypeIncome && t.Type != TransactionTypeExpense {
+	normType := strings.ToLower(strings.TrimSpace(string(t.Type)))
+	if normType == "income" || normType == "masuk" {
+		t.Type = TransactionTypeIncome
+	} else if normType == "expense" || normType == "keluar" {
+		t.Type = TransactionTypeExpense
+	} else {
 		return ErrInvalidCategoryType
 	}
 	cents, canon, err := ParseMoney(t.Amount)

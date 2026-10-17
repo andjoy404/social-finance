@@ -391,7 +391,7 @@ class MappedResident {
       case 'sosial':
         return 'Seksi Sosial';
       case 'kebersihan_pembangunan':
-        return 'Seksi Kebersihan dan Pembangunan';
+        return 'Operasional';
       default:
         return jabatan;
     }

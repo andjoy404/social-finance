@@ -15,7 +15,9 @@ const mockWargaUser: AuthUser = {
   systemRole: null,
   role: 'warga',
   jabatan: null,
-  rt: { id: 'rt-1', name: 'RT 001' },
+  rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'RT 002' },
+  rtCode: '002',
+  rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
 }
 
 const mockPengurusUser: AuthUser = {
@@ -25,7 +27,9 @@ const mockPengurusUser: AuthUser = {
   systemRole: null,
   role: 'pengurus',
   jabatan: null,
-  rt: { id: 'rt-1', name: 'RT 001' },
+  rt: { id: '8dfa1e36-6727-45be-8fea-24d958efc155', name: 'RT 003' },
+  rtCode: '003',
+  rtId: '8dfa1e36-6727-45be-8fea-24d958efc155',
 }
 
 const mockSuperAdminUser: AuthUser = {
@@ -36,6 +40,18 @@ const mockSuperAdminUser: AuthUser = {
   role: '',
   jabatan: null,
   rt: null,
+}
+
+const mockNonAllowedUser: AuthUser = {
+  id: 'user-4',
+  name: 'Warga RT 004',
+  email: 'warga004@example.com',
+  systemRole: null,
+  role: 'warga',
+  jabatan: null,
+  rt: { id: 'efb70405-09f5-48a0-ad14-34802cf09e3b', name: 'RT 004' },
+  rtCode: '004',
+  rtId: 'efb70405-09f5-48a0-ad14-34802cf09e3b',
 }
 
 function renderSidebar(customUser?: AuthUser) {
@@ -205,6 +221,16 @@ describe('Sidebar — navigation items', () => {
     expect(buttons.length).toBe(1) // pin toggle
   })
 
+  it('hides RT-scoped menus (Warga, Iuran, KAS) for non-allowed RTs (RT 004)', () => {
+    renderSidebar(mockNonAllowedUser)
+    const links = screen.getAllByRole('link')
+    expect(links.length).toBe(1) // Beranda only
+    expect(screen.getByText('Beranda')).toBeInTheDocument()
+    expect(screen.queryByText('Warga')).not.toBeInTheDocument()
+    expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Kas/i)).not.toBeInTheDocument()
+  })
+
   it('contains nav entry for /iuran (active route)', () => {
     renderSidebar()
     expect(screen.getByText(/Iuran/i)).toBeInTheDocument()
@@ -242,6 +268,13 @@ describe('Sidebar — active route detection', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     clearSidebarLocalStorage()
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: mockWargaUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
   })
   afterEach(() => {
     vi.restoreAllMocks()

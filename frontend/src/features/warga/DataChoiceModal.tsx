@@ -53,7 +53,7 @@ export function DataChoiceModal({ open, onClose }: DataChoiceProps) {
           <button
             type="button"
             onClick={() => handleSelect('special')}
-            className="dc-choice-card"
+            className="dc-choice-card dc-choice-card--blue"
           >
             <span className="dc-choice-icon">
               <TeamOutlined />
@@ -61,7 +61,7 @@ export function DataChoiceModal({ open, onClose }: DataChoiceProps) {
             <div className="dc-choice-content">
               <div className="dc-choice-title">Petugas</div>
               <div className="dc-choice-description">
-                Keamanan / Kebersihan & Pembangunan (tanpa rumah tangga)
+                Keamanan / Operasional (tanpa rumah tangga)
               </div>
             </div>
           </button>

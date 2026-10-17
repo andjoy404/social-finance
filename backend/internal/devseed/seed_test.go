@@ -18,42 +18,48 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 		t.Fatalf("first seed run failed: %v", err)
 	}
 
-	if summary1.RTsCount != 5 {
-		t.Errorf("expected 5 RTs, got %d", summary1.RTsCount)
+	if summary1.RTsCount != 2 {
+		t.Errorf("expected 2 RTs, got %d", summary1.RTsCount)
 	}
-	if summary1.PhysicalHousesCount != 20 {
-		t.Errorf("expected 20 physical houses, got %d", summary1.PhysicalHousesCount)
+	if summary1.PhysicalHousesCount != 7 {
+		t.Errorf("expected 7 physical houses, got %d", summary1.PhysicalHousesCount)
 	}
-	if summary1.HouseholdsCount != 20 {
-		t.Errorf("expected 20 households, got %d", summary1.HouseholdsCount)
+	if summary1.HouseholdsCount != 7 {
+		t.Errorf("expected 7 households, got %d", summary1.HouseholdsCount)
 	}
-	if summary1.HouseholdOccupanciesCount != 20 {
-		t.Errorf("expected 20 occupancies, got %d", summary1.HouseholdOccupanciesCount)
+	if summary1.HouseholdOccupanciesCount != 7 {
+		t.Errorf("expected 7 occupancies, got %d", summary1.HouseholdOccupanciesCount)
 	}
-	if summary1.ResidentsCount != 20 {
-		t.Errorf("expected 20 residents, got %d", summary1.ResidentsCount)
+	if summary1.ResidentsCount != 10 {
+		t.Errorf("expected 10 residents, got %d", summary1.ResidentsCount)
 	}
-	if summary1.ResidencyPeriodsCount != 26 {
-		t.Errorf("expected 26 residency periods, got %d", summary1.ResidencyPeriodsCount)
+	if summary1.ResidencyPeriodsCount != 9 {
+		t.Errorf("expected 9 residency periods, got %d", summary1.ResidencyPeriodsCount)
 	}
-	if summary1.UsersCount != 21 {
-		t.Errorf("expected 21 users, got %d", summary1.UsersCount)
+	if summary1.UsersCount != 7 {
+		t.Errorf("expected 7 users, got %d", summary1.UsersCount)
 	}
-	if summary1.MembershipsCount != 21 {
-		t.Errorf("expected 21 memberships, got %d", summary1.MembershipsCount)
+	if summary1.MembershipsCount != 7 {
+		t.Errorf("expected 7 memberships, got %d", summary1.MembershipsCount)
 	}
 
-	if summary1.PositionUsersCount != 35 {
-		t.Errorf("expected 35 position users, got %d", summary1.PositionUsersCount)
+	if summary1.PositionUsersCount != 14 {
+		t.Errorf("expected 14 position users, got %d", summary1.PositionUsersCount)
 	}
-	if summary1.PositionMembershipsCount != 35 {
-		t.Errorf("expected 35 position memberships, got %d", summary1.PositionMembershipsCount)
+	if summary1.PositionMembershipsCount != 14 {
+		t.Errorf("expected 14 position memberships, got %d", summary1.PositionMembershipsCount)
 	}
 	if summary1.PermissionTypesCount != 12 {
 		t.Errorf("expected 12 permission types, got %d", summary1.PermissionTypesCount)
 	}
-	if summary1.PositionPermissionsCount != 36 {
-		t.Errorf("expected 36 position permissions, got %d", summary1.PositionPermissionsCount)
+	if summary1.PositionPermissionsCount != 41 {
+		t.Errorf("expected 41 position permissions, got %d", summary1.PositionPermissionsCount)
+	}
+	if summary1.BillsCount != 0 {
+		t.Errorf("expected 0 bills, got %d", summary1.BillsCount)
+	}
+	if summary1.PaymentsCount != 0 {
+		t.Errorf("expected 0 payments, got %d", summary1.PaymentsCount)
 	}
 
 	// 2. Second run: idempotency test - should succeed without error or duplicating rows
@@ -64,7 +70,7 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 
 	// Verify row counts in the database did not double
 	var count int
-	if err := pool.Raw().QueryRowContext(ctx, "SELECT COUNT(*) FROM rts WHERE id IN ('8dfa1e36-6727-45be-8fea-24d958efc155', 'efb70405-09f5-48a0-ad14-34802cf09e3b')").Scan(&count); err != nil {
+	if err := pool.Raw().QueryRowContext(ctx, "SELECT COUNT(*) FROM rts WHERE id IN ('8dfa1e36-6727-45be-8fea-24d958efc155', 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b')").Scan(&count); err != nil {
 		t.Fatalf("query rts count: %v", err)
 	}
 	if count != 2 {
@@ -74,8 +80,8 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 	if err := pool.Raw().QueryRowContext(ctx, "SELECT COUNT(*) FROM physical_houses WHERE id::text LIKE 'bbbb%'").Scan(&count); err != nil {
 		t.Fatalf("query physical_houses count: %v", err)
 	}
-	if count != 18 {
-		t.Errorf("expected 18 bbbb physical houses, found %d", count)
+	if count != 5 {
+		t.Errorf("expected 5 bbbb physical houses, found %d", count)
 	}
 
 	if summary2.UsersCount != summary1.UsersCount {

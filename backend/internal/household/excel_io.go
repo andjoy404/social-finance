@@ -42,8 +42,15 @@ func parseExcelRows(f *excelize.File) ([]WargaCSVRow, []RowError, error) {
 			Message: "workbook contains no worksheets",
 		}}, nil
 	}
-	// Use the first worksheet.
+	// Use worksheet containing rows, or fall back to first worksheet.
 	sheetName := sheetNames[0]
+	for _, name := range sheetNames {
+		r, err := f.GetRows(name)
+		if err == nil && len(r) > 0 {
+			sheetName = name
+			break
+		}
+	}
 
 	rawRows, err := f.GetRows(sheetName)
 	if err != nil {
@@ -612,6 +619,7 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 		return nil, fmt.Errorf("new sheet: %w", err)
 	}
 	f.SetActiveSheet(sheetIdx)
+	_ = f.DeleteSheet("Sheet1")
 
 	// Write header row.
 	for ci, col := range excelHeaders {
@@ -673,6 +681,7 @@ func buildTemplateXLSX() (*excelize.File, error) {
 		return nil, fmt.Errorf("new sheet: %w", err)
 	}
 	f.SetActiveSheet(sheetIdx)
+	_ = f.DeleteSheet("Sheet1")
 
 	for ci, col := range excelHeaders {
 		cell, _ := excelize.CoordinatesToCellName(ci+1, 1)

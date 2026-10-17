@@ -134,7 +134,7 @@ void main() {
       'shows remaining amount',
       (tester) async {
         await _pumpPage(tester);
-        expect(find.textContaining('Rp50.000'), findsOneWidget);
+        expect(find.textContaining('Rp 50.000'), findsOneWidget);
       },
     );
   });

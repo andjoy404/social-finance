@@ -1,3 +1,5 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import 'client.dart';
 
 /// Service for device registration and push notification endpoints.
@@ -46,4 +48,9 @@ class DeviceService {
     return {'status': 'accepted'};
   }
 }
+
+final deviceServiceProvider = Provider<DeviceService>((ref) {
+  final client = ref.watch(apiClientProvider);
+  return DeviceService(client);
+});
 

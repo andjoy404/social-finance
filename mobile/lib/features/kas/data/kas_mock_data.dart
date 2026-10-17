@@ -2,6 +2,11 @@ import 'package:social_finance/features/kas/data/kas_models.dart';
 
 /// Mock data untuk KAS — 20 transaksi (10 masuk, 10 keluar).
 /// Saldo berjalan dimulai dari Rp 5.000.000.
+///
+/// NOTE: nominal and saldo are String to match KasTransaction type.
+/// Values are whole-rupee strings (no decimal point) matching backend
+/// NUMERIC(15,2)::text format.  When connected to real API these values
+/// will come from the database directly.
 
 class KasMockData {
   static List<KasTransaction> getTransactions() {
@@ -14,8 +19,8 @@ class KasMockData {
         kategori: KasCategory.iuranWarga,
         keterangan: 'Iuran warga RW 002 — KK 045',
         referensi: 'BRI-Akhmad99',
-        nominal: 85000,
-        saldo: 5680000,
+        nominal: '85000',
+        saldo: '5680000',
       ),
       KasTransaction(
         id: 'kas-019',
@@ -24,8 +29,8 @@ class KasMockData {
         kategori: KasCategory.iuranWarga,
         keterangan: 'Iuran warga RW 002 — KK 032',
         referensi: 'BRI-Sari123',
-        nominal: 85000,
-        saldo: 5595000,
+        nominal: '85000',
+        saldo: '5595000',
       ),
       KasTransaction(
         id: 'kas-018',
@@ -34,8 +39,8 @@ class KasMockData {
         kategori: KasCategory.lainLain,
         keterangan: 'Donasi warga untuk pembangunan masjid',
         referensi: null,
-        nominal: 500000,
-        saldo: 5510000,
+        nominal: '500000',
+        saldo: '5510000',
       ),
       KasTransaction(
         id: 'kas-017',
@@ -44,8 +49,8 @@ class KasMockData {
         kategori: KasCategory.iuranWarga,
         keterangan: 'Iuran warga RW 002 — KK 028',
         referensi: 'BCA-Dewi456',
-        nominal: 85000,
-        saldo: 5010000,
+        nominal: '85000',
+        saldo: '5010000',
       ),
       KasTransaction(
         id: 'kas-016',
@@ -54,8 +59,8 @@ class KasMockData {
         kategori: KasCategory.iuranPaksa,
         keterangan: 'Iuran paksa warga KK 015 (terlambat bayar)',
         referensi: null,
-        nominal: 170000,
-        saldo: 4925000,
+        nominal: '170000',
+        saldo: '4925000',
       ),
       KasTransaction(
         id: 'kas-015',
@@ -64,8 +69,8 @@ class KasMockData {
         kategori: KasCategory.iuranWarga,
         keterangan: 'Iuran warga RW 002 — KK 021',
         referensi: 'BRI-Rudi789',
-        nominal: 85000,
-        saldo: 4755000,
+        nominal: '85000',
+        saldo: '4755000',
       ),
       KasTransaction(
         id: 'kas-014',
@@ -74,8 +79,8 @@ class KasMockData {
         kategori: KasCategory.iuranWarga,
         keterangan: 'Iuran warga RW 002 — KK 007',
         referensi: 'MANDiri-Joko01',
-        nominal: 85000,
-        saldo: 4670000,
+        nominal: '85000',
+        saldo: '4670000',
       ),
       KasTransaction(
         id: 'kas-013',
@@ -84,8 +89,8 @@ class KasMockData {
         kategori: KasCategory.iuranWarga,
         keterangan: 'Iuran warga RW 002 — KK 012',
         referensi: null,
-        nominal: 85000,
-        saldo: 4585000,
+        nominal: '85000',
+        saldo: '4585000',
       ),
       KasTransaction(
         id: 'kas-012',
@@ -94,8 +99,8 @@ class KasMockData {
         kategori: KasCategory.lainLain,
         keterangan: 'Sumbangan RT untuk kerja bakti',
         referensi: null,
-        nominal: 250000,
-        saldo: 4500000,
+        nominal: '250000',
+        saldo: '4500000',
       ),
       KasTransaction(
         id: 'kas-011',
@@ -104,8 +109,8 @@ class KasMockData {
         kategori: KasCategory.iuranWarga,
         keterangan: 'Iuran warga RW 002 — KK 003',
         referensi: 'BRI-Andi22',
-        nominal: 85000,
-        saldo: 4250000,
+        nominal: '85000',
+        saldo: '4250000',
       ),
 
       // --- Keluaran ---
@@ -116,8 +121,8 @@ class KasMockData {
         kategori: KasCategory.kebersihan,
         keterangan: 'Pembelian sapu, karung sampah, dan deterjen',
         referensi: null,
-        nominal: 250000,
-        saldo: 3700000,
+        nominal: '250000',
+        saldo: '3700000',
       ),
       KasTransaction(
         id: 'kas-009',
@@ -126,8 +131,8 @@ class KasMockData {
         kategori: KasCategory.perbaikan,
         keterangan: 'Perbaikan lampu taman di jalur RW 002',
         referensi: null,
-        nominal: 350000,
-        saldo: 3950000,
+        nominal: '350000',
+        saldo: '3950000',
       ),
       KasTransaction(
         id: 'kas-008',
@@ -136,8 +141,8 @@ class KasMockData {
         kategori: KasCategory.konsumsi,
         keterangan: 'Konsumsi rapat RT bulan September',
         referensi: null,
-        nominal: 300000,
-        saldo: 4300000,
+        nominal: '300000',
+        saldo: '4300000',
       ),
       KasTransaction(
         id: 'kas-007',
@@ -146,8 +151,8 @@ class KasMockData {
         kategori: KasCategory.keamanan,
         keterangan: 'Sewa keamanan untuk acara 17 Agustus',
         referensi: null,
-        nominal: 500000,
-        saldo: 4600000,
+        nominal: '500000',
+        saldo: '4600000',
       ),
       KasTransaction(
         id: 'kas-006',
@@ -156,8 +161,8 @@ class KasMockData {
         kategori: KasCategory.perbaikan,
         keterangan: 'Perbaikan pagar taman bermain anak',
         referensi: null,
-        nominal: 750000,
-        saldo: 5100000,
+        nominal: '750000',
+        saldo: '5100000',
       ),
       KasTransaction(
         id: 'kas-005',
@@ -166,8 +171,8 @@ class KasMockData {
         kategori: KasCategory.kebersihan,
         keterangan: 'Pembelian pupuk untuk tanaman taman',
         referensi: null,
-        nominal: 180000,
-        saldo: 5850000,
+        nominal: '180000',
+        saldo: '5850000',
       ),
       KasTransaction(
         id: 'kas-004',
@@ -176,8 +181,8 @@ class KasMockData {
         kategori: KasCategory.konsumsi,
         keterangan: 'Konsumsi kerja bakti mingguan',
         referensi: null,
-        nominal: 150000,
-        saldo: 6030000,
+        nominal: '150000',
+        saldo: '6030000',
       ),
       KasTransaction(
         id: 'kas-003',
@@ -186,8 +191,8 @@ class KasMockData {
         kategori: KasCategory.lainLain,
         keterangan: 'Konsumsi petugas keamanan malam',
         referensi: null,
-        nominal: 200000,
-        saldo: 6180000,
+        nominal: '200000',
+        saldo: '6180000',
       ),
       KasTransaction(
         id: 'kas-002',
@@ -196,8 +201,8 @@ class KasMockData {
         kategori: KasCategory.perbaikan,
         keterangan: 'Penggantian papan nama RT',
         referensi: null,
-        nominal: 450000,
-        saldo: 6380000,
+        nominal: '450000',
+        saldo: '6380000',
       ),
       KasTransaction(
         id: 'kas-001',
@@ -206,8 +211,8 @@ class KasMockData {
         kategori: KasCategory.kebersihan,
         keterangan: 'Pembelian alat kerja bakti bulan September',
         referensi: null,
-        nominal: 200000,
-        saldo: 6830000,
+        nominal: '200000',
+        saldo: '6830000',
       ),
     ];
 

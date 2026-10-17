@@ -68,8 +68,11 @@ class _SpecialResidentCreateScreenState
     try {
       final repo = ref.read(wargaRepositoryProvider);
       final rts = await repo.fetchRts();
+      final filteredRts = rts
+          .where((r) => ['002', '003'].contains(r['rt'] as String?))
+          .toList();
       if (mounted) {
-        setState(() => _rtOptions = rts);
+        setState(() => _rtOptions = filteredRts);
       }
     } catch (e) {
       // Silently fail
@@ -341,7 +344,7 @@ class _SpecialResidentCreateScreenState
                       ),
                       DropdownMenuItem(
                         value: 'kebersihan_pembangunan',
-                        child: Text('Kebersihan & Pembangunan'),
+                        child: Text('Operasional'),
                       ),
                     ],
                     onChanged: widget.isSuperAdmin

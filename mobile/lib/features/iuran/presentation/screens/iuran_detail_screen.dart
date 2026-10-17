@@ -20,8 +20,13 @@ import '../widgets/payment_proof_thumbnail.dart';
 /// Detail screen for a single iuran bill.
 class IuranDetailScreen extends ConsumerStatefulWidget {
   final String billId;
+  final String? initialPaymentId;
 
-  const IuranDetailScreen({super.key, required this.billId});
+  const IuranDetailScreen({
+    super.key,
+    required this.billId,
+    this.initialPaymentId,
+  });
 
   @override
   ConsumerState<IuranDetailScreen> createState() => _IuranDetailScreenState();
@@ -29,6 +34,48 @@ class IuranDetailScreen extends ConsumerStatefulWidget {
 
 class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
   String get _billId => widget.billId;
+  IuranBill? _cachedBill;
+  bool _autoOpenedPayment = false;
+
+  void _checkAutoOpenPayment(List<BackendPayment> payments) {
+    if (_autoOpenedPayment || widget.initialPaymentId == null) return;
+    if (payments.isEmpty) return;
+
+    _autoOpenedPayment = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      BackendPayment? target;
+      try {
+        target = payments.firstWhere((p) => p.id == widget.initialPaymentId);
+      } catch (_) {
+        target = payments.first;
+      }
+      if (mounted) {
+        _showPaymentDetailDialog(context, target);
+      }
+    });
+  }
+
+  Future<void> _onRefresh() async {
+    try {
+      ref.invalidate(billDetailProvider(_billId));
+      ref.invalidate(billPaymentsProvider(_billId));
+      ref.invalidate(pendingPaymentsProvider(true));
+      await Future.wait([
+        ref.read(billDetailProvider(_billId).future),
+        ref.read(billPaymentsProvider(_billId).future),
+      ]);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memperbarui data: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +85,11 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
 
     // Fetch bill detail from provider (computed paidAmount from approved payments)
     final billState = ref.watch(billDetailProvider(_billId));
+    if (billState.hasValue && billState.value != null) {
+      _cachedBill = billState.value;
+    }
+
+    final currentBill = _cachedBill ?? billState.valueOrNull;
 
     return Scaffold(
       appBar: AppBar(
@@ -48,60 +100,62 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           onPressed: () => context.pop(),
         ),
       ),
-      floatingActionButton: billState.when(
-        data: (bill) =>
-            (bill != null && (bill.status != IuranStatus.lunas || bill.isVoluntary))
-                ? _buildAndroidFAB(context, accentSoft)
-                : null,
-        loading: () => null,
-        error: (_, _) => null,
-      ),
-      body: switch (billState) {
-        AsyncLoading() => const Center(child: CircularProgressIndicator()),
-        AsyncError(:final error) => Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.error_outline, size: 64, color: AppColors.warning),
-                const SizedBox(height: AppSpacing.md),
-                Text('Gagal Memuat Data', style: theme.textTheme.titleLarge),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  error.toString(),
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                ElevatedButton.icon(
-                  onPressed: () => ref.refresh(billDetailProvider(_billId)),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Coba Lagi'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        AsyncData(:final value) =>
-          value == null
-              ? Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: EmptyState(
-                      icon: Icons.receipt_long_outlined,
-                      title: 'Tagihan Tidak Ditemukan',
-                      description: 'Detail tagihan tidak tersedia.',
-                      actionText: 'Kembali',
-                      onAction: () => context.pop(),
-                    ),
-                  ),
-                )
-              : _buildBillDetail(context, theme, isDark, value, accentSoft),
-        _ => const SizedBox.shrink(),
-      },
+      floatingActionButton: currentBill != null &&
+              (currentBill.status != IuranStatus.lunas || currentBill.isVoluntary)
+          ? _buildAndroidFAB(context, accentSoft)
+          : null,
+      body: currentBill != null
+          ? _buildBillDetail(context, theme, isDark, currentBill, accentSoft)
+          : (billState.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : (billState.hasError
+                  ? RefreshIndicator(
+                      onRefresh: _onRefresh,
+                      child: Center(
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.error_outline, size: 64, color: AppColors.warning),
+                              const SizedBox(height: AppSpacing.md),
+                              Text('Gagal Memuat Data', style: theme.textTheme.titleLarge),
+                              const SizedBox(height: AppSpacing.sm),
+                              Text(
+                                billState.error.toString(),
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.lg),
+                              ElevatedButton.icon(
+                                onPressed: _onRefresh,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Coba Lagi'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _onRefresh,
+                      child: Center(
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          child: EmptyState(
+                            icon: Icons.receipt_long_outlined,
+                            title: 'Tagihan Tidak Ditemukan',
+                            description: 'Detail tagihan tidak tersedia.',
+                            actionText: 'Kembali',
+                            onAction: () => context.pop(),
+                          ),
+                        ),
+                      ),
+                    ))),
     );
   }
 
@@ -112,25 +166,10 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     IuranBill bill,
     Color accentSoft,
   ) {
-    /// Re-fetch bill detail and payments via Riverpod.
-    ///
-    /// `FutureProvider.family` does not expose an awaitable Future through
-    /// `ref.refresh()`, so we use `ref.read(provider.future)` which returns
-    /// the underlying `Future` that the provider wraps. This guarantees a
-    /// single API call and proper await semantics for RefreshIndicator.
-    Future<void> onRefresh() async {
-      // Wait for both providers to complete their re-fetch.
-      // If either fails the Future throws, but RefreshIndicator catches
-      // the exception and keeps the spinner visible until the UI updates.
-      await Future.wait([
-        ref.read(billDetailProvider(_billId).future),
-        ref.read(billPaymentsProvider(_billId).future),
-      ]);
-    }
-
     return RefreshIndicator(
-      onRefresh: onRefresh,
+      onRefresh: _onRefresh,
       child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(AppSpacing.base),
         child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -305,6 +344,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
               .watch(billPaymentsProvider(bill.id))
               .when(
                 data: (payments) {
+                  _checkAutoOpenPayment(payments);
                   if (payments.isEmpty) {
                     return AppCard(
                       padding: const EdgeInsets.all(AppSpacing.base),

@@ -237,3 +237,65 @@ func GetAuthContext(r *http.Request) *AuthContext {
 	ac, _ := r.Context().Value(AuthContextKey).(*AuthContext)
 	return ac
 }
+
+// AllowedRTCodes defines the set of RT codes that are permitted for operational access.
+var AllowedRTCodes = map[string]bool{
+	"002": true,
+	"003": true,
+}
+
+// RequireAllowedRT returns a middleware that verifies the tenant RT is in the allowed
+// list (RT 002 and RT 003). Non-allowed RTs receive 403 Forbidden.
+// System-only SUPER_ADMIN without tenant context is permitted for platform-wide management.
+func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
+			if !ok || ac == nil {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+				return
+			}
+
+			// System-only super admin with no RT context passes through
+			if ac.SystemRole == SystemRoleSuperAdmin && ac.RTID == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if ac.RTID == "" {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "tenant context required")
+				return
+			}
+
+			effectivePool := pool
+			if effectivePool == nil {
+				effectivePool = AuthDBPool
+			}
+			if effectivePool == nil {
+				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "database pool unavailable")
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			var rtCode string
+			var isActive bool
+			err := effectivePool.Raw().QueryRowContext(ctx,
+				`SELECT rt, is_active FROM rts WHERE id = $1 LIMIT 1`,
+				ac.RTID,
+			).Scan(&rtCode, &isActive)
+			if err != nil {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt not found or invalid")
+				return
+			}
+
+			if !isActive || !AllowedRTCodes[rtCode] {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt is not enabled or not allowed")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}

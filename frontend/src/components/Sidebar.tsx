@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAuth } from '@/app/AuthContext'
+import { useAuth, isAllowedRT } from '@/app/AuthContext'
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -46,13 +46,19 @@ export function Sidebar() {
   }, [])
 
   const isSuperAdmin = user?.systemRole === 'super_admin'
+  const allowedRT = isAllowedRT(user)
 
   const items: NavItem[] = [
     { to: '/', label: 'Beranda', icon: <DashboardOutlined />, id: 'dashboard' },
-    { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
-    { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
-    { to: '/kas', label: 'KAS', icon: <DollarOutlined />, id: 'kas' },
   ]
+
+  if (allowedRT) {
+    items.push(
+      { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+      { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
+      { to: '/kas', label: 'KAS', icon: <DollarOutlined />, id: 'kas' },
+    )
+  }
 
   if (isSuperAdmin) {
     items.push({ to: '/rt', label: 'RT', icon: <ApartmentOutlined />, id: 'rt' })

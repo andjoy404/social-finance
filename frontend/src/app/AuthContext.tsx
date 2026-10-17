@@ -3,6 +3,12 @@ import { apiLogin, apiMe, apiRefresh, apiLogout, setTokenManager, clearSessionPa
 
 export { ApiError } from '@/app/api'
 
+export const ALLOWED_RT_CODES = ['002', '003']
+export const ALLOWED_RT_IDS = [
+  'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', // RT 002
+  '8dfa1e36-6727-45be-8fea-24d958efc155', // RT 003
+]
+
 export interface AuthUser {
   id: string
   name: string
@@ -11,9 +17,22 @@ export interface AuthUser {
   role: string
   jabatan: string | null
   rt: { id: string; name: string } | null
+  rtCode?: string | null
+  rtId?: string | null
+}
+
+export function isAllowedRT(user: AuthUser | null): boolean {
+  if (!user) return false
+  if (user.systemRole === 'super_admin') return true
+  if (user.rtCode && ALLOWED_RT_CODES.includes(user.rtCode)) return true
+  if (user.rtId && ALLOWED_RT_IDS.includes(user.rtId)) return true
+  if (user.rt?.id && ALLOWED_RT_IDS.includes(user.rt.id)) return true
+  return false
 }
 
 function mapUser(raw: ApiUser): AuthUser {
+  const rtCode = raw.rt_rt ?? (raw.rt as { rt?: string } | null)?.rt ?? null
+  const rtId = raw.rt_id ?? raw.rt?.id ?? null
   return {
     id: raw.id,
     name: raw.full_name,
@@ -22,8 +41,11 @@ function mapUser(raw: ApiUser): AuthUser {
     role: raw.role,
     jabatan: raw.jabatan ?? null,
     rt: raw.rt ?? (raw.rt_id ? { id: raw.rt_id, name: raw.rt_name ?? '' } : null),
+    rtCode,
+    rtId,
   }
 }
+
 
 interface AuthContextValue {
   user: AuthUser | null

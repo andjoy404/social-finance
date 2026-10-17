@@ -6,11 +6,7 @@ import {
   CloseOutlined,
   DownOutlined,
   AlertOutlined,
-  EditOutlined,
-  DeleteOutlined,
 } from '@ant-design/icons'
-import { DatePicker } from 'antd'
-import dayjs from 'dayjs'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
@@ -77,9 +73,51 @@ export function IuranList() {
   // Payment modal state
   const [showPaymentBillId, setShowPaymentBillId] = useState<string | null>(null)
 
-  // Tab state: 'list-iuran' = tagihan, 'kelola-iuran' = konfigurasi iuran
-  type ActiveTab = 'list-iuran' | 'kelola-iuran'
-  const [activeTab, setActiveTab] = useState<ActiveTab>('list-iuran')
+  // URL search params (must be read before any code that uses searchParams)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Auth context (must be before any code that uses `user`)
+  const { user } = useAuth()
+
+  // Tab state: 'list-iuran' = tagihan RT, 'tagihan' = tagihan pribadi pengurus, 'kelola-iuran' = konfigurasi iuran
+  type ActiveTab = 'list-iuran' | 'tagihan' | 'kelola-iuran'
+  const initialTab = (() => {
+    const raw = searchParams.get('tab')
+    if (raw === 'kelola-iuran') return 'kelola-iuran' as const
+    if (raw === 'tagihan') return 'tagihan' as const
+    return 'list-iuran' as const
+  })()
+
+  // ═══════════════════════════════════════════════════
+  // Iuran Tab Access Control
+  // ═══════════════════════════════════════════════════
+
+  function canAccessIuranTabs(u: {
+    systemRole?: string | null
+    role?: string
+    jabatan?: string | null
+  }): boolean {
+    if (u.systemRole === 'super_admin') return true
+    if (typeof u.jabatan === 'string' && u.jabatan.length > 0) {
+      const accessJabatans = new Set(['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'])
+      return accessJabatans.has(u.jabatan)
+    }
+    switch (u.role) {
+      case 'pengurus':
+      case 'super_admin':
+        return true
+      default:
+        return false
+    }
+  }
+
+  const hasIuranAccess = user ? canAccessIuranTabs(user) : false
+
+  // Force default tab for users without Iuran access
+  const effectiveInitialTab: ActiveTab = hasIuranAccess
+    ? initialTab
+    : 'list-iuran'
+  const [activeTab, setActiveTab] = useState<ActiveTab>(effectiveInitialTab)
 
   // Dues data for "Kelola Iuran" tab
   const [dues, setDues] = useState<ApiDue[]>([])
@@ -94,11 +132,6 @@ export function IuranList() {
   // Deactivate due state
   const [deactivateDueId, setDeactivateDueId] = useState<string | null>(null)
   const [deactivateLoading, setDeactivateLoading] = useState(false)
-
-  // Month filter for Kelola Iuran tab
-  const [kelolaMonth, setKelolaMonth] = useState<string>('')
-
-  const [searchParams, setSearchParams] = useSearchParams()
 
   const initialSearch = searchParams.get('q') || searchParams.get('search') || ''
   const initialFilter = (searchParams.get('filter') as FilterType) ?? 'semua'
@@ -126,9 +159,11 @@ export function IuranList() {
     return () => clearTimeout(timer)
   }, [search])
 
-  // Synchronize search and filter state to URL search parameters for persistence across refreshes
+  // Sync activeTab + filter state to URL for persistence across refreshes
   useEffect(() => {
     const params = new URLSearchParams()
+    if (activeTab === 'kelola-iuran') params.set('tab', 'kelola-iuran')
+    else if (activeTab === 'tagihan') params.set('tab', 'tagihan')
     if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim())
     if (filterType !== 'semua') params.set('filter', filterType)
     if (statusValue) params.set('status', statusValue)
@@ -138,10 +173,9 @@ export function IuranList() {
     if (pageSize) params.set('page_size', String(pageSize))
 
     setSearchParams(params, { replace: true })
-  }, [debouncedSearch, filterType, statusValue, periodeValue, jenisValue, page, pageSize, setSearchParams])
+  }, [searchParams, debouncedSearch, filterType, statusValue, periodeValue, jenisValue, page, pageSize, activeTab, setSearchParams])
 
   // Notification state
-  const { user } = useAuth()
   const [wasteTruckStatus, setWasteTruckStatus] = useState<string | null>(null)
   const [wasteTruckLoading, setWasteTruckLoading] = useState(false)
 
@@ -172,7 +206,7 @@ export function IuranList() {
   const mapBill = useCallback((b: ApiBill): IuranBill => {
     const iuranType = b.due_name ?? 'Iuran'
     const householdName = b.head_name ?? b.house_number ?? 'Unknown'
-    const rt = b.rt_code ? `RT ${b.rt_code}` : 'RT —'
+    const rt = b.rt_code ? b.rt_code.replace(/^RT\s*/i, '') : '—'
     const nominal = parseMoney(b.amount)
     const isVoluntary = Boolean(b.is_voluntary || nominal === 0)
     const status: IuranStatus = (isVoluntary && nominal === 0)
@@ -183,6 +217,7 @@ export function IuranList() {
       id: b.id,
       householdId: b.household_occupancy_id,
       householdName,
+      houseNumber: b.house_number ?? undefined,
       rt,
       iuranType,
       periode: b.period,
@@ -214,6 +249,7 @@ export function IuranList() {
       if (statusValue === 'lunas') apiStatus = 'paid'
       else if (statusValue === 'belum_bayar') apiStatus = 'unpaid'
       else if (statusValue === 'dibatalkan') apiStatus = 'cancelled'
+      else if (statusValue === 'sebagian') apiStatus = 'partial'
 
       const resp = await apiListBills(token, {
         page,
@@ -221,6 +257,8 @@ export function IuranList() {
         search: debouncedSearch.trim() || undefined,
         status: apiStatus,
         period: periodeValue || undefined,
+        due_name: jenisValue || undefined,
+        my_bills: activeTab === 'tagihan' ? true : undefined,
       })
 
       if (currentReq !== requestIdRef.current) {
@@ -252,7 +290,7 @@ export function IuranList() {
         setLoading(false)
       }
     }
-  }, [page, pageSize, debouncedSearch, statusValue, periodeValue, mapBill])
+  }, [page, pageSize, debouncedSearch, statusValue, periodeValue, jenisValue, activeTab, mapBill])
 
   useEffect(() => {
     void loadData()
@@ -313,42 +351,39 @@ export function IuranList() {
     }
   }, [activeTab, loadDues])
 
-  // Filter returned bills strictly by bill name (nama tagihan / due_name)
-  const filteredBills = useMemo(() => {
-    let result = allBills
-
-    if (debouncedSearch.trim()) {
-      const q = debouncedSearch.trim().toLowerCase()
-      result = result.filter((b) => b.iuranType.toLowerCase().includes(q))
-    }
-
-    if (statusValue) {
-      if (statusValue === 'sukarela') {
-        result = result.filter((b) => b.status === 'sukarela' || b.isVoluntary)
-      } else {
-        result = result.filter((b) => b.status === statusValue)
+  // Client-side filter for Kelola Iuran: search by name, filter by period_type
+  // (Due model lacks server-side search/filter — backend API only supports { is_active })
+  const filteredDues = useMemo(() => {
+    if (dues.length === 0) return dues
+    return dues.filter((due) => {
+      // Search: match against due name (case-insensitive)
+      if (debouncedSearch.trim()) {
+        const q = debouncedSearch.toLowerCase()
+        if (!due.name.toLowerCase().includes(q)) return false
       }
-    }
+      // Filter by period_type (FREKUENSI)
+      if (filterType === 'jenis' && jenisValue) {
+        const expectedType = jenisValue === 'bulanan' ? 'monthly'
+          : jenisValue === 'tahunan' ? 'yearly'
+          : 'one_time'
+        if (due.period_type !== expectedType) return false
+      }
+      return true
+    })
+  }, [dues, debouncedSearch, filterType, jenisValue])
 
-    if (periodeValue) {
-      result = result.filter((b) => b.periode === periodeValue)
-    }
+  // No client-side filtering needed — backend handles status/periode/jenis/search.
+  // filteredBills = allBills which already comes from server with applied filters.
+  const filteredBills = useMemo(() => allBills, [allBills])
 
-    if (jenisValue) {
-      result = result.filter((b) => b.iuranType === jenisValue)
-    }
-
-    return result
-  }, [allBills, debouncedSearch, statusValue, periodeValue, jenisValue])
-
-  const displayTotal = total > 0 ? total : filteredBills.length
+  const displayTotal = total > 0 ? total : allBills.length
   const displayTotalPages = totalPages > 0 ? totalPages : Math.max(1, Math.ceil(displayTotal / pageSize))
   const paginatedBills = useMemo(() => {
     if (allBills.length > pageSize) {
-      return filteredBills.slice((page - 1) * pageSize, page * pageSize)
+      return allBills.slice((page - 1) * pageSize, page * pageSize)
     }
-    return filteredBills
-  }, [filteredBills, allBills.length, page, pageSize])
+    return allBills
+  }, [allBills, page, pageSize])
 
   // Load payments for visible bills on active page to calculate paidAmount & pendingAmount
   useEffect(() => {
@@ -505,10 +540,6 @@ export function IuranList() {
   // ═══════════════════════════════════════════════════
   // Deactivate due handlers
   // ═══════════════════════════════════════════════════
-  const handleOpenDeactivate = useCallback((dueId: string) => {
-    setDeactivateDueId(dueId)
-  }, [])
-
   const handleConfirmDeactivate = useCallback(async () => {
     const token = getSessionPair()?.accessToken
     if (!token || !deactivateDueId) return
@@ -699,23 +730,7 @@ export function IuranList() {
               }
             />
 
-            {/* Month filter for Kelola Iuran tab — in toolbar, horizontal with search */}
-            {activeTab === 'kelola-iuran' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
-                <span style={{ fontSize: '13px', color: 'var(--sf-text-muted)', whiteSpace: 'nowrap' }}>Saring Bulan:</span>
-                <DatePicker
-                  picker="month"
-                  value={kelolaMonth ? dayjs(kelolaMonth, 'YYYY-MM') : null}
-                  onChange={(date) => {
-                    setKelolaMonth(date ? date.format('YYYY-MM') : '')
-                  }}
-                  style={{ width: 160 }}
-                  placeholder="Pilih bulan"
-                  allowClear
-                  format="YYYY-MM"
-                />
-              </div>
-            )}
+            {/* No filter — Kelola Iuran shows all active dues */}
           </div>
 
           {/* Create Due and Waste Truck buttons */}
@@ -748,46 +763,67 @@ export function IuranList() {
         </div>
 
         {/* Tab Navigation */}
-        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '16px' }}>
-          <button
-            type="button"
-            onClick={() => setActiveTab('list-iuran')}
-            style={{
-              padding: '10px 20px',
-              fontSize: '14px',
-              fontWeight: activeTab === 'list-iuran' ? 600 : 400,
-              color: activeTab === 'list-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              borderBottom: activeTab === 'list-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              background: 'none',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-              transition: 'all 150ms ease',
-            }}
-          >
-            List Iuran
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('kelola-iuran')}
-            style={{
-              padding: '10px 20px',
-              fontSize: '14px',
-              fontWeight: activeTab === 'kelola-iuran' ? 600 : 400,
-              color: activeTab === 'kelola-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              borderBottom: activeTab === 'kelola-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              background: 'none',
-              borderLeft: 'none',
-              borderRight: 'none',
-              borderTop: 'none',
-              cursor: 'pointer',
-              transition: 'all 150ms ease',
-            }}
-          >
-            Kelola Iuran
-          </button>
-        </div>
+        {hasIuranAccess && (
+          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '16px' }}>
+            <button
+              type="button"
+              onClick={() => { setActiveTab('list-iuran'); setPage(1); }}
+              style={{
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: activeTab === 'list-iuran' ? 600 : 400,
+                color: activeTab === 'list-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                borderBottom: activeTab === 'list-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                background: 'none',
+                borderLeft: 'none',
+                borderRight: 'none',
+                borderTop: 'none',
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
+              }}
+            >
+              List Iuran
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveTab('tagihan'); setPage(1); }}
+              style={{
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: activeTab === 'tagihan' ? 600 : 400,
+                color: activeTab === 'tagihan' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                borderBottom: activeTab === 'tagihan' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                background: 'none',
+                borderLeft: 'none',
+                borderRight: 'none',
+                borderTop: 'none',
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
+              }}
+            >
+              Tagihan
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveTab('kelola-iuran'); setPage(1); }}
+              style={{
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: activeTab === 'kelola-iuran' ? 600 : 400,
+                color: activeTab === 'kelola-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                borderBottom: activeTab === 'kelola-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                background: 'none',
+                borderLeft: 'none',
+                borderRight: 'none',
+                borderTop: 'none',
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
+              }}
+            >
+              Kelola Iuran
+            </button>
+          </div>
+        )}
 
         {wasteTruckStatus && activeTab === 'list-iuran' && (
           <div
@@ -830,6 +866,7 @@ export function IuranList() {
             billId={showDetailBillId}
             open
             onClose={() => setShowDetailBillId(null)}
+            onStatusChange={loadData}
             onPayment={(billId) => {
               setShowDetailBillId(null)
               setShowPaymentBillId(billId)
@@ -857,86 +894,67 @@ export function IuranList() {
                 onClose={handleCloseEdit}
               />
               <ModalBody>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {/* Name */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: 'var(--sf-text-muted)' }}>
-                      Nama Iuran
-                    </label>
+                <div className="sf-form-field">
+                  <label className="sf-form-label" htmlFor="edit-due-name">Nama Iuran</label>
+                  <input
+                    id="edit-due-name"
+                    className="sf-form-input"
+                    type="text"
+                    value={editDueForm.name}
+                    onChange={(e) => setEditDueForm({ ...editDueForm, name: e.target.value })}
+                    placeholder="Nama iuran"
+                  />
+                </div>
+                <div className="sf-form-field">
+                  <label className="sf-form-label" htmlFor="edit-due-amount">Nominal</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <input
+                      id="edit-due-amount"
+                      className="sf-form-input"
                       type="text"
-                      value={editDueForm.name}
-                      onChange={(e) => setEditDueForm({ ...editDueForm, name: e.target.value })}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--sf-border)', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}
-                      placeholder="Nama iuran"
+                      value={editDueForm.amount}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/\D/g, '')
+                        setEditDueForm({ ...editDueForm, amount: raw || '0' })
+                      }}
+                      disabled={editDueForm.is_voluntary}
+                      placeholder="0"
                     />
-                  </div>
-                  {/* Amount / Sukarela toggle */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: 'var(--sf-text-muted)' }}>
-                      Nominal
-                    </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
                       <input
-                        type="text"
-                        value={editDueForm.amount}
-                        onChange={(e) => {
-                          const raw = e.target.value.replace(/\D/g, '')
-                          setEditDueForm({ ...editDueForm, amount: raw || '0' })
-                        }}
-                        disabled={editDueForm.is_voluntary}
-                        style={{
-                          flex: 1,
-                          padding: '8px 12px',
-                          border: `1px solid ${editDueForm.is_voluntary ? 'var(--sf-border)' : 'var(--sf-border)'}`,
-                          borderRadius: '6px',
-                          fontSize: '14px',
-                          fontFamily: 'monospace',
-                          color: editDueForm.is_voluntary ? 'var(--sf-text-muted)' : 'inherit',
-                          background: editDueForm.is_voluntary ? 'var(--sf-bg-secondary)' : 'white',
-                        }}
-                        placeholder="0"
+                        type="checkbox"
+                        checked={editDueForm.is_voluntary}
+                        onChange={(e) => setEditDueForm({ ...editDueForm, is_voluntary: e.target.checked })}
+                        style={{ accentColor: 'var(--sf-accent)' }}
                       />
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={editDueForm.is_voluntary}
-                          onChange={(e) => setEditDueForm({ ...editDueForm, is_voluntary: e.target.checked })}
-                          style={{ accentColor: 'var(--sf-accent)' }}
-                        />
-                        Sukarela (Rp0)
-                      </label>
-                    </div>
-                  </div>
-                  {/* Period type */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: 'var(--sf-text-muted)' }}>
-                      Frekuensi
+                      Sukarela (Rp0)
                     </label>
-                    <select
-                      value={editDueForm.period_type}
-                      onChange={(e) => setEditDueForm({ ...editDueForm, period_type: e.target.value as 'monthly' | 'yearly' | 'one_time' })}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--sf-border)', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}
-                    >
-                      <option value="monthly">Bulanan</option>
-                      <option value="yearly">Tahunan</option>
-                      <option value="one_time">Sekali Waktu</option>
-                    </select>
                   </div>
-                  {/* Payment rule */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: 'var(--sf-text-muted)' }}>
-                      Aturan Pembayaran
-                    </label>
-                    <select
-                      value={editDueForm.payment_rule}
-                      onChange={(e) => setEditDueForm({ ...editDueForm, payment_rule: e.target.value as 'full' | 'partial' })}
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--sf-border)', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' }}
-                    >
-                      <option value="full">Seluruh</option>
-                      <option value="partial">Sebagian</option>
-                    </select>
-                  </div>
+                </div>
+                <div className="sf-form-field">
+                  <label className="sf-form-label" htmlFor="edit-due-period">Frekuensi</label>
+                  <select
+                    id="edit-due-period"
+                    className="sf-form-select"
+                    value={editDueForm.period_type}
+                    onChange={(e) => setEditDueForm({ ...editDueForm, period_type: e.target.value as 'monthly' | 'yearly' | 'one_time' })}
+                  >
+                    <option value="monthly">Bulanan</option>
+                    <option value="yearly">Tahunan</option>
+                    <option value="one_time">Sekali Waktu</option>
+                  </select>
+                </div>
+                <div className="sf-form-field">
+                  <label className="sf-form-label" htmlFor="edit-due-rule">Aturan Pembayaran</label>
+                  <select
+                    id="edit-due-rule"
+                    className="sf-form-select"
+                    value={editDueForm.payment_rule}
+                    onChange={(e) => setEditDueForm({ ...editDueForm, payment_rule: e.target.value as 'full' | 'partial' })}
+                  >
+                    <option value="full">Seluruh</option>
+                    <option value="partial">Sebagian</option>
+                  </select>
                 </div>
               </ModalBody>
               <ModalFooter>
@@ -998,8 +1016,8 @@ export function IuranList() {
           </div>
         )}
 
-        {/* ═══ TAB: LIST IURAN ═══ */}
-        {activeTab === 'list-iuran' && (
+        {/* ═══ TAB: LIST IURAN & TAGIHAN ═══ */}
+        {(activeTab === 'list-iuran' || activeTab === 'tagihan') && (
           <>
             {/* Error */}
             {error && (
@@ -1018,7 +1036,7 @@ export function IuranList() {
             {/* Empty */}
             {!loading && !error && filteredBills.length === 0 && (
               <div className="sf-empty-banner">
-                Tidak ada data iuran.
+                {search.trim() ? 'Tidak ada data iuran.' : 'Belum ada tagihan.'}
               </div>
             )}
 
@@ -1076,11 +1094,13 @@ export function IuranList() {
                             {formatRupiah(bill.nominal)}
                           </td>
                           <td style={colStyles.paid}>
-                            {formatRupiah(bill.paidAmount)}
+                            <span style={{ color: (bill.paidAmount ?? 0) > 0 ? 'var(--sf-success)' : undefined, fontWeight: (bill.paidAmount ?? 0) > 0 ? 600 : 400 }}>
+                              {formatRupiah(bill.paidAmount)}
+                            </span>
                           </td>
                           <td style={colStyles.pending}>
                             {hasPending ? (
-                              <span style={{ color: 'var(--sf-warning)' }}>
+                              <span style={{ color: 'var(--sf-warning)', fontWeight: 600 }}>
                                 {formatRupiah(bill.pendingAmount)}
                               </span>
                             ) : (
@@ -1133,29 +1153,14 @@ export function IuranList() {
             )}
 
             {/* Empty */}
-            {!duesLoading && !duesError && dues.length === 0 && (
+            {!duesLoading && !duesError && filteredDues.length === 0 && (
               <div className="sf-empty-banner">
                 Belum ada konfigurasi iuran. Klik "Tambah Iuran" untuk membuat.
               </div>
             )}
 
-            {/* Dues Table */}
-            {!duesLoading && dues.length > 0 && (() => {
-              // Filter dues by selected month (monthly dues only)
-              const filteredDues = kelolaMonth
-                ? dues.filter((due) => {
-                    // For monthly dues: check period matches
-                    if (due.period_type === 'monthly') {
-                      return due.amount === kelolaMonth
-                    }
-                    // For yearly/one_time/voluntary: always show
-                    return true
-                  })
-                : dues
-
-              if (kelolaMonth && filteredDues.length === 0) {
-                return <div className="sf-empty-banner">Tidak ada iuran bulanan untuk periode {kelolaMonth}.</div>
-              }
+            {/* Dues Table — row click opens Edit Due modal */}
+            {!duesLoading && filteredDues.length > 0 && (
               <div className="table-wrapper">
                 <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
                   <thead>
@@ -1165,7 +1170,6 @@ export function IuranList() {
                       <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>FREKUENSI</th>
                       <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>ATURAN</th>
                       <th style={{ width: 110, minWidth: 110, textAlign: 'center' }}>TIPE</th>
-                      <th style={{ width: 120, minWidth: 120, textAlign: 'center' }}>AKSI</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1177,7 +1181,19 @@ export function IuranList() {
                       const ruleLabel = (due.payment_rule ?? 'full') === 'full' ? 'Seluruh' : 'Sebagian'
 
                       return (
-                        <tr key={due.id}>
+                        <tr
+                          key={due.id}
+                          onClick={() => handleOpenEdit(due)}
+                          style={{ cursor: 'pointer' }}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              handleOpenEdit(due)
+                            }
+                          }}
+                        >
                           <td style={colStyles.name}>
                             <span style={{ fontWeight: 600 }}>{due.name}</span>
                           </td>
@@ -1195,30 +1211,28 @@ export function IuranList() {
                             {ruleLabel}
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <Badge variant={isVoluntary ? 'blue' : 'default'}>
-                              {isVoluntary ? 'Sukarela' : 'Reguler'}
-                            </Badge>
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                              <button
-                                type="button"
-                                className="sf-btn-secondary"
-                                onClick={(e) => { e.stopPropagation(); handleOpenEdit(due) }}
-                                title="Edit"
-                              >
-                                <EditOutlined style={{ fontSize: 12 }} />
-                              </button>
-                              <button
-                                type="button"
-                                className="sf-btn-danger"
-                                onClick={(e) => { e.stopPropagation(); handleOpenDeactivate(due.id) }}
-                                title="Nonaktifkan"
-                                disabled={deactivateLoading}
-                              >
-                                <DeleteOutlined style={{ fontSize: 12 }} />
-                              </button>
-                            </div>
+                            {isVoluntary ? (
+                              <Badge variant="blue">Sukarela</Badge>
+                            ) : (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '0 8px',
+                                fontSize: '11px',
+                                fontWeight: 400,
+                                borderRadius: '5px',
+                                border: '1px solid rgba(16, 185, 129, 0.30)',
+                                background: 'rgba(16, 185, 129, 0.08)',
+                                color: '#059669',
+                                lineHeight: 1.2,
+                                height: '22px',
+                                boxSizing: 'border-box',
+                                boxShadow: '0 0 8px rgba(16, 185, 129, 0.08)',
+                                fontFamily: 'inherit',
+                              }}>
+                                Reguler
+                              </span>
+                            )}
                           </td>
                         </tr>
                       )
@@ -1226,7 +1240,7 @@ export function IuranList() {
                   </tbody>
                 </table>
               </div>
-            })()}
+            )}
           </>
         )}
       </div>

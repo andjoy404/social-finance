@@ -3,10 +3,15 @@ package notification_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"social-finance/internal/auth"
 	"social-finance/internal/notification"
 )
 
@@ -265,6 +270,54 @@ func TestPaymentVerificationNotificationTargeting(t *testing.T) {
 	}
 }
 
+func TestBillCreatedNotificationTargeting(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	billID := "bill-sukarela-1"
+	recipientUser := "user-warga-target"
+	targetToken := "tok-target-123"
+
+	// Register device for intended recipient
+	_ = repo.RegisterDevice(ctx, recipientUser, targetToken, "android", nil)
+	repo.billUsers[billID] = []string{recipientUser}
+
+	// Another resident that must NOT receive this bill notification
+	otherUser := "user-warga-other"
+	otherToken := "tok-other-456"
+	_ = repo.RegisterDevice(ctx, otherUser, otherToken, "android", nil)
+
+	// Dispatch bill notification
+	svc.NotifyBillCreated(ctx, rtID, billID, nil)
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 push message sent to target bill recipient, got %d", len(msgs))
+	}
+	if msgs[0].Token != targetToken {
+		t.Errorf("expected token %s, got %s", targetToken, msgs[0].Token)
+	}
+	if msgs[0].Data["type"] != notification.EventBillCreated {
+		t.Errorf("expected event type %s, got %s", notification.EventBillCreated, msgs[0].Data["type"])
+	}
+	if msgs[0].Data["bill_id"] != billID {
+		t.Errorf("expected bill_id %s, got %s", billID, msgs[0].Data["bill_id"])
+	}
+
+	// Deduplication test: re-dispatching same bill to same user should be skipped
+	svc.NotifyBillCreated(ctx, rtID, billID, nil)
+	time.Sleep(100 * time.Millisecond)
+
+	msgs2 := provider.GetMessages()
+	if len(msgs2) != 1 {
+		t.Fatalf("expected deduplication to prevent duplicate bill message, got %d messages", len(msgs2))
+	}
+}
+
 func TestNotificationFailureDoesNotPanicOrCrash(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -307,3 +360,244 @@ func TestInvalidTokenDeactivation(t *testing.T) {
 	}
 }
 
+func TestFCMProviderEmptyCredentialsFallback(t *testing.T) {
+	provider := notification.NewFCMProvider("")
+	ctx := context.Background()
+
+	err := provider.Send(ctx, "token-123", "Test Title", "Test Body", map[string]string{"type": "test"})
+	if err != nil {
+		t.Fatalf("expected nil error on mock fallback, got %v", err)
+	}
+
+	msgs := provider.Fallback().GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message in fallback provider, got %d", len(msgs))
+	}
+	if msgs[0].Title != "Test Title" {
+		t.Errorf("expected title 'Test Title', got '%s'", msgs[0].Title)
+	}
+}
+
+func TestFCMProviderInvalidPathFallback(t *testing.T) {
+	provider := notification.NewFCMProvider("/non/existent/path/service-account.json")
+	ctx := context.Background()
+
+	err := provider.Send(ctx, "token-456", "Fallback Title", "Fallback Body", map[string]string{"type": "test"})
+	if err != nil {
+		t.Fatalf("expected nil error on mock fallback, got %v", err)
+	}
+
+	msgs := provider.Fallback().GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message in fallback provider, got %d", len(msgs))
+	}
+}
+
+func TestFCMProviderInvalidJSONFallback(t *testing.T) {
+	provider := notification.NewFCMProvider("{invalid-json")
+	ctx := context.Background()
+
+	err := provider.Send(ctx, "token-789", "Fallback Title", "Fallback Body", map[string]string{"type": "test"})
+	if err != nil {
+		t.Fatalf("expected nil error on mock fallback, got %v", err)
+	}
+
+	msgs := provider.Fallback().GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message in fallback provider, got %d", len(msgs))
+	}
+}
+
+func TestFCMProviderProductionRejectsMissingCredentials(t *testing.T) {
+	provider := notification.NewFCMProvider("", "production")
+	ctx := context.Background()
+
+	err := provider.Send(ctx, "token-prod-1", "Prod Title", "Prod Body", map[string]string{"type": "test"})
+	if err == nil {
+		t.Fatal("expected error in production when credentials are missing, got nil")
+	}
+}
+
+func TestFCMProviderProductionRejectsInvalidCredentials(t *testing.T) {
+	provider := notification.NewFCMProvider("/missing/file.json", "production")
+	ctx := context.Background()
+
+	err := provider.Send(ctx, "token-prod-2", "Prod Title", "Prod Body", map[string]string{"type": "test"})
+	if err == nil {
+		t.Fatal("expected error in production when credentials file is missing, got nil")
+	}
+}
+
+func TestGeneralPayloadErrorDoesNotDeactivateToken(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	// Simulate bad request payload error that is NOT a token error
+	provider.SetSendError(errors.New("fcm: bad request payload: message field exceeds limit"))
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-valid-token"
+	tok := "tok-still-valid-789"
+	_ = repo.RegisterDevice(ctx, submitterUser, tok, "android", nil)
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-1", "pay-1", submitterUser, "APPROVED", "")
+	time.Sleep(100 * time.Millisecond)
+
+	tokens, err := repo.GetTokensForUser(ctx, submitterUser)
+	if err != nil {
+		t.Fatalf("failed to get tokens: %v", err)
+	}
+	if len(tokens) != 1 || tokens[0] != tok {
+		t.Fatalf("expected valid token to remain active on payload error, but got: %v", tokens)
+	}
+}
+
+func TestFCMProviderProjectIDMethods(t *testing.T) {
+	provider := notification.NewFCMProvider("", "development")
+	if provider.ProjectID() != "social-finance-andjoy" {
+		t.Fatalf("expected default project ID 'social-finance-andjoy', got '%s'", provider.ProjectID())
+	}
+
+	provider.SetProjectID("custom-project-id")
+	if provider.ProjectID() != "custom-project-id" {
+		t.Fatalf("expected custom project ID 'custom-project-id', got '%s'", provider.ProjectID())
+	}
+}
+
+func TestFCMProviderLiveServiceAccountAndTokenExchange(t *testing.T) {
+	credsPath := os.Getenv("FCM_CREDENTIALS_FILE")
+	if credsPath == "" {
+		credsPath = "/Users/Andriyan/Documents/apx/devl/social-finance/secret/social-finance-andjoy-93df7226d69d.json"
+	}
+	if _, err := os.Stat(credsPath); os.IsNotExist(err) {
+		t.Skip("skipping live credentials test: service account file not found")
+	}
+
+	provider := notification.NewFCMProvider(credsPath, "production")
+	if provider.ProjectID() != "social-finance-andjoy" {
+		t.Fatalf("expected project ID 'social-finance-andjoy', got '%s'", provider.ProjectID())
+	}
+
+	// Attempt live send with a dummy test token.
+	// Since credentials are valid, this connects to Google OAuth2 and FCM HTTP v1 API,
+	// returning ErrTokenInvalid or ErrTokenUnregistered (not an OAuth or credential failure).
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	err := provider.Send(ctx, "test-invalid-device-token-123456", "Test Title", "Test Body", map[string]string{"type": "test"})
+	if err == nil {
+		t.Fatal("expected invalid token error, got nil")
+	}
+
+	errStr := err.Error()
+	if strings.Contains(errStr, "production configuration error") ||
+		strings.Contains(errStr, "production requires valid live credentials") ||
+		strings.Contains(errStr, "oauth token retrieval failed") {
+		t.Fatalf("unexpected auth/credentials failure: %v", err)
+	}
+
+	t.Logf("Live Google FCM exchange verified successfully. Gateway response: %v", err)
+}
+
+func TestSelfTestRequiresAuth(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+	handler := notification.NewHandler(svc, "development")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)
+	rr := httptest.NewRecorder()
+
+	handler.TestSelf(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 unauthorized, got %d", rr.Code)
+	}
+}
+
+func TestSelfTestRejectedInProduction(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+	handler := notification.NewHandler(svc, "production")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)
+	ctx := context.WithValue(req.Context(), auth.AuthContextKey, &auth.AuthContext{
+		UserID: "user-123",
+		RTID:   "rt-123",
+	})
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	handler.TestSelf(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 in production, got %d", rr.Code)
+	}
+}
+
+func TestSelfTestOnlyTargetsAuthenticatedUser(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+	handler := notification.NewHandler(svc, "development")
+
+	// Register device for user-1
+	_ = repo.RegisterDevice(context.Background(), "user-1", "tok-user-1", "android", nil)
+	// Register device for user-2
+	_ = repo.RegisterDevice(context.Background(), "user-2", "tok-user-2", "android", nil)
+
+	// Call TestSelf as user-1
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)
+	ctx := context.WithValue(req.Context(), auth.AuthContextKey, &auth.AuthContext{
+		UserID: "user-1",
+		RTID:   "rt-1",
+	})
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	handler.TestSelf(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rr.Code)
+	}
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message dispatched, got %d", len(msgs))
+	}
+	if msgs[0].Token != "tok-user-1" {
+		t.Fatalf("expected message to user-1 token, got %s", msgs[0].Token)
+	}
+	if msgs[0].Data["type"] != "test_self" {
+		t.Fatalf("expected payload type test_self, got %s", msgs[0].Data["type"])
+	}
+}
+
+func TestSelfTestNoBroadcastAndZeroDevices(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+	handler := notification.NewHandler(svc, "development")
+
+	// User without devices
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)
+	ctx := context.WithValue(req.Context(), auth.AuthContextKey, &auth.AuthContext{
+		UserID: "user-no-device",
+		RTID:   "rt-1",
+	})
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	handler.TestSelf(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rr.Code)
+	}
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 messages dispatched, got %d", len(msgs))
+	}
+}

@@ -318,7 +318,7 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 	return &b, nil
 }
 
-func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period, search *string, offset, limit int) ([]*Bill, error) {
+func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period, search, dueName *string, offset, limit int) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
 	                 d.name as due_name, ph.house_number, h.head_name, d.is_voluntary
 	          FROM bills b
@@ -353,8 +353,13 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		pos++
 	}
 	if search != nil && *search != "" {
-		query += fmt.Sprintf(" AND d.name ILIKE $%d", pos)
+		query += fmt.Sprintf(" AND (d.name ILIKE $%d OR h.head_name ILIKE $%d OR ph.house_number ILIKE $%d)", pos, pos, pos)
 		args = append(args, "%"+*search+"%")
+		pos++
+	}
+	if dueName != nil && *dueName != "" {
+		query += fmt.Sprintf(" AND d.name = $%d", pos)
+		args = append(args, *dueName)
 		pos++
 	}
 
@@ -391,8 +396,13 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 	return list, nil
 }
 
-func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period, search *string) (int, error) {
-	query := `SELECT COUNT(*) FROM bills b JOIN dues d ON b.due_id = d.id WHERE b.rt_id = $1`
+func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period, search, dueName *string) (int, error) {
+	query := `SELECT COUNT(*) FROM bills b
+JOIN dues d ON b.due_id = d.id
+JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+JOIN households h ON ho.household_id = h.id
+LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+WHERE b.rt_id = $1`
 	args := []interface{}{rtID}
 	pos := 2
 
@@ -417,8 +427,13 @@ func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID,
 		pos++
 	}
 	if search != nil && *search != "" {
-		query += fmt.Sprintf(" AND d.name ILIKE $%d", pos)
+		query += fmt.Sprintf(" AND (d.name ILIKE $%d OR h.head_name ILIKE $%d OR ph.house_number ILIKE $%d)", pos, pos, pos)
 		args = append(args, "%"+*search+"%")
+		pos++
+	}
+	if dueName != nil && *dueName != "" {
+		query += fmt.Sprintf(" AND d.name = $%d", pos)
+		args = append(args, *dueName)
 		pos++
 	}
 
@@ -601,7 +616,7 @@ func GetOccupancyIDForUser(ctx context.Context, tx *sql.Tx, rtID, userID string)
 	err := tx.QueryRowContext(ctx,
 		`SELECT ho.id
 		 FROM users u
-		 JOIN residents r ON r.phone = u.phone AND r.rt_id = $1 AND r.is_active = true
+		 JOIN residents r ON (r.user_id = u.id OR (r.phone = u.phone AND u.phone != '')) AND r.rt_id = $1 AND r.is_active = true
 		 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 		 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
 		 WHERE u.id = $2
@@ -859,18 +874,19 @@ func PaymentVerify(ctx context.Context, tx *sql.Tx, id, rtID, verifierID string,
 		id, rtID,
 	).Scan(&existingNo)
 	if err == nil && existingNo == "" {
-		// Under row lock: safe to read MAX and write back.
+		dateStr := time.Now().Format("20060102")
 		var seq int64
 		err = tx.QueryRowContext(ctx,
-			`SELECT COALESCE(MAX(CAST(SUBSTRING(payment_no FROM 15) AS INTEGER)), 0)
+			`SELECT COALESCE(MAX(CAST(SUBSTRING(payment_no FROM 14) AS INTEGER)), 0)
 			 FROM payments
-			 WHERE payment_no LIKE 'PAY-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-%'`,
+			 WHERE payment_no LIKE 'PAY-' || $1 || '-%'`,
+			dateStr,
 		).Scan(&seq)
 		if err != nil {
 			seq = 0
 		}
 		seq++
-		v := fmt.Sprintf("PAY-%s-%05d", time.Now().Format("20060102"), seq)
+		v := fmt.Sprintf("PAY-%s-%05d", dateStr, seq)
 		p.PaymentNo = &v
 	} else if err == nil && existingNo != "" {
 		v := existingNo
@@ -941,34 +957,59 @@ func PaymentAttachProof(ctx context.Context, tx *sql.Tx, paymentID, rtID, proofP
 
 // --- Transactions (Immutable Ledger) Repository ---
 
-func TransactionCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateTransactionInput, status TransactionStatus, reversesID, paymentID *string, occurredAt time.Time) (*Transaction, error) {
+func TransactionCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateTransactionInput, status TransactionStatus, reversesID, paymentID, createdBy *string, occurredAt time.Time) (*Transaction, error) {
 	var t Transaction
+	var payMethod *string
+	if in.PaymentMethod != nil && *in.PaymentMethod != "" {
+		m := strings.ToUpper(strings.TrimSpace(*in.PaymentMethod))
+		payMethod = &m
+	}
+	var payMethodStr, createdByStr sql.NullString
 	err := tx.QueryRowContext(ctx,
-		`INSERT INTO transactions (rt_id, category_id, amount, type, status, reverses_transaction_id, payment_id, description, occurred_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING id, rt_id, category_id, amount::text, type, status, reverses_transaction_id, payment_id, description, occurred_at, created_at, updated_at`,
-		rtID, in.CategoryID, in.Amount, in.Type, status, reversesID, paymentID, in.Description, occurredAt,
-	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status, &t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt)
+		`INSERT INTO transactions (rt_id, category_id, amount, type, status, reverses_transaction_id, payment_id, description, occurred_at, payment_method, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 RETURNING id, rt_id, category_id, amount::text, type, status, reverses_transaction_id, payment_id, description, occurred_at, created_at, updated_at, payment_method, created_by::text`,
+		rtID, in.CategoryID, in.Amount, in.Type, status, reversesID, paymentID, in.Description, occurredAt, payMethod, createdBy,
+	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status, &t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt, &payMethodStr, &createdByStr)
 	if err != nil {
 		return nil, fmt.Errorf("create transaction: %w", err)
+	}
+	if payMethodStr.Valid {
+		t.PaymentMethod = &payMethodStr.String
+	}
+	if createdByStr.Valid {
+		t.CreatedBy = &createdByStr.String
 	}
 	return &t, nil
 }
 
 func TransactionGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Transaction, error) {
 	var t Transaction
-	var catName sql.NullString
+	var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber sql.NullString
 	err := tx.QueryRowContext(ctx,
 		`SELECT t.id, t.rt_id, t.category_id, t.amount::text, t.type, t.status,
 		        t.reverses_transaction_id, t.payment_id, t.description, t.occurred_at, t.created_at, t.updated_at,
-		        fc.name as category_name
+		        fc.name as category_name, p.payment_no, t.payment_method,
+		        t.created_by::text,
+		        COALESCE(u_creator.full_name, u_creator.email) as officer_name,
+		        COALESCE(d.name, '') as due_name,
+		        COALESCE(NULLIF(u_warga.full_name, ''), NULLIF(h.head_name, ''), 'Warga') as citizen_name,
+		        COALESCE(ph.house_number, '') as house_number
 		 FROM transactions t
 		 JOIN financial_categories fc ON t.category_id = fc.id
+		 LEFT JOIN users u_creator ON t.created_by = u_creator.id
+		 LEFT JOIN payments p ON t.payment_id = p.id
+		 LEFT JOIN bills b ON p.bill_id = b.id
+		 LEFT JOIN dues d ON (p.due_id = d.id OR (p.due_id IS NULL AND b.due_id = d.id))
+		 LEFT JOIN users u_warga ON p.submitted_by = u_warga.id
+		 LEFT JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+		 LEFT JOIN households h ON ho.household_id = h.id
 		 WHERE t.id = $1 AND t.rt_id = $2 LIMIT 1`,
 		id, rtID,
 	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
 		&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
-		&catName)
+		&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -978,15 +1019,49 @@ func TransactionGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Tran
 	if catName.Valid {
 		t.CategoryName = &catName.String
 	}
+	if payNo.Valid {
+		t.PaymentNo = &payNo.String
+	}
+	if payMethod.Valid {
+		t.PaymentMethod = &payMethod.String
+	}
+	if createdBy.Valid {
+		t.CreatedBy = &createdBy.String
+	}
+	if officerName.Valid && officerName.String != "" {
+		t.OfficerName = &officerName.String
+	}
+	if dueName.Valid && dueName.String != "" {
+		t.DueName = &dueName.String
+	}
+	if citizenName.Valid && citizenName.String != "" {
+		t.CitizenName = &citizenName.String
+	}
+	if houseNumber.Valid && houseNumber.String != "" {
+		t.HouseNumber = &houseNumber.String
+	}
 	return &t, nil
 }
 
 func TransactionList(ctx context.Context, tx *sql.Tx, rtID string, categoryID, transType, status, startDate, endDate *string, offset, limit int) ([]*Transaction, error) {
 	query := `SELECT t.id, t.rt_id, t.category_id, t.amount::text, t.type, t.status,
 	                 t.reverses_transaction_id, t.payment_id, t.description, t.occurred_at, t.created_at, t.updated_at,
-	                 fc.name as category_name
+	                 fc.name as category_name, p.payment_no, t.payment_method,
+	                 t.created_by::text,
+	                 COALESCE(u_creator.full_name, u_creator.email) as officer_name,
+	                 COALESCE(d.name, '') as due_name,
+	                 COALESCE(NULLIF(u_warga.full_name, ''), NULLIF(h.head_name, ''), 'Warga') as citizen_name,
+	                 COALESCE(ph.house_number, '') as house_number
 	          FROM transactions t
 	          JOIN financial_categories fc ON t.category_id = fc.id
+	          LEFT JOIN users u_creator ON t.created_by = u_creator.id
+	          LEFT JOIN payments p ON t.payment_id = p.id
+	          LEFT JOIN bills b ON p.bill_id = b.id
+	          LEFT JOIN dues d ON (p.due_id = d.id OR (p.due_id IS NULL AND b.due_id = d.id))
+	          LEFT JOIN users u_warga ON p.submitted_by = u_warga.id
+	          LEFT JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+	          LEFT JOIN households h ON ho.household_id = h.id
 	          WHERE t.rt_id = $1`
 	args := []interface{}{rtID}
 	pos := 2
@@ -1029,14 +1104,35 @@ func TransactionList(ctx context.Context, tx *sql.Tx, rtID string, categoryID, t
 	var list []*Transaction
 	for rows.Next() {
 		var t Transaction
-		var catName sql.NullString
+		var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber sql.NullString
 		if err := rows.Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
 			&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
-			&catName); err != nil {
+			&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber); err != nil {
 			return nil, fmt.Errorf("scan transaction: %w", err)
 		}
 		if catName.Valid {
 			t.CategoryName = &catName.String
+		}
+		if payNo.Valid {
+			t.PaymentNo = &payNo.String
+		}
+		if payMethod.Valid {
+			t.PaymentMethod = &payMethod.String
+		}
+		if createdBy.Valid {
+			t.CreatedBy = &createdBy.String
+		}
+		if officerName.Valid && officerName.String != "" {
+			t.OfficerName = &officerName.String
+		}
+		if dueName.Valid && dueName.String != "" {
+			t.DueName = &dueName.String
+		}
+		if citizenName.Valid && citizenName.String != "" {
+			t.CitizenName = &citizenName.String
+		}
+		if houseNumber.Valid && houseNumber.String != "" {
+			t.HouseNumber = &houseNumber.String
 		}
 		list = append(list, &t)
 	}
@@ -1324,7 +1420,7 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 	return &b, nil
 }
 
-func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period, search *string, offset, limit int) ([]*Bill, error) {
+func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period, search, dueName *string, offset, limit int) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
 	                 d.name as due_name, ph.house_number, h.head_name
 	          FROM bills b
@@ -1359,8 +1455,13 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pe
 		pos++
 	}
 	if search != nil && *search != "" {
-		whereParts = append(whereParts, fmt.Sprintf("d.name ILIKE $%d", pos))
+		whereParts = append(whereParts, fmt.Sprintf("(d.name ILIKE $%d OR h.head_name ILIKE $%d OR ph.house_number ILIKE $%d)", pos, pos, pos))
 		args = append(args, "%"+*search+"%")
+		pos++
+	}
+	if dueName != nil && *dueName != "" {
+		whereParts = append(whereParts, fmt.Sprintf("d.name = $%d", pos))
+		args = append(args, *dueName)
 		pos++
 	}
 
@@ -1401,8 +1502,13 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pe
 	return list, nil
 }
 
-func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period, search *string) (int, error) {
-	query := `SELECT COUNT(*) FROM bills b JOIN dues d ON b.due_id = d.id WHERE 1=1`
+func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period, search, dueName *string) (int, error) {
+	query := `SELECT COUNT(*) FROM bills b
+JOIN dues d ON b.due_id = d.id
+JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+JOIN households h ON ho.household_id = h.id
+LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+WHERE 1=1`
 	var args []interface{}
 	pos := 1
 
@@ -1427,8 +1533,13 @@ func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, p
 		pos++
 	}
 	if search != nil && *search != "" {
-		query += fmt.Sprintf(" AND d.name ILIKE $%d", pos)
+		query += fmt.Sprintf(" AND (d.name ILIKE $%d OR h.head_name ILIKE $%d OR ph.house_number ILIKE $%d)", pos, pos, pos)
 		args = append(args, "%"+*search+"%")
+		pos++
+	}
+	if dueName != nil && *dueName != "" {
+		query += fmt.Sprintf(" AND d.name = $%d", pos)
+		args = append(args, *dueName)
 		pos++
 	}
 
@@ -1524,18 +1635,31 @@ func PaymentCountAll(ctx context.Context, tx *sql.Tx, billID, dueID, status *str
 
 func TransactionGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Transaction, error) {
 	var t Transaction
-	var catName sql.NullString
+	var catName, payMethod, createdBy, officerName, dueName, citizenName, houseNumber sql.NullString
 	err := tx.QueryRowContext(ctx,
 		`SELECT t.id, t.rt_id, t.category_id, t.amount::text, t.type, t.status,
 		        t.reverses_transaction_id, t.payment_id, t.description, t.occurred_at, t.created_at, t.updated_at,
-		        fc.name as category_name
+		        fc.name as category_name, t.payment_method,
+		        t.created_by::text,
+		        COALESCE(u_creator.full_name, u_creator.email) as officer_name,
+		        COALESCE(d.name, '') as due_name,
+		        COALESCE(NULLIF(u_warga.full_name, ''), NULLIF(h.head_name, ''), 'Warga') as citizen_name,
+		        COALESCE(ph.house_number, '') as house_number
 		 FROM transactions t
 		 JOIN financial_categories fc ON t.category_id = fc.id
+		 LEFT JOIN users u_creator ON t.created_by = u_creator.id
+		 LEFT JOIN payments p ON t.payment_id = p.id
+		 LEFT JOIN bills b ON p.bill_id = b.id
+		 LEFT JOIN dues d ON (p.due_id = d.id OR (p.due_id IS NULL AND b.due_id = d.id))
+		 LEFT JOIN users u_warga ON p.submitted_by = u_warga.id
+		 LEFT JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+		 LEFT JOIN households h ON ho.household_id = h.id
 		 WHERE t.id = $1 LIMIT 1`,
 		id,
 	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
 		&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
-		&catName)
+		&catName, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -1545,15 +1669,46 @@ func TransactionGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Transac
 	if catName.Valid {
 		t.CategoryName = &catName.String
 	}
+	if payMethod.Valid {
+		t.PaymentMethod = &payMethod.String
+	}
+	if createdBy.Valid {
+		t.CreatedBy = &createdBy.String
+	}
+	if officerName.Valid && officerName.String != "" {
+		t.OfficerName = &officerName.String
+	}
+	if dueName.Valid && dueName.String != "" {
+		t.DueName = &dueName.String
+	}
+	if citizenName.Valid && citizenName.String != "" {
+		t.CitizenName = &citizenName.String
+	}
+	if houseNumber.Valid && houseNumber.String != "" {
+		t.HouseNumber = &houseNumber.String
+	}
 	return &t, nil
 }
 
 func TransactionListAll(ctx context.Context, tx *sql.Tx, categoryID, transType, status, startDate, endDate *string, offset, limit int) ([]*Transaction, error) {
 	query := `SELECT t.id, t.rt_id, t.category_id, t.amount::text, t.type, t.status,
 	                 t.reverses_transaction_id, t.payment_id, t.description, t.occurred_at, t.created_at, t.updated_at,
-	                 fc.name as category_name
+	                 fc.name as category_name, t.payment_method,
+	                 t.created_by::text,
+	                 COALESCE(u_creator.full_name, u_creator.email) as officer_name,
+	                 COALESCE(d.name, '') as due_name,
+	                 COALESCE(NULLIF(u_warga.full_name, ''), NULLIF(h.head_name, ''), 'Warga') as citizen_name,
+	                 COALESCE(ph.house_number, '') as house_number
 	          FROM transactions t
 	          JOIN financial_categories fc ON t.category_id = fc.id
+	          LEFT JOIN users u_creator ON t.created_by = u_creator.id
+	          LEFT JOIN payments p ON t.payment_id = p.id
+	          LEFT JOIN bills b ON p.bill_id = b.id
+	          LEFT JOIN dues d ON (p.due_id = d.id OR (p.due_id IS NULL AND b.due_id = d.id))
+	          LEFT JOIN users u_warga ON p.submitted_by = u_warga.id
+	          LEFT JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
+	          LEFT JOIN households h ON ho.household_id = h.id
 	          WHERE 1=1`
 	var args []interface{}
 	pos := 1
@@ -1589,25 +1744,65 @@ func TransactionListAll(ctx context.Context, tx *sql.Tx, categoryID, transType, 
 
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list all transactions: %w", err)
+		return nil, fmt.Errorf("list transactions (all RTs): %w", err)
 	}
 	defer rows.Close()
 
 	var list []*Transaction
 	for rows.Next() {
 		var t Transaction
-		var catName sql.NullString
+		var catName, payMethod, createdBy, officerName, dueName, citizenName, houseNumber sql.NullString
 		if err := rows.Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
 			&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
-			&catName); err != nil {
+			&catName, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber); err != nil {
 			return nil, fmt.Errorf("scan transaction: %w", err)
 		}
 		if catName.Valid {
 			t.CategoryName = &catName.String
 		}
+		if payMethod.Valid {
+			t.PaymentMethod = &payMethod.String
+		}
+		if createdBy.Valid {
+			t.CreatedBy = &createdBy.String
+		}
+		if officerName.Valid && officerName.String != "" {
+			t.OfficerName = &officerName.String
+		}
+		if dueName.Valid && dueName.String != "" {
+			t.DueName = &dueName.String
+		}
+		if citizenName.Valid && citizenName.String != "" {
+			t.CitizenName = &citizenName.String
+		}
+		if houseNumber.Valid && houseNumber.String != "" {
+			t.HouseNumber = &houseNumber.String
+		}
 		list = append(list, &t)
 	}
 	return list, nil
+}
+
+func TransactionUpdate(ctx context.Context, tx *sql.Tx, rtID, id string, categoryID *string, amount *string, transType *TransactionType, description *string, occurredAt *time.Time, paymentMethod *string) (*Transaction, error) {
+	query := `UPDATE transactions
+	          SET category_id = COALESCE($1, category_id),
+	              amount = COALESCE($2::numeric, amount),
+	              type = COALESCE($3, type),
+	              description = COALESCE($4, description),
+	              occurred_at = COALESCE($5, occurred_at),
+	              payment_method = COALESCE($6, payment_method),
+	              updated_at = now()
+	          WHERE id = $7 AND rt_id = $8
+	          RETURNING id`
+	var updatedID string
+	err := tx.QueryRowContext(ctx, query, categoryID, amount, transType, description, occurredAt, paymentMethod, id, rtID).Scan(&updatedID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("update transaction: %w", err)
+	}
+	return TransactionGetByID(ctx, tx, updatedID, rtID)
 }
 
 func TransactionCountAll(ctx context.Context, tx *sql.Tx, categoryID, transType, status, startDate, endDate *string) (int, error) {
@@ -1746,4 +1941,185 @@ func PaymentAllocationsByBillID(ctx context.Context, tx *sql.Tx, billID string) 
 		list = append(list, &a)
 	}
 	return list, nil
+}
+
+// ─── Period Balance & Opening Balances ──────────────────────────────
+
+// CalculatePeriodBalance derives monthly or range period balance sheet for an RT.
+// Uses half-open interval [startTime, endTime) in Asia/Jakarta timezone.
+// Opening balance respects locked manual corrections in period_opening_balances.
+func CalculatePeriodBalance(ctx context.Context, tx *sql.Tx, rtID, periodStr string, startTime, endTime time.Time) (*PeriodBalanceSummary, error) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	if loc == nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+
+	var openingCents int64
+
+	// 1. Check if an exact manual record exists for periodStr
+	var exactManual bool
+	if periodStr != "" {
+		var openingStr, source string
+		err := tx.QueryRowContext(ctx,
+			`SELECT opening_balance::text, source
+			 FROM period_opening_balances
+			 WHERE rt_id = $1 AND period = $2`,
+			rtID, periodStr,
+		).Scan(&openingStr, &source)
+		if err == nil && source == "manual" {
+			exactManual = true
+			cents, _, err := ParseMoney(openingStr)
+			if err != nil {
+				return nil, fmt.Errorf("parse manual opening balance: %w", err)
+			}
+			openingCents = cents
+		}
+	}
+
+	// 2. If no exact manual record, check if an earlier manual record exists
+	if !exactManual {
+		var earlierPeriod, earlierOpeningStr string
+		err := tx.QueryRowContext(ctx,
+			`SELECT period, opening_balance::text
+			 FROM period_opening_balances
+			 WHERE rt_id = $1 AND period < $2 AND source = 'manual'
+			 ORDER BY period DESC
+			 LIMIT 1`,
+			rtID, startTime.In(loc).Format("2006-01"),
+		).Scan(&earlierPeriod, &earlierOpeningStr)
+
+		if err == nil {
+			earlierCents, _, err := ParseMoney(earlierOpeningStr)
+			if err != nil {
+				return nil, fmt.Errorf("parse earlier manual opening balance: %w", err)
+			}
+			earlierTime, err := time.ParseInLocation("2006-01", earlierPeriod, loc)
+			if err != nil {
+				return nil, fmt.Errorf("parse earlier period time: %w", err)
+			}
+			earlierStart := time.Date(earlierTime.Year(), earlierTime.Month(), 1, 0, 0, 0, 0, loc)
+
+			// Net movement from earlier manual base to startTime
+			var intermediateInc, intermediateExp string
+			err = tx.QueryRowContext(ctx,
+				`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text,
+				        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text
+				 FROM transactions
+				 WHERE rt_id = $1 AND status = 'posted'
+				   AND occurred_at >= $2 AND occurred_at < $3`,
+				rtID, earlierStart, startTime,
+			).Scan(&intermediateInc, &intermediateExp)
+			if err != nil {
+				return nil, fmt.Errorf("calculate intermediate net movement: %w", err)
+			}
+
+			intIncCents, _, _ := ParseMoney(intermediateInc)
+			intExpCents, _, _ := ParseMoney(intermediateExp)
+			openingCents = earlierCents + (intIncCents - intExpCents)
+		} else {
+			// No manual base exists anywhere before startTime: cumulative from genesis
+			var priorInc, priorExp string
+			err = tx.QueryRowContext(ctx,
+				`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text,
+				        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text
+				 FROM transactions
+				 WHERE rt_id = $1 AND status = 'posted'
+				   AND occurred_at < $2`,
+				rtID, startTime,
+			).Scan(&priorInc, &priorExp)
+			if err != nil {
+				return nil, fmt.Errorf("calculate prior balance: %w", err)
+			}
+
+			pIncCents, _, _ := ParseMoney(priorInc)
+			pExpCents, _, _ := ParseMoney(priorExp)
+			openingCents = pIncCents - pExpCents
+		}
+	}
+
+	// 3. Calculate period movements and count within [startTime, endTime)
+	var periodInc, periodExp string
+	var count int
+	err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text,
+		        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text,
+		        COUNT(*)
+		 FROM transactions
+		 WHERE rt_id = $1 AND status = 'posted'
+		   AND occurred_at >= $2 AND occurred_at < $3`,
+		rtID, startTime, endTime,
+	).Scan(&periodInc, &periodExp, &count)
+	if err != nil {
+		return nil, fmt.Errorf("calculate period movements: %w", err)
+	}
+
+	incCents, _, _ := ParseMoney(periodInc)
+	expCents, _, _ := ParseMoney(periodExp)
+	netMovementCents := incCents - expCents
+	closingCents := openingCents + netMovementCents
+
+	return &PeriodBalanceSummary{
+		OpeningBalance:   FormatMoney(openingCents),
+		TotalIncome:      FormatMoney(incCents),
+		TotalExpense:     FormatMoney(expCents),
+		NetMovement:      FormatMoney(netMovementCents),
+		ClosingBalance:   FormatMoney(closingCents),
+		TransactionCount: count,
+	}, nil
+}
+
+// SetPeriodOpeningBalance records a manual correction of opening balance for a period.
+func SetPeriodOpeningBalance(ctx context.Context, tx *sql.Tx, rtID, period string, newOpening string, reason string, userID string) (*PeriodOpeningBalanceResponse, error) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	if loc == nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+
+	t, err := time.ParseInLocation("2006-01", period, loc)
+	if err != nil {
+		return nil, fmt.Errorf("invalid period format: %w", err)
+	}
+	startTime := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc)
+	endTime := startTime.AddDate(0, 1, 0)
+
+	// Calculate current opening balance before this update
+	currentSummary, err := CalculatePeriodBalance(ctx, tx, rtID, period, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("calculate current opening balance: %w", err)
+	}
+	openingBefore := currentSummary.OpeningBalance
+
+	_, canonicalNewOpening, err := ParseMoney(newOpening)
+	if err != nil {
+		return nil, fmt.Errorf("invalid opening balance: %w", err)
+	}
+
+	var correctedAt time.Time
+	err = tx.QueryRowContext(ctx,
+		`INSERT INTO period_opening_balances (
+		    rt_id, period, opening_balance, source, previous_balance, reason, updated_by, updated_at
+		 ) VALUES ($1, $2, $3, 'manual', $4, $5, $6, CURRENT_TIMESTAMP)
+		 ON CONFLICT (rt_id, period) DO UPDATE SET
+		    opening_balance = EXCLUDED.opening_balance,
+		    source = 'manual',
+		    previous_balance = period_opening_balances.opening_balance,
+		    reason = EXCLUDED.reason,
+		    updated_by = EXCLUDED.updated_by,
+		    updated_at = CURRENT_TIMESTAMP
+		 RETURNING updated_at`,
+		rtID, period, canonicalNewOpening, openingBefore, reason, userID,
+	).Scan(&correctedAt)
+	if err != nil {
+		return nil, fmt.Errorf("set period opening balance: %w", err)
+	}
+
+	return &PeriodOpeningBalanceResponse{
+		Period:               period,
+		OpeningBalanceBefore: openingBefore,
+		OpeningBalanceAfter:  canonicalNewOpening,
+		Source:               "manual",
+		CorrectedBy:          userID,
+		CorrectedAt:          correctedAt.In(loc).Format(time.RFC3339),
+		Reason:               reason,
+	}, nil
 }

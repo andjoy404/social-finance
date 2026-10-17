@@ -50,7 +50,7 @@ export interface ApiRTPaginated {
 export interface ApiError {
   code: string
   message: string
-  details?: string[]
+  details?: unknown
 }
 
 export interface SessionPair {
@@ -332,11 +332,13 @@ export async function apiReactivateRT(token: string, id: string): Promise<ApiRT>
 
 export class ApiError extends Error {
   code: string
+  details?: unknown
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, details?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.code = code
+    this.details = details
   }
 }
 
@@ -391,6 +393,7 @@ export interface ApiUpdateHouseholdBody {
   email?: string
   address?: string | null
   occupancy_status?: 'OWNER' | 'TENANT'
+  start_date?: string
   is_active?: boolean
 }
 
@@ -506,6 +509,7 @@ export interface ApiResident {
   end_date?: string | null
   jabatan?: string | null
   occupancy_status?: 'OWNER' | 'TENANT' | null
+  house_number?: string | null
 }
 
 export interface ApiCreateResidentBody {
@@ -871,6 +875,8 @@ export async function apiListBills(
     status?: string
     period?: string
     search?: string
+    due_name?: string
+    my_bills?: boolean
   },
 ): Promise<ApiPaginated<ApiBill>> {
   const q = new URLSearchParams()
@@ -881,6 +887,8 @@ export async function apiListBills(
   if (params?.status) q.set('status', params.status)
   if (params?.period) q.set('period', params.period)
   if (params?.search) q.set('search', params.search)
+  if (params?.due_name) q.set('due_name', params.due_name)
+  if (params?.my_bills) q.set('my_bills', 'true')
   const res = await authenticatedApiRequest(BASE + '/bills?' + q.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
@@ -1155,4 +1163,402 @@ export async function apiTriggerWasteTruckArrival(
     throw new ApiError('unexpected', 'Failed to trigger waste truck arrival notification')
   }
   return data
+}
+
+// --- KAS / Transaction API ---
+
+export interface ApiFinancialCategory {
+  id: string
+  rt_id: string
+  name: string
+  type: 'income' | 'expense'
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export async function apiListCategories(token: string, isActive?: boolean): Promise<ApiFinancialCategory[]> {
+  const q = new URLSearchParams()
+  if (isActive != null) q.set('is_active', String(isActive))
+  const res = await authenticatedApiRequest(BASE + '/categories' + (q.toString() ? '?' + q.toString() : ''), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiFinancialCategory[]>(res)
+  if (!Array.isArray(data)) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export interface ApiTransaction {
+  id: string
+  rt_id: string
+  category_id: string
+  amount: string
+  type: 'income' | 'expense'
+  status: 'draft' | 'posted' | 'cancelled'
+  reverses_transaction_id?: string | null
+  payment_id?: string | null
+  created_by?: string | null
+  officer_name?: string | null
+  due_name?: string | null
+  citizen_name?: string | null
+  description: string
+  occurred_at: string
+  created_at: string
+  updated_at: string
+  category_name?: string | null
+  payment_no?: string | null
+  payment_method?: 'CASH' | 'TRANSFER' | string | null
+  house_number?: string | null
+}
+
+export interface ApiTransactionPaginated {
+  data: ApiTransaction[]
+  pagination: {
+    page: number
+    per_page: number
+    total: number
+    total_pages: number
+  }
+}
+
+export interface ApiBalanceSummary {
+  total_income: string
+  total_expense: string
+  net_balance: string
+  transaction_count: number
+}
+
+export interface ApiPeriodBalanceSummary {
+  opening_balance: string
+  total_income: string
+  total_expense: string
+  net_movement: string
+  closing_balance: string
+  transaction_count: number
+}
+
+export interface ApiCreateTransactionInput {
+  category_id?: string
+  amount: string
+  type: 'income' | 'expense'
+  description: string
+  occurred_at?: string
+  payment_method?: 'CASH' | 'TRANSFER'
+}
+
+export async function apiListTransactions(
+  token: string,
+  params?: {
+    page?: number
+    page_size?: number
+    category_id?: string
+    type?: string
+    status?: string
+    period?: string
+    start_date?: string
+    end_date?: string
+  },
+): Promise<ApiTransactionPaginated> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  if (params?.category_id) q.set('category_id', params.category_id)
+  if (params?.type) q.set('type', params.type)
+  if (params?.status) q.set('status', params.status)
+  if (params?.period) q.set('period', params.period)
+  if (params?.start_date) q.set('start_date', params.start_date)
+  if (params?.end_date) q.set('end_date', params.end_date)
+  const res = await authenticatedApiRequest(BASE + '/transactions' + (q.toString() ? '?' + q.toString() : ''), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiTransactionPaginated>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetTransaction(token: string, id: string): Promise<ApiTransaction> {
+  const res = await authenticatedApiRequest(BASE + '/transactions/' + id, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiTransaction>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateTransaction(
+  token: string,
+  body: ApiCreateTransactionInput,
+): Promise<ApiTransaction> {
+  const res = await authenticatedApiRequest(BASE + '/transactions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'Idempotency-Key': `kas-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiTransaction>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetBalance(
+  token: string,
+  params?: {
+    period?: string
+    start_date?: string
+    end_date?: string
+  },
+): Promise<ApiBalanceSummary & Partial<ApiPeriodBalanceSummary>> {
+  const q = new URLSearchParams()
+  if (params?.period) q.set('period', params.period)
+  if (params?.start_date) q.set('start_date', params.start_date)
+  if (params?.end_date) q.set('end_date', params.end_date)
+  const res = await authenticatedApiRequest(BASE + '/reports/balance' + (q.toString() ? '?' + q.toString() : ''), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiBalanceSummary & Partial<ApiPeriodBalanceSummary>>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiUpdateTransaction(
+  token: string,
+  id: string,
+  body: Partial<ApiCreateTransactionInput>,
+): Promise<ApiTransaction> {
+  const res = await authenticatedApiRequest(BASE + `/transactions/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiTransaction>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiUpdateOpeningBalance(
+  token: string,
+  period: string,
+  openingBalance: string,
+  reason?: string,
+): Promise<{ rt_id: string; period: string; opening_balance: string; source: string }> {
+  const res = await authenticatedApiRequest(BASE + `/reports/balance/opening/${encodeURIComponent(period)}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ opening_balance: openingBalance, reason: reason ?? 'Koreksi saldo awal' }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ rt_id: string; period: string; opening_balance: string; source: string }>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export interface ApiDashboardDuesProgress {
+  paid_households: number
+  total_households: number
+  percentage: number
+}
+
+export interface ApiDashboardChartPoint {
+  month: string
+  period: string
+  income: number
+  expense: number
+}
+
+export interface ApiDashboardSummary {
+  balance: string
+  monthly_income: string
+  monthly_expense: string
+  net_movement: string
+  dues_progress: ApiDashboardDuesProgress
+  chart: ApiDashboardChartPoint[]
+  recent_transactions: ApiTransaction[]
+}
+
+export async function apiGetDashboardSummary(token: string, period?: string): Promise<ApiDashboardSummary> {
+  const url = period ? `${BASE}/dashboard/summary?period=${encodeURIComponent(period)}` : `${BASE}/dashboard/summary`
+  const res = await authenticatedApiRequest(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiDashboardSummary>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+// ── Warga Import / Template API ──────────────────────────────────────────────
+
+export interface ApiWargaImportRowError {
+  row: number
+  field: string
+  code: string
+  message: string
+}
+
+export interface ApiWargaImportRowData {
+  row_number: number
+  house_number: string
+  head_name: string
+  occupancy_status: string
+  address: string
+  resident_name: string
+  nik: string
+  phone: string
+  email: string
+  relationship_to_head: string
+}
+
+export interface ApiWargaImportPreviewResponse {
+  total_rows: number
+  valid_rows: number
+  invalid_rows: number
+  errors: ApiWargaImportRowError[]
+  preview_data: ApiWargaImportRowData[]
+}
+
+export interface ApiWargaImportCommitResponse {
+  status: string
+  imported_households: number
+  imported_residents: number
+}
+
+export async function apiDownloadWargaTemplate(token: string): Promise<Blob> {
+  const res = await authenticatedApiRequest(BASE + '/warga/template', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const raw = await res.text().catch(() => '')
+    let errCode = 'unexpected'
+    let errMsg = 'Gagal mengunduh template warga'
+    if (raw) {
+      try {
+        const body = JSON.parse(raw)
+        errCode = body?.error?.code || body?.code || errCode
+        errMsg = body?.error?.message || body?.message || errMsg
+      } catch {
+        /* non-json */
+      }
+    }
+    throw new ApiError(errCode, errMsg)
+  }
+  return res.blob()
+}
+
+export async function apiDownloadWargaExport(token: string, rtId?: string): Promise<Blob> {
+  const url = BASE + '/warga/export/xlsx' + (rtId ? `?rt_id=${encodeURIComponent(rtId)}` : '')
+  const res = await authenticatedApiRequest(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const raw = await res.text().catch(() => '')
+    let errCode = 'unexpected'
+    let errMsg = 'Gagal mengunduh export warga'
+    if (raw) {
+      try {
+        const body = JSON.parse(raw)
+        errCode = body?.error?.code || body?.code || errCode
+        errMsg = body?.error?.message || body?.message || errMsg
+      } catch {
+        /* non-json */
+      }
+    }
+    throw new ApiError(errCode, errMsg)
+  }
+  return res.blob()
+}
+
+export async function apiPreviewWargaImportXLSX(
+  token: string,
+  file: File,
+  rtId?: string,
+): Promise<ApiWargaImportPreviewResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const url = BASE + '/warga/import/preview/xlsx' + (rtId ? `?rt_id=${encodeURIComponent(rtId)}` : '')
+  const res = await authenticatedApiRequest(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+
+  const raw = await res.text()
+  let body: any = null
+  if (raw) {
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      /* non-json */
+    }
+  }
+
+  if (!res.ok) {
+    const errCode = body?.error?.code || body?.code || 'unexpected'
+    const errMsg = body?.error?.message || body?.message || 'Gagal memproses pratinjau import warga'
+    const details = body?.error?.details || body?.details
+    throw new ApiError(errCode, errMsg, details)
+  }
+
+  return body as ApiWargaImportPreviewResponse
+}
+
+export async function apiCommitWargaImportXLSX(
+  token: string,
+  file: File,
+  rtId?: string,
+): Promise<ApiWargaImportCommitResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const url = BASE + '/warga/import/commit/xlsx' + (rtId ? `?rt_id=${encodeURIComponent(rtId)}` : '')
+  const res = await authenticatedApiRequest(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+
+  const raw = await res.text()
+  let body: any = null
+  if (raw) {
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      /* non-json */
+    }
+  }
+
+  if (!res.ok) {
+    const errCode = body?.error?.code || body?.code || 'unexpected'
+    const errMsg = body?.error?.message || body?.message || 'Gagal menyimpan data import warga'
+    const details = body?.error?.details || body?.details
+    throw new ApiError(errCode, errMsg, details)
+  }
+
+  return body as ApiWargaImportCommitResponse
 }

@@ -1,66 +1,74 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
+import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
-class MainNavigationShell extends StatefulWidget {
+class MainNavigationShell extends ConsumerStatefulWidget {
   final Widget child;
 
   const MainNavigationShell({super.key, required this.child});
 
   @override
-  State<MainNavigationShell> createState() => _MainNavigationShellState();
+  ConsumerState<MainNavigationShell> createState() => _MainNavigationShellState();
 }
 
-class _MainNavigationShellState extends State<MainNavigationShell> {
+class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   int _currentIndex = 0;
 
-  static const _tabs = [
-    _NavRoute(
-      path: '/home',
-      label: 'Beranda',
-      icon: Icons.home_outlined,
-      activeIcon: Icons.home,
-    ),
-    _NavRoute(
-      path: '/home/kas',
-      label: 'Kas',
-      icon: Icons.account_balance_wallet_outlined,
-      activeIcon: Icons.account_balance_wallet,
-    ),
-    _NavRoute(
-      path: '/home/iuran',
-      label: 'Iuran',
-      icon: Icons.receipt_long_outlined,
-      activeIcon: Icons.receipt_long,
-    ),
-    _NavRoute(
-      path: '/home/warga',
-      label: 'Warga',
-      icon: Icons.people_outline,
-      activeIcon: Icons.people,
-    ),
-    _NavRoute(
-      path: '/home/profile',
-      label: 'Profil',
-      icon: Icons.person_outline,
-      activeIcon: Icons.person,
-    ),
-  ];
+  static const _homeTab = _NavRoute(
+    path: '/home',
+    label: 'Beranda',
+    icon: Icons.home_outlined,
+    activeIcon: Icons.home,
+  );
+  static const _kasTab = _NavRoute(
+    path: '/home/kas',
+    label: 'Kas',
+    icon: Icons.account_balance_wallet_outlined,
+    activeIcon: Icons.account_balance_wallet,
+  );
+  static const _iuranTab = _NavRoute(
+    path: '/home/iuran',
+    label: 'Iuran',
+    icon: Icons.receipt_long_outlined,
+    activeIcon: Icons.receipt_long,
+  );
+  static const _wargaTab = _NavRoute(
+    path: '/home/warga',
+    label: 'Warga',
+    icon: Icons.people_outline,
+    activeIcon: Icons.people,
+  );
+  static const _profileTab = _NavRoute(
+    path: '/home/profile',
+    label: 'Profil',
+    icon: Icons.person_outline,
+    activeIcon: Icons.person,
+  );
+
+  List<_NavRoute> _getActiveTabs() {
+    final authState = ref.watch(authRepositoryProvider);
+    final user = authState?.valueOrNull;
+    if (isAllowedRT(user)) {
+      return const [_homeTab, _kasTab, _iuranTab, _wargaTab, _profileTab];
+    }
+    return const [_homeTab, _profileTab];
+  }
 
   @override
   void didUpdateWidget(MainNavigationShell oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Sync tab index with actual route location using longest prefix match.
-    // This ensures /home/cash matches index 1 (not 0 for /home).
+    final tabs = _getActiveTabs();
     final location = GoRouterState.of(context).matchedLocation;
     var bestMatch = -1;
-    for (var i = 0; i < _tabs.length; i++) {
-      final tabPath = _tabs[i].path;
+    for (var i = 0; i < tabs.length; i++) {
+      final tabPath = tabs[i].path;
       if (location == tabPath || location.startsWith('$tabPath/')) {
         if (bestMatch == -1 ||
-            tabPath.length > _tabs[bestMatch].path.length) {
+            tabPath.length > tabs[bestMatch].path.length) {
           bestMatch = i;
         }
       }
@@ -72,6 +80,19 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
+    final tabs = _getActiveTabs();
+    final location = GoRouterState.of(context).matchedLocation;
+    var currentMatch = 0;
+    for (var i = 0; i < tabs.length; i++) {
+      final tabPath = tabs[i].path;
+      if (location == tabPath || location.startsWith('$tabPath/')) {
+        if (currentMatch == 0 ||
+            tabPath.length > tabs[currentMatch].path.length) {
+          currentMatch = i;
+        }
+      }
+    }
+
     return DoubleBackExitScope(
       child: Scaffold(
         body: SafeArea(
@@ -82,11 +103,11 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(
-              _tabs.length,
+              tabs.length,
               (index) => _NavRailItem(
-                tab: _tabs[index],
-                isSelected: index == _currentIndex,
-                onTap: () => _onTabTapped(index),
+                tab: tabs[index],
+                isSelected: index == currentMatch,
+                onTap: () => _onTabTapped(tabs, index),
               ),
             ),
           ),
@@ -95,12 +116,14 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     );
   }
 
-  void _onTabTapped(int index) {
-    final tab = _tabs[index];
-    if (GoRouterState.of(context).matchedLocation != tab.path) {
-      context.go(tab.path);
+  void _onTabTapped(List<_NavRoute> tabs, int index) {
+    if (index >= 0 && index < tabs.length) {
+      final tab = tabs[index];
+      if (GoRouterState.of(context).matchedLocation != tab.path) {
+        context.go(tab.path);
+      }
+      setState(() => _currentIndex = index);
     }
-    setState(() => _currentIndex = index);
   }
 }
 

@@ -406,7 +406,7 @@ class _SpecialResidentEditScreenState
                       ),
                       DropdownMenuItem(
                         value: 'kebersihan_pembangunan',
-                        child: Text('Kebersihan & Pembangunan'),
+                        child: Text('Operasional'),
                       ),
                     ],
                     onChanged: (value) {

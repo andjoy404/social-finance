@@ -7,6 +7,7 @@ services:
     working_dir: /app
     volumes:
       - ./backend:/app
+      - ${FCM_CREDENTIALS_FILE:-./secret/social-finance-andjoy-93df7226d69d.json}:/run/secrets/fcm-service-account.json:ro
     ports:
       - "8080:8080"
     environment:
@@ -29,6 +30,9 @@ services:
       - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin123}
       - RUSTFS_BUCKET=${RUSTFS_BUCKET:-social-finance-payment-proofs}
       - RUSTFS_USE_SSL=${RUSTFS_USE_SSL:-false}
+      - FCM_CREDENTIALS_FILE=/run/secrets/fcm-service-account.json
+      - FCM_PROJECT_ID=${FCM_PROJECT_ID:-social-finance-andjoy}
+      - FCM_CREDENTIALS=${FCM_CREDENTIALS:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,6 +55,7 @@ services:
     working_dir: /app
     volumes:
       - ./backend:/app
+      - ${FCM_CREDENTIALS_FILE:-./secret/social-finance-andjoy-93df7226d69d.json}:/run/secrets/fcm-service-account.json:ro
     ports:
       - "8082:8080"
     environment:
@@ -73,6 +78,9 @@ services:
       - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin123}
       - RUSTFS_BUCKET=${RUSTFS_BUCKET:-social-finance-payment-proofs}
       - RUSTFS_USE_SSL=${RUSTFS_USE_SSL:-false}
+      - FCM_CREDENTIALS_FILE=/run/secrets/fcm-service-account.json
+      - FCM_PROJECT_ID=${FCM_PROJECT_ID:-social-finance-andjoy}
+      - FCM_CREDENTIALS=${FCM_CREDENTIALS:-}
     depends_on:
       postgres:
         condition: service_healthy

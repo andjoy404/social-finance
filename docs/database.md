@@ -287,7 +287,24 @@ Indexes:
 ### 4.6 `idempotency_keys` & `audit_logs`
 
 - `idempotency_keys`: `PRIMARY KEY (rt_id, key)` storing request identity (`user_id`, `request_path`, `request_hash`), `response_code`, `response_body`, and `created_at`. API instances serialize use of a key with a PostgreSQL advisory lock; payment creation and its cached response share one transaction.
-- `audit_logs`: `(id, rt_id, user_id, action, entity_type, entity_id, old_values, new_values, ip_address, created_at)`.
+### 4.7 `period_opening_balances` — Monthly Period Opening Balance & Audit Trail
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | Tenant scope |
+| `period` | `text` | NOT NULL | Format 'YYYY-MM' |
+| `opening_balance` | `numeric(15, 2)` | NOT NULL, default `0.00` | Opening balance for the period |
+| `source` | `text` | NOT NULL, default `'automatic'`, CHECK IN (`automatic`, `manual`) | Origin of opening balance |
+| `previous_balance` | `numeric(15, 2)` | NULL | Previous opening balance before manual adjustment |
+| `reason` | `text` | NULL | Reason for manual adjustment |
+| `updated_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | User who performed manual correction |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Indexes & Constraints:
+- UNIQUE `(rt_id, period)`
+- Index on `(rt_id)`
 
 ---
 
@@ -305,6 +322,7 @@ Indexes:
 | 008 | `008_physical_houses_and_occupancies.up.sql` | Adds Option B+ temporal physical house and occupancy normalization | false |
 | 009 | `009_finance.up.sql` | Creates financial categories, dues, bills, payments, transactions ledger | false |
 | 020 | `020_payments_donations.up.sql` | Allows exactly one payment target (`bill_id` or voluntary `due_id`) and records payment submitter | false |
+| 024 | `024_period_opening_balances.up.sql` | Creates `period_opening_balances` table for monthly balance and audit trail | false |
 
 Migration execution: `docker compose run --rm migrate up`
 

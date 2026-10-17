@@ -78,12 +78,13 @@ void _handleFabPressed(BuildContext context, WidgetRef ref, bool isSuperAdmin) {
           // Defer navigation until after the dialog dismiss animation completes.
           // Pushing immediately races with the dialog exit animation,
           // causing GoRouter to silently drop the route change.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
             if (choice == 'warga') {
-              context.push('/home/warga/baru');
+              await context.push('/home/warga/baru');
             } else {
-              context.push('/home/warga/baru/petugas');
+              await context.push('/home/warga/baru/petugas');
             }
+            ref.read(wargaListProvider.notifier).refresh();
           });
         },
       );
@@ -209,103 +210,112 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
 
             // ── Content: Loading / Error / Empty / List ──
             Expanded(
-              child: switch (wargaState) {
-                AsyncLoading() => const Center(
-                  child: CircularProgressIndicator(),
-                ),
-                AsyncError() => Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: theme.colorScheme.error.withValues(alpha: 0.5),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Terjadi Kesalahan',
-                          style: theme.textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          errorMessage,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          height: 36,
-                          child: ElevatedButton(
-                            onPressed: _retry,
-                            style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
-                            foregroundColor: theme.colorScheme.primary,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6),
-                              side: BorderSide(
-                                color: theme.colorScheme.primary.withValues(alpha: 0.35),
+              child: Builder(
+                builder: (context) {
+                  if (wargaState.isLoading && !wargaState.hasValue) {
+                    return const Center(
+                      child: CircularProgressIndicator(),
+                    );
+                  }
+                  if (wargaState.hasError && !wargaState.hasValue) {
+                    return Center(
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 64,
+                              color: theme.colorScheme.error.withValues(alpha: 0.5),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Terjadi Kesalahan',
+                              style: theme.textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              errorMessage,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              height: 36,
+                              child: ElevatedButton(
+                                onPressed: _retry,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
+                                  foregroundColor: theme.colorScheme.primary,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                    side: BorderSide(
+                                      color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                                    ),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.01,
+                                  ),
+                                ),
+                                child: const Text('Coba Lagi'),
                               ),
                             ),
-                            textStyle: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.01,
-                            ),
-                          ),
-                          child: const Text('Coba Lagi'),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
+                    );
+                  }
+                  if (residents.isEmpty) {
+                    return Center(
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: currentQuery.isNotEmpty
+                            ? EmptyState(
+                                icon: Icons.search_off,
+                                title: 'Warga Tidak Ditemukan',
+                                description:
+                                    'Tidak ada data warga yang sesuai dengan "$currentQuery".',
+                                actionText: 'Hapus Pencarian',
+                                onAction: _clearSearch,
+                              )
+                            : const EmptyState(
+                                icon: Icons.people_outline,
+                                title: 'Belum Ada Warga',
+                                description:
+                                    'Data kependudukan warga RT belum tersedia.',
+                              ),
+                      ),
+                    );
+                  }
+                  return ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.base,
+                      AppSpacing.xs,
+                      AppSpacing.base,
+                      AppSpacing.xl,
+                    ),
+                    itemCount: residents.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: AppSpacing.sm),
+                    itemBuilder: (context, index) {
+                      final resident = residents[index];
+                      return _ResidentCard(
+                        resident: resident,
+                        isDark: isDark,
+                        canWrite: canWrite,
+                      );
+                    },
+                  );
+                },
               ),
-              _ =>
-                residents.isEmpty
-                    ? Center(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(AppSpacing.lg),
-                          child: currentQuery.isNotEmpty
-                              ? EmptyState(
-                                  icon: Icons.search_off,
-                                  title: 'Warga Tidak Ditemukan',
-                                  description:
-                                      'Tidak ada data warga yang sesuai dengan "$currentQuery".',
-                                  actionText: 'Hapus Pencarian',
-                                  onAction: _clearSearch,
-                                )
-                              : const EmptyState(
-                                  icon: Icons.people_outline,
-                                  title: 'Belum Ada Warga',
-                                  description:
-                                      'Data kependudukan warga RT belum tersedia.',
-                                ),
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.base,
-                          AppSpacing.xs,
-                          AppSpacing.base,
-                          AppSpacing.xl,
-                        ),
-                        itemCount: residents.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: AppSpacing.sm),
-                        itemBuilder: (context, index) {
-                          final resident = residents[index];
-                          return _ResidentCard(
-                            resident: resident,
-                            isDark: isDark,
-                            canWrite: canWrite,
-                          );
-                        },
-                      ),
-              },
             ),
           ],
         ),
@@ -401,7 +411,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
   }
 }
 
-class _ResidentCard extends StatelessWidget {
+class _ResidentCard extends ConsumerWidget {
   final MappedResident resident;
   final bool isDark;
   final bool canWrite;
@@ -488,7 +498,7 @@ class _ResidentCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final iconColor = theme.brightness == Brightness.dark
         ? AppColors.darkTextMuted
@@ -586,21 +596,22 @@ class _ResidentCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (canWrite &&
-                  !kIsWeb &&
-                  (isPetugasKhusus || resident.householdId != null))
+              if (canWrite && !kIsWeb)
                 IconButton(
                   icon: const Icon(Icons.edit_outlined, size: 20),
                   tooltip: 'Ubah',
                   color: AppColors.accent,
-                  onPressed: () {
-                    if (isPetugasKhusus) {
-                      context.push('/home/warga/edit/petugas/${resident.id}');
-                    } else if (resident.householdId != null) {
-                      context.push(
+                  onPressed: () async {
+                    if (resident.householdId != null) {
+                      await context.push(
                         '/home/warga/edit/household/${resident.householdId}',
                       );
+                    } else {
+                      await context.push(
+                        '/home/warga/edit/petugas/${resident.id}',
+                      );
                     }
+                    ref.read(wargaListProvider.notifier).refresh();
                   },
                 ),
             ],
@@ -680,8 +691,9 @@ class _ResidentCard extends StatelessWidget {
                   color: Colors.transparent,
                   clipBehavior: Clip.none,
                   child: InkWell(
-                    onTap: () {
-                      context.push('/home/warga/edit/petugas/${resident.id}');
+                    onTap: () async {
+                      await context.push('/home/warga/edit/petugas/${resident.id}');
+                      ref.read(wargaListProvider.notifier).refresh();
                     },
                     borderRadius: BorderRadius.circular(AppRadius.xs),
                     child: Padding(
@@ -725,10 +737,11 @@ class _ResidentCard extends StatelessWidget {
                   color: Colors.transparent,
                   clipBehavior: Clip.none,
                   child: InkWell(
-                    onTap: () {
-                      context.push(
+                    onTap: () async {
+                      await context.push(
                         '/home/warga/edit/household/${resident.householdId}',
                       );
+                      ref.read(wargaListProvider.notifier).refresh();
                     },
                     borderRadius: BorderRadius.circular(AppRadius.xs),
                     child: Padding(

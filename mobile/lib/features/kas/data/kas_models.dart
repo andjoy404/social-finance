@@ -4,6 +4,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 
 /// Kategori untuk transaksi KAS.
 enum KasCategory {
+  operasionalRT('Operasional RT'),
   iuranWarga('Iuran Warga'),
   iuranPaksa('Iuran Paksa'),
   perlengkapan('Perlengkapan'),
@@ -41,8 +42,13 @@ class KasTransaction {
   final KasCategory kategori;
   final String keterangan;
   final String? referensi;
-  final int nominal;
-  final int saldo;
+  final String? dueName;
+  final String? citizenName;
+  final String? officerName;
+  final String? houseNumber;
+  final String? paymentMethod;
+  final String nominal;
+  final String saldo;
 
   const KasTransaction({
     required this.id,
@@ -51,27 +57,57 @@ class KasTransaction {
     required this.kategori,
     required this.keterangan,
     this.referensi,
+    this.dueName,
+    this.citizenName,
+    this.officerName,
+    this.houseNumber,
+    this.paymentMethod,
     required this.nominal,
     required this.saldo,
   });
 }
 
-/// Format rupiah ke string.
-String formatRupiah(int amount) {
-  final negative = amount < 0;
-  final absAmount = amount.abs();
-  final formatted = absAmount.toString().replaceAllMapped(
+/// Format rupiah ke string dari nilai String.
+///
+/// Accepts a numeric string (e.g. "85000" or "850.50") and returns
+/// a formatted rupiah string.  For API-connected code the value
+/// comes directly from the backend NUMERIC(15,2)::text field.
+String formatRupiah(String amountStr) {
+  if (amountStr.isEmpty || amountStr.trim().isEmpty) return 'Rp 0';
+  final negative = amountStr.startsWith('-');
+  final absStr = negative ? amountStr.substring(1) : amountStr;
+  // Parse as BigInt to support up to NUMERIC(15,2) range
+  final bigInt = BigInt.tryParse(absStr);
+  if (bigInt == null) return 'Rp $absStr';
+  final formatted = bigInt.toString().replaceAllMapped(
     RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
     (Match m) => '${m[1]}.',
   );
   return '${negative ? '-' : ''}Rp $formatted';
 }
 
+/// Parse rupiah string back to a numeric string for calculations.
+/// Returns empty string on parse failure.
+String parseRupiah(String formatted) {
+  final cleaned = formatted.replaceAll(RegExp(r'[^0-9\-]'), '');
+  return cleaned;
+}
+
 /// Format tanggal ke string Bahasa Indonesia.
 String formatTanggal(DateTime date) {
   const bulan = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-    'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'Mei',
+    'Jun',
+    'Jul',
+    'Agu',
+    'Sep',
+    'Okt',
+    'Nov',
+    'Des',
   ];
   return '${date.day} ${bulan[date.month - 1]} ${date.year}';
 }

@@ -10,12 +10,17 @@ import (
 
 // Handler handles HTTP requests for notifications and device token management.
 type Handler struct {
-	svc Service
+	svc    Service
+	appEnv string
 }
 
 // NewHandler creates a new Handler instance.
-func NewHandler(svc Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc Service, appEnv ...string) *Handler {
+	env := "development"
+	if len(appEnv) > 0 && appEnv[0] != "" {
+		env = appEnv[0]
+	}
+	return &Handler{svc: svc, appEnv: env}
 }
 
 // RegisterDevice registers an FCM token for the authenticated user.
@@ -90,6 +95,35 @@ func (h *Handler) TriggerWasteTruckArrival(w http.ResponseWriter, r *http.Reques
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":  "accepted",
 		"message": "Waste truck arrival notification dispatched",
+	})
+}
+
+// TestSelf sends an isolated test push notification exclusively to the authenticated user's registered devices.
+// Disabled in production environment.
+func (h *Handler) TestSelf(w http.ResponseWriter, r *http.Request) {
+	if h.appEnv == "production" {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "test endpoint not available in production")
+		return
+	}
+
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.UserID == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	count, err := h.svc.SendSelfTest(r.Context(), ac.UserID)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to dispatch self-test notification")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":           "dispatched",
+		"message":          "Test notification dispatched to your registered devices",
+		"dispatched_count": count,
 	})
 }
 

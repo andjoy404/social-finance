@@ -72,8 +72,11 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
     try {
       final repo = ref.read(wargaRepositoryProvider);
       final rts = await repo.fetchRts();
+      final filteredRts = rts
+          .where((r) => ['002', '003'].contains(r['rt'] as String?))
+          .toList();
       if (mounted) {
-        setState(() => _rtOptions = rts);
+        setState(() => _rtOptions = filteredRts);
       }
     } catch (e) {
       // Silently fail — RT selection not critical for non-superadmin

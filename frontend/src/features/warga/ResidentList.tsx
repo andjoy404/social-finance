@@ -1,36 +1,28 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, type KeyboardEvent } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   listResidents,
   ApiError,
   clearSessionPair,
   getSessionPair,
+  apiDownloadWargaExport,
   type ApiResident,
 } from '@/app/api'
-import { hasWargaWriteAccess } from '@/app/wargaAuth'
+import { hasWargaWriteAccess, hasWargaImportAccess, hasWargaExportAccess } from '@/app/wargaAuth'
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
-import { UserOutlined, CloseOutlined, DownOutlined } from '@ant-design/icons'
-import { RowActionMenu } from '@/components/RowActionMenu'
+import { UserOutlined, CloseOutlined, DownOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons'
 import { DataChoiceModal } from './DataChoiceModal'
+import { WargaImportModal } from './WargaImportModal'
 
 type FilterType = 'semua' | 'status' | 'occupancy'
 
 type StatusValue = 'aktif' | 'tidak_aktif' | null
 type OccupancyValue = 'semua' | 'OWNER' | 'TENANT'
-
-const validSpecialJabatans: Record<string, boolean> = {
-  keamanan: true,
-  kebersihan_pembangunan: true,
-}
-
-function isSpecialResident(resident: ApiResident): boolean {
-  return validSpecialJabatans[resident.jabatan ?? ''] === true
-}
 
 const statusFilterOptions: { value: FilterType; label: string }[] = [
   { value: 'semua', label: 'Semua' },
@@ -132,7 +124,7 @@ function getJabatanLabel(jabatan: string | null | undefined): string {
     case 'keamanan':
       return 'Seksi Keamanan'
     case 'kebersihan_pembangunan':
-      return 'Kebersihan & Pembangunan'
+      return 'Operasional'
     default:
       return jabatan
   }
@@ -142,6 +134,7 @@ const colStyles = {
   rt: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   rw: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   rtName: { minWidth: 140, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  houseNumber: { width: 110, minWidth: 110, maxWidth: 110, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   name: { minWidth: 160, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
   nik: { width: 170, minWidth: 170, maxWidth: 170, textAlign: 'center' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
   phone: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'center' as const, fontFamily: 'monospace', whiteSpace: 'nowrap' as const },
@@ -162,9 +155,13 @@ export function ResidentList() {
   const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
   const isPengurus = user.role === 'pengurus'
   const canWrite = hasWargaWriteAccess(user)
+  const canImport = hasWargaImportAccess(user)
+  const canExport = hasWargaExportAccess(user)
   const showNik = isPengurus || isSuperAdmin
 
   const [choiceOpen, setChoiceOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<ApiError | null>(null)
@@ -295,6 +292,27 @@ export function ResidentList() {
   const handleEditSpecial = useCallback((id: string) => {
     navigate(`/warga/special/${id}/edit`)
   }, [navigate])
+
+  const handleExport = useCallback(async () => {
+    const pair = getSessionPair()
+    if (!pair?.accessToken) return
+    setExporting(true)
+    try {
+      const blob = await apiDownloadWargaExport(pair.accessToken, isSuperAdmin ? user?.rt?.id : undefined)
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'warga_export.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export warga error:', err)
+    } finally {
+      setExporting(false)
+    }
+  }, [isSuperAdmin, user?.rt?.id])
 
   const statusValueLabel: string | null = statusValue === 'aktif' ? 'Aktif' : statusValue === 'tidak_aktif' ? 'Tidak Aktif' : null
 
@@ -434,16 +452,63 @@ export function ResidentList() {
             />
           </div>
 
-          {/* Create button — hidden for unauthorized users */}
-          {canWrite && (
-            <button className="sf-create-btn" onClick={() => setChoiceOpen(true)}>
-              + Tambah
-            </button>
-          )}
+          {/* Action buttons — hidden for unauthorized users */}
+          <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {canExport && (
+              <button
+                type="button"
+                className="sf-btn-secondary"
+                onClick={handleExport}
+                disabled={exporting}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <DownloadOutlined style={{ fontSize: 13 }} />
+                {exporting ? 'Mengunduh...' : 'Export Warga'}
+              </button>
+            )}
+
+            {canImport && (
+              <button
+                type="button"
+                className="sf-btn-secondary"
+                onClick={() => setImportOpen(true)}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <UploadOutlined style={{ fontSize: 13 }} />
+                Import Warga
+              </button>
+            )}
+
+            {canWrite && (
+              <button className="sf-create-btn" onClick={() => setChoiceOpen(true)}>
+                + Tambah
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Data Choice Modal */}
         <DataChoiceModal open={choiceOpen} onClose={() => setChoiceOpen(false)} />
+
+        {/* Warga Import Modal */}
+        <WargaImportModal
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onSuccess={() => void fetchResidents(1, pageSize)}
+          targetRtId={isSuperAdmin ? user.rt?.id : undefined}
+        />
 
         {/* Error */}
         {error && (
@@ -475,6 +540,7 @@ export function ResidentList() {
                   <th className="col-rt" style={colStyles.rt}>RT</th>
                   <th className="col-rw" style={colStyles.rw}>RW</th>
                   <th className="col-rt-name" style={colStyles.rtName}>NAMA RT</th>
+                  <th className="col-house-number" style={colStyles.houseNumber}>NO. RUMAH</th>
                   <th className="col-name" style={colStyles.name}>NAMA</th>
                   {showNik && <th className="col-nik" style={colStyles.nik}>NIK</th>}
                   <th className="col-phone" style={colStyles.phone}>TELEPON</th>
@@ -484,7 +550,6 @@ export function ResidentList() {
                   <th className="col-end-date" style={colStyles.endDate}>TANGGAL SELESAI</th>
                   <th className="col-jabatan" style={colStyles.jabatan}>JABATAN</th>
                   <th className="col-status" style={colStyles.status}>STATUS</th>
-                  <th className="col-action" style={colStyles.action}>AKSI</th>
                 </tr>
               </thead>
               <tbody>
@@ -530,7 +595,7 @@ interface ResidentRowProps {
   onEditSpecial: (id: string) => void
 }
 
-function ResidentRow({ resident, showNik, canWrite, onDetail, onEdit, onEditSpecial }: ResidentRowProps) {
+function ResidentRow({ resident, showNik, onDetail }: ResidentRowProps) {
   const startDate = formatStrictDate(resident.start_date)
   const endDate = formatStrictDate(resident.end_date)
 
@@ -538,8 +603,25 @@ function ResidentRow({ resident, showNik, canWrite, onDetail, onEdit, onEditSpec
   const jabatanLabel = getJabatanLabel(resident.jabatan)
   const jabatanColor = getJabatanColor(resident.jabatan)
 
+  const handleClick = useCallback(() => {
+    onDetail(resident.id)
+  }, [resident.id, onDetail])
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handleClick()
+    }
+  }, [handleClick])
+
   return (
-    <tr>
+    <tr
+      style={{ cursor: 'pointer' }}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+    >
       {/* 1. RT */}
       <td className="col-rt" style={colStyles.rt}>
         {formatIntegerOnly(resident.rt_number ?? null)}
@@ -553,6 +635,11 @@ function ResidentRow({ resident, showNik, canWrite, onDetail, onEdit, onEditSpec
       {/* 3. NAMA RT */}
       <td className="col-rt-name" style={colStyles.rtName}>
         {formatNull(resident.rt_name ?? null)}
+      </td>
+
+      {/* 3b. NO. RUMAH */}
+      <td className="col-house-number" style={colStyles.houseNumber}>
+        {formatNull(resident.house_number ?? null)}
       </td>
 
       {/* 4. NAMA */}
@@ -606,22 +693,6 @@ function ResidentRow({ resident, showNik, canWrite, onDetail, onEdit, onEditSpec
         <Badge variant={statusBadge(resident.is_active)}>
           {statusLabel(resident.is_active)}
         </Badge>
-      </td>
-
-      {/* 13. AKSI */}
-      <td className="col-action" style={colStyles.action}>
-        <RowActionMenu
-          items={[
-            { label: 'Detail', onClick: () => onDetail(resident.id) },
-            ...(canWrite
-              ? (resident.household_id
-                ? [{ label: 'Ubah', onClick: () => onEdit(resident.household_id!) }]
-                : isSpecialResident(resident)
-                  ? [{ label: 'Ubah', onClick: () => onEditSpecial(resident.id) }]
-                  : [])
-              : []),
-          ]}
-        />
       </td>
     </tr>
   )

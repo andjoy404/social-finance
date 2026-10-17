@@ -63,6 +63,7 @@ func setClause(fields []updateField, baseIdx int) string {
 func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 	var item Household
 	var houseNumber, address, occStatus sql.NullString
+	var hoStartDate sql.NullTime
 	var resID, resRTID, resFullName, resPhone, resNik, resEmail, resUserID sql.NullString
 	var resIsActive sql.NullBool
 	var resCreatedAt, resUpdatedAt sql.NullTime
@@ -72,7 +73,7 @@ func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 	err := scan(
 		&item.ID, &item.RTID, &item.HeadName,
 		&item.IsActive, &item.CreatedAt, &item.UpdatedAt,
-		&houseNumber, &address, &occStatus,
+		&houseNumber, &address, &occStatus, &hoStartDate,
 		&resID, &resRTID, &resFullName, &resPhone, &resNik, &resEmail, &resIsActive, &resCreatedAt, &resUpdatedAt,
 		&resUserID,
 		&resRT, &resRW, &resRTName,
@@ -90,6 +91,10 @@ func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 	if occStatus.Valid {
 		st := OccupancyStatus(occStatus.String)
 		item.OccupancyStatus = &st
+	}
+	if hoStartDate.Valid {
+		sd := hoStartDate.Time.Format("2006-01-02")
+		item.StartDate = &sd
 	}
 
 	if resID.Valid {
@@ -139,7 +144,7 @@ func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 
 const householdBaseSelect = `
 	SELECT h.id, h.rt_id, h.head_name, h.is_active, h.created_at, h.updated_at,
-	       ph.house_number, ph.address, ho.occupancy_status,
+	       ph.house_number, ph.address, ho.occupancy_status, ho.start_date,
 	       r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
 	       r.user_id,
 	       r.rt, r.rw, r.rt_name
@@ -294,6 +299,10 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 	item.Address = in.Address
 	occStatus := in.OccupancyStatus
 	item.OccupancyStatus = &occStatus
+	if startDate != nil {
+		sd := startDate.Format("2006-01-02")
+		item.StartDate = &sd
+	}
 
 	// 4. Create head resident & residency period
 	var resItem Resident
@@ -625,6 +634,22 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 		if err != nil {
 			return nil, fmt.Errorf("update occupancy status: %w", err)
 		}
+		hasChanges = true
+	}
+
+	if hoID.Valid && in.StartDate != nil && strings.TrimSpace(*in.StartDate) != "" {
+		trimmedDate := strings.TrimSpace(*in.StartDate)
+		_, err = tx.ExecContext(ctx,
+			`UPDATE household_occupancies SET start_date = $1, updated_at = now() WHERE id = $2`,
+			trimmedDate, hoID.String,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("update occupancy start_date: %w", err)
+		}
+		_, _ = tx.ExecContext(ctx,
+			`UPDATE residency_periods SET start_date = $1 WHERE household_occupancy_id = $2`,
+			trimmedDate, hoID.String,
+		)
 		hasChanges = true
 	}
 
@@ -1085,7 +1110,7 @@ func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtI
 // projecting current household and relationship.
 func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Resident, error) {
 	var item Resident
-	var hhID, rel, userID, jabatanStr, occStatusStr sql.NullString
+	var hhID, rel, userID, jabatanStr, occStatusStr, houseNumStr sql.NullString
 	var rtNumber, rtName sql.NullString
 	var rw sql.NullInt64
 	var rpStart, rpEnd sql.NullTime
@@ -1093,10 +1118,11 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 	err := tx.QueryRowContext(ctx,
 		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
 		        ho.household_id, rp.relationship_to_head, rp.start_date, rp.end_date, r.user_id,
-		        rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status
+		        rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 		 FROM residents r
 		 LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 		 LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 		 LEFT JOIN rts rt ON r.rt_id = rt.id
 		 LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id AND urm.rt_id = $2 AND urm.is_active = true
 		 WHERE r.id = $1 AND r.rt_id = $2 LIMIT 1`,
@@ -1110,6 +1136,7 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 		&rtNumber, &rw, &rtName,
 		&jabatanStr,
 		&occStatusStr,
+		&houseNumStr,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1149,6 +1176,9 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 	if occStatusStr.Valid {
 		item.OccupancyStatus = &occStatusStr.String
 	}
+	if houseNumStr.Valid {
+		item.HouseNumber = &houseNumStr.String
+	}
 
 	return &item, nil
 }
@@ -1156,7 +1186,7 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 // ResidentGetByIDAll finds a resident by UUID across all RTs (super_admin access).
 func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, error) {
 	var item Resident
-	var hhID, rel, userID, jabatanStr sql.NullString
+	var hhID, rel, userID, jabatanStr, houseNumStr sql.NullString
 	var rtNumber, rtName sql.NullString
 	var rw sql.NullInt64
 	var rpStart sql.NullTime
@@ -1164,10 +1194,11 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 	err := tx.QueryRowContext(ctx,
 		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
 		        ho.household_id, rp.relationship_to_head, rp.start_date, r.user_id,
-		        rt.rt, rt.rw, rt.name, urm.jabatan
+		        rt.rt, rt.rw, rt.name, urm.jabatan, ph.house_number
 		 FROM residents r
 		 LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 		 LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 		 LEFT JOIN rts rt ON r.rt_id = rt.id
 		 LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id AND urm.rt_id = r.rt_id AND urm.is_active = true
 		 WHERE r.id = $1 LIMIT 1`,
@@ -1179,6 +1210,7 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 		&userID,
 		&rtNumber, &rw, &rtName,
 		&jabatanStr,
+		&houseNumStr,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1212,6 +1244,9 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 	if jabatanStr.Valid {
 		item.Jabatan = &jabatanStr.String
 	}
+	if houseNumStr.Valid {
+		item.HouseNumber = &houseNumStr.String
+	}
 
 	return &item, nil
 }
@@ -1220,10 +1255,11 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
 	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
 	                 ho.household_id, rp.relationship_to_head, rp.start_date, rp.end_date, r.user_id,
-	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status
+	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 	          FROM residents r
 	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 	          LEFT JOIN rts rt ON r.rt_id = rt.id
 	          LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id AND urm.rt_id = $1 AND urm.is_active = true
 	          WHERE r.rt_id = $1`
@@ -1249,7 +1285,7 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 
 	if search != nil && *search != "" {
 		searchStr := "%" + *search + "%"
-		query += fmt.Sprintf(" AND (r.full_name ILIKE $%d OR r.nik ILIKE $%d OR r.phone ILIKE $%d OR r.email ILIKE $%d)", pos, pos, pos, pos)
+		query += fmt.Sprintf(" AND (r.full_name ILIKE $%d OR r.nik ILIKE $%d OR r.phone ILIKE $%d OR r.email ILIKE $%d OR ph.house_number ILIKE $%d)", pos, pos, pos, pos, pos)
 		allArgs = append(allArgs, searchStr)
 		pos++
 	}
@@ -1266,7 +1302,7 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 	result := make([]*Resident, 0)
 	for rows.Next() {
 		var item Resident
-		var hhID, rel, userID, jabatanStr, occStatusStr sql.NullString
+		var hhID, rel, userID, jabatanStr, occStatusStr, houseNumStr sql.NullString
 		var rtNumber, rtName sql.NullString
 		var rw sql.NullInt64
 		var startDate, endDate sql.NullTime
@@ -1278,6 +1314,7 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 			&rtNumber, &rw, &rtName,
 			&jabatanStr,
 			&occStatusStr,
+			&houseNumStr,
 		); err != nil {
 			return nil, fmt.Errorf("scan resident: %w", err)
 		}
@@ -1311,6 +1348,9 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 		}
 		if occStatusStr.Valid {
 			item.OccupancyStatus = &occStatusStr.String
+		}
+		if houseNumStr.Valid {
+			item.HouseNumber = &houseNumStr.String
 		}
 		result = append(result, &item)
 	}
@@ -1358,10 +1398,11 @@ func ResidentCount(ctx context.Context, tx *sql.Tx, rtID string, householdID *st
 func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
 	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
 	                 ho.household_id, rp.relationship_to_head, rp.start_date, rp.end_date, r.user_id,
-	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status
+	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 	          FROM residents r
 	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
+	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 	          LEFT JOIN rts rt ON r.rt_id = rt.id
 	          LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id AND urm.rt_id = r.rt_id AND urm.is_active = true
 	          WHERE 1=1`
@@ -1385,7 +1426,7 @@ func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isAct
 
 	if search != nil && *search != "" {
 		searchStr := "%" + *search + "%"
-		query += fmt.Sprintf(" AND (r.full_name ILIKE $%d OR r.nik ILIKE $%d OR r.phone ILIKE $%d OR r.email ILIKE $%d)", pos, pos, pos, pos)
+		query += fmt.Sprintf(" AND (r.full_name ILIKE $%d OR r.nik ILIKE $%d OR r.phone ILIKE $%d OR r.email ILIKE $%d OR ph.house_number ILIKE $%d)", pos, pos, pos, pos, pos)
 		allArgs = append(allArgs, searchStr)
 		pos++
 	}
@@ -1402,7 +1443,7 @@ func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isAct
 	result := make([]*Resident, 0)
 	for rows.Next() {
 		var item Resident
-		var hhID, rel, userID, jabatanStr, occStatusStr sql.NullString
+		var hhID, rel, userID, jabatanStr, occStatusStr, houseNumStr sql.NullString
 		var rtNumber, rtName sql.NullString
 		var rw sql.NullInt64
 		var startDate, endDate sql.NullTime
@@ -1414,6 +1455,7 @@ func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isAct
 			&rtNumber, &rw, &rtName,
 			&jabatanStr,
 			&occStatusStr,
+			&houseNumStr,
 		); err != nil {
 			return nil, fmt.Errorf("scan resident: %w", err)
 		}
@@ -1447,6 +1489,9 @@ func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isAct
 		}
 		if occStatusStr.Valid {
 			item.OccupancyStatus = &occStatusStr.String
+		}
+		if houseNumStr.Valid {
+			item.HouseNumber = &houseNumStr.String
 		}
 		result = append(result, &item)
 	}

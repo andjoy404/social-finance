@@ -107,6 +107,50 @@ void main() {
       expect(user.id, equals('user-3'));
       expect(user.rtId, isNull);
       expect(user.systemRole, isNull);
+      expect(user.effectivePermissions, isEmpty);
+    });
+
+    test('AuthUser parses only valid effective permission lists', () {
+      expect(
+        AuthUser.fromJson({
+          'id': 'user-4',
+          'role': 'pengurus',
+          'effective_permissions': ['finance.read', 'finance.create'],
+        }).effectivePermissions,
+        equals(['finance.read', 'finance.create']),
+      );
+      expect(
+        AuthUser.fromJson({
+          'id': 'user-5',
+          'role': 'pengurus',
+          'effective_permissions': ['finance.read', 7],
+        }).effectivePermissions,
+        isEmpty,
+      );
+      expect(
+        AuthUser.fromJson({
+          'id': 'user-6',
+          'role': 'pengurus',
+          'effective_permissions': 'finance.read',
+        }).effectivePermissions,
+        isEmpty,
+      );
+      expect(
+        AuthUser.fromJson({
+          'id': 'user-7',
+          'role': 'pengurus',
+          'effective_permissions': [],
+        }).effectivePermissionsAvailable,
+        isTrue,
+      );
+      expect(
+        AuthUser.fromJson({
+          'id': 'user-8',
+          'role': 'pengurus',
+          'effective_permissions': null,
+        }).effectivePermissionsAvailable,
+        isFalse,
+      );
     });
 
     test('LoginResponse throws FormatException when user field is missing', () {
@@ -264,11 +308,27 @@ void main() {
       };
 
       apiClient.dio.httpClientAdapter = MockAdapter((options) async {
-        expect(options.path, equals('/api/v1/auth/login'));
-        expect(options.method, equals('POST'));
-        expect(options.data['email'], equals('andi@example.com'));
-        expect(options.data['password'], equals('secret123'));
-        return _jsonResponse(mockData, 200);
+        if (options.path == '/api/v1/auth/login') {
+          expect(options.method, equals('POST'));
+          expect(options.data['email'], equals('andi@example.com'));
+          expect(options.data['password'], equals('secret123'));
+          return _jsonResponse(mockData, 200);
+        }
+        expect(options.path, equals('/api/v1/auth/me'));
+        return _jsonResponse({
+          'id': 'uuid-123',
+          'email': 'andi@example.com',
+          'full_name': 'Andi Wijaya',
+          'role': 'bendahara',
+          'rt_id': 'rt-uuid-456',
+          'rt_rt': '003',
+          'effective_permissions': [
+            'finance.read',
+            'finance.create',
+            'finance.update',
+            'finance.approve',
+          ],
+        }, 200);
       });
 
       await authRepository.login('andi@example.com', 'secret123');
@@ -282,14 +342,222 @@ void main() {
       expect(userMap['name'], equals('Andi Wijaya'));
       expect(userMap['role'], equals(AppRole.bendahara));
       expect(userMap['rt_id'], equals('rt-uuid-456'));
-      expect(
-        userMap['rt'],
-        isNull,
-      ); // Ensures UUID is NOT displayed as RT number
+      expect(userMap['rt'], equals('003'));
+      expect(userMap['profile_status'], equals('ready'));
       expect(userMap['rw'], isNull);
       expect(userMap['access_token'], equals('test-access-token'));
       expect(authRepository.currentRole, equals(AppRole.bendahara));
     });
+
+    test(
+      'login fails closed and reports profile errors instead of using login DTO',
+      () async {
+        apiClient.dio.httpClientAdapter = MockAdapter((options) async {
+          if (options.path == '/api/v1/auth/login') {
+            return _jsonResponse({
+              'access_token': 'temporary-access',
+              'refresh_token': 'temporary-refresh',
+              'expires_in': 900,
+              'user': {
+                'id': 'user-1',
+                'email': 'user@example.com',
+                'role': 'pengurus',
+              },
+            }, 200);
+          }
+          return _jsonResponse({'error': 'profile unavailable'}, 503);
+        });
+
+        await authRepository.login('user@example.com', 'password');
+
+        expect(authRepository.state, isA<AsyncError>());
+        expect(authRepository.currentUser, isNull);
+        expect(apiClient.token, isNull);
+        expect(apiClient.refreshToken, isNull);
+      },
+    );
+
+    test(
+      'missing effective permissions are not presented as denied access',
+      () async {
+        var profileCalls = 0;
+        apiClient.dio.httpClientAdapter = MockAdapter((options) async {
+          if (options.path == '/api/v1/auth/login') {
+            return _jsonResponse({
+              'access_token': 'test-access',
+              'refresh_token': 'test-refresh',
+              'user': {'id': 'user-1', 'role': 'warga'},
+            }, 200);
+          }
+          profileCalls++;
+          if (profileCalls > 1) {
+            return _jsonResponse({
+              'id': 'user-1',
+              'email': 'user@example.com',
+              'role': 'warga',
+              'effective_permissions': ['finance.read'],
+            }, 200);
+          }
+          return _jsonResponse({
+            'id': 'user-1',
+            'email': 'user@example.com',
+            'role': 'warga',
+          }, 200);
+        });
+
+        await authRepository.login('user@example.com', 'password');
+
+        expect(
+          authRepository.currentUser!['profile_status'],
+          equals('permissions_unavailable'),
+        );
+        expect(authRepository.currentUser!['effective_permissions'], isEmpty);
+
+        await authRepository.reloadProfile();
+        expect(authRepository.currentUser!['profile_status'], equals('ready'));
+        expect(
+          authRepository.currentUser!['effective_permissions'],
+          equals(['finance.read']),
+        );
+      },
+    );
+
+    test(
+      'refresh profile failure clears stale permissions and reports failure',
+      () async {
+        var profileCalls = 0;
+        var protectedCalls = 0;
+        apiClient.dio.httpClientAdapter = MockAdapter((options) async {
+          if (options.path == '/api/v1/auth/login') {
+            return _jsonResponse({
+              'access_token': 'old-access',
+              'refresh_token': 'old-refresh',
+              'expires_in': 900,
+              'user': {'id': 'user-1', 'role': 'pengurus'},
+            }, 200);
+          }
+          if (options.path == '/api/v1/auth/me') {
+            profileCalls++;
+            if (profileCalls > 1) {
+              return _jsonResponse({'error': 'profile unavailable'}, 503);
+            }
+            return _jsonResponse({
+              'id': 'user-1',
+              'email': 'user@example.com',
+              'role': 'pengurus',
+              'effective_permissions': [
+                'finance.read',
+                'finance.create',
+                'finance.update',
+                'finance.approve',
+              ],
+            }, 200);
+          }
+          if (options.path == '/api/v1/auth/refresh') {
+            return _jsonResponse({
+              'access_token': 'new-access',
+              'refresh_token': 'new-refresh',
+              'expires_in': 900,
+              'user': {'id': 'user-1', 'role': 'pengurus'},
+            }, 200);
+          }
+          if (options.path == '/protected') {
+            protectedCalls++;
+            return protectedCalls == 1
+                ? _jsonResponse({'error': 'expired'}, 401)
+                : _jsonResponse({'ok': true}, 200);
+          }
+          return _jsonResponse({'error': 'not found'}, 404);
+        });
+
+        await authRepository.login('user@example.com', 'password');
+        expect(
+          authRepository.currentUser!['effective_permissions'],
+          contains('finance.approve'),
+        );
+
+        await apiClient.dio.get('/protected');
+
+        expect(authRepository.currentUser!['effective_permissions'], isEmpty);
+        expect(authRepository.currentUser!['profile_status'], equals('error'));
+        expect(apiClient.token, equals('new-access'));
+      },
+    );
+
+    test(
+      'login, token refresh, and logout replace and clear permissions',
+      () async {
+        apiClient.dio.httpClientAdapter = MockAdapter((options) async {
+          if (options.path == '/api/v1/auth/login') {
+            return _jsonResponse({
+              'access_token': 'old-access',
+              'refresh_token': 'old-refresh',
+              'expires_in': 900,
+              'user': {
+                'id': 'user-1',
+                'email': 'user@example.com',
+                'role': 'pengurus',
+              },
+            }, 200);
+          }
+          if (options.path == '/api/v1/auth/me') {
+            return _jsonResponse({
+              'id': 'user-1',
+              'email': 'user@example.com',
+              'full_name': 'Pengurus',
+              'role': 'pengurus',
+              'effective_permissions':
+                  options.headers['Authorization'] == 'Bearer new-access'
+                  ? ['finance.read']
+                  : [
+                      'finance.read',
+                      'finance.create',
+                      'finance.update',
+                      'finance.approve',
+                    ],
+            }, 200);
+          }
+          if (options.path == '/api/v1/auth/refresh') {
+            return _jsonResponse({
+              'access_token': 'new-access',
+              'refresh_token': 'new-refresh',
+              'expires_in': 900,
+              'user': {
+                'id': 'user-1',
+                'email': 'user@example.com',
+                'role': 'pengurus',
+              },
+            }, 200);
+          }
+          if (options.path == '/protected') {
+            return options.headers['Authorization'] == 'Bearer old-access'
+                ? _jsonResponse({'error': 'expired'}, 401)
+                : _jsonResponse({'ok': true}, 200);
+          }
+          if (options.path == '/api/v1/auth/logout') {
+            return _jsonResponse(null, 204);
+          }
+          return _jsonResponse({'error': 'not found'}, 404);
+        });
+
+        await authRepository.login('user@example.com', 'password');
+        expect(
+          authRepository.currentUser!['effective_permissions'],
+          contains('finance.approve'),
+        );
+
+        await apiClient.dio.get('/protected');
+        expect(apiClient.token, 'new-access');
+        expect(
+          authRepository.currentUser!['effective_permissions'],
+          equals(['finance.read']),
+        );
+
+        await authRepository.logout();
+        expect(authRepository.currentUser, isNull);
+        expect(authRepository.state, isNull);
+      },
+    );
 
     test(
       'Invalid credentials (HTTP 401) sets error state and retains no token',
@@ -520,7 +788,8 @@ void main() {
             }, 200);
           }
           attempts++;
-          if (options.data is Map && options.data['password'] == 'wrongpassword') {
+          if (options.data is Map &&
+              options.data['password'] == 'wrongpassword') {
             return _jsonResponse({
               'error': {
                 'code': 'unauthorized',
@@ -564,10 +833,7 @@ void main() {
           find.byType(TextField).first,
           'user@example.com',
         );
-        await tester.enterText(
-          find.byType(TextField).last,
-          'wrongpassword',
-        );
+        await tester.enterText(find.byType(TextField).last, 'wrongpassword');
         final button = find.text('Masuk');
         await tester.ensureVisible(button);
         await tester.pumpAndSettle();
@@ -585,10 +851,7 @@ void main() {
         expect(attempts, equals(1));
 
         // 2. Retry with valid credentials
-        await tester.enterText(
-          find.byType(TextField).last,
-          'correctpassword',
-        );
+        await tester.enterText(find.byType(TextField).last, 'correctpassword');
         await tester.tap(find.text('Masuk'));
         await tester.pump(); // Start loading
         await tester.pump(

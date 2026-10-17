@@ -526,6 +526,45 @@ input { font-family: inherit; }
   min-width: 0;
 }
 
+.sf-kas-period-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--sf-accent);
+  background: var(--sf-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--sf-accent) 38%, var(--sf-border));
+  border-radius: var(--sf-radius-sm);
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.sf-kas-period-button.sf-btn-primary {
+  color: var(--sf-accent);
+  background: var(--sf-accent-soft);
+  border-color: color-mix(in srgb, var(--sf-accent) 48%, var(--sf-border));
+}
+
+.sf-kas-period-button:hover:not(:disabled) {
+  color: var(--sf-accent);
+  background: color-mix(in srgb, var(--sf-accent) 16%, var(--sf-bg));
+  border-color: var(--sf-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--sf-accent) 20%, transparent);
+}
+
+.sf-kas-period-button:focus-visible {
+  outline: none;
+  box-shadow: var(--sf-focus-ring);
+}
+
+.sf-kas-period-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--sf-accent) 22%, var(--sf-bg));
+}
+
+.sf-kas-period-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .sf-list-title {
   font-size: 16px;
   font-weight: 700;
@@ -1361,6 +1400,11 @@ input { font-family: inherit; }
   backdrop-filter: blur(3px) !important;
 }
 
+/* Proof preview overlay stacks above verification dialog (z-index 1100) */
+.sf-modal-overlay.sf-modal-overlay-preview {
+  z-index: 1300 !important;
+}
+
 .sf-modal-header {
   display: flex;
   align-items: flex-start;
@@ -1574,6 +1618,18 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
   border-color: var(--sf-text-muted);
 }
 
+.sf-btn-cancel-red {
+  color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+}
+
+.sf-btn-cancel-red:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.08) !important;
+  border-color: #ef4444 !important;
+  color: #dc2626 !important;
+}
+
+
 .sf-btn-secondary {
   padding: 8px 20px;
   font-size: 13px;
@@ -1590,6 +1646,36 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
 .sf-btn-secondary:hover {
   background: var(--sf-bg-tertiary);
   border-color: var(--sf-text-muted);
+}
+
+.sf-btn-danger {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: var(--sf-danger);
+  border: none;
+  border-radius: var(--sf-radius-sm);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.sf-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sf-danger) 85%, var(--sf-text));
+}
+
+.sf-btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── Dashboard overlay: darker backdrop (due forms) ────────────────────── */
+
+.sf-modal-overlay-due {
+  background: rgba(0, 0, 0, 0.75) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+  backdrop-filter: blur(4px) !important;
 }
 
 /* ── Dashboard metric card hover — subtle ────────────────────────────── */

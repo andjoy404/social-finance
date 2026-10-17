@@ -85,23 +85,23 @@ func TestLogin_EmailAndPhoneVariants(t *testing.T) {
 			wantRole:   "pengurus",
 		},
 		{
-			name: "Warga RT 04 login by email",
+			name: "Warga RT 03 login by email",
 			body: map[string]string{
-				"email":    "warga.rt04@local.com",
+				"email":    "warga.rt03@local.com",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "warga.rt04@local.com",
+			wantEmail:  "warga.rt03@local.com",
 			wantRole:   "warga",
 		},
 		{
-			name: "Warga RT 04 login by local phone",
+			name: "Warga RT 03 login by local phone",
 			body: map[string]string{
-				"phone":    "081400000040",
+				"phone":    "081300000030",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "warga.rt04@local.com",
+			wantEmail:  "warga.rt03@local.com",
 			wantRole:   "warga",
 		},
 		{

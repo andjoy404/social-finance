@@ -38,6 +38,7 @@ type Household struct {
 	HeadName        string           `json:"head_name"`
 	Address         *string          `json:"address,omitempty"`
 	OccupancyStatus *OccupancyStatus `json:"occupancy_status,omitempty"`
+	StartDate       *string          `json:"start_date,omitempty"`
 	Nik             *string          `json:"nik,omitempty"`
 	Phone           *string          `json:"phone,omitempty"`
 	Email           *string          `json:"email,omitempty"`
@@ -73,6 +74,7 @@ type UpdateHouseholdInput struct {
 	Phone           *string          `json:"phone,omitempty"`
 	Email           *string          `json:"email,omitempty"`
 	Address         *string          `json:"address,omitempty"`
+	StartDate       *string          `json:"start_date,omitempty"`
 	OccupancyStatus *OccupancyStatus `json:"occupancy_status,omitempty"`
 	IsActive        *bool            `json:"is_active,omitempty"`
 }
@@ -106,6 +108,7 @@ type Resident struct {
 	UserID             *string   `json:"user_id,omitempty"`
 	Jabatan            *string   `json:"jabatan,omitempty"`
 	OccupancyStatus    *string   `json:"occupancy_status,omitempty"`
+	HouseNumber        *string   `json:"house_number,omitempty"`
 }
 
 // CreateResidentInput holds the fields for creating a new resident.

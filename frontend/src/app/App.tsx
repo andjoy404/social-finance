@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth } from '@/app/AuthContext'
+import { useAuth, isAllowedRT } from '@/app/AuthContext'
 import { Login } from '@/features/auth/Login'
 import { Dashboard } from '@/features/dashboard/Dashboard'
 import { AppLayout } from '@/layouts/AppLayout'
@@ -31,6 +31,17 @@ function SuperAdminRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
   if (!user || user.systemRole !== 'super_admin') {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+function AllowedRTRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  if (!isAllowedRT(user)) {
     return <Navigate to="/" replace />
   }
   return <>{children}</>
@@ -91,7 +102,11 @@ export function App() {
         />
         <Route
           path="warga"
-          element={<WargaLayout />}
+          element={
+            <AllowedRTRoute>
+              <WargaLayout />
+            </AllowedRTRoute>
+          }
         >
           <Route
             path="baru"
@@ -122,11 +137,26 @@ export function App() {
             element={<SpecialResidentEdit />}
           />
         </Route>
-        <Route path="iuran/*" element={<IuranRoutes />} />
-        <Route path="kas" element={<KasRoutes />} />
+        <Route
+          path="iuran/*"
+          element={
+            <AllowedRTRoute>
+              <IuranRoutes />
+            </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="kas/*"
+          element={
+            <AllowedRTRoute>
+              <KasRoutes />
+            </AllowedRTRoute>
+          }
+        />
       </Route>
 
       <Route path="*" element={<Navigate to={isAuthenticated ? "/" : "/login"} replace />} />
     </Routes>
+
   )
 }

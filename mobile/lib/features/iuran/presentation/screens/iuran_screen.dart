@@ -13,7 +13,7 @@ import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 
 import '../../data/iuran_models.dart';
 import '../../data/iuran_providers.dart';
-import 'package:social_finance/core/models/role.dart';
+import '../../data/iuran_access.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
 /// Main Iuran list screen (WargaScreen equivalent).
@@ -39,17 +39,10 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
         .trim();
   }
 
-  /// Check whether the current user can create bills (pengurus, super_admin).
+  /// The form route is restricted to users allowed to manage iuran.
   bool _canCreateBill() {
     final auth = ref.read(authRepositoryProvider);
-    final roleValue = auth?.valueOrNull?['role'];
-    if (roleValue is AppRole) {
-      return roleValue == AppRole.pengurus || roleValue == AppRole.superAdmin;
-    }
-    if (roleValue is String) {
-      return roleValue == 'pengurus' || roleValue == 'super_admin';
-    }
-    return false;
+    return canManageIuran(auth?.valueOrNull);
   }
 
   @override
@@ -62,6 +55,7 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
     final filtered = ref.watch(filteredBillsProvider);
     final periode = ref.watch(iuranSelectedPeriodeProvider);
     final status = ref.watch(iuranSelectedStatusProvider);
+    debugPrint('[IuranDebug] UI build: filtered.length=${filtered.length}');
 
     final accentSoft = AppColors.accentSoftColor(context);
 

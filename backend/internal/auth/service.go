@@ -51,6 +51,8 @@ type UserInfo struct {
 type RTInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	RT   string `json:"rt,omitempty"`
+	RW   int    `json:"rw,omitempty"`
 }
 
 // Login authenticates a user by email, phone, or identifier + password.
@@ -111,7 +113,7 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 		if !m.IsActive {
 			return nil, ErrNotAuthorized
 		}
-		rtName, rtActive, err := FindRTByID(ctx, tx, m.RTID)
+		rtName, rtCode, rtRW, rtActive, err := FindRTDetailsByID(ctx, tx, m.RTID)
 		if err != nil {
 			return nil, ErrNotAuthorized
 		}
@@ -160,6 +162,8 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 				RT: &RTInfo{
 					ID:   m.RTID,
 					Name: rtName,
+					RT:   rtCode,
+					RW:   rtRW,
 				},
 			},
 		}, nil
@@ -321,8 +325,8 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 		return nil, fmt.Errorf("create new refresh token: %w", err)
 	}
 
-	// Get RT name.
-	rtName, _, err := FindRTByID(ctx, tx, m.RTID)
+	// Get RT name and details.
+	rtName, rtCode, rtRW, _, err := FindRTDetailsByID(ctx, tx, m.RTID)
 	if err != nil {
 		rtName = ""
 	}
@@ -340,6 +344,8 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 			RT: &RTInfo{
 				ID:   m.RTID,
 				Name: rtName,
+				RT:   rtCode,
+				RW:   rtRW,
 			},
 		},
 	}, nil

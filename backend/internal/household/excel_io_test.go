@@ -1547,3 +1547,61 @@ func TestSuperAdminWargaImportXLSX(t *testing.T) {
 		t.Fatalf("expected 1 resident created in RT A, got %d", resCount)
 	}
 }
+
+func TestBuildTemplateXLSXSingleSheet(t *testing.T) {
+	f, err := buildTemplateXLSX()
+	if err != nil {
+		t.Fatalf("buildTemplateXLSX: %v", err)
+	}
+	defer f.Close()
+
+	sheets := f.GetSheetList()
+	if len(sheets) != 1 || sheets[0] != "Template" {
+		t.Fatalf("expected exactly 1 sheet named 'Template', got: %+v", sheets)
+	}
+
+	// Verify headers are present in row 1
+	rows, err := f.GetRows("Template")
+	if err != nil {
+		t.Fatalf("get rows: %v", err)
+	}
+	if len(rows) < 1 {
+		t.Fatalf("expected at least 1 row (headers), got %d", len(rows))
+	}
+	if len(rows[0]) != len(excelHeaders) {
+		t.Fatalf("expected %d headers, got %d", len(excelHeaders), len(rows[0]))
+	}
+}
+
+func TestParseExcelNonEmptySheetDetection(t *testing.T) {
+	// Sheet1 is empty, Sheet2 has valid data
+	f := excelize.NewFile()
+	defer f.Close()
+
+	idx, err := f.NewSheet("DataSheet")
+	if err != nil {
+		t.Fatalf("new sheet: %v", err)
+	}
+	f.SetActiveSheet(idx)
+
+	for ci, col := range excelHeaders {
+		cell, _ := excelize.CoordinatesToCellName(ci+1, 1)
+		f.SetCellValue("DataSheet", cell, col)
+	}
+	vals := []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "HEAD"}
+	for i, v := range vals {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
+		f.SetCellValue("DataSheet", cell, v)
+	}
+
+	rows, errs, err := parseExcelRows(f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("expected 0 errors, got %d: %+v", len(errs), errs)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row parsed from DataSheet, got %d", len(rows))
+	}
+}

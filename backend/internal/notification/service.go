@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,7 @@ type Service interface {
 	NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paymentID string)
 	NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string)
 	NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserID, message string)
+	SendSelfTest(ctx context.Context, userID string) (int, error)
 }
 
 type service struct {
@@ -80,7 +82,8 @@ func (s *service) NotifyBillCreated(ctx context.Context, rtID, billID string, re
 			Type:     EventBillCreated,
 			RTID:     rtID,
 			BillID:   billID,
-			DeepLink: fmt.Sprintf("/iuran/%s", billID),
+			DeepLink: fmt.Sprintf("/home/iuran/detail/%s", billID),
+			SentAt:   time.Now().UTC().Format(time.RFC3339Nano),
 		}
 
 		for _, uid := range targets {
@@ -118,7 +121,7 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 			BillID:    billID,
 			PaymentID: paymentID,
 			Status:    "PENDING",
-			DeepLink:  fmt.Sprintf("/iuran/%s", billID),
+			DeepLink:  fmt.Sprintf("/home/iuran/detail/%s", billID),
 		}
 
 		dedupKey := fmt.Sprintf("payment_submitted:%s", paymentID)
@@ -172,7 +175,7 @@ func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, payme
 			BillID:    billID,
 			PaymentID: paymentID,
 			Status:    status,
-			DeepLink:  fmt.Sprintf("/iuran/%s", billID),
+			DeepLink:  fmt.Sprintf("/home/iuran/detail/%s?payment_id=%s", billID, paymentID),
 		}
 
 		dedupKey := fmt.Sprintf("payment_verified:%s:%s", paymentID, status)
@@ -241,19 +244,49 @@ func (s *service) NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserI
 	}()
 }
 
+// SendSelfTest dispatches an isolated test notification exclusively to the specified user's active devices.
+// Used for development connectivity verification without mutating bills, payments, or ledger state.
+func (s *service) SendSelfTest(ctx context.Context, userID string) (int, error) {
+	tokens, err := s.repo.GetTokensForUser(ctx, userID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get user devices: %w", err)
+	}
+	if len(tokens) == 0 {
+		return 0, nil
+	}
+
+	title := "Uji Notifikasi SocialFinance"
+	body := "Ini adalah pesan uji konektivitas notifikasi FCM SocialFinance."
+	payload := map[string]string{
+		"type":      "test_self",
+		"deep_link": "/home",
+		"sent_at":   time.Now().UTC().Format(time.RFC3339Nano),
+	}
+
+	s.sendPushToTokens(ctx, tokens, title, body, payload)
+	return len(tokens), nil
+}
+
 func (s *service) sendPushToTokens(ctx context.Context, tokens []string, title, body string, payload map[string]string) {
+	var wg sync.WaitGroup
 	for _, tok := range tokens {
-		if err := s.provider.Send(ctx, tok, title, body, payload); err != nil {
-			slog.Warn("push send failed", "token", maskToken(tok), "error", err)
-			if isInvalidTokenError(err) {
-				if dErr := s.repo.DeactivateToken(ctx, tok); dErr != nil {
-					slog.Warn("failed to deactivate invalid token", "token", maskToken(tok), "error", dErr)
-				} else {
-					slog.Info("deactivated invalid/unregistered token", "token", maskToken(tok))
+		tok := tok
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.provider.Send(ctx, tok, title, body, payload); err != nil {
+				slog.Warn("push send failed", "token", maskToken(tok), "error", err)
+				if isInvalidTokenError(err) {
+					if dErr := s.repo.DeactivateToken(ctx, tok); dErr != nil {
+						slog.Warn("failed to deactivate invalid token", "token", maskToken(tok), "error", dErr)
+					} else {
+						slog.Info("deactivated invalid/unregistered token", "token", maskToken(tok))
+					}
 				}
 			}
-		}
+		}()
 	}
+	wg.Wait()
 }
 
 func isInvalidTokenError(err error) bool {
@@ -264,6 +297,8 @@ func isInvalidTokenError(err error) bool {
 		return true
 	}
 	lower := strings.ToLower(err.Error())
-	return strings.Contains(lower, "unregistered") || strings.Contains(lower, "invalid_argument") || strings.Contains(lower, "invalid device token")
+	return strings.Contains(lower, "unregistered") ||
+		strings.Contains(lower, "invalid device token") ||
+		strings.Contains(lower, "invalid registration token")
 }
 

@@ -25,13 +25,14 @@ class DuesProgress {
   double get ratio => target > 0 ? paid / target : 0.0;
 }
 
-/// Dashboard summary data (mock for Phase A).
+/// Dashboard summary data.
 class DashboardSummary {
   final int saldoKas;
   final int pemasukanBulanIni;
   final int pengeluaranBulanIni;
   final DuesProgress duesProgress;
   final List<MonthlyFinancePoint> monthlyData;
+  final List<Transaction> recentTransactions;
 
   const DashboardSummary({
     required this.saldoKas,
@@ -39,7 +40,80 @@ class DashboardSummary {
     required this.pengeluaranBulanIni,
     required this.duesProgress,
     required this.monthlyData,
+    this.recentTransactions = const [],
   });
+
+  factory DashboardSummary.fromJson(Map<String, dynamic> json) {
+    int parseMoney(dynamic val) {
+      if (val == null) return 0;
+      if (val is num) return val.toInt();
+      final s = val.toString().trim();
+      if (s.isEmpty) return 0;
+      return int.tryParse(s.split('.')[0]) ?? 0;
+    }
+
+    final dues = json['dues_progress'] as Map<String, dynamic>?;
+    final chartList = json['chart'] as List<dynamic>? ?? [];
+    final txList = json['recent_transactions'] as List<dynamic>? ?? [];
+
+    final monthly = chartList.map((c) {
+      final m = c as Map<String, dynamic>;
+      return MonthlyFinancePoint(
+        month: m['month']?.toString() ?? '',
+        income: parseMoney(m['income']),
+        expense: parseMoney(m['expense']),
+      );
+    }).toList();
+
+    const monthShortNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    String formatTxDate(String? dtStr) {
+      if (dtStr == null || dtStr.isEmpty) return '';
+      final dt = DateTime.tryParse(dtStr);
+      if (dt == null) return dtStr;
+      return '${dt.day} ${monthShortNames[dt.month]} ${dt.year}';
+    }
+
+    final transactions = txList.map((t) {
+      final tx = t as Map<String, dynamic>;
+      final isInc = tx['type'] == 'income';
+      final desc = tx['due_name'] != null && tx['citizen_name'] != null
+          ? '[${tx['due_name']}] ${tx['citizen_name']}${tx['house_number'] != null && tx['house_number'].toString().isNotEmpty ? ' · ${tx['house_number']}' : ''}'
+          : (tx['description']?.toString() ?? '')
+              .replaceAll(RegExp(r'\s*\(Bill:\s*[a-f0-9-]+\)', caseSensitive: false), '')
+              .replaceAll(RegExp(r'Payment for bill [a-f0-9-]+\s*\(Period:\s*([^)]+)\)', caseSensitive: false), 'Pembayaran Iuran (\$1)');
+      return Transaction(
+        id: tx['id']?.toString() ?? '',
+        description: desc,
+        category: tx['category_name']?.toString() ?? (isInc ? 'Pemasukan' : 'Pengeluaran'),
+        amount: parseMoney(tx['amount']),
+        isIncome: isInc,
+        date: formatTxDate(tx['occurred_at']?.toString() ?? tx['created_at']?.toString()),
+      );
+    }).toList();
+
+    return DashboardSummary(
+      saldoKas: parseMoney(json['balance']),
+      pemasukanBulanIni: parseMoney(json['monthly_income']),
+      pengeluaranBulanIni: parseMoney(json['monthly_expense']),
+      duesProgress: DuesProgress(
+        paid: (dues?['paid_households'] as num?)?.toInt() ?? 0,
+        target: (dues?['total_households'] as num?)?.toInt() ?? 0,
+      ),
+      monthlyData: monthly,
+      recentTransactions: transactions,
+    );
+  }
+
+  factory DashboardSummary.empty() {
+    return const DashboardSummary(
+      saldoKas: 0,
+      pemasukanBulanIni: 0,
+      pengeluaranBulanIni: 0,
+      duesProgress: DuesProgress(paid: 0, target: 0),
+      monthlyData: [],
+      recentTransactions: [],
+    );
+  }
 }
 
 /// Transaction row model for recent transactions.

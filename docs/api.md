@@ -275,9 +275,26 @@ Response (200 OK):
   "role": "bendahara",
   "rt_id": "a]b0c1d2-e3f4-5678-90ab-cdef123456789",
   "rt_name": "RT 05 / RW 03",
-  "system_role": null
+  "system_role": null,
+  "jabatan": null,
+  "effective_permissions": [
+    "finance.read"
+  ]
 }
 ```
+
+`effective_permissions` is an array of effective finance permission codes used by
+the Iuran client (`finance.read`, `finance.create`, `finance.update`, and
+`finance.approve`). The server computes each entry through the same
+`PermissionResolver` used by finance endpoint middleware and includes it only
+when the endpoint's existing role gate also permits that operation. Users with
+a `jabatan` are resolved against their active RT membership and
+`position_permissions`; role-based users follow the existing `RequireRole`
+rules. System-level `super_admin` follows the existing middleware bypass.
+Permission lookup failures fail the `/auth/me` request with an internal error;
+they do not produce elevated or success-shaped permission data. This additive
+field does not change existing profile fields or make client-supplied
+permissions authoritative for backend operations.
 
 ---
 
@@ -695,10 +712,13 @@ Optional query parameters. No implicit sorting unless specified.
 
 ### 9.5 Transactions & Ledger
 
-- `GET /api/v1/transactions`: Query immutable ledger entries (Bendahara, Pengurus, Warga).
+- `GET /api/v1/transactions`: Query immutable ledger entries (Bendahara, Pengurus, Warga). Supports query parameters: `category_id`, `type`, `status`, `period` (`YYYY-MM`), `start_date`, `end_date`, `page`, `per_page`. Results are ordered by `occurred_at DESC, created_at DESC`.
 - `POST /api/v1/transactions`: Create manual ledger transaction (Bendahara, Pengurus). Supports `Idempotency-Key` header.
 - `POST /api/v1/transactions/{id}/reverse`: Create compensating reversal transaction (Bendahara, Pengurus).
-- `GET /api/v1/reports/balance`: Calculate real-time net balance from posted transactions: `sum(income) - sum(expense)` (Bendahara, Pengurus, Warga). NEVER derived or denormalized.
+- `GET /api/v1/reports/balance`: Calculate real-time balance from posted transactions (Bendahara, Pengurus, Warga).
+  - Without parameters: returns cumulative net balance (`total_income`, `total_expense`, `net_balance`, `transaction_count`).
+  - With `period=YYYY-MM` or (`start_date` and `end_date`): returns period balance sheet (`opening_balance`, `total_income`, `total_expense`, `net_movement`, `closing_balance`, `transaction_count`). Calculations use `Asia/Jakarta` timezone and `[start, end_exclusive)` interval on `posted` transactions.
+- `PUT /api/v1/reports/balance/opening/{period}`: Set or correct opening balance for a period in `period_opening_balances` (Bendahara, Pengurus). Request body requires `opening_balance` and `reason`. Logs audit trail with before/after values and marks source as `manual`.
 
 ---
 

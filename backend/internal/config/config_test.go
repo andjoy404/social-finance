@@ -96,7 +96,28 @@ func TestLoadValidPortOverridden(t *testing.T) {
 	}
 }
 
+func TestLoadFCMConfig(t *testing.T) {
+	setenv(t, "DB_HOST", "postgres")
+	setenv(t, "FCM_CREDENTIALS_FILE", "/path/to/creds.json")
+	setenv(t, "FCM_PROJECT_ID", "test-project-123")
+	defer os.Unsetenv("FCM_CREDENTIALS_FILE")
+	defer os.Unsetenv("FCM_PROJECT_ID")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.FCMCredentialsPath != "/path/to/creds.json" {
+		t.Errorf("FCMCredentialsPath = %q; want /path/to/creds.json", cfg.FCMCredentialsPath)
+	}
+	if cfg.FCMProjectID != "test-project-123" {
+		t.Errorf("FCMProjectID = %q; want test-project-123", cfg.FCMProjectID)
+	}
+}
+
 func setenv(t *testing.T, key, val string) {
+
 	t.Helper()
 	if err := os.Setenv(key, val); err != nil {
 		t.Fatalf("failed to set %s: %v", key, err)

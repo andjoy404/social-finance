@@ -7,11 +7,12 @@ export interface KasTransaction {
   kategori: string
   keterangan: string
   referensi?: string
-  nominal: number
-  saldo: number
+  nominal: string
+  saldo: string
 }
 
 export type KategoriKas =
+  | 'Operasional RT'
   | 'Iuran Warga'
   | 'Iuran Paksa'
   | 'Perbaikan Fasilitas'
@@ -22,6 +23,7 @@ export type KategoriKas =
   | 'Lainnya'
 
 export const KAS_KATEGORI_OPTIONS: { value: KategoriKas; label: string }[] = [
+  { value: 'Operasional RT', label: 'Operasional RT' },
   { value: 'Iuran Warga', label: 'Iuran Warga' },
   { value: 'Iuran Paksa', label: 'Iuran Paksa' },
   { value: 'Perbaikan Fasilitas', label: 'Perbaikan Fasilitas' },
@@ -32,8 +34,10 @@ export const KAS_KATEGORI_OPTIONS: { value: KategoriKas; label: string }[] = [
   { value: 'Lainnya', label: 'Lainnya' },
 ]
 
-export function formatRupiah(n: number): string {
-  return new Intl.NumberFormat('id-ID').format(n)
+export function formatRupiah(n: string | number): string {
+  const num = Number(n)
+  if (isNaN(num)) return String(n)
+  return new Intl.NumberFormat('id-ID').format(num)
 }
 
 export function formatTanggal(dateStr: string): string {
@@ -55,7 +59,7 @@ export function getJenisLabel(jenis: KasJenis): string {
   return jenis === 'masuk' ? 'Kas Masuk' : 'Kas Keluar'
 }
 
-export function formatKeteranganKas(nominal: number, jenis: KasJenis): string {
+export function formatKeteranganKas(nominal: string, jenis: KasJenis): string {
   const formatted = formatRupiah(nominal)
   return jenis === 'masuk' ? `+${formatted}` : `-${formatted}`
 }

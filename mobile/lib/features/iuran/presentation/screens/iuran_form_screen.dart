@@ -92,6 +92,46 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     }
   }
 
+  Future<void> _pickPeriod() async {
+    final now = DateTime.now();
+    DateTime initial = now;
+    if (_periodType == DuePeriodType.monthly) {
+      final parts = _periodCtrl.text.split('-');
+      if (parts.length >= 2) {
+        initial = DateTime(
+          int.tryParse(parts[0]) ?? now.year,
+          int.tryParse(parts[1]) ?? now.month,
+        );
+      }
+    } else if (_periodType == DuePeriodType.yearly) {
+      final y = int.tryParse(_periodCtrl.text);
+      if (y != null) {
+        initial = DateTime(y);
+      }
+    } else {
+      final parsed = DateTime.tryParse(_periodCtrl.text);
+      if (parsed != null) initial = parsed;
+    }
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      initialDatePickerMode: DatePickerMode.year,
+      helpText: _periodType == DuePeriodType.monthly
+          ? 'PILIH BULAN PERIODE'
+          : 'PILIH PERIODE',
+    );
+    if (picked != null) {
+      setState(() {
+        _periodCtrl.text = _formatPeriod(picked, _periodType);
+        if (_validationErrors.isNotEmpty) {
+          _validationErrors = [];
+        }
+      });
+    }
+  }
+
   /// Reset form when switching due type.
   void _switchDueType(DueType type) {
     setState(() {
@@ -386,7 +426,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                 children: [
                   // Reguler badge
                   GestureDetector(
-                    onTap: _saving ? null : () => _switchDueType(DueType.regular),
+                    onTap: _saving
+                        ? null
+                        : () => _switchDueType(DueType.regular),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 14,
@@ -394,12 +436,16 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       ),
                       decoration: BoxDecoration(
                         color: _dueType == DueType.regular
-                            ? AppColors.accent.withValues(alpha: isDark ? 0.20 : 0.12)
+                            ? AppColors.accent.withValues(
+                                alpha: isDark ? 0.20 : 0.12,
+                              )
                             : Colors.transparent,
                         border: Border.all(
                           color: _dueType == DueType.regular
                               ? AppColors.accent
-                              : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                              : (isDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder),
                           width: 1,
                         ),
                         borderRadius: BorderRadius.circular(6),
@@ -411,7 +457,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                           fontWeight: FontWeight.w600,
                           color: _dueType == DueType.regular
                               ? AppColors.accent
-                              : (isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted),
+                              : (isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted),
                         ),
                       ),
                     ),
@@ -419,7 +467,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   const SizedBox(width: 8),
                   // Sukarela badge
                   GestureDetector(
-                    onTap: _saving ? null : () => _switchDueType(DueType.voluntary),
+                    onTap: _saving
+                        ? null
+                        : () => _switchDueType(DueType.voluntary),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 14,
@@ -427,12 +477,16 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       ),
                       decoration: BoxDecoration(
                         color: _dueType == DueType.voluntary
-                            ? AppColors.accent.withValues(alpha: isDark ? 0.20 : 0.12)
+                            ? AppColors.accent.withValues(
+                                alpha: isDark ? 0.20 : 0.12,
+                              )
                             : Colors.transparent,
                         border: Border.all(
                           color: _dueType == DueType.voluntary
                               ? AppColors.accent
-                              : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                              : (isDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder),
                           width: 1,
                         ),
                         borderRadius: BorderRadius.circular(6),
@@ -444,7 +498,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                           fontWeight: FontWeight.w600,
                           color: _dueType == DueType.voluntary
                               ? AppColors.accent
-                              : (isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted),
+                              : (isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted),
                         ),
                       ),
                     ),
@@ -518,31 +574,36 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   width: double.maxFinite,
                   padding: const EdgeInsets.all(AppSpacing.sm),
                   decoration: BoxDecoration(
-                    color: AppColors.info.withValues(alpha: isDark ? 0.15 : 0.08),
-                    border: Border.all(color: AppColors.info.withValues(alpha: isDark ? 0.3 : 0.2)),
+                    color: AppColors.info.withValues(
+                      alpha: isDark ? 0.15 : 0.08,
+                    ),
+                    border: Border.all(
+                      color: AppColors.info.withValues(
+                        alpha: isDark ? 0.3 : 0.2,
+                      ),
+                    ),
                     borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.info_outline,
-                        size: 16,
-                        color: AppColors.info,
-                      ),
+                      Icon(Icons.info_outline, size: 16, color: AppColors.info),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
                           'Iuran sukarela bersifat opsional. Tidak ada tunggakan atau penalti jika tidak berkontribusi.',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                            color: isDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              if (_dueType == DueType.voluntary) const SizedBox(height: AppSpacing.lg),
+              if (_dueType == DueType.voluntary)
+                const SizedBox(height: AppSpacing.lg),
 
               // Frekuensi
               Column(
@@ -649,6 +710,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                 controller: _periodCtrl,
                 label: 'Periode',
                 hintText: 'YYYY-MM, YYYY, atau YYYY-MM-DD',
+                readOnly: true,
+                onTap: _pickPeriod,
+                suffixIcon: const Icon(Icons.calendar_month, size: 20),
                 onChanged: (_) {
                   if (_validationErrors.isNotEmpty) {
                     setState(() => _validationErrors = []);
@@ -720,21 +784,20 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
-                  SizedBox(
-                    height: 48,
-                    child: OutlinedButton(
-                      onPressed: _saving ? null : _confirmCancel,
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                          color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder,
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: _saving ? null : _confirmCancel,
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: AppColors.danger),
+                          foregroundColor: AppColors.danger,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                          ),
                         ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                        ),
+                        child: const Text('Batal'),
                       ),
-                      child: const Text('Batal'),
                     ),
                   ),
                 ],

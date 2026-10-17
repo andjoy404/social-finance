@@ -178,13 +178,20 @@ func (r *pgRepository) GetRecipientUserIDsForBill(ctx context.Context, rtID, bil
 		SELECT DISTINCT u.id
 		FROM bills b
 		JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
-		JOIN household_members hm ON ho.household_id = hm.household_id
-		JOIN residents res ON hm.resident_id = res.id
-		JOIN users u ON u.id = res.user_id
-		WHERE b.id = $1 AND b.rt_id = $2;
+		JOIN residency_periods rp ON ho.id = rp.household_occupancy_id
+		JOIN residents res ON rp.resident_id = res.id
+		JOIN users u ON (u.id = res.user_id OR (res.user_id IS NULL AND res.email IS NOT NULL AND lower(trim(u.email)) = lower(trim(res.email))))
+		WHERE b.id = $1 AND b.rt_id = $2
+		  AND res.rt_id = $2
+		  AND res.is_active = true
+		  AND u.is_active = true
+		  AND (rp.end_date IS NULL OR rp.end_date >= CURRENT_DATE);
 	`
 	rows, err := r.pool.Raw().QueryContext(ctx, query, billID, rtID)
 	if err != nil {
+		if isTableMissingErr(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer rows.Close()

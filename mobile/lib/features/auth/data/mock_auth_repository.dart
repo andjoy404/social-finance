@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -40,6 +42,11 @@ AppRole mapStringToAppRole(String? roleStr, {String? systemRoleStr}) {
 
 /// Authentication repository managing login, logout, and session state.
 class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
+  static const _profileReady = 'ready';
+  static const _profileLoading = 'loading';
+  static const _profileError = 'error';
+  static const _profilePermissionsUnavailable = 'permissions_unavailable';
+
   final AuthService authService;
   final ApiClient apiClient;
 
@@ -53,8 +60,38 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
 
   Future<LoginResponse?> _refreshTokens(String refreshToken) async {
     try {
-      return await authService.refreshToken(refreshToken);
-    } catch (_) {
+      final response = await authService.refreshToken(refreshToken);
+      if (_currentUser != null) {
+        _currentUser = {
+          ..._currentUser!,
+          'effective_permissions': <String>[],
+          'profile_status': _profileLoading,
+          'access_token': response.accessToken,
+        };
+        state = AsyncData(_currentUser);
+        try {
+          _setCurrentUser(await authService.getMe(), response.accessToken);
+        } catch (_, stackTrace) {
+          _currentUser = {
+            ..._currentUser!,
+            'effective_permissions': <String>[],
+            'profile_status': _profileError,
+          };
+          state = AsyncData(_currentUser);
+          developer.log(
+            'Profile refresh failed; access remains blocked until profile reload.',
+            name: 'AuthRepository',
+            stackTrace: stackTrace,
+          );
+        }
+      }
+      return response;
+    } catch (_, stackTrace) {
+      developer.log(
+        'Token refresh failed.',
+        name: 'AuthRepository',
+        stackTrace: stackTrace,
+      );
       return null;
     }
   }
@@ -74,37 +111,85 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       return;
     }
 
+    _currentUser = null;
+    apiClient.clearAllTokens();
     state = const AsyncLoading();
 
     try {
       final response = await authService.login(trimmedEmail, password);
-      var effectiveUser = response.user;
+      late final AuthUser effectiveUser;
       try {
         effectiveUser = await authService.getMe();
-      } catch (_) {
-        // Fall back to login response user if /auth/me fails
+      } catch (error, stackTrace) {
+        apiClient.clearAllTokens();
+        _currentUser = null;
+        developer.log(
+          'Profile load after login failed; authenticated state was not created.',
+          name: 'AuthRepository',
+          stackTrace: stackTrace,
+        );
+        state = AsyncError(
+          AuthError(
+            'Login berhasil, tetapi profil akses gagal dimuat. Periksa koneksi lalu coba lagi.',
+          ),
+          stackTrace,
+        );
+        return;
       }
-      _currentUser = {
-        'id': effectiveUser.id,
-        'email': effectiveUser.email,
-        'name': effectiveUser.name.isNotEmpty
-            ? effectiveUser.name
-            : effectiveUser.email,
-        'role': mapStringToAppRole(
-          effectiveUser.role,
-          systemRoleStr: effectiveUser.systemRole,
-        ),
-        'system_role': effectiveUser.systemRole,
-        'jabatan': effectiveUser.jabatan,
-        'rt_id': effectiveUser.rtId,
-        'rt': null,
-        'rw': null,
-        'access_token': response.accessToken,
-      };
-      state = AsyncData(_currentUser);
+      _setCurrentUser(effectiveUser, response.accessToken);
     } catch (e, st) {
+      _currentUser = null;
       final authError = _mapError(e);
       state = AsyncError(authError, st);
+    }
+  }
+
+  void _setCurrentUser(AuthUser user, String accessToken) {
+    _currentUser = {
+      'id': user.id,
+      'email': user.email,
+      'name': user.name.isNotEmpty ? user.name : user.email,
+      'role': mapStringToAppRole(user.role, systemRoleStr: user.systemRole),
+      'system_role': user.systemRole,
+      'jabatan': user.jabatan,
+      'effective_permissions': user.effectivePermissions,
+      'profile_status': user.effectivePermissionsAvailable
+          ? _profileReady
+          : _profilePermissionsUnavailable,
+      'rt_id': user.rtId,
+      'rt': user.rtCode,
+      'rw': null,
+      'access_token': accessToken,
+    };
+    state = AsyncData(_currentUser);
+  }
+
+  Future<void> reloadProfile() async {
+    final currentUser = _currentUser;
+    final accessToken = apiClient.token;
+    if (currentUser == null || accessToken == null) return;
+
+    _currentUser = {
+      ...currentUser,
+      'effective_permissions': <String>[],
+      'profile_status': _profileLoading,
+    };
+    state = AsyncData(_currentUser);
+
+    try {
+      _setCurrentUser(await authService.getMe(), accessToken);
+    } catch (_, stackTrace) {
+      _currentUser = {
+        ..._currentUser!,
+        'effective_permissions': <String>[],
+        'profile_status': _profileError,
+      };
+      state = AsyncData(_currentUser);
+      developer.log(
+        'Profile reload failed; access remains blocked.',
+        name: 'AuthRepository',
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -195,3 +280,20 @@ final authRepositoryProvider =
       final apiClient = ref.watch(apiClientProvider);
       return AuthRepository(authService: authService, apiClient: apiClient);
     });
+
+const allowedRTCodes = {'002', '003'};
+const allowedRTIds = {
+  'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', // RT 002
+  '8dfa1e36-6727-45be-8fea-24d958efc155', // RT 003
+};
+
+bool isAllowedRT(Map<String, dynamic>? user) {
+  if (user == null) return false;
+  final systemRole = user['system_role'] as String?;
+  if (systemRole == 'super_admin') return true;
+  final rtCode = user['rt'] as String?;
+  if (rtCode != null && allowedRTCodes.contains(rtCode)) return true;
+  final rtId = user['rt_id'] as String?;
+  if (rtId != null && allowedRTIds.contains(rtId)) return true;
+  return false;
+}

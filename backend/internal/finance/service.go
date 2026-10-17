@@ -475,9 +475,13 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		if err != nil {
 			return nil, err
 		}
-		desc := fmt.Sprintf("Payment for bill %s (Period: %s)", bill.ID, bill.Period)
+		pNo := ""
+		if payment.PaymentNo != nil && *payment.PaymentNo != "" {
+			pNo = " (" + *payment.PaymentNo + ")"
+		}
+		desc := fmt.Sprintf("Pembayaran Iuran: %s - Periode %s%s", due.Name, bill.Period, pNo)
 		if isVoluntary {
-			desc = fmt.Sprintf("Voluntary contribution for due %s (Bill: %s)", due.Name, bill.ID)
+			desc = fmt.Sprintf("Iuran Sukarela: %s - Periode %s%s", due.Name, bill.Period, pNo)
 		}
 		now := time.Now()
 		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
@@ -485,7 +489,7 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 			Amount:      payment.Amount,
 			Type:        TransactionTypeIncome,
 			Description: desc,
-		}, TransactionStatusPosted, nil, &payment.ID, now)
+		}, TransactionStatusPosted, nil, &payment.ID, &userID, now)
 		if err != nil {
 			return nil, fmt.Errorf("post ledger transaction for payment: %w", err)
 		}
@@ -553,14 +557,45 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	return payment, nil
 }
 
-func postPaymentIncome(ctx context.Context, tx *sql.Tx, rtID string, payment *Payment, description string) error {
+func reconcileBillStatus(ctx context.Context, tx *sql.Tx, billID, rtID string) error {
+	bill, err := BillGetByIDForUpdate(ctx, tx, billID, rtID)
+	if err != nil {
+		return err
+	}
+	if bill.Status == BillStatusCancelled {
+		return nil
+	}
+	approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
+	if err != nil {
+		return err
+	}
+	billCents, _, _ := ParseMoney(bill.Amount)
+	approvedCents, _, _ := ParseMoney(approvedTotal)
+
+	var newStatus BillStatus
+	if approvedCents >= billCents && billCents > 0 {
+		newStatus = BillStatusPaid
+	} else if approvedCents > 0 {
+		newStatus = BillStatusPartial
+	} else {
+		newStatus = BillStatusUnpaid
+	}
+	return BillUpdateStatus(ctx, tx, bill.ID, rtID, newStatus)
+}
+
+func postPaymentIncome(ctx context.Context, tx *sql.Tx, rtID string, payment *Payment, description string, verifierID ...string) error {
 	catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
 	if err != nil {
 		return err
 	}
+	var createdBy *string
+	if len(verifierID) > 0 && verifierID[0] != "" {
+		createdBy = &verifierID[0]
+	}
+	payMethod := string(payment.Method)
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
-		CategoryID: catID, Amount: payment.Amount, Type: TransactionTypeIncome, Description: description,
-	}, TransactionStatusPosted, nil, &payment.ID, time.Now())
+		CategoryID: catID, Amount: payment.Amount, Type: TransactionTypeIncome, Description: description, PaymentMethod: &payMethod,
+	}, TransactionStatusPosted, nil, &payment.ID, createdBy, time.Now())
 	if err != nil {
 		return fmt.Errorf("post ledger transaction for payment: %w", err)
 	}
@@ -596,6 +631,10 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 			return nil, err
 		}
 
+		if payment.BillID != nil {
+			_ = reconcileBillStatus(ctx, tx, *payment.BillID, rtID)
+		}
+
 		auditPayload, _ := json.Marshal(verifiedPayment)
 		_ = AuditLogInsert(ctx, tx, AuditLog{
 			RTID:       rtID,
@@ -629,7 +668,7 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		if err != nil {
 			return nil, fmt.Errorf("approve donation: %w", err)
 		}
-		if err := postPaymentIncome(ctx, tx, rtID, verifiedPayment, fmt.Sprintf("Voluntary donation for due %s", due.Name)); err != nil {
+		if err := postPaymentIncome(ctx, tx, rtID, verifiedPayment, fmt.Sprintf("Voluntary donation for due %s", due.Name), verifierID); err != nil {
 			return nil, err
 		}
 		auditPayload, _ := json.Marshal(verifiedPayment)
@@ -767,9 +806,13 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 	if err != nil {
 		return nil, err
 	}
-	desc := fmt.Sprintf("Payment for bill %s (Period: %s)", bill.ID, bill.Period)
+	pNo := ""
+	if verifiedPayment.PaymentNo != nil && *verifiedPayment.PaymentNo != "" {
+		pNo = " (" + *verifiedPayment.PaymentNo + ")"
+	}
+	desc := fmt.Sprintf("Pembayaran Iuran: %s - Periode %s%s", due.Name, bill.Period, pNo)
 	if isVoluntary {
-		desc = fmt.Sprintf("Voluntary contribution for due %s (Bill: %s)", due.Name, bill.ID)
+		desc = fmt.Sprintf("Iuran Sukarela: %s - Periode %s%s", due.Name, bill.Period, pNo)
 	}
 	now := time.Now()
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
@@ -777,7 +820,7 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 		Amount:      verifiedPayment.Amount,
 		Type:        TransactionTypeIncome,
 		Description: desc,
-	}, TransactionStatusPosted, nil, &verifiedPayment.ID, now)
+	}, TransactionStatusPosted, nil, &verifiedPayment.ID, &verifierID, now)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for approved payment: %w", err)
 	}
@@ -903,14 +946,18 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 			periods = append(periods, info.bill.Period)
 		}
 	}
-	desc := fmt.Sprintf("Multi-period payment: %s", strings.Join(periods, ", "))
+	mPNo := ""
+	if verifiedPayment.PaymentNo != nil && *verifiedPayment.PaymentNo != "" {
+		mPNo = " (" + *verifiedPayment.PaymentNo + ")"
+	}
+	desc := fmt.Sprintf("Pembayaran Multi-Periode (%s)%s", strings.Join(periods, ", "), mPNo)
 	now := time.Now()
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 		CategoryID:  catID,
 		Amount:      payment.Amount,
 		Type:        TransactionTypeIncome,
 		Description: desc,
-	}, TransactionStatusPosted, nil, &payment.ID, now)
+	}, TransactionStatusPosted, nil, &payment.ID, &verifierID, now)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
 	}
@@ -931,6 +978,36 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 // --- Transactions Ledger & Reversals ---
 
 func (s *Service) CreateManualTransaction(ctx context.Context, tx *sql.Tx, rtID, userID string, in CreateTransactionInput) (*Transaction, error) {
+	if strings.TrimSpace(in.CategoryID) == "" {
+		if in.Type == TransactionTypeIncome {
+			catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
+			if err == nil && catID != "" {
+				in.CategoryID = catID
+			}
+		} else {
+			var catID string
+			err := tx.QueryRowContext(ctx,
+				`SELECT id FROM financial_categories WHERE rt_id = $1 AND type = 'expense' AND is_active = true ORDER BY (CASE WHEN name ILIKE '%operasional%' THEN 0 ELSE 1 END), created_at ASC LIMIT 1`,
+				rtID,
+			).Scan(&catID)
+			if err == nil && catID != "" {
+				in.CategoryID = catID
+			} else {
+				newCat, errCreate := CategoryCreate(ctx, tx, rtID, CreateCategoryInput{
+					Name: "Operasional RT",
+					Type: CategoryTypeExpense,
+				})
+				if errCreate == nil {
+					in.CategoryID = newCat.ID
+				}
+			}
+		}
+	}
+	if in.PaymentMethod == nil || strings.TrimSpace(*in.PaymentMethod) == "" {
+		defaultMethod := "CASH"
+		in.PaymentMethod = &defaultMethod
+	}
+
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
@@ -957,7 +1034,7 @@ func (s *Service) CreateManualTransaction(ctx context.Context, tx *sql.Tx, rtID,
 		}
 	}
 
-	trans, err := TransactionCreate(ctx, tx, rtID, in, TransactionStatusPosted, nil, nil, occurredAt)
+	trans, err := TransactionCreate(ctx, tx, rtID, in, TransactionStatusPosted, nil, nil, &userID, occurredAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1022,7 +1099,7 @@ func (s *Service) ReverseTransaction(ctx context.Context, tx *sql.Tx, rtID, user
 		Type:        revType,
 		Description: desc,
 	}
-	reversal, err := TransactionCreate(ctx, tx, rtID, revInput, TransactionStatusPosted, &orig.ID, orig.PaymentID, now)
+	reversal, err := TransactionCreate(ctx, tx, rtID, revInput, TransactionStatusPosted, &orig.ID, orig.PaymentID, &userID, now)
 	if err != nil {
 		return nil, fmt.Errorf("create reversal transaction: %w", err)
 	}
@@ -1270,7 +1347,7 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		 RETURNING id, rt_id, bill_id, due_id, submitted_by, amount::text, method, origin, status, proof_path, paid_at,
 		          verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes,
 		          created_at, updated_at, proof_original_name, proof_mime_type, proof_size_bytes,
-		          proof_uploaded_at, proof_uploaded_by`,
+		          proof_uploaded_at, proof_uploaded_by, payment_no`,
 		rtID, in.Allocations[0].BillID, userID, totalCanon, in.Method, origin, status,
 		in.ProofPath, in.Notes,
 		in.ProofOriginalName, in.ProofMimeType, in.ProofSizeBytes, in.ProofUploadedBy,
@@ -1282,7 +1359,7 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		&payment.RejectionReason, &payment.Notes, &payment.OfficerNotes,
 		&payment.CreatedAt, &payment.UpdatedAt,
 		&payment.ProofOriginalName, &payment.ProofMimeType, &payment.ProofSizeBytes,
-		&payment.ProofUploadedAt, &payment.ProofUploadedBy,
+		&payment.ProofUploadedAt, &payment.ProofUploadedBy, &payment.PaymentNo,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create payment: %w", err)
@@ -1327,14 +1404,18 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 				periods = append(periods, info.bill.Period)
 			}
 		}
-		desc := fmt.Sprintf("Multi-period payment: %s", strings.Join(periods, ", "))
+		pNo := ""
+		if payment.PaymentNo != nil && *payment.PaymentNo != "" {
+			pNo = " (" + *payment.PaymentNo + ")"
+		}
+		desc := fmt.Sprintf("Pembayaran Multi-Periode (%s)%s", strings.Join(periods, ", "), pNo)
 		now := time.Now()
 		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 			CategoryID:  catID,
 			Amount:      payment.Amount,
 			Type:        TransactionTypeIncome,
 			Description: desc,
-		}, TransactionStatusPosted, nil, &payment.ID, now)
+		}, TransactionStatusPosted, nil, &payment.ID, nil, now)
 		if err != nil {
 			return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
 		}
@@ -1361,3 +1442,213 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		Allocations: allocations,
 	}, nil
 }
+
+func (s *Service) UpdateManualTransaction(ctx context.Context, tx *sql.Tx, rtID, userID, txID string, in UpdateTransactionInput) (*Transaction, error) {
+	current, err := TransactionGetByID(ctx, tx, txID, rtID)
+	if err != nil {
+		return nil, err
+	}
+
+	if current.PaymentID != nil {
+		return nil, errors.New("transaksi pembayaran iuran tidak dapat diubah secara manual")
+	}
+
+	if current.ReversesTransactionID != nil || current.Status == TransactionStatusCancelled {
+		return nil, errors.New("transaksi pembatalan atau transaksi yang sudah dibatalkan tidak dapat diubah")
+	}
+
+	if in.CategoryID != nil && strings.TrimSpace(*in.CategoryID) != "" {
+		cat, err := CategoryGetByID(ctx, tx, *in.CategoryID, rtID)
+		if err != nil {
+			return nil, fmt.Errorf("category not found: %w", err)
+		}
+		if !cat.IsActive {
+			return nil, errors.New("cannot set inactive category")
+		}
+	}
+
+	var canonAmount *string
+	if in.Amount != nil && strings.TrimSpace(*in.Amount) != "" {
+		cents, canon, err := ParseMoney(*in.Amount)
+		if err != nil || cents <= 0 {
+			return nil, ErrInvalidAmount
+		}
+		canonAmount = &canon
+	}
+
+	var transType *TransactionType
+	if in.Type != nil {
+		normType := strings.ToLower(strings.TrimSpace(string(*in.Type)))
+		if normType == "income" || normType == "masuk" {
+			t := TransactionTypeIncome
+			transType = &t
+		} else if normType == "expense" || normType == "keluar" {
+			t := TransactionTypeExpense
+			transType = &t
+		} else {
+			return nil, ErrInvalidCategoryType
+		}
+	}
+
+	var occurredAt *time.Time
+	if in.OccurredAt != nil && strings.TrimSpace(*in.OccurredAt) != "" {
+		parsed, err := time.Parse(time.RFC3339, *in.OccurredAt)
+		if err != nil {
+			parsedDate, errDate := time.Parse("2006-01-02", *in.OccurredAt)
+			if errDate != nil {
+				return nil, errors.New("occurred_at must be RFC3339 or YYYY-MM-DD")
+			}
+			occurredAt = &parsedDate
+		} else {
+			occurredAt = &parsed
+		}
+	}
+
+	var desc *string
+	if in.Description != nil {
+		trimmed := strings.TrimSpace(*in.Description)
+		if trimmed == "" {
+			return nil, errors.New("description cannot be empty")
+		}
+		desc = &trimmed
+	}
+
+	var pMethod *string
+	if in.PaymentMethod != nil {
+		m := strings.ToUpper(strings.TrimSpace(*in.PaymentMethod))
+		if m != "CASH" && m != "TRANSFER" {
+			return nil, errors.New("payment_method must be CASH or TRANSFER")
+		}
+		pMethod = &m
+	}
+
+	updated, err := TransactionUpdate(ctx, tx, rtID, txID, in.CategoryID, canonAmount, transType, desc, occurredAt, pMethod)
+	if err != nil {
+		return nil, err
+	}
+
+	auditData, _ := json.Marshal(map[string]interface{}{
+		"transaction_id": txID,
+		"before": map[string]interface{}{
+			"category_id":    current.CategoryID,
+			"amount":         current.Amount,
+			"type":           current.Type,
+			"description":    current.Description,
+			"occurred_at":    current.OccurredAt,
+			"payment_method": current.PaymentMethod,
+		},
+		"after": map[string]interface{}{
+			"category_id":    updated.CategoryID,
+			"amount":         updated.Amount,
+			"type":           updated.Type,
+			"description":    updated.Description,
+			"occurred_at":    updated.OccurredAt,
+			"payment_method": updated.PaymentMethod,
+		},
+	})
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &userID,
+		Action:     "update_manual_transaction",
+		EntityType: "transaction",
+		EntityID:   txID,
+		NewValues:  auditData,
+	})
+
+	return updated, nil
+}
+
+func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID string, requestedPeriod string) (*DashboardSummary, error) {
+
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	if loc == nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+
+	now := time.Now().In(loc)
+	currentPeriod := now.Format("2006-01")
+	if requestedPeriod != "" {
+		if _, err := time.Parse("2006-01", requestedPeriod); err == nil {
+			currentPeriod = requestedPeriod
+		}
+	}
+
+	tPeriod, _ := time.ParseInLocation("2006-01", currentPeriod, loc)
+	startOfMonth := time.Date(tPeriod.Year(), tPeriod.Month(), 1, 0, 0, 0, 0, loc)
+	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
+
+	pb, err := CalculatePeriodBalance(ctx, tx, rtID, currentPeriod, startOfMonth, startOfNextMonth)
+	if err != nil {
+		return nil, fmt.Errorf("calculate period balance: %w", err)
+	}
+
+	var totalHouseholds, paidHouseholds int
+	_ = tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM households WHERE rt_id = $1 AND is_active = true`,
+		rtID,
+	).Scan(&totalHouseholds)
+
+	_ = tx.QueryRowContext(ctx,
+		`SELECT COUNT(DISTINCT household_id) FROM bills WHERE rt_id = $1 AND period = $2 AND status = 'paid'`,
+		rtID, currentPeriod,
+	).Scan(&paidHouseholds)
+
+	pct := 0
+	if totalHouseholds > 0 {
+		pct = (paidHouseholds * 100) / totalHouseholds
+		if pct > 100 {
+			pct = 100
+		}
+	}
+
+	chartYear := tPeriod.Year()
+	monthNames := []string{"", "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"}
+	chart := make([]DashboardChartPoint, 0, 12)
+	for m := 1; m <= 12; m++ {
+		mStart := time.Date(chartYear, time.Month(m), 1, 0, 0, 0, 0, loc)
+		mEnd := mStart.AddDate(0, 1, 0)
+		pStr := mStart.Format("2006-01")
+
+		var incStr, expStr string
+		_ = tx.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text,
+			        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text
+			 FROM transactions
+			 WHERE rt_id = $1 AND status = 'posted'
+			   AND occurred_at >= $2 AND occurred_at < $3`,
+			rtID, mStart, mEnd,
+		).Scan(&incStr, &expStr)
+
+		incCents, _, _ := ParseMoney(incStr)
+		expCents, _, _ := ParseMoney(expStr)
+
+		mName := monthNames[m]
+		chart = append(chart, DashboardChartPoint{
+			Month:   mName,
+			Period:  pStr,
+			Income:  incCents / 100,
+			Expense: expCents / 100,
+		})
+	}
+
+	statusPosted := string(TransactionStatusPosted)
+	recent, err := TransactionList(ctx, tx, rtID, nil, nil, &statusPosted, nil, nil, 0, 5)
+	if err != nil {
+		recent = []*Transaction{}
+	}
+
+	return &DashboardSummary{
+		Balance:            pb.ClosingBalance,
+		MonthlyIncome:      pb.TotalIncome,
+		MonthlyExpense:     pb.TotalExpense,
+		NetMovement:        pb.NetMovement,
+		DuesProgress:       DashboardDuesProgress{
+			PaidHouseholds:  paidHouseholds,
+			TotalHouseholds: totalHouseholds,
+			Percentage:      pct,
+		},
+		Chart:              chart,
+		RecentTransactions: recent,
+	}, nil
+}
+

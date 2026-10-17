@@ -75,4 +75,53 @@ export function getWargaWriteRoleType(user: WargaUser): 'super_admin' | 'positio
   return 'none'
 }
 
+/** Set of RT positions authorized to import warga data. */
+export const K_WARGA_IMPORT_JABATANS = new Set<string>([
+  'ketua',
+  'bendahara',
+])
+
+/** Set of RT positions authorized to export warga data. */
+export const K_WARGA_EXPORT_JABATANS = new Set<string>([
+  'ketua',
+  'bendahara',
+])
+
+/**
+ * Returns `true` if the user has import access to the Warga module.
+ *
+ * Authorization flow:
+ * 1. Super-admin bypass — any user with `systemRole === 'super_admin'` or `role === 'super_admin'`.
+ * 2. Position-based — if `jabatan` is non-empty string, 'ketua' and 'bendahara' are authorized.
+ * 3. Legacy role-based fallback — if `jabatan` is null/undefined/empty:
+ *    - `pengurus` or `super_admin` → allowed
+ *    - All other roles → denied
+ */
+export function hasWargaImportAccess(user: WargaUser): boolean {
+  if (user.systemRole === 'super_admin' || user.role === 'super_admin') {
+    return true
+  }
+
+  if (typeof user.jabatan === 'string' && user.jabatan.length > 0) {
+    return K_WARGA_IMPORT_JABATANS.has(user.jabatan)
+  }
+
+  return user.role === 'pengurus'
+}
+
+/**
+ * Returns `true` if the user has export access to the Warga module.
+ */
+export function hasWargaExportAccess(user: WargaUser): boolean {
+  if (user.systemRole === 'super_admin' || user.role === 'super_admin') {
+    return true
+  }
+
+  if (typeof user.jabatan === 'string' && user.jabatan.length > 0) {
+    return K_WARGA_EXPORT_JABATANS.has(user.jabatan)
+  }
+
+  return user.role === 'pengurus'
+}
+
 // Note: Unit tests are in wargaAuth.test.ts

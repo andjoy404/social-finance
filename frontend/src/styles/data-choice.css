@@ -38,6 +38,23 @@
   background: var(--sf-accent-soft) !important;
 }
 
+.dc-choice-card--blue {
+  border-color: #3b82f6 !important;
+  background: rgba(59, 130, 246, 0.04) !important;
+}
+
+.dc-choice-card--blue:hover:not(:disabled) {
+  border-color: #2563eb !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15) !important;
+}
+
+.dc-choice-card--blue .dc-choice-icon {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #2563eb !important;
+}
+
+
 .dc-choice-icon {
   display: flex;
   align-items: center;

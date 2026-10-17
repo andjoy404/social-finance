@@ -6,6 +6,7 @@
 /// - Provider for derived/computed state (filtering composition)
 /// - FutureProvider.family for parameterized lookups
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/models/role.dart';
@@ -93,9 +94,11 @@ class BillsNotifier extends AutoDisposeAsyncNotifier<List<IuranBill>> {
 
     try {
       final result = await repository.fetchAllBills();
+      debugPrint('[IuranDebug] billsProvider got=${result.length} bills');
       state = AsyncData(result);
       return result;
     } catch (e, st) {
+      debugPrint('[IuranDebug] billsProvider error=$e');
       final error = repository.mapDioError(e);
       state = AsyncError(error, st);
       return [];
@@ -130,6 +133,8 @@ final filteredBillsProvider = Provider<List<IuranBill>>((ref) {
     final statusMatch = status.isEmpty || b.status.name == status;
     return searchMatch && periodeMatch && statusMatch;
   }).toList();
+
+  debugPrint('[IuranDebug] filteredBillsProvider input=${bills.length} -> output=${filtered.length} (query="$query", periode="$periode", status="$status")');
 
   // Sort: unpaid/partial first (oldest→newest), then paid (newest→oldest)
   filtered.sort((a, b) {

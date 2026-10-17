@@ -1,6 +1,15 @@
+/// KAS Masuk form — connected to real backend API.
+///
+/// Fetches categories from GET /api/v1/categories, maps selected category
+/// UUID to the POST /api/v1/transactions body.
+
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -10,47 +19,43 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/features/kas/data/kas_models.dart';
+import 'package:social_finance/features/kas/data/kas_repository.dart';
 
-/// Form screen for creating a new Kas Masuk (income) transaction.
-class KasMasukScreen extends StatefulWidget {
+/// Generates a v4-style random UUID for idempotency keys.
+String _generateUuid() {
+  final r = Random();
+  String hex(int count) =>
+      List.generate(count, (_) => '0123456789abcdef'[r.nextInt(16)]).join();
+  return '${hex(8)}-${hex(4)}-4${hex(3)}-'
+      '${'89ab'[r.nextInt(4)]}${hex(3)}-'
+      '${hex(12)}';
+}
+
+class KasMasukScreen extends ConsumerStatefulWidget {
   const KasMasukScreen({super.key});
 
   @override
-  State<KasMasukScreen> createState() => _KasMasukScreenState();
+  ConsumerState<KasMasukScreen> createState() => _KasMasukScreenState();
 }
 
-class _KasMasukScreenState extends State<KasMasukScreen> {
+class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
   final _formKey = GlobalKey<FormState>();
   final _tanggalCtrl = TextEditingController();
   final _nominalCtrl = TextEditingController();
   final _keteranganCtrl = TextEditingController();
   final _referensiCtrl = TextEditingController();
 
-  String? _selectedKategori;
+  String _paymentMethod = 'CASH';
   bool _saving = false;
   String? _error;
   List<String> _validationErrors = [];
 
-  static const List<String> _kategoriOptions = [
-    'Iuran Warga',
-    'Iuran Paksa',
-    'Perlengkapan',
-    'Konsumsi',
-    'Perbaikan',
-    'Kebersihan',
-    'Keamanan',
-    'Lainnya',
-  ];
-
   @override
   void initState() {
     super.initState();
-    // Default to today
     final now = DateTime.now();
     _tanggalCtrl.text =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    // Set default kategori
-    _selectedKategori = 'Iuran Warga';
   }
 
   @override
@@ -67,9 +72,6 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
 
     if (_tanggalCtrl.text.trim().isEmpty) {
       errors.add('Tanggal harus diisi.');
-    }
-    if (_selectedKategori == null || _selectedKategori!.isEmpty) {
-      errors.add('Kategori harus dipilih.');
     }
     if (_nominalCtrl.text.trim().isEmpty) {
       errors.add('Nominal harus diisi.');
@@ -96,58 +98,31 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
     });
 
     try {
-      final nominal = int.parse(_nominalCtrl.text.trim());
-
-      // Map selected label to KasCategory
-      KasCategory kategori;
-      switch (_selectedKategori) {
-        case 'Iuran Warga':
-          kategori = KasCategory.iuranWarga;
-          break;
-        case 'Iuran Paksa':
-          kategori = KasCategory.iuranPaksa;
-          break;
-        case 'Perlengkapan':
-          kategori = KasCategory.perlengkapan;
-          break;
-        case 'Konsumsi':
-          kategori = KasCategory.konsumsi;
-          break;
-        case 'Perbaikan':
-          kategori = KasCategory.perbaikan;
-          break;
-        case 'Kebersihan':
-          kategori = KasCategory.kebersihan;
-          break;
-        case 'Keamanan':
-          kategori = KasCategory.keamanan;
-          break;
-        default:
-          kategori = KasCategory.lainLain;
-          break;
+      final nominalInt = int.tryParse(_nominalCtrl.text.trim()) ?? 0;
+      if (nominalInt <= 0) {
+        setState(() {
+          _error = 'Nominal harus lebih besar dari 0.';
+          _saving = false;
+        });
+        return;
       }
 
-      final mockTx = KasTransaction(
-        id: 'kas-new-${DateTime.now().millisecondsSinceEpoch}',
-        tanggal: DateTime.tryParse(_tanggalCtrl.text.trim()) ?? DateTime.now(),
-        jenis: KasJenis.masuk,
-        kategori: kategori,
-        keterangan: _keteranganCtrl.text.trim(),
-        referensi: _referensiCtrl.text.trim().isEmpty
-            ? null
-            : _referensiCtrl.text.trim(),
-        nominal: nominal,
-        saldo: nominal, // Mock running balance
-      );
+      final repository = ref.read(kasRepositoryProvider);
+      final occurredAt =
+          DateTime.tryParse(_tanggalCtrl.text.trim()) ?? DateTime.now();
 
-      // Simulate saving to mock data
-      print('[KAS] Mock KasMasuk saved:');
-      print('  ID: ${mockTx.id}');
-      print('  Tanggal: ${formatTanggal(mockTx.tanggal)}');
-      print('  Kategori: ${mockTx.kategori.label}');
-      print('  Nominal: Rp ${mockTx.nominal.toString().replaceAllMapped(RegExp(r"(\d{1,3})(?=(\d{3})+(?!\d))"), (m) => "${m[1]}.")}}');
-      print('  Keterangan: ${mockTx.keterangan}');
-      print('  Referensi: ${mockTx.referensi ?? "(tidak ada)"}');
+      final desc = _referensiCtrl.text.trim().isNotEmpty
+          ? '${_keteranganCtrl.text.trim()} (Ref: ${_referensiCtrl.text.trim()})'
+          : _keteranganCtrl.text.trim();
+
+      await repository.createTransaction(
+        amount: nominalInt,
+        jenis: KasJenis.masuk,
+        description: desc,
+        occurredAt: occurredAt,
+        paymentMethod: _paymentMethod,
+        idempotencyKey: _generateUuid(),
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -156,18 +131,19 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        context.pop(mockTx);
+        // Refresh parent KAS list by popping with success
+        context.pop(true);
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => _error = 'Gagal menyimpan transaksi: $e');
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
+      if (!mounted) return;
+      final repository = ref.read(kasRepositoryProvider);
+      setState(() {
+        _error = repository.mapDioError(e).message;
+        _saving = false;
+      });
     }
   }
 
-  /// Show confirmation dialog before canceling the form.
   Future<void> _confirmCancel() async {
     final shouldCancel = await showDialog<bool>(
       context: context,
@@ -213,8 +189,8 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                     side: BorderSide(color: AppColors.danger),
                     backgroundColor:
                         Theme.of(dialogContext).brightness == Brightness.dark
-                            ? AppColors.darkDangerSoft
-                            : AppColors.danger.withValues(alpha: 0.20),
+                        ? AppColors.darkDangerSoft
+                        : AppColors.danger.withValues(alpha: 0.20),
                     foregroundColor: AppColors.danger,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),
@@ -305,8 +281,10 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('• ',
-                                    style: TextStyle(fontSize: 16)),
+                                const Text(
+                                  '• ',
+                                  style: TextStyle(fontSize: 16),
+                                ),
                                 Expanded(child: Text(e)),
                               ],
                             ),
@@ -336,7 +314,7 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                           context: context,
                           initialDate: _tanggalCtrl.text.isNotEmpty
                               ? (DateTime.tryParse(_tanggalCtrl.text.trim()) ??
-                                  DateTime.now())
+                                    DateTime.now())
                               : DateTime.now(),
                           firstDate: DateTime(2020),
                           lastDate: DateTime.now().add(
@@ -345,7 +323,8 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                         );
                         if (picked != null) {
                           setState(() {
-                            _tanggalCtrl.text = picked.toLocal()
+                            _tanggalCtrl.text = picked
+                                .toLocal()
                                 .toString()
                                 .split(' ')
                                 .first;
@@ -356,8 +335,7 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                         padding: const EdgeInsets.all(AppSpacing.md),
                         decoration: BoxDecoration(
                           border: Border.all(color: AppColors.lightBorder),
-                          borderRadius:
-                              BorderRadius.circular(AppRadius.base),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
                           color: isDark
                               ? AppColors.darkSurface
                               : AppColors.lightSurface,
@@ -390,39 +368,123 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
 
-                // Kategori dropdown
+                // Metode Pembayaran (Tunai / Transfer)
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Kategori',
+                      'Metode Pembayaran',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.lightBorder),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedKategori,
-                          isExpanded: true,
-                          hint: const Text('Pilih kategori'),
-                          items: _kategoriOptions.map((kategori) {
-                            return DropdownMenuItem(
-                              value: kategori,
-                              child: Text(kategori),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() => _selectedKategori = value);
-                          },
-                          icon: const Icon(Icons.arrow_drop_down, size: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () =>
+                                setState(() => _paymentMethod = 'CASH'),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.base,
+                                ),
+                                border: Border.all(
+                                  color: _paymentMethod == 'CASH'
+                                      ? AppColors.accent
+                                      : (isDark
+                                            ? AppColors.darkBorder
+                                            : AppColors.lightBorder),
+                                  width: _paymentMethod == 'CASH' ? 2 : 1,
+                                ),
+                                color: _paymentMethod == 'CASH'
+                                    ? AppColors.accent.withAlpha(
+                                        isDark ? 50 : 25,
+                                      )
+                                    : (isDark
+                                          ? AppColors.darkSurface
+                                          : AppColors.lightSurface),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Text(
+                                    '💵',
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Tunai (Cash)',
+                                    style: TextStyle(
+                                      fontWeight: _paymentMethod == 'CASH'
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                      color: _paymentMethod == 'CASH'
+                                          ? AppColors.accent
+                                          : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () =>
+                                setState(() => _paymentMethod = 'TRANSFER'),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.base,
+                                ),
+                                border: Border.all(
+                                  color: _paymentMethod == 'TRANSFER'
+                                      ? AppColors.accent
+                                      : (isDark
+                                            ? AppColors.darkBorder
+                                            : AppColors.lightBorder),
+                                  width: _paymentMethod == 'TRANSFER' ? 2 : 1,
+                                ),
+                                color: _paymentMethod == 'TRANSFER'
+                                    ? AppColors.accent.withAlpha(
+                                        isDark ? 50 : 25,
+                                      )
+                                    : (isDark
+                                          ? AppColors.darkSurface
+                                          : AppColors.lightSurface),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Text(
+                                    '🏦',
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Transfer Bank',
+                                    style: TextStyle(
+                                      fontWeight: _paymentMethod == 'TRANSFER'
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                      color: _paymentMethod == 'TRANSFER'
+                                          ? AppColors.accent
+                                          : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -434,9 +496,7 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                   label: 'Nominal (Rp)',
                   hintText: 'Masukkan nominal',
                   keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                  ],
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: AppSpacing.sm),
@@ -444,12 +504,15 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                 if (_nominalCtrl.text.trim().isNotEmpty &&
                     int.tryParse(_nominalCtrl.text.trim()) != null)
                   Padding(
-                    padding: const EdgeInsets.only(left: 16, bottom: AppSpacing.lg),
+                    padding: const EdgeInsets.only(
+                      left: 16,
+                      bottom: AppSpacing.lg,
+                    ),
                     child: Text(
-                      'Format: ${RupiahFormatter.format(int.parse(_nominalCtrl.text.trim()))}',
+                      'Format: +${RupiahFormatter.format(int.parse(_nominalCtrl.text.trim()))}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: AppColors.success,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -491,9 +554,13 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                             style: OutlinedButton.styleFrom(
                               side: const BorderSide(color: AppColors.success),
                               foregroundColor: AppColors.success,
+                              backgroundColor: AppColors.success.withValues(
+                                alpha: isDark ? 0.15 : 0.08,
+                              ),
                               shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.base),
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.base,
+                                ),
                               ),
                             ),
                             child: _saving
@@ -511,8 +578,7 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                                 : const Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.check_circle_outline,
-                                          size: 18),
+                                      Icon(Icons.save_outlined, size: 18),
                                       SizedBox(width: 6),
                                       Text('Simpan'),
                                     ],
@@ -528,12 +594,12 @@ class _KasMasukScreenState extends State<KasMasukScreen> {
                         child: OutlinedButton(
                           onPressed: _saving ? null : _confirmCancel,
                           style: OutlinedButton.styleFrom(
-                            side: BorderSide(
-                                color: AppColors.lightTextMuted.withValues(
-                                    alpha: isDark ? 0.3 : 0.2)),
-                            foregroundColor: AppColors.lightTextMuted,
+                            side: const BorderSide(color: AppColors.danger),
+                            foregroundColor: AppColors.danger,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(AppRadius.base),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
+                              ),
                             ),
                           ),
                           child: const Row(

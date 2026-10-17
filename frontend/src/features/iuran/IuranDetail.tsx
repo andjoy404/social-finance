@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeftOutlined,
@@ -325,7 +325,7 @@ function ProofPreviewModal({
   }, [paymentId])
 
   return (
-    <Modal open onClose={onClose} width={600}>
+    <Modal open onClose={onClose} width={600} overlayClassName="sf-modal-overlay-preview">
       <ModalHeader
         title="Bukti Pembayaran"
         subtitle=""
@@ -606,6 +606,20 @@ function DetailContent({
             label="Kepala Keluarga"
             value={bill.householdName}
           />
+          <div style={{ marginTop: '10px' }}>
+            <InfoRow
+              icon={<UserOutlined />}
+              label="No. Rumah"
+              value={bill.houseNumber ? `No. ${bill.houseNumber}` : '—'}
+            />
+          </div>
+          <div style={{ marginTop: '10px' }}>
+            <InfoRow
+              icon={<UserOutlined />}
+              label="Wilayah"
+              value={bill.rt || '—'}
+            />
+          </div>
         </AppCard>
 
         {/* Bill info */}
@@ -632,6 +646,13 @@ function DetailContent({
               icon={<CalendarOutlined />}
               label="Periode"
               value={formatFullPeriodeLabel(bill.periode)}
+            />
+          </div>
+          <div style={{ marginTop: '10px' }}>
+            <InfoRow
+              icon={<DollarOutlined />}
+              label="Sifat Iuran"
+              value={bill.isVoluntary ? 'Sukarela' : 'Wajib'}
             />
           </div>
         </AppCard>
@@ -986,11 +1007,13 @@ export function IuranDetail({
   open: openProp,
   onClose: onCloseProp,
   onPayment: onPaymentProp,
+  onStatusChange,
 }: {
   billId?: string
   open?: boolean
   onClose?: () => void
   onPayment?: (billId: string) => void
+  onStatusChange?: () => void
 } = {}) {
   const routeId = useParams<{ id: string }>()?.id
   const effectiveId = billId ?? routeId
@@ -1013,119 +1036,112 @@ export function IuranDetail({
   const [selectedPaymentDetail, setSelectedPaymentDetail] = useState<IuranPaymentRecord | null>(null)
 
   // Load bill data
-  useEffect(() => {
-    let cancelled = false
-    async function loadBill() {
-      setLoading(true)
-      setError(null)
-      setNotFound(false)
+  const loadBill = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    setNotFound(false)
 
-      if (!effectiveId) {
-        setError('ID tagihan tidak valid')
+    if (!effectiveId) {
+      setError('ID tagihan tidak valid')
+      setLoading(false)
+      return
+    }
+
+    try {
+      const token = getSessionPair()?.accessToken
+      if (!token) {
+        setError('Sesi Anda telah berakhir. Silakan login ulang.')
         setLoading(false)
         return
       }
 
-      try {
-        const token = getSessionPair()?.accessToken
-        if (!token) {
-          setError('Sesi Anda telah berakhir. Silakan login ulang.')
-          setLoading(false)
-          return
-        }
+      const apiBill = await apiGetBill(token, effectiveId)
 
-        const apiBill = await apiGetBill(token, effectiveId)
+      const nominal = parseMoney(apiBill.amount)
+      const isVoluntary = Boolean(apiBill.is_voluntary || nominal === 0)
+      const status: IuranStatus = (isVoluntary && nominal === 0)
+        ? 'sukarela'
+        : (BACKEND_STATUS_MAP[apiBill.status] ?? 'belum_bayar')
 
-        if (cancelled) return
-
-        const nominal = parseMoney(apiBill.amount)
-        const isVoluntary = Boolean(apiBill.is_voluntary || nominal === 0)
-        const status: IuranStatus = (isVoluntary && nominal === 0)
-          ? 'sukarela'
-          : (BACKEND_STATUS_MAP[apiBill.status] ?? 'belum_bayar')
-
-        // Map backend bill to frontend format
-        const mappedBill: IuranBill = {
-          id: apiBill.id,
-          householdId: apiBill.household_occupancy_id,
-          householdName: apiBill.head_name ?? apiBill.house_number ?? 'Unknown',
-          rt: apiBill.rt_code ? `RT ${apiBill.rt_code}` : 'RT —',
-          iuranType: apiBill.due_name ?? 'Iuran',
-          periode: apiBill.period,
-          nominal,
-          paidAmount: 0, // will be calculated from payments
-          pendingAmount: 0, // will be calculated from PENDING payments
-          status,
-          isVoluntary,
-          dueId: apiBill.due_id,
-          payments: [], // will be loaded separately
-        }
-
-        // Load payments for this bill
-        const paymentsResponse = await apiListPayments(token, { bill_id: effectiveId })
-        if (cancelled) return
-
-        // Calculate paidAmount from APPROVED payments only
-        const approvedPayments = paymentsResponse.data.filter(
-          (p) => p.status === 'APPROVED'
-        )
-        const paidAmount = approvedPayments.reduce(
-          (sum, p) => sum + parseMoney(p.amount),
-          0
-        )
-
-        // Calculate pendingAmount for remaining balance calculation
-        const pendingPayments = paymentsResponse.data.filter(
-          (p) => p.status === 'PENDING'
-        )
-        const pendingAmount = pendingPayments.reduce(
-          (sum, p) => sum + parseMoney(p.amount),
-          0
-        )
-
-        // Map payments to frontend format
-        const paymentRecords = paymentsResponse.data.map((p) => ({
-          id: p.id,
-          nominal: parseMoney(p.amount),
-          paidDate: p.paid_at,
-          catatan: p.notes ?? undefined,
-          rejectionReason: p.rejection_reason ?? undefined,
-          verifiedBy: p.verified_by ?? undefined,
-          verifiedByName: p.verified_by_name ?? undefined,
-          officerNotes: p.officer_notes ?? undefined,
-          paymentNo: p.payment_no ?? undefined,
-          status: p.status as PaymentStatusDisplay,
-          method: p.method,
-          proofPath: p.proof_path,
-          proofOriginalName: p.proof_original_name,
-          proofMimeType: p.proof_mime_type,
-          proofSizeBytes: p.proof_size_bytes,
-        }))
-
-        setBill({
-          ...mappedBill,
-          paidAmount,
-          pendingAmount,
-          payments: paymentRecords,
-        })
-      } catch (err) {
-        if (cancelled) return
-        const apiErr = err as { code?: string }
-        if (apiErr.code === 'not_found') {
-          setNotFound(true)
-        } else {
-          setError(err instanceof Error ? err.message : 'Gagal memuat data')
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
+      // Map backend bill to frontend format
+      const mappedBill: IuranBill = {
+        id: apiBill.id,
+        householdId: apiBill.household_occupancy_id,
+        householdName: apiBill.head_name ?? apiBill.house_number ?? 'Unknown',
+        houseNumber: apiBill.house_number ?? undefined,
+        rt: apiBill.rt_code ? `RT ${apiBill.rt_code}` : 'RT —',
+        iuranType: apiBill.due_name ?? 'Iuran',
+        periode: apiBill.period,
+        nominal,
+        paidAmount: 0, // will be calculated from payments
+        pendingAmount: 0, // will be calculated from PENDING payments
+        status,
+        isVoluntary,
+        dueId: apiBill.due_id,
+        payments: [], // will be loaded separately
       }
-    }
 
-    loadBill()
-    return () => {
-      cancelled = true
+      // Load payments for this bill
+      const paymentsResponse = await apiListPayments(token, { bill_id: effectiveId })
+
+      // Calculate paidAmount from APPROVED payments only
+      const approvedPayments = paymentsResponse.data.filter(
+        (p) => p.status === 'APPROVED'
+      )
+      const paidAmount = approvedPayments.reduce(
+        (sum, p) => sum + parseMoney(p.amount),
+        0
+      )
+
+      // Calculate pendingAmount for remaining balance calculation
+      const pendingPayments = paymentsResponse.data.filter(
+        (p) => p.status === 'PENDING'
+      )
+      const pendingAmount = pendingPayments.reduce(
+        (sum, p) => sum + parseMoney(p.amount),
+        0
+      )
+
+      // Map payments to frontend format
+      const paymentRecords = paymentsResponse.data.map((p) => ({
+        id: p.id,
+        nominal: parseMoney(p.amount),
+        paidDate: p.paid_at,
+        catatan: p.notes ?? undefined,
+        rejectionReason: p.rejection_reason ?? undefined,
+        verifiedBy: p.verified_by ?? undefined,
+        verifiedByName: p.verified_by_name ?? undefined,
+        officerNotes: p.officer_notes ?? undefined,
+        paymentNo: p.payment_no ?? undefined,
+        status: p.status as PaymentStatusDisplay,
+        method: p.method,
+        proofPath: p.proof_path,
+        proofOriginalName: p.proof_original_name,
+        proofMimeType: p.proof_mime_type,
+        proofSizeBytes: p.proof_size_bytes,
+      }))
+
+      setBill({
+        ...mappedBill,
+        paidAmount,
+        pendingAmount,
+        payments: paymentRecords,
+      })
+    } catch (err) {
+      const apiErr = err as { code?: string }
+      if (apiErr.code === 'not_found') {
+        setNotFound(true)
+      } else {
+        setError(err instanceof Error ? err.message : 'Gagal memuat data')
+      }
+    } finally {
+      setLoading(false)
     }
   }, [effectiveId])
+
+  useEffect(() => {
+    loadBill()
+  }, [loadBill])
 
   const remaining = useMemo(() => {
     if (!bill) return 0
@@ -1137,23 +1153,27 @@ export function IuranDetail({
   async function handleApprove(paymentId: string) {
     if (!window.confirm('Terima pembayaran ini?')) return
     setVerifyingId(paymentId)
+    setRejectError('')
     try {
       const token = getSessionPair()?.accessToken
-      if (!token) { setError('Sesi telah berakhir. Silakan login ulang.') }
-      else {
-        await apiVerifyPayment(token, paymentId, 'approve', { officerNotes: officerNotes.trim() || undefined })
-        // Refresh bill data
-        window.location.reload()
+      if (!token) {
+        setError('Sesi telah berakhir. Silakan login ulang.')
+        return
       }
+      await apiVerifyPayment(token, paymentId, 'approve', { officerNotes: officerNotes.trim() || undefined })
+      setOfficerNotes('')
+      setVerifyingPayment(null)
+      await loadBill()
+      onStatusChange?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal memverifikasi')
+      const msg = err instanceof Error ? err.message : 'Gagal memverifikasi'
+      setRejectError(msg)
     } finally {
       setVerifyingId(null)
     }
   }
 
   async function handleReject(paymentId: string) {
-    // Validate officerNotes (the only input for reject — user fills this as reason)
     const notes = officerNotes.trim()
     if (!notes) {
       setRejectError('Catatan wajib diisi untuk menolak pembayaran.')
@@ -1163,20 +1183,22 @@ export function IuranDetail({
     setVerifyingId(paymentId)
     try {
       const token = getSessionPair()?.accessToken
-      if (!token) { setError('Sesi telah berakhir. Silakan login ulang.') }
-      else {
-        // Send the notes as both rejectionReason and officerNotes
-        await apiVerifyPayment(token, paymentId, 'reject', {
-          rejectionReason: notes,
-          officerNotes: notes,
-        })
-        window.location.reload()
+      if (!token) {
+        setRejectError('Sesi telah berakhir. Silakan login ulang.')
+        return
       }
+      await apiVerifyPayment(token, paymentId, 'reject', {
+        rejectionReason: notes,
+        officerNotes: notes,
+      })
+      setOfficerNotes('')
+      setVerifyingPayment(null)
+      await loadBill()
+      onStatusChange?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal menolak pembayaran')
+      setRejectError(err instanceof Error ? err.message : 'Gagal menolak pembayaran')
     } finally {
       setVerifyingId(null)
-      setOfficerNotes('')
     }
   }
 

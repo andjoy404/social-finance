@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -260,12 +262,52 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	profile.EffectivePermissions, err = effectiveIuranPermissions(ctx, tx, h.p, ac)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile permissions")
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, profile)
+}
+
+func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, ac *AuthContext) ([]string, error) {
+	permissions := make([]string, 0, 4)
+	roleAllowsRead := ac.TenantRole == RoleWarga ||
+		ac.TenantRole == RoleBendahara ||
+		ac.TenantRole == RolePengurus
+	roleAllowsManagement := ac.TenantRole == RoleBendahara ||
+		ac.TenantRole == RolePengurus
+
+	checks := []struct {
+		code       string
+		roleAllows bool
+	}{
+		{code: "finance.read", roleAllows: roleAllowsRead},
+		{code: "finance.create", roleAllows: roleAllowsManagement},
+		{code: "finance.update", roleAllows: roleAllowsManagement},
+		{code: "finance.approve", roleAllows: roleAllowsManagement},
+	}
+
+	resolver := NewPermissionResolver(pool)
+	for _, check := range checks {
+		if ac.SystemRole != SystemRoleSuperAdmin && !check.roleAllows {
+			continue
+		}
+		allowed, err := resolver.HasPermission(ctx, tx, ac, check.code)
+		if err != nil {
+			return nil, fmt.Errorf("resolve effective permission %s: %w", check.code, err)
+		}
+		if allowed {
+			permissions = append(permissions, check.code)
+		}
+	}
+	return permissions, nil
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

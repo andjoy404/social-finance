@@ -3,9 +3,8 @@
 /// Follows the Warga pattern: repository wraps the API client,
 /// converts Backend DTOs to UI models, and maps Dio errors.
 
-import 'dart:typed_data';
-
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/api/client.dart';
@@ -43,6 +42,24 @@ class IuranRepository {
     );
   }
 
+  Future<BackendDue> updateDue(
+    String id, {
+    String? name,
+    int? amount,
+    DuePeriodType? periodType,
+    PaymentRule? paymentRule,
+    bool? isActive,
+  }) async {
+    return apiClient.updateDue(
+      id,
+      name: name,
+      amount: amount != null ? '$amount.00' : null,
+      periodType: periodType,
+      paymentRule: paymentRule,
+      isActive: isActive,
+    );
+  }
+
   Future<GenerateBillsResult> generateBills({
     required String dueId,
     required String period,
@@ -77,6 +94,14 @@ class IuranRepository {
       page: page,
       pageSize: pageSize,
     );
+
+    // DEBUG: log API response counts per household
+    final backendHouseholds = <String, int>{};
+    for (final bill in billResponse.data) {
+      backendHouseholds.update(bill.headName ?? '—', (c) => c + 1, ifAbsent: () => 1);
+    }
+    debugPrint('[IuranDebug] fetchBills page=$page — total=${billResponse.data.length}, pagination=${billResponse.pagination.totalPages} pages');
+    debugPrint('[IuranDebug]   Backend households: ${backendHouseholds.entries.map((e) => '${e.key}=${e.value}').join(', ')}');
 
     final uiBills = <IuranBill>[];
     for (final bill in billResponse.data) {
@@ -151,6 +176,7 @@ class IuranRepository {
       }).toList();
     }
 
+    debugPrint('[IuranDebug] fetchAllBills accumulated=${allBills.length}');
     return allBills;
   }
 

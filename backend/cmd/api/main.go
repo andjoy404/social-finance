@@ -535,6 +535,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// role-based users still pass through RequireRole.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "warga.read"))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/households", hh.ListHouseholds)
@@ -547,6 +548,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// Management read access: bendahara, pengurus (warga denied). Super admin allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "warga.export"))
 		r.Use(auth.RequireRole(auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/warga/template", household.HandleWargaTemplateXLSX(pool))
@@ -558,6 +560,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// jabatan-based users evaluated via position_permissions for warga.create / warga.update.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "warga.create"))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
 		r.Use(auth.RequireRole(auth.RolePengurus))
@@ -576,10 +579,11 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// Warga import requires additional warga.import permission (only ketua).
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "warga.create"))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
 		r.Use(auth.RequirePermission(pool, "warga.import"))
-		r.Use(auth.RequireRole(auth.RolePengurus))
+		r.Use(auth.RequireRole(auth.RolePengurus, auth.RoleBendahara))
 		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
 		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
 		r.Post("/api/v1/warga/import/preview/xlsx", household.HandleWargaImportPreviewXLSX(pool))
@@ -601,6 +605,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// Self-submitted payments by warga/staff use finance.create permission.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "finance.read"))
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/categories", finH.ListCategories)
@@ -613,6 +618,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Get("/api/v1/transactions", finH.ListTransactions)
 		r.Get("/api/v1/transactions/{id}", finH.GetTransaction)
 		r.Get("/api/v1/reports/balance", finH.GetBalance)
+		r.Get("/api/v1/dashboard/summary", finH.GetDashboardSummary)
 
 		// Self-submitted payments by warga or staff
 		r.Post("/api/v1/payments", finH.CreatePayment)
@@ -629,6 +635,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// model includes a category permission code. See audit report for details.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/categories", finH.CreateCategory)
 		r.Patch("/api/v1/categories/{id}", finH.UpdateCategory)
@@ -639,6 +646,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// jabatan-based users evaluated via position_permissions for finance.create, finance.update, finance.approve.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "finance.create"))
 		r.Use(auth.RequirePermission(pool, "finance.update"))
 		r.Use(auth.RequirePermission(pool, "finance.approve"))
@@ -651,28 +659,47 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Delete("/api/v1/bills/{id}", finH.CancelBill)
 		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
 		r.Post("/api/v1/transactions", finH.CreateTransaction)
+		r.Put("/api/v1/transactions/{id}", finH.UpdateTransaction)
+		r.Patch("/api/v1/transactions/{id}", finH.UpdateTransaction)
 		r.Post("/api/v1/transactions/{id}/reverse", finH.ReverseTransaction)
+		r.Put("/api/v1/reports/balance/opening/{period}", finH.UpdateOpeningBalance)
 	})
 
 	// Notification module
+	fcmCreds := os.Getenv("FCM_CREDENTIALS_FILE")
+	if fcmCreds == "" {
+		fcmCreds = os.Getenv("FCM_CREDENTIALS")
+	}
+	fcmProject := os.Getenv("FCM_PROJECT_ID")
+	if fcmProject == "" {
+		fcmProject = "social-finance-andjoy"
+	}
+
 	notifRepo := notification.NewRepository(pool)
-	notifProvider := notification.NewFCMProvider(os.Getenv("FCM_CREDENTIALS"))
+	notifProvider := notification.NewFCMProvider(fcmCreds, appEnv)
+	notifProvider.SetProjectID(fcmProject)
 	notifSvc := notification.NewService(notifRepo, notifProvider)
-	notifH := notification.NewHandler(notifSvc)
+	notifH := notification.NewHandler(notifSvc, appEnv)
 
 	// Wire notification into finance service
 	finSvc.SetNotifier(notifSvc)
 
-	// Notification device token management
+	// Notification device token management (supports both /notifications/devices and /devices)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Post("/api/v1/notifications/devices", notifH.RegisterDevice)
 		r.Delete("/api/v1/notifications/devices", notifH.UnregisterDevice)
+		r.Post("/api/v1/devices", notifH.RegisterDevice)
+		r.Delete("/api/v1/devices", notifH.UnregisterDevice)
+		if appEnv != "production" {
+			r.Post("/api/v1/notifications/test-self", notifH.TestSelf)
+		}
 	})
 
 	// Waste truck arrival manual trigger: pengurus or security
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/notifications/waste-truck", notifH.TriggerWasteTruckArrival)
 	})

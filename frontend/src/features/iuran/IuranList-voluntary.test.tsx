@@ -118,7 +118,7 @@ describe('IuranList - Voluntary Rp0 Bills', () => {
       expect(screen.getByText('Ahmad Hidayat')).toBeDefined();
     });
 
-    expect(screen.getByText('RT 007')).toBeDefined();
+    expect(screen.getByText('007')).toBeDefined();
   });
 
   it('regular bills still display correctly formatted periode (e.g. "Okt 2026")', async () => {
