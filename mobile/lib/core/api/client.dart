@@ -3,33 +3,19 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../utils/url_utils.dart';
 import 'config.dart';
 import 'models.dart';
 
 class ApiClient {
   final Dio dio;
+  String _baseUrl = '';
   String? _token;
   String? _refreshToken;
   void Function()? onUnauthorized;
   Future<LoginResponse?> Function(String refreshToken)? onRefreshToken;
 
   // Completer-based single-flight gate.
-  //
-  // When `null` there is no refresh in flight — the next 401 creates a
-  // new Completer and proceeds with the refresh.
-  //
-  // When non-null, the gate represents an *in-flight* refresh.  Exactly
-  // one caller (the first one to arrive when the gate was null)
-  // performs the refresh; all subsequent callers simply await
-  // `gate.future`.
-  //
-  // After the refresh completes (success or failure) the gate is cleared
-  // to `_refreshGate = null`, so that a later 401 can start a fresh
-  // refresh cycle with the updated refresh token.
-  //
-  // `_refreshInFlight` prevents a new refresh cycle from starting the
-  // microsecond between the previous refresh completing and the code
-  // clearing `_refreshGate`.
   Completer<LoginResponse?>? _refreshGate;
   bool _refreshInFlight = false;
 
@@ -38,26 +24,34 @@ class ApiClient {
     String? baseUrl,
     this.onUnauthorized,
     this.onRefreshToken,
-  })
-    : dio =
-          customDio ??
-          Dio(
-            BaseOptions(
-              baseUrl: baseUrl ?? _resolveInitialBaseUrl(),
-              connectTimeout: ApiConfig.connectTimeout,
-              receiveTimeout: ApiConfig.receiveTimeout,
-              sendTimeout: ApiConfig.sendTimeout,
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-            ),
-          ) {
+  }) : _baseUrl = baseUrl != null
+           ? UrlUtils.normalizeUrl(baseUrl)
+           : _resolveInitialBaseUrl(),
+       dio =
+           customDio ??
+           Dio(
+             BaseOptions(
+               baseUrl: baseUrl != null
+                   ? UrlUtils.normalizeUrl(baseUrl)
+                   : _resolveInitialBaseUrl(),
+               connectTimeout: ApiConfig.connectTimeout,
+               receiveTimeout: ApiConfig.receiveTimeout,
+               sendTimeout: ApiConfig.sendTimeout,
+               headers: {
+                 'Content-Type': 'application/json',
+                 'Accept': 'application/json',
+               },
+             ),
+           ) {
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
           if (options.baseUrl.isEmpty) {
-            if (!ApiConfig.hasBaseUrl) {
+            if (_baseUrl.isNotEmpty) {
+              options.baseUrl = _baseUrl;
+            } else if (ApiConfig.hasBaseUrl) {
+              options.baseUrl = ApiConfig.normalizedBaseUrl;
+            } else {
               return handler.reject(
                 DioException(
                   requestOptions: options,
@@ -66,10 +60,11 @@ class ApiClient {
                 ),
               );
             }
-            options.baseUrl = ApiConfig.normalizedBaseUrl;
           }
           if (_token != null && _token!.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $_token';
+          } else {
+            options.headers.remove('Authorization');
           }
           handler.next(options);
         },
@@ -91,18 +86,6 @@ class ApiClient {
               clearRefreshToken();
               onUnauthorized?.call();
             } else if (!isLoginRequest && _refreshToken != null) {
-              // --- Single-flight refresh gate ---
-              //
-              // A Completer is a synchronous primitive: creating it and
-              // assigning it to _refreshGate happens before any `await`,
-              // so no other event-loop iteration can slip in between
-              // "seeing that a refresh is in-flight" and "waiting on it".
-              //
-              // FIRST CALLER (gate is null): creates the gate, performs
-              // the refresh, resolves it, then clears the gate.
-              //
-              // SUBSEQUENT CALLER (gate is non-null): simply awaits the
-              // gate's future, then retries with the new token or logs out.
               if (_refreshGate == null && !_refreshInFlight) {
                 // ===== FIRST CALLER: create gate and refresh =====
                 _refreshInFlight = true;
@@ -118,8 +101,6 @@ class ApiClient {
 
                 gate.complete(result);
 
-                // Clean up the gate so a later 401 can start a new
-                // refresh cycle with the updated refresh token.
                 _refreshInFlight = false;
                 _refreshGate = null;
 
@@ -172,11 +153,27 @@ class ApiClient {
     return '';
   }
 
-  /// Performs a single refresh-token operation.
+  /// Current configured base URL.
+  String get baseUrl => _baseUrl;
+
+  /// Sets the active base URL dynamically.
+  void setBaseUrl(String url) {
+    _baseUrl = UrlUtils.normalizeUrl(url);
+    dio.options.baseUrl = _baseUrl;
+  }
+
+  /// Resets the server configuration atomically.
   ///
-  /// Returns the new [LoginResponse] on success, or `null` if the refresh
-  /// failed (expired token, network error, etc.).  Callers are responsible
-  /// for clearing tokens and calling [onUnauthorized] on failure.
+  /// Clears in-memory tokens and refresh gate to prevent cross-server token leakage.
+  void resetServer(String newBaseUrl) {
+    clearAllTokens();
+    _refreshGate?.complete();
+    _refreshGate = null;
+    _refreshInFlight = false;
+    setBaseUrl(newBaseUrl);
+  }
+
+  /// Performs a single refresh-token operation.
   Future<LoginResponse?> _doRefresh() async {
     final rt = _refreshToken;
     if (rt == null || rt.isEmpty) {
@@ -197,6 +194,11 @@ class ApiClient {
 
   void setToken(String? token) {
     _token = token;
+    if (token != null && token.isNotEmpty) {
+      dio.options.headers['Authorization'] = 'Bearer $token';
+    } else {
+      dio.options.headers.remove('Authorization');
+    }
   }
 
   String? get refreshToken => _refreshToken;
@@ -207,6 +209,7 @@ class ApiClient {
 
   void clearToken() {
     _token = null;
+    dio.options.headers.remove('Authorization');
   }
 
   void clearRefreshToken() {

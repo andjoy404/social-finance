@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_spacing.dart';
+import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/iuran/data/iuran_access.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
@@ -10,6 +11,7 @@ import 'package:social_finance/features/iuran/data/iuran_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_providers.dart';
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
 import 'package:social_finance/features/iuran/presentation/screens/iuran_menu_screen.dart';
+import 'package:social_finance/features/iuran/presentation/widgets/iuran_tab_bar.dart';
 
 class IuranManagementScreen extends ConsumerWidget {
   const IuranManagementScreen({super.key});
@@ -32,11 +34,9 @@ class IuranManagementScreen extends ConsumerWidget {
     final duesState = ref.watch(duesProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kelola Iuran'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/home/iuran'),
-        ),
+        centerTitle: false,
+        title: const MenuAppBarTitle(title: 'Iuran'),
+        bottom: const IuranTabBar(selectedIndex: 2),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/home/iuran/form'),

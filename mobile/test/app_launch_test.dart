@@ -45,9 +45,7 @@ Widget _authWidget(Widget child) {
           'rw': '016',
         });
       })),
-      wargaListProvider.overrideWith(
-        () => _MockWargaNotifierForLaunch(),
-      ),
+      wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
     ],
     child: child,
   );
@@ -72,9 +70,7 @@ Widget _dashboardViaMaterialApp() {
           'rw': '016',
         });
       })),
-      wargaListProvider.overrideWith(
-        () => _MockWargaNotifierForLaunch(),
-      ),
+      wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
     ],
     child: MaterialApp(home: const DashboardScreen()),
   );
@@ -99,9 +95,10 @@ void main() {
     );
     await tester.pumpAndSettle(const Duration(milliseconds: 7000));
     expect(find.text('Social Finance'), findsOneWidget);
-    expect(find.text('Social Finance for Your Neighborhood'), findsOneWidget);
-    expect(find.text('Email'), findsOneWidget);
+    expect(find.text('URL API / Server'), findsOneWidget);
+    expect(find.text('Email'), findsWidgets);
     expect(find.text('Kata Sandi'), findsOneWidget);
+    expect(find.text('Ingat saya'), findsOneWidget);
     expect(find.text('Masuk'), findsOneWidget);
   });
 
@@ -293,9 +290,7 @@ void main() {
               'rw': '016',
             });
           })),
-          wargaListProvider.overrideWith(
-            () => _MockWargaNotifierForLaunch(),
-          ),
+          wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
         ],
         child: MaterialApp(
           home: SizedBox(width: 360, child: const DashboardScreen()),
@@ -490,9 +485,7 @@ void main() {
               'rw': '016',
             });
           })),
-          wargaListProvider.overrideWith(
-            () => _MockWargaNotifierForLaunch(),
-          ),
+          wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
         ],
         child: MaterialApp(
           theme: isDarkTest,

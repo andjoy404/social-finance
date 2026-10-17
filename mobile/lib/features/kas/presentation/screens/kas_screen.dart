@@ -493,6 +493,68 @@ class _KasScreenState extends ConsumerState<KasScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: AppSpacing.sm),
+            // ── 5 Neraca Summary Cards (Positioned at top under title KAS) ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Saldo Awal',
+                          value: RupiahFormatter.format(openingBalance),
+                          color: theme.colorScheme.onSurface,
+                          isEditable: canWrite && !_isAllPeriods,
+                          onEdit: () => _showEditOpeningBalanceDialog(openingBalance),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Saldo Akhir',
+                          value: RupiahFormatter.format(closingBalance),
+                          color: AppColors.accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Total Masuk',
+                          value: '+${RupiahFormatter.format(totalMasuk)}',
+                          color: AppColors.success,
+                          icon: Icons.arrow_downward,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Total Keluar',
+                          value: '-${RupiahFormatter.format(totalKeluar)}',
+                          color: AppColors.danger,
+                          icon: Icons.arrow_upward,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Mutasi Bersih',
+                          value: '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
+                          color: netMovement >= 0 ? AppColors.success : AppColors.danger,
+                          icon: netMovement >= 0 ? Icons.arrow_downward : Icons.arrow_upward,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+
             // ── Month Navigator & Filter Periode ──
             Container(
               margin: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
@@ -636,7 +698,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
               ),
             ),
 
-            // ── Search (Filter above Summary Cards) ──
+            // ── Search ──
             const SizedBox(height: AppSpacing.xs),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
@@ -651,68 +713,6 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                       )
                     : null,
                 onChanged: _onSearchChanged,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-
-            // ── 5 Neraca Summary Cards (Static Responsive 2-tier layout, no horizontal scroll, FittedBox) ──
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SummaryChip(
-                          label: 'Saldo Awal',
-                          value: RupiahFormatter.format(openingBalance),
-                          color: theme.colorScheme.onSurface,
-                          isEditable: canWrite && !_isAllPeriods,
-                          onEdit: () => _showEditOpeningBalanceDialog(openingBalance),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: SummaryChip(
-                          label: 'Saldo Akhir',
-                          value: RupiahFormatter.format(closingBalance),
-                          color: AppColors.accent,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SummaryChip(
-                          label: 'Total Masuk',
-                          value: '+${RupiahFormatter.format(totalMasuk)}',
-                          color: AppColors.success,
-                          icon: Icons.arrow_downward,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: SummaryChip(
-                          label: 'Total Keluar',
-                          value: '-${RupiahFormatter.format(totalKeluar)}',
-                          color: AppColors.danger,
-                          icon: Icons.arrow_upward,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: SummaryChip(
-                          label: 'Mutasi Bersih',
-                          value: '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
-                          color: netMovement >= 0 ? AppColors.success : AppColors.danger,
-                          icon: netMovement >= 0 ? Icons.arrow_downward : Icons.arrow_upward,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
               ),
             ),
             const SizedBox(height: AppSpacing.sm),

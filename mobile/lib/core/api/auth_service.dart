@@ -8,23 +8,46 @@ class AuthService {
 
   AuthService(this.client);
 
-  Future<LoginResponse> login(String email, String password) async {
-    final response = await client.dio.post(
-      '/api/v1/auth/login',
-      data: {'email': email, 'password': password},
-    );
+  /// Authenticates using email or phone number.
+  Future<LoginResponse> login({
+    String? email,
+    String? phone,
+    required String password,
+  }) async {
+    final Map<String, dynamic> data = {'password': password};
+    if (email != null && email.trim().isNotEmpty) {
+      data['email'] = email.trim();
+    } else if (phone != null && phone.trim().isNotEmpty) {
+      data['phone'] = phone.trim();
+    } else {
+      throw const FormatException('Email atau nomor HP wajib diisi.');
+    }
 
-    final data = response.data;
-    if (data is! Map) {
+    final response = await client.dio.post('/api/v1/auth/login', data: data);
+
+    final responseData = response.data;
+    if (responseData is! Map) {
       throw const FormatException('Expected JSON object in login response');
     }
 
-    final loginResponse = LoginResponse.fromJson(data.cast<String, dynamic>());
+    final loginResponse = LoginResponse.fromJson(
+      responseData.cast<String, dynamic>(),
+    );
     client.setToken(loginResponse.accessToken);
     if (loginResponse.refreshToken.isNotEmpty) {
       client.setRefreshToken(loginResponse.refreshToken);
     }
     return loginResponse;
+  }
+
+  /// Convenience method for login with email.
+  Future<LoginResponse> loginWithEmail(String email, String password) {
+    return login(email: email, password: password);
+  }
+
+  /// Convenience method for login with phone number.
+  Future<LoginResponse> loginWithPhone(String phone, String password) {
+    return login(phone: phone, password: password);
   }
 
   Future<void> logout() async {

@@ -1,5 +1,6 @@
 services:
   backend:
+    restart: unless-stopped
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
@@ -46,6 +47,7 @@ services:
       - social-finance-internal
 
   backend-test:
+    restart: unless-stopped
     profiles:
       - test
     build:
@@ -90,6 +92,7 @@ services:
       - social-finance-internal
 
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     container_name: social-finance-postgres
     environment:
@@ -110,6 +113,7 @@ services:
       - social-finance-internal
 
   rustfs:
+    restart: unless-stopped
     image: rustfs/rustfs:latest
     container_name: social-finance-rustfs
     environment:
@@ -130,6 +134,7 @@ services:
       - social-finance-internal
 
   rustfs-init:
+    restart: "no"
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
@@ -158,6 +163,7 @@ services:
       - social-finance-internal
 
   migrate:
+    restart: "no"
     build:
       context: ./backend
       dockerfile: Dockerfile.migrate
@@ -177,6 +183,7 @@ services:
       - social-finance-internal
 
   seed:
+    restart: "no"
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
@@ -200,6 +207,7 @@ services:
       - social-finance-internal
 
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
       dockerfile: Dockerfile

@@ -7,7 +7,14 @@ import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/iuran/data/iuran_models.dart';
+import 'package:social_finance/features/iuran/data/iuran_providers.dart';
 import 'package:social_finance/features/iuran/presentation/screens/iuran_menu_screen.dart';
+
+class _TestBillsNotifier extends BillsNotifier {
+  @override
+  Future<List<IuranBill>> build() async => [];
+}
 
 Widget _menuApp(Map<String, dynamic>? user) {
   final router = GoRouter(
@@ -51,13 +58,14 @@ Widget _menuApp(Map<String, dynamic>? user) {
         repo.state = AsyncData<Map<String, dynamic>?>(user);
         return repo;
       }),
+      billsProvider.overrideWith(() => _TestBillsNotifier()),
     ],
     child: MaterialApp.router(routerConfig: router),
   );
 }
 
 void main() {
-  testWidgets('warga sees List Iuran and Tagihan, and routes correctly', (
+  testWidgets('WARGA directly sees bills list without tabs or kelola', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -66,18 +74,19 @@ void main() {
         'effective_permissions': ['finance.read'],
       }),
     );
-
-    expect(find.text('List Iuran'), findsOneWidget);
-    expect(find.text('Tagihan'), findsOneWidget);
-    expect(find.text('Kelola Iuran'), findsNothing);
-
-    await tester.tap(find.text('List Iuran'));
     await tester.pumpAndSettle();
-    expect(find.text('List destination'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'List Iuran'), findsOneWidget);
+
+    // Warga directly sees bills list
+    expect(find.text('Belum Ada Tagihan'), findsOneWidget);
+    // Warga does not see any tabs
+    expect(find.text('List Iuran'), findsNothing);
+    expect(find.text('Tagihan'), findsNothing);
+    expect(find.text('Kelola Iuran'), findsNothing);
   });
 
-  testWidgets('authorized bendahara can open Kelola Iuran', (tester) async {
+  testWidgets('authorized bendahara/pengurus sees tabs below Iuran title', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _menuApp({
         'role': AppRole.bendahara,
@@ -89,34 +98,20 @@ void main() {
         ],
       }),
     );
+    await tester.pumpAndSettle();
 
+    // Directly shows Iuran title and tabs
     expect(find.text('List Iuran'), findsOneWidget);
     expect(find.text('Tagihan'), findsOneWidget);
     expect(find.text('Kelola Iuran'), findsOneWidget);
 
-    await tester.tap(find.text('Kelola Iuran'));
+    // Tapping Tagihan navigates to Tagihan destination
+    await tester.tap(find.text('Tagihan'));
     await tester.pumpAndSettle();
-    expect(find.text('Kelola destination'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Kelola Iuran'), findsOneWidget);
+    expect(find.text('Tagihan destination'), findsOneWidget);
   });
 
-  testWidgets('partial permissions expose read-only Iuran menu items', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _menuApp({
-        'role': AppRole.pengurus,
-        'jabatan': 'sekretaris',
-        'effective_permissions': ['finance.read', 'finance.create'],
-      }),
-    );
-
-    expect(find.text('List Iuran'), findsOneWidget);
-    expect(find.text('Tagihan'), findsOneWidget);
-    expect(find.text('Kelola Iuran'), findsNothing);
-  });
-
-  testWidgets('profile loading does not show an access-denied message', (
+  testWidgets('profile loading shows loading indicator', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -177,35 +172,5 @@ void main() {
       find.text('Akses Iuran tidak tersedia untuk akun ini.'),
       findsNothing,
     );
-  });
-
-  testWidgets('read-only pengurus cannot see Kelola Iuran', (tester) async {
-    await tester.pumpWidget(
-      _menuApp({
-        'role': AppRole.pengurus,
-        'jabatan': 'wakil_ketua',
-        'effective_permissions': ['finance.read'],
-      }),
-    );
-
-    expect(find.text('List Iuran'), findsOneWidget);
-    expect(find.text('Tagihan'), findsOneWidget);
-    expect(find.text('Kelola Iuran'), findsNothing);
-  });
-
-  testWidgets('tagihan item opens its corresponding destination', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _menuApp({
-        'role': AppRole.warga,
-        'effective_permissions': ['finance.read'],
-      }),
-    );
-
-    await tester.tap(find.text('Tagihan'));
-    await tester.pumpAndSettle();
-    expect(find.text('Tagihan destination'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Tagihan'), findsOneWidget);
   });
 }

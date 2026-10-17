@@ -105,7 +105,15 @@ class IuranRepository {
 
     final uiBills = <IuranBill>[];
     for (final bill in billResponse.data) {
-      final payments = await apiClient.listPayments(billId: bill.id);
+      PaginatedResponse<BackendPayment> payments = const PaginatedResponse(
+        data: [],
+        pagination: PaginationInfo(page: 1, pageSize: 20, total: 0, totalPages: 0),
+      );
+      try {
+        payments = await apiClient.listPayments(billId: bill.id);
+      } catch (e) {
+        debugPrint('[IuranDebug] listPayments failed for bill=${bill.id}: $e');
+      }
       final approvedTotal = payments.data
           .where((p) => p.status == PaymentStatus.approved)
           .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));

@@ -768,7 +768,7 @@ void main() {
 
         expect(find.byType(LoginScreen), findsOneWidget);
         expect(find.text('Email atau kata sandi salah.'), findsOneWidget);
-        expect(find.byType(TextField), findsNWidgets(2));
+        expect(find.byType(TextField), findsNWidgets(3));
         expect(find.text('Masuk'), findsOneWidget);
       },
     );
@@ -830,7 +830,11 @@ void main() {
 
         // 1. Submit invalid login
         await tester.enterText(
-          find.byType(TextField).first,
+          find.byType(TextField).at(0),
+          'http://test.local',
+        );
+        await tester.enterText(
+          find.byType(TextField).at(1),
           'user@example.com',
         );
         await tester.enterText(find.byType(TextField).last, 'wrongpassword');
@@ -852,7 +856,9 @@ void main() {
 
         // 2. Retry with valid credentials
         await tester.enterText(find.byType(TextField).last, 'correctpassword');
-        await tester.tap(find.text('Masuk'));
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        await tester.tap(button);
         await tester.pump(); // Start loading
         await tester.pump(
           const Duration(milliseconds: 100),

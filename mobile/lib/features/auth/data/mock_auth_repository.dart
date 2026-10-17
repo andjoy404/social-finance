@@ -9,17 +9,12 @@ import '../../../core/api/config.dart';
 import '../../../core/api/models.dart';
 import '../../../core/errors/app_errors.dart';
 import '../../../core/models/role.dart';
+import '../../../core/storage/app_storage.dart';
+import '../../../core/utils/phone_utils.dart';
+import '../../../core/utils/url_utils.dart';
 
 /// Maps backend role string to [AppRole].
 /// Unknown roles safely default to non-privileged [AppRole.warga].
-///
-/// The backend assigns [systemRoleStr] (system_role) to platform-wide admins
-/// and sets [roleStr] (role) to the RT-scoped role for ordinary users.
-/// For super_admin users, [roleStr] is empty and [systemRoleStr] is
-/// "super_admin". For all other users, [systemRoleStr] is null/empty.
-///
-/// Mapping priority: use [roleStr] if non-empty; otherwise fall back to
-/// [systemRoleStr]. Unknown strings → [AppRole.warga] (never elevated).
 AppRole mapStringToAppRole(String? roleStr, {String? systemRoleStr}) {
   final effective = (roleStr?.trim().isNotEmpty == true)
       ? roleStr!.trim().toLowerCase()
@@ -40,7 +35,8 @@ AppRole mapStringToAppRole(String? roleStr, {String? systemRoleStr}) {
   }
 }
 
-/// Authentication repository managing login, logout, and session state.
+/// Authentication repository managing login, logout, session restoration,
+/// and secure persistence.
 class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   static const _profileReady = 'ready';
   static const _profileLoading = 'loading';
@@ -49,11 +45,20 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
 
   final AuthService authService;
   final ApiClient apiClient;
+  final PreferencesStorage preferencesStorage;
+  final SecureAuthStorage secureAuthStorage;
 
   Map<String, dynamic>? _currentUser;
+  Future<void> Function()? onBeforeLogout;
 
-  AuthRepository({required this.authService, required this.apiClient})
-    : super(null) {
+  AuthRepository({
+    required this.authService,
+    required this.apiClient,
+    PreferencesStorage? preferencesStorage,
+    SecureAuthStorage? secureAuthStorage,
+  }) : preferencesStorage = preferencesStorage ?? SharedPrefsStorage(),
+       secureAuthStorage = secureAuthStorage ?? FlutterSecureAuthStorage(),
+       super(null) {
     apiClient.onUnauthorized = _handleUnauthorized;
     apiClient.onRefreshToken = _refreshTokens;
   }
@@ -71,6 +76,18 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         state = AsyncData(_currentUser);
         try {
           _setCurrentUser(await authService.getMe(), response.accessToken);
+          // Update tokens in secure storage if session was remembered
+          final stored = await secureAuthStorage.getSession();
+          if (stored != null) {
+            await secureAuthStorage.saveSession(
+              accessToken: response.accessToken,
+              refreshToken: response.refreshToken.isNotEmpty
+                  ? response.refreshToken
+                  : stored.refreshToken,
+              serverUrl: stored.serverUrl,
+              userData: _currentUser!,
+            );
+          }
         } catch (_, stackTrace) {
           _currentUser = {
             ..._currentUser!,
@@ -101,11 +118,160 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     state = null;
   }
 
-  Future<void> login(String email, String password) async {
-    final trimmedEmail = email.trim();
-    if (trimmedEmail.isEmpty || password.isEmpty) {
+  /// Restores session on app startup if "Ingat Saya" was active.
+  ///
+  /// Returns `true` if session was successfully restored, `false` otherwise.
+  Future<bool> restoreSession() async {
+    try {
+      // 1. Ensure API URL is initialized on ApiClient before any auth or network action
+      var currentUrl = apiClient.baseUrl;
+      if (currentUrl.isEmpty) {
+        final lastSavedUrl = await preferencesStorage.getLastApiUrl();
+        if (lastSavedUrl != null && lastSavedUrl.isNotEmpty) {
+          if (UrlUtils.validateUrl(lastSavedUrl) == null) {
+            currentUrl = lastSavedUrl;
+            apiClient.setBaseUrl(currentUrl);
+          }
+        }
+      }
+
+      final rememberMe = await preferencesStorage.getRememberMe();
+      if (!rememberMe) {
+        await secureAuthStorage.clearSession();
+        return false;
+      }
+
+      final stored = await secureAuthStorage.getSession();
+      if (stored == null || stored.accessToken.isEmpty) {
+        return false;
+      }
+
+      // If server changed, do NOT send old server tokens to new server!
+      if (currentUrl.isNotEmpty &&
+          stored.serverUrl.isNotEmpty &&
+          currentUrl != stored.serverUrl) {
+        await secureAuthStorage.clearSession();
+        return false;
+      }
+
+      apiClient.setToken(stored.accessToken);
+      if (stored.refreshToken.isNotEmpty) {
+        apiClient.setRefreshToken(stored.refreshToken);
+      }
+
+      try {
+        final user = await authService.getMe();
+        _setCurrentUser(user, stored.accessToken);
+        return true;
+      } catch (_) {
+        // Access token might be expired, try refresh token
+        if (stored.refreshToken.isNotEmpty) {
+          try {
+            final refreshed = await authService.refreshToken(
+              stored.refreshToken,
+            );
+            final user = await authService.getMe();
+            _setCurrentUser(user, refreshed.accessToken);
+            await secureAuthStorage.saveSession(
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken.isNotEmpty
+                  ? refreshed.refreshToken
+                  : stored.refreshToken,
+              serverUrl: stored.serverUrl,
+              userData: user.toJson(),
+            );
+            return true;
+          } catch (_) {}
+        }
+
+        // Restore failed, clear tokens and stored session
+        apiClient.clearAllTokens();
+        await secureAuthStorage.clearSession();
+        _currentUser = null;
+        state = null;
+        return false;
+      }
+    } catch (e) {
+      developer.log('Failed to restore session: $e', name: 'AuthRepository');
+      return false;
+    }
+  }
+
+  /// Changes the active server URL atomically.
+  ///
+  /// Clears in-flight requests, tokens, session storage, and in-memory state.
+  Future<void> changeServer(String newServerUrl) async {
+    final normalized = UrlUtils.normalizeUrl(newServerUrl);
+    if (apiClient.baseUrl == normalized) return;
+
+    // 1. Reset client (clears tokens and in-flight refresh)
+    apiClient.resetServer(normalized);
+
+    // 2. Clear old session in secure storage to prevent cross-server leaks
+    await secureAuthStorage.clearSession();
+
+    // 3. Clear user and state
+    _currentUser = null;
+    state = null;
+
+    // 4. Save to preferences
+    await preferencesStorage.setLastApiUrl(normalized);
+  }
+
+  /// Logs in using email or phone number.
+  ///
+  /// Positional [emailOrIdentifier] supports backward compatibility with
+  /// existing tests and callers. Named parameters allow passing explicit
+  /// [phone], [serverUrl], and [rememberMe].
+  Future<void> login(
+    String emailOrIdentifier,
+    String password, {
+    String? phone,
+    String? serverUrl,
+    bool rememberMe = true,
+  }) async {
+    // 1. Validate and configure server URL if provided
+    if (serverUrl != null && serverUrl.trim().isNotEmpty) {
+      final urlErr = UrlUtils.validateUrl(serverUrl);
+      if (urlErr != null) {
+        state = AsyncError(AuthError(urlErr), StackTrace.current);
+        return;
+      }
+      await changeServer(serverUrl);
+    }
+
+    // 2. Determine and validate login identifier
+    String? effectiveEmail;
+    String? effectivePhone;
+
+    if (phone != null && phone.trim().isNotEmpty) {
+      final phoneErr = PhoneUtils.validatePhone(phone);
+      if (phoneErr != null) {
+        state = AsyncError(AuthError(phoneErr), StackTrace.current);
+        return;
+      }
+      effectivePhone = PhoneUtils.normalizePhone(phone);
+    } else {
+      final identifier = emailOrIdentifier.trim();
+      if (identifier.isEmpty || password.isEmpty) {
+        state = AsyncError(
+          AuthError('Email dan kata sandi wajib diisi.'),
+          StackTrace.current,
+        );
+        return;
+      }
+
+      // Check if identifier is phone number
+      if (PhoneUtils.validatePhone(identifier) == null) {
+        effectivePhone = PhoneUtils.normalizePhone(identifier);
+      } else {
+        effectiveEmail = identifier;
+      }
+    }
+
+    if (password.isEmpty) {
       state = AsyncError(
-        AuthError('Email dan kata sandi wajib diisi.'),
+        AuthError('Kata sandi wajib diisi.'),
         StackTrace.current,
       );
       return;
@@ -116,7 +282,11 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     state = const AsyncLoading();
 
     try {
-      final response = await authService.login(trimmedEmail, password);
+      final response = await authService.login(
+        email: effectiveEmail,
+        phone: effectivePhone,
+        password: password,
+      );
       late final AuthUser effectiveUser;
       try {
         effectiveUser = await authService.getMe();
@@ -136,7 +306,37 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         );
         return;
       }
+
       _setCurrentUser(effectiveUser, response.accessToken);
+
+      // Save preferences and secure session
+      await preferencesStorage.setRememberMe(rememberMe);
+      final activeServerUrl = apiClient.baseUrl;
+      if (activeServerUrl.isNotEmpty) {
+        await preferencesStorage.setLastApiUrl(activeServerUrl);
+      }
+      if (effectiveEmail != null && effectiveEmail.isNotEmpty) {
+        await preferencesStorage.setLastEmail(effectiveEmail);
+        await preferencesStorage.setLastLoginMethod('email');
+      }
+      if (phone != null && phone.isNotEmpty) {
+        await preferencesStorage.setLastPhone(phone);
+        await preferencesStorage.setLastLoginMethod('phone');
+      } else if (effectivePhone != null && effectivePhone.isNotEmpty) {
+        await preferencesStorage.setLastPhone(effectivePhone);
+        await preferencesStorage.setLastLoginMethod('phone');
+      }
+
+      if (rememberMe) {
+        await secureAuthStorage.saveSession(
+          accessToken: response.accessToken,
+          refreshToken: response.refreshToken,
+          serverUrl: activeServerUrl,
+          userData: effectiveUser.toJson(),
+        );
+      } else {
+        await secureAuthStorage.clearSession();
+      }
     } catch (e, st) {
       _currentUser = null;
       final authError = _mapError(e);
@@ -195,11 +395,17 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
 
   Future<void> logout() async {
     try {
+      await onBeforeLogout?.call();
+    } catch (e) {
+      developer.log('onBeforeLogout hook failed: $e', name: 'AuthRepository');
+    }
+    try {
       await authService.logout();
     } catch (_) {
       // Ignored: local session must always be cleared even if remote logout fails.
     } finally {
       apiClient.clearAllTokens();
+      await secureAuthStorage.clearSession();
       _currentUser = null;
       state = null;
     }
@@ -278,7 +484,14 @@ final authRepositoryProvider =
     ) {
       final authService = ref.watch(authServiceProvider);
       final apiClient = ref.watch(apiClientProvider);
-      return AuthRepository(authService: authService, apiClient: apiClient);
+      final preferencesStorage = ref.watch(preferencesStorageProvider);
+      final secureAuthStorage = ref.watch(secureAuthStorageProvider);
+      return AuthRepository(
+        authService: authService,
+        apiClient: apiClient,
+        preferencesStorage: preferencesStorage,
+        secureAuthStorage: secureAuthStorage,
+      );
     });
 
 const allowedRTCodes = {'002', '003'};

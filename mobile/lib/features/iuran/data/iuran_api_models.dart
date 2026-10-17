@@ -474,6 +474,6 @@ String formatPeriod(String period) {
     'November',
     'Desember',
   ];
-  if (monthIndex < 0 || monthIndex >= months.length) return period;
-  return '${months[monthIndex]} $year';
+  if (monthIndex < 1 || monthIndex > months.length) return period;
+  return '${months[monthIndex - 1]} $year';
 }

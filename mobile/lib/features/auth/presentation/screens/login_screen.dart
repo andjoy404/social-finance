@@ -3,15 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/constants/app_constants.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/storage/app_storage.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
+import 'package:social_finance/core/utils/phone_utils.dart';
+import 'package:social_finance/core/utils/url_utils.dart';
 import 'package:social_finance/core/widgets/one_shot_animated_gif.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
-/// Login screen that matches the Web login design.
-///
-/// Visual reference: [frontend/src/styles/login.css] and
-/// [frontend/src/features/auth/Login.tsx].
+enum LoginMethod { email, phone }
+
+/// Login screen that supports manual API URL entry, Email or Phone login,
+/// and "Ingat Saya" session persistence.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -20,33 +23,125 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
+  final _serverUrlController = TextEditingController();
+  final _serverUrlFocus = FocusNode();
+
   final _emailController = TextEditingController();
   final _emailFocus = FocusNode();
+
+  final _phoneController = TextEditingController();
+  final _phoneFocus = FocusNode();
+
   final _passwordController = TextEditingController();
   final _passwordFocus = FocusNode();
+
+  LoginMethod _loginMethod = LoginMethod.email;
   bool _obscurePassword = true;
+  bool _rememberMe = true;
   String _error = '';
 
   @override
+  void initState() {
+    super.initState();
+    // Load last remembered login details from preferences
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final prefs = ref.read(preferencesStorageProvider);
+      final lastUrl = await prefs.getLastApiUrl();
+      final lastEmail = await prefs.getLastEmail();
+      final lastPhone = await prefs.getLastPhone();
+      final lastMethod = await prefs.getLastLoginMethod();
+      final rememberMe = await prefs.getRememberMe();
+      if (mounted) {
+        setState(() {
+          _rememberMe = rememberMe;
+          if (lastMethod == 'phone') {
+            _loginMethod = LoginMethod.phone;
+          } else if (lastMethod == 'email') {
+            _loginMethod = LoginMethod.email;
+          }
+          if (lastEmail != null && lastEmail.isNotEmpty) {
+            _emailController.text = lastEmail;
+          }
+          if (lastPhone != null && lastPhone.isNotEmpty) {
+            _phoneController.text = lastPhone;
+          }
+          if (lastUrl != null && lastUrl.isNotEmpty) {
+            _serverUrlController.text = lastUrl;
+            final urlErr = UrlUtils.validateUrl(lastUrl);
+            if (urlErr != null) {
+              _error =
+                  'URL server tersimpan tidak valid: $urlErr Silakan perbaiki.';
+            }
+          }
+        });
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _serverUrlController.dispose();
+    _serverUrlFocus.dispose();
     _emailController.dispose();
     _emailFocus.dispose();
+    _phoneController.dispose();
+    _phoneFocus.dispose();
     _passwordController.dispose();
     _passwordFocus.dispose();
     super.dispose();
   }
 
   void _handleLogin() {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-    if (email.isEmpty || password.isEmpty) {
-      setState(() {
-        _error = 'Email dan kata sandi harus diisi.';
-      });
+    final serverUrl = _serverUrlController.text.trim();
+    if (serverUrl.isEmpty) {
+      setState(() => _error = 'URL API / Server wajib diisi.');
       return;
     }
+
+    final urlErr = UrlUtils.validateUrl(serverUrl);
+    if (urlErr != null) {
+      setState(() => _error = urlErr);
+      return;
+    }
+
+    String? email;
+    String? phone;
+
+    if (_loginMethod == LoginMethod.email) {
+      email = _emailController.text.trim();
+      if (email.isEmpty) {
+        setState(() => _error = 'Email wajib diisi.');
+        return;
+      }
+      if (!email.contains('@') || !email.contains('.')) {
+        setState(() => _error = 'Format email tidak valid.');
+        return;
+      }
+    } else {
+      phone = _phoneController.text.trim();
+      final phoneErr = PhoneUtils.validatePhone(phone);
+      if (phoneErr != null) {
+        setState(() => _error = phoneErr);
+        return;
+      }
+    }
+
+    final password = _passwordController.text;
+    if (password.isEmpty) {
+      setState(() => _error = 'Kata sandi wajib diisi.');
+      return;
+    }
+
+    setState(() => _error = '');
+
     final authRepo = ref.read(authRepositoryProvider.notifier);
-    authRepo.login(email, password);
+    authRepo.login(
+      _loginMethod == LoginMethod.email ? email! : '',
+      password,
+      phone: _loginMethod == LoginMethod.phone ? phone : null,
+      serverUrl: serverUrl,
+      rememberMe: _rememberMe,
+    );
   }
 
   @override
@@ -132,7 +227,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       onTap: () => FocusScope.of(context).unfocus(),
       child: Container(
         width: double.infinity,
-        constraints: const BoxConstraints(maxWidth: 320),
+        constraints: const BoxConstraints(maxWidth: 340),
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
@@ -161,9 +256,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Brand lockup
+            // 1. Logo and title Social Finance
             const SizedBox(height: 4),
-            // Animated logo — plays once, then stops on final frame
             OneShotAnimatedLogo(
               assetPath: 'assets/images/logo_animated.gif',
               fallbackAssetPath: 'assets/images/logo.png',
@@ -193,14 +287,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 height: 1.35,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
 
-            // Error message
+            // Error message banner
             if (_error.isNotEmpty) ...[
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
-                  vertical: 6,
+                  vertical: 8,
                 ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFE8453C).withValues(alpha: 0.12),
@@ -215,27 +309,68 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
             ],
 
-            // Email field
+            // 2. Input URL API / Server
             _buildField(
               context,
-              label: 'Email',
-              controller: _emailController,
-              focusNode: _emailFocus,
-              hintText: 'Masukkan email',
-              keyboardType: TextInputType.emailAddress,
+              label: 'URL API / Server',
+              controller: _serverUrlController,
+              focusNode: _serverUrlFocus,
+              hintText: 'https://api.socialfinance.com',
+              keyboardType: TextInputType.url,
               textInputAction: TextInputAction.next,
-              onFieldSubmitted: (value) {
-                FocusScope.of(context).requestFocus(_passwordFocus);
+              onFieldSubmitted: (_) {
+                if (_loginMethod == LoginMethod.email) {
+                  FocusScope.of(context).requestFocus(_emailFocus);
+                } else {
+                  FocusScope.of(context).requestFocus(_phoneFocus);
+                }
               },
-              prefixIcon: Icons.email_outlined,
-              autoFocus: !isLoading,
+              prefixIcon: Icons.dns_outlined,
+              enabled: !isLoading,
             ),
-            const SizedBox(height: 11),
+            const SizedBox(height: 12),
 
-            // Password field
+            // 3. Choice for login method: Email or Nomor HP
+            _buildMethodSelector(isLoading),
+            const SizedBox(height: 12),
+
+            // 4. Input email or phone based on choice
+            if (_loginMethod == LoginMethod.email)
+              _buildField(
+                context,
+                label: 'Email',
+                controller: _emailController,
+                focusNode: _emailFocus,
+                hintText: 'Masukkan email',
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) {
+                  FocusScope.of(context).requestFocus(_passwordFocus);
+                },
+                prefixIcon: Icons.email_outlined,
+                enabled: !isLoading,
+              )
+            else
+              _buildField(
+                context,
+                label: 'Nomor HP',
+                controller: _phoneController,
+                focusNode: _phoneFocus,
+                hintText: '081200000001',
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.next,
+                onFieldSubmitted: (_) {
+                  FocusScope.of(context).requestFocus(_passwordFocus);
+                },
+                prefixIcon: Icons.phone_outlined,
+                enabled: !isLoading,
+              ),
+            const SizedBox(height: 12),
+
+            // 5. Input Kata Sandi
             _buildField(
               context,
               label: 'Kata Sandi',
@@ -244,26 +379,160 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               hintText: 'Masukkan kata sandi',
               obscureText: _obscurePassword,
               textInputAction: TextInputAction.done,
-              onFieldSubmitted: (value) {
+              onFieldSubmitted: (_) {
                 _handleLogin();
               },
               prefixIcon: Icons.lock_outline,
               suffixIcon: _buildPasswordToggle(),
+              enabled: !isLoading,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
 
-            // Submit button
+            // 6. Checkbox Ingat saya (active by default)
+            _buildRememberMeRow(isLoading),
+            const SizedBox(height: 14),
+
+            // 7. Submit button
             _buildSubmitButton(isLoading),
-
-            // Help text
-            const SizedBox(height: 16),
-            Text(
-              'Gunakan email dan kata sandi apa saja untuk pengembangan.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, color: Color(0xFF6E777D)),
-            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildMethodSelector(bool isLoading) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0x1F09070F),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0x28A970FF)),
+      ),
+      padding: const EdgeInsets.all(2),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: isLoading
+                  ? null
+                  : () {
+                      if (_loginMethod != LoginMethod.email) {
+                        setState(() {
+                          _loginMethod = LoginMethod.email;
+                          _error = '';
+                        });
+                      }
+                    },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(
+                  color: _loginMethod == LoginMethod.email
+                      ? const Color(0x38A970FF)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  border: _loginMethod == LoginMethod.email
+                      ? Border.all(
+                          color: AppColors.accent.withValues(alpha: 0.6),
+                        )
+                      : null,
+                ),
+                child: Text(
+                  'Email',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: _loginMethod == LoginMethod.email
+                        ? FontWeight.w600
+                        : FontWeight.normal,
+                    color: _loginMethod == LoginMethod.email
+                        ? const Color(0xFFF5F3FB)
+                        : const Color(0xFF9B93AD),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: GestureDetector(
+              onTap: isLoading
+                  ? null
+                  : () {
+                      if (_loginMethod != LoginMethod.phone) {
+                        setState(() {
+                          _loginMethod = LoginMethod.phone;
+                          _error = '';
+                        });
+                      }
+                    },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(
+                  color: _loginMethod == LoginMethod.phone
+                      ? const Color(0x38A970FF)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  border: _loginMethod == LoginMethod.phone
+                      ? Border.all(
+                          color: AppColors.accent.withValues(alpha: 0.6),
+                        )
+                      : null,
+                ),
+                child: Text(
+                  'Nomor HP',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: _loginMethod == LoginMethod.phone
+                        ? FontWeight.w600
+                        : FontWeight.normal,
+                    color: _loginMethod == LoginMethod.phone
+                        ? const Color(0xFFF5F3FB)
+                        : const Color(0xFF9B93AD),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRememberMeRow(bool isLoading) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: isLoading
+          ? null
+          : () {
+              setState(() => _rememberMe = !_rememberMe);
+            },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: Checkbox(
+              value: _rememberMe,
+              activeColor: AppColors.accent,
+              checkColor: Colors.white,
+              side: const BorderSide(color: Color(0x80A970FF), width: 1.5),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+              onChanged: isLoading
+                  ? null
+                  : (val) {
+                      setState(() => _rememberMe = val ?? true);
+                    },
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Text(
+            'Ingat saya',
+            style: TextStyle(fontSize: 12, color: Color(0xFFCFC9DE)),
+          ),
+        ],
       ),
     );
   }
@@ -296,7 +565,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
         const SizedBox(height: 6),
         SizedBox(
-          height: 36,
+          height: 38,
           child: TextField(
             controller: controller,
             focusNode: focusNode,
@@ -320,17 +589,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
               prefixIcon: prefixIcon != null
                   ? Padding(
-                      padding: const EdgeInsets.only(left: 10),
+                      padding: const EdgeInsets.only(left: 10, right: 6),
                       child: Icon(
                         prefixIcon,
-                        size: 13,
+                        size: 15,
                         color: const Color(0xFF8D82AB),
                       ),
                     )
                   : null,
               suffixIcon: suffixIcon != null
                   ? Padding(
-                      padding: const EdgeInsets.only(right: 4),
+                      padding: const EdgeInsets.only(right: 6),
                       child: suffixIcon,
                     )
                   : null,
@@ -352,7 +621,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
               ),
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: 32,
+                horizontal: 12,
                 vertical: 0,
               ),
             ),
@@ -372,7 +641,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         padding: const EdgeInsets.only(right: 4),
         child: Icon(
           obscure ? Icons.visibility_off : Icons.visibility,
-          size: 13,
+          size: 15,
           color: const Color(0xFF8D82AB),
         ),
       ),
@@ -380,7 +649,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Widget _buildSubmitButton(bool isLoading) {
-    final isDisabled = isLoading;
     return Container(
       decoration: BoxDecoration(
         boxShadow: [
@@ -393,9 +661,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ),
       child: SizedBox(
         width: double.infinity,
-        height: 36,
+        height: 38,
         child: OutlinedButton(
-          onPressed: isDisabled ? null : _handleLogin,
+          onPressed: isLoading ? null : _handleLogin,
           style: OutlinedButton.styleFrom(
             side: const BorderSide(color: AppColors.accent),
             foregroundColor: AppColors.accent,

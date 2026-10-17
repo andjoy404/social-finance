@@ -13,6 +13,9 @@ import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 
 import '../../data/iuran_models.dart';
 import '../../data/iuran_providers.dart';
+import '../../data/iuran_access.dart';
+import '../widgets/iuran_tab_bar.dart';
+import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
 /// Screen showing arrears (unpaid + partially paid) iuran bills.
 class IuranArrearsScreen extends ConsumerStatefulWidget {
@@ -60,15 +63,14 @@ class _IuranArrearsScreenState extends ConsumerState<IuranArrearsScreen> {
     }).toList();
 
     final totalArrears = arrears.fold(0, (sum, b) => sum + b.remainingAmount);
+    final user = ref.watch(authRepositoryProvider)?.valueOrNull;
+    final canManage = canManageIuran(user);
 
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
-        title: const MenuAppBarTitle(title: 'Tunggakan'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
-        ),
+        title: const MenuAppBarTitle(title: 'Iuran'),
+        bottom: canManage ? const IuranTabBar(selectedIndex: 1) : null,
       ),
       body: switch (billsState) {
         AsyncLoading() => const Center(child: CircularProgressIndicator()),
@@ -311,34 +313,14 @@ class _IuranArrearsScreenState extends ConsumerState<IuranArrearsScreen> {
           title: const Text('Pilih Periode'),
           content: SizedBox(
             width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  title: const Text('Semua'),
-                  leading: Radio<String>(
-                    value: '',
-                    groupValue: periode,
-                    onChanged: (value) {
-                      ref
-                          .read(iuranSelectedPeriodeProvider.notifier)
-                          .state = value ?? '';
-                      Navigator.of(dialogCtx).pop();
-                    },
-                  ),
-                  onTap: () {
-                    ref
-                        .read(iuranSelectedPeriodeProvider.notifier)
-                        .state = '';
-                    Navigator.of(dialogCtx).pop();
-                  },
-                ),
-                const Divider(),
-                for (final p in _uniquePeriodes())
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   ListTile(
-                    title: Text(p),
+                    title: const Text('Semua'),
                     leading: Radio<String>(
-                      value: p,
+                      value: '',
                       groupValue: periode,
                       onChanged: (value) {
                         ref
@@ -350,11 +332,33 @@ class _IuranArrearsScreenState extends ConsumerState<IuranArrearsScreen> {
                     onTap: () {
                       ref
                           .read(iuranSelectedPeriodeProvider.notifier)
-                          .state = p;
+                          .state = '';
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
-              ],
+                  const Divider(),
+                  for (final p in _uniquePeriodes())
+                    ListTile(
+                      title: Text(p),
+                      leading: Radio<String>(
+                        value: p,
+                        groupValue: periode,
+                        onChanged: (value) {
+                          ref
+                              .read(iuranSelectedPeriodeProvider.notifier)
+                              .state = value ?? '';
+                          Navigator.of(dialogCtx).pop();
+                        },
+                      ),
+                      onTap: () {
+                        ref
+                            .read(iuranSelectedPeriodeProvider.notifier)
+                            .state = p;
+                        Navigator.of(dialogCtx).pop();
+                      },
+                    ),
+                ],
+              ),
             ),
           ),
         );

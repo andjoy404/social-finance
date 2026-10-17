@@ -1,4 +1,5 @@
 class ApiConfig {
+  // Optional environment fallback, NOT mandatory.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: '',
@@ -25,7 +26,7 @@ class ApiConfigException implements Exception {
   final String message;
   const ApiConfigException([
     this.message =
-        'API_BASE_URL belum dikonfigurasi. Jalankan aplikasi dengan --dart-define=API_BASE_URL=<backend-url>.',
+        'API_BASE_URL belum dikonfigurasi. Masukkan URL server pada halaman login.',
   ]);
 
   @override

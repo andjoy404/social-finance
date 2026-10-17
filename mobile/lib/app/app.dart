@@ -29,7 +29,6 @@ import '../features/iuran/presentation/screens/iuran_detail_screen.dart';
 import '../features/iuran/presentation/screens/iuran_payment_screen.dart';
 import '../features/iuran/presentation/screens/iuran_arrears_screen.dart';
 import '../features/iuran/presentation/screens/iuran_report_screen.dart';
-import '../features/iuran/presentation/screens/iuran_menu_screen.dart';
 import '../features/iuran/presentation/screens/iuran_management_screen.dart';
 import '../features/iuran/data/iuran_access.dart';
 import '../features/kas/presentation/screens/kas_screen.dart';
@@ -127,6 +126,7 @@ class _AppState extends ConsumerState<App> {
     _refreshNotifier._lastLoggedIn = initialAuth?.valueOrNull != null;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(authRepositoryProvider.notifier).restoreSession();
       final notifService = ref.read(pushNotificationServiceProvider);
       notifService.initialize().then((_) {
         if (_refreshNotifier._lastLoggedIn) {
@@ -252,6 +252,11 @@ class _AppState extends ConsumerState<App> {
         }
       });
     });
+
+    final authNotifier = ref.read(authRepositoryProvider.notifier);
+    authNotifier.onBeforeLogout = () async {
+      await _ref.read(pushNotificationServiceProvider).onUserLoggedOut();
+    };
 
     _authSubscription = ref.listenManual<AsyncValue<Map<String, dynamic>?>?>(
       authRepositoryProvider,
@@ -384,27 +389,23 @@ class _AppState extends ConsumerState<App> {
                 GoRoute(
                   path: 'iuran',
                   name: 'iuran',
-                  builder: (context, state) => const IuranMenuScreen(),
+                  builder: (context, state) => const IuranScreen(),
                   routes: [
                     GoRoute(
                       path: 'list',
                       name: 'iuran_list',
-                      builder: (context, state) =>
-                          IuranNavigationShell(child: const IuranScreen()),
+                      redirect: (context, state) => '/home/iuran',
                     ),
                     GoRoute(
                       path: 'tagihan',
                       name: 'iuran_tagihan',
-                      builder: (context, state) => IuranNavigationShell(
-                        child: const IuranArrearsScreen(),
-                      ),
+                      builder: (context, state) => const IuranArrearsScreen(),
                     ),
                     GoRoute(
                       path: 'kelola',
                       name: 'iuran_kelola',
-                      builder: (context, state) => IuranNavigationShell(
-                        child: const IuranManagementScreen(),
-                      ),
+                      builder: (context, state) =>
+                          const IuranManagementScreen(),
                     ),
                     GoRoute(
                       path: 'detail/:billId',
@@ -413,11 +414,9 @@ class _AppState extends ConsumerState<App> {
                         final billId = state.pathParameters['billId']!;
                         final paymentId =
                             state.uri.queryParameters['payment_id'];
-                        return IuranNavigationShell(
-                          child: IuranDetailScreen(
-                            billId: billId,
-                            initialPaymentId: paymentId,
-                          ),
+                        return IuranDetailScreen(
+                          billId: billId,
+                          initialPaymentId: paymentId,
                         );
                       },
                     ),
@@ -426,30 +425,23 @@ class _AppState extends ConsumerState<App> {
                       name: 'iuran_payment',
                       builder: (context, state) {
                         final billId = state.pathParameters['billId']!;
-                        return IuranNavigationShell(
-                          child: IuranPaymentScreen(billId: billId),
-                        );
+                        return IuranPaymentScreen(billId: billId);
                       },
                     ),
                     GoRoute(
                       path: 'tunggakan',
                       name: 'iuran_arrears',
-                      builder: (context, state) => IuranNavigationShell(
-                        child: const IuranArrearsScreen(),
-                      ),
+                      redirect: (context, state) => '/home/iuran/tagihan',
                     ),
                     GoRoute(
                       path: 'laporan',
                       name: 'iuran_report',
-                      builder: (context, state) => IuranNavigationShell(
-                        child: const IuranReportScreen(),
-                      ),
+                      builder: (context, state) => const IuranReportScreen(),
                     ),
                     GoRoute(
                       path: 'form',
                       name: 'iuran_form',
-                      builder: (context, state) =>
-                          IuranNavigationShell(child: const IuranFormScreen()),
+                      builder: (context, state) => const IuranFormScreen(),
                     ),
                   ],
                 ),

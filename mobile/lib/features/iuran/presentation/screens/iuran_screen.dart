@@ -14,6 +14,7 @@ import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import '../../data/iuran_models.dart';
 import '../../data/iuran_providers.dart';
 import '../../data/iuran_access.dart';
+import '../widgets/iuran_tab_bar.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
 /// Main Iuran list screen (WargaScreen equivalent).
@@ -58,11 +59,14 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
     debugPrint('[IuranDebug] UI build: filtered.length=${filtered.length}');
 
     final accentSoft = AppColors.accentSoftColor(context);
+    final user = ref.watch(authRepositoryProvider)?.valueOrNull;
+    final canManage = canManageIuran(user);
 
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Iuran'),
+        bottom: canManage ? const IuranTabBar(selectedIndex: 0) : null,
       ),
       floatingActionButton: kIsWeb
           ? _buildWebFAB(accentSoft)
@@ -394,33 +398,15 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
           title: const Text('Pilih Periode'),
           content: SizedBox(
             width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // "Semua" option
-                ListTile(
-                  title: const Text('Semua'),
-                  leading: Radio<String>(
-                    value: '',
-                    groupValue: periode,
-                    onChanged: (value) {
-                      ref.read(iuranSelectedPeriodeProvider.notifier).state =
-                          value ?? '';
-                      Navigator.of(dialogCtx).pop();
-                    },
-                  ),
-                  onTap: () {
-                    ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
-                    Navigator.of(dialogCtx).pop();
-                  },
-                ),
-                const Divider(),
-                // Use unique periode options from data
-                for (final p in _uniquePeriodes())
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // "Semua" option
                   ListTile(
-                    title: Text(p),
+                    title: const Text('Semua'),
                     leading: Radio<String>(
-                      value: p,
+                      value: '',
                       groupValue: periode,
                       onChanged: (value) {
                         ref.read(iuranSelectedPeriodeProvider.notifier).state =
@@ -429,11 +415,31 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                       },
                     ),
                     onTap: () {
-                      ref.read(iuranSelectedPeriodeProvider.notifier).state = p;
+                      ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
                       Navigator.of(dialogCtx).pop();
                     },
                   ),
-              ],
+                  const Divider(),
+                  // Use unique periode options from data
+                  for (final p in _uniquePeriodes())
+                    ListTile(
+                      title: Text(p),
+                      leading: Radio<String>(
+                        value: p,
+                        groupValue: periode,
+                        onChanged: (value) {
+                          ref.read(iuranSelectedPeriodeProvider.notifier).state =
+                              value ?? '';
+                          Navigator.of(dialogCtx).pop();
+                        },
+                      ),
+                      onTap: () {
+                        ref.read(iuranSelectedPeriodeProvider.notifier).state = p;
+                        Navigator.of(dialogCtx).pop();
+                      },
+                    ),
+                ],
+              ),
             ),
           ),
         );

@@ -41,6 +41,13 @@ func isTableMissingErr(err error) bool {
 }
 
 func (r *pgRepository) RegisterDevice(ctx context.Context, userID, token, platform string, deviceID *string) error {
+	deactivateOther := `
+		UPDATE user_devices
+		SET is_active = false, updated_at = NOW()
+		WHERE fcm_token = $1 AND user_id != $2 AND is_active = true;
+	`
+	_, _ = r.pool.Raw().ExecContext(ctx, deactivateOther, token, userID)
+
 	query := `
 		INSERT INTO user_devices (user_id, fcm_token, platform, device_id, is_active, last_seen_at, updated_at)
 		VALUES ($1, $2, $3, $4, true, NOW(), NOW())

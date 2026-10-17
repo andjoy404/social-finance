@@ -555,7 +555,7 @@ export function KasList() {
       </div>
 
       {/* Toolbar & Filters */}
-      <div className="sf-list-toolbar" style={{ marginTop: 12, marginBottom: 16 }}>
+      <div className="sf-list-toolbar" style={{ marginTop: 6, marginBottom: 8 }}>
         {/* Row 1: Period Navigation & Filters (left), Period Action (right) */}
         <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
           {/* Period navigation */}
@@ -563,7 +563,15 @@ export function KasList() {
             type="button"
             className="sf-btn sf-btn-outline sf-kas-period-button"
             onClick={handlePrevMonth}
-            style={{ padding: '6px 10px', fontSize: 13 }}
+            style={{
+              padding: '6px 10px',
+              fontSize: 13,
+              background: 'rgba(169, 112, 255, 0.06)',
+              border: '1px solid rgba(169, 112, 255, 0.35)',
+              color: 'var(--sf-accent)',
+              borderRadius: 'var(--sf-radius-sm)',
+              transition: 'all 0.25s ease',
+            }}
             title="Bulan Sebelumnya"
             aria-label="Bulan Sebelumnya"
           >
@@ -620,7 +628,15 @@ export function KasList() {
             type="button"
             className="sf-btn sf-btn-outline sf-kas-period-button"
             onClick={handleNextMonth}
-            style={{ padding: '6px 10px', fontSize: 13 }}
+            style={{
+              padding: '6px 10px',
+              fontSize: 13,
+              background: 'rgba(169, 112, 255, 0.06)',
+              border: '1px solid rgba(169, 112, 255, 0.35)',
+              color: 'var(--sf-accent)',
+              borderRadius: 'var(--sf-radius-sm)',
+              transition: 'all 0.25s ease',
+            }}
             title="Bulan Berikutnya"
             aria-label="Bulan Berikutnya"
           >
@@ -669,7 +685,22 @@ export function KasList() {
             type="button"
             className={`sf-btn sf-kas-period-button ${isAllPeriods ? 'sf-btn-primary' : 'sf-btn-outline'}`}
             onClick={handleAllPeriods}
-            style={{ fontSize: 12, padding: '6px 12px' }}
+            style={{
+              fontSize: 12,
+              padding: '6px 12px',
+              background: isAllPeriods
+                ? 'rgba(169, 112, 255, 0.14)'
+                : 'rgba(169, 112, 255, 0.06)',
+              border: isAllPeriods
+                ? '1px solid rgba(169, 112, 255, 0.55)'
+                : '1px solid rgba(169, 112, 255, 0.35)',
+              color: isAllPeriods ? 'var(--sf-accent)' : 'var(--sf-accent)',
+              borderRadius: 'var(--sf-radius-sm)',
+              transition: 'all 0.25s ease',
+              boxShadow: isAllPeriods
+                ? '0 0 12px rgba(169, 112, 255, 0.18)'
+                : '0 0 6px rgba(169, 112, 255, 0.06)',
+            }}
           >
             Semua Periode
           </button>
@@ -742,10 +773,13 @@ export function KasList() {
                   <th style={{ width: 130, minWidth: 130, textAlign: 'left', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
                     REFERENSI
                   </th>
-                  <th style={{ width: 130, minWidth: 130, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-success)', borderBottom: '1px solid var(--sf-border)' }}>
+                  <th style={{ width: 120, minWidth: 120, textAlign: 'left', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
+                    ARUS
+                  </th>
+                  <th style={{ width: 130, minWidth: 130, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-success)', borderBottom: '1px solid var(--sf-border)', background: 'var(--sf-success-soft)' }}>
                     PEMASUKAN (+)
                   </th>
-                  <th style={{ width: 130, minWidth: 130, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-danger)', borderBottom: '1px solid var(--sf-border)' }}>
+                  <th style={{ width: 130, minWidth: 130, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-danger)', borderBottom: '1px solid var(--sf-border)', background: 'var(--sf-danger-soft)' }}>
                     PENGELUARAN (-)
                   </th>
                   <th style={{ width: 140, minWidth: 140, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
@@ -764,7 +798,7 @@ export function KasList() {
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', color: 'var(--sf-text)', fontSize: 13 }}>
                           <Badge variant="blue">{r.keterangan}</Badge>
                         </td>
-                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', color: 'var(--sf-text-muted)' }}>
+                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, color: 'var(--sf-text-muted)' }}>
                           —
                         </td>
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'center', color: 'var(--sf-text-muted)' }}>
@@ -776,10 +810,13 @@ export function KasList() {
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', color: 'var(--sf-text-muted)' }}>
                           —
                         </td>
-                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', color: 'var(--sf-text-muted)' }}>
+                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'center', color: 'var(--sf-text-muted)' }}>
                           —
                         </td>
-                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', color: 'var(--sf-text-muted)' }}>
+                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', color: 'var(--sf-text-muted)', background: 'var(--sf-success-soft)' }}>
+                          —
+                        </td>
+                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', color: 'var(--sf-text-muted)', background: 'var(--sf-danger-soft)' }}>
                           —
                         </td>
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-text)', fontWeight: 700 }}>
@@ -800,21 +837,12 @@ export function KasList() {
                         {r.tanggal}
                       </td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, color: 'var(--sf-text)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
-                          <Badge
-                            variant={r.isIncome ? 'green' : 'red'}
-                            style={{ height: 20, padding: '0 6px', fontSize: 10, fontWeight: 700, flexShrink: 0 }}
-                          >
-                            {r.isIncome ? '↓ Masuk' : '↑ Keluar'}
-                          </Badge>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           {r.dueName ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <>
                               <Badge variant="blue">{r.dueName}</Badge>
-                              <span style={{ fontWeight: 500, color: 'var(--sf-text)' }}>
-                                {r.citizenName || 'Warga'}
-                                {r.rawTx?.house_number ? ` · ${r.rawTx.house_number}` : ''}
-                              </span>
-                            </div>
+                              <span style={{ fontWeight: 500, color: 'var(--sf-text)' }}>Warga</span>
+                            </>
                           ) : (
                             <span style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
                               {cleanKasDescription(r.keterangan)}
@@ -836,10 +864,18 @@ export function KasList() {
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 12, fontFamily: 'monospace', color: 'var(--sf-text-muted)' }}>
                         {r.referensi}
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-success)', fontWeight: 600 }}>
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)' }}>
+                        <Badge
+                          variant={r.isIncome ? 'green' : 'red'}
+                          style={{ height: 20, padding: '0 6px', fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center' }}
+                        >
+                          {r.isIncome ? '↓ Masuk' : '↑ Keluar'}
+                        </Badge>
+                      </td>
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-success)', fontWeight: 600, background: 'var(--sf-success-soft)' }}>
                         {r.pemasukan}
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-danger)', fontWeight: 600 }}>
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-danger)', fontWeight: 600, background: 'var(--sf-danger-soft)' }}>
                         {r.pengeluaran}
                       </td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-text)', fontWeight: 600 }}>
@@ -980,8 +1016,7 @@ export function KasList() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <Badge variant="blue">{selectedTx.due_name}</Badge>
                         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--sf-text)' }}>
-                          {selectedTx.citizen_name || 'Warga'}
-                          {selectedTx.house_number ? ` · ${selectedTx.house_number}` : ''}
+                          Warga
                         </span>
                       </div>
                       {selectedTx.description && (
