@@ -36,6 +36,20 @@ class StoredSession {
   }
 }
 
+class StoredLoginCredentials {
+  final String identifier;
+  final String loginMethod;
+  final String password;
+  final String serverUrl;
+
+  const StoredLoginCredentials({
+    required this.identifier,
+    required this.loginMethod,
+    required this.password,
+    required this.serverUrl,
+  });
+}
+
 /// Abstract contract for device preferences (non-sensitive data).
 abstract class PreferencesStorage {
   Future<String?> getLastApiUrl();
@@ -221,7 +235,10 @@ class SharedPrefsStorage implements PreferencesStorage {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_keyRememberMe, value);
     } catch (e) {
-      developer.log('Error saving remember me: $e', name: 'SharedPrefsStorage');
+      developer.log(
+        'Failed to save Remember Me preference (${e.runtimeType}): $e',
+        name: 'SharedPrefsStorage',
+      );
     }
   }
 }
@@ -314,6 +331,14 @@ abstract class SecureAuthStorage {
   Future<StoredSession?> getSession();
   Future<void> clearSession();
   Future<bool> hasSession();
+  Future<void> saveLoginCredentials({
+    required String identifier,
+    required String loginMethod,
+    required String password,
+    required String serverUrl,
+  });
+  Future<StoredLoginCredentials?> getLoginCredentials();
+  Future<void> clearLoginCredentials();
 }
 
 /// FlutterSecureStorage implementation of [SecureAuthStorage].
@@ -322,11 +347,21 @@ class FlutterSecureAuthStorage implements SecureAuthStorage {
   static const _keyRefreshToken = 'sf_sec_refresh_token';
   static const _keyServerUrl = 'sf_sec_server_url';
   static const _keyUserData = 'sf_sec_user_data';
+  static const _keyLoginIdentifier = 'sf_sec_login_identifier';
+  static const _keyLoginMethod = 'sf_sec_login_method';
+  static const _keyLoginPassword = 'sf_sec_login_password';
+  static const _keyLoginServerUrl = 'sf_sec_login_server_url';
 
   final FlutterSecureStorage _storage;
 
   FlutterSecureAuthStorage({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(
+              resetOnError: true,
+            ),
+          );
 
   @override
   Future<void> saveSession({
@@ -409,14 +444,96 @@ class FlutterSecureAuthStorage implements SecureAuthStorage {
       return false;
     }
   }
+
+  @override
+  Future<void> saveLoginCredentials({
+    required String identifier,
+    required String loginMethod,
+    required String password,
+    required String serverUrl,
+  }) async {
+    try {
+      await _storage.write(key: _keyLoginIdentifier, value: identifier);
+      await _storage.write(key: _keyLoginMethod, value: loginMethod);
+      await _storage.write(key: _keyLoginPassword, value: password);
+      await _storage.write(key: _keyLoginServerUrl, value: serverUrl);
+    } catch (e, st) {
+      developer.log(
+        'Failed to save remembered login credentials (${e.runtimeType}): $e',
+        name: 'FlutterSecureAuthStorage',
+        error: e,
+        stackTrace: st,
+      );
+      try {
+        await clearLoginCredentials();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  @override
+  Future<StoredLoginCredentials?> getLoginCredentials() async {
+    try {
+      final identifier = await _storage.read(key: _keyLoginIdentifier);
+      final loginMethod = await _storage.read(key: _keyLoginMethod);
+      final password = await _storage.read(key: _keyLoginPassword);
+      final serverUrl = await _storage.read(key: _keyLoginServerUrl);
+      if (identifier == null ||
+          identifier.trim().isEmpty ||
+          (loginMethod != 'email' && loginMethod != 'phone') ||
+          password == null ||
+          password.isEmpty ||
+          serverUrl == null ||
+          serverUrl.trim().isEmpty) {
+        if (identifier != null ||
+            loginMethod != null ||
+            password != null ||
+            serverUrl != null) {
+          await clearLoginCredentials();
+        }
+        return null;
+      }
+      return StoredLoginCredentials(
+        identifier: identifier,
+        loginMethod: loginMethod!,
+        password: password,
+        serverUrl: serverUrl,
+      );
+    } catch (e) {
+      developer.log(
+        'Failed to read remembered login credentials (${e.runtimeType}): $e',
+        name: 'FlutterSecureAuthStorage',
+      );
+      return null;
+    }
+  }
+
+  @override
+  Future<void> clearLoginCredentials() async {
+    try {
+      await _storage.delete(key: _keyLoginPassword);
+      await _storage.delete(key: _keyLoginIdentifier);
+      await _storage.delete(key: _keyLoginMethod);
+      await _storage.delete(key: _keyLoginServerUrl);
+    } catch (e) {
+      developer.log(
+        'Failed to clear remembered login credentials (${e.runtimeType}): $e',
+        name: 'FlutterSecureAuthStorage',
+      );
+    }
+  }
 }
 
 /// In-memory implementation of [SecureAuthStorage] for testing.
 class InMemorySecureAuthStorage implements SecureAuthStorage {
   StoredSession? _session;
+  StoredLoginCredentials? _loginCredentials;
 
-  InMemorySecureAuthStorage({StoredSession? initialSession})
-    : _session = initialSession;
+  InMemorySecureAuthStorage({
+    StoredSession? initialSession,
+    StoredLoginCredentials? initialLoginCredentials,
+  }) : _session = initialSession,
+       _loginCredentials = initialLoginCredentials;
 
   @override
   Future<void> saveSession({
@@ -443,6 +560,30 @@ class InMemorySecureAuthStorage implements SecureAuthStorage {
 
   @override
   Future<bool> hasSession() async => _session != null;
+
+  @override
+  Future<void> saveLoginCredentials({
+    required String identifier,
+    required String loginMethod,
+    required String password,
+    required String serverUrl,
+  }) async {
+    _loginCredentials = StoredLoginCredentials(
+      identifier: identifier,
+      loginMethod: loginMethod,
+      password: password,
+      serverUrl: serverUrl,
+    );
+  }
+
+  @override
+  Future<StoredLoginCredentials?> getLoginCredentials() async =>
+      _loginCredentials;
+
+  @override
+  Future<void> clearLoginCredentials() async {
+    _loginCredentials = null;
+  }
 }
 
 final preferencesStorageProvider = Provider<PreferencesStorage>((ref) {

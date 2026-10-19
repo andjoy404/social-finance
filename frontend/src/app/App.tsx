@@ -3,8 +3,9 @@ import { useAuth, isAllowedRT } from '@/app/AuthContext'
 import { Login } from '@/features/auth/Login'
 import { Dashboard } from '@/features/dashboard/Dashboard'
 import { AppLayout } from '@/layouts/AppLayout'
-import { RtList } from '@/features/rt/RtList'
 import { RtDetail } from '@/features/rt/RtDetail'
+import { RtList } from '@/features/rt/RtList'
+import { RwList } from '@/features/rt/RwList'
 import { RtCreate } from '@/features/rt/RtCreate'
 import { RtEdit } from '@/features/rt/RtEdit'
 import { WargaLayout } from '@/features/warga/WargaLayout'
@@ -69,12 +70,12 @@ export function App() {
       >
         <Route index element={<Dashboard />} />
         <Route
+          path="rw"
+          element={<SuperAdminRoute><RwList /></SuperAdminRoute>}
+        />
+        <Route
           path="rt"
-          element={
-            <SuperAdminRoute>
-              <RtList />
-            </SuperAdminRoute>
-          }
+          element={<SuperAdminRoute><RtList /></SuperAdminRoute>}
         />
         <Route
           path="rt/:id"

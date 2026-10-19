@@ -478,16 +478,19 @@ type UserForMe struct {
 	RTName               string   `json:"rt_name"`
 	RT_rw                int      `json:"rt_rw"`
 	RT_rt                string   `json:"rt_rt"`
+	RWID                 *string  `json:"rw_id,omitempty"`
+	RWName               *string  `json:"rw_name,omitempty"`
 }
 
 // GetProfile returns user info plus their active RT details for the /me endpoint.
 func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*UserForMe, error) {
 	query := `
 		SELECT u.id, u.full_name, u.email, u.phone, u.system_role, urm.role,
-			urm.jabatan, rt.id, rt.name, rt.rw, rt.rt
+			urm.jabatan, rt.id, rt.name, rt.rw, rt.rt, rt.rw_id, w.name AS rw_name
 		FROM users u
 		JOIN user_rt_memberships urm ON urm.id = $2
 		JOIN rts rt ON rt.id = urm.rt_id
+		LEFT JOIN rws w ON w.id = rt.rw_id
 		WHERE u.id = $1 AND u.is_active = true
 		AND urm.is_active = true AND rt.is_active = true
 		LIMIT 1
@@ -499,6 +502,7 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	err := tx.QueryRowContext(ctx, query, userID, membershipID).Scan(
 		&u.ID, &u.Fullname, &u.Email, &u.Phone, &sysRole,
 		&roleStr, &jabatanStr, &u.RTID, &u.RTName, &u.RT_rw, &u.RT_rt,
+		&u.RWID, &u.RWName,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -540,4 +544,69 @@ func GetSystemProfile(ctx context.Context, tx *sql.Tx, userID string) (*UserForM
 		u.SystemRole = sysRole.String
 	}
 	return &u, nil
+}
+
+// UpdateUserProfile updates full_name, phone, and email for a user, keeping residents in sync.
+func UpdateUserProfile(ctx context.Context, tx *sql.Tx, userID, fullName string, phone, email *string) error {
+	query := `
+		UPDATE users
+		SET full_name = CASE WHEN $2 != '' THEN $2 ELSE full_name END,
+		    phone = COALESCE($3, phone),
+		    email = COALESCE(NULLIF($4, ''), email),
+		    updated_at = NOW()
+		WHERE id = $1 AND is_active = true
+	`
+	res, err := tx.ExecContext(ctx, query, userID, strings.TrimSpace(fullName), phone, email)
+	if err != nil {
+		return fmt.Errorf("update user: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+
+	// Synchronize linked resident records
+	syncQuery := `
+		UPDATE residents
+		SET full_name = CASE WHEN $2 != '' THEN $2 ELSE full_name END,
+		    phone = COALESCE($3, phone),
+		    email = COALESCE(NULLIF($4, ''), email),
+		    updated_at = NOW()
+		WHERE user_id = $1 AND is_active = true
+	`
+	_, _ = tx.ExecContext(ctx, syncQuery, userID, strings.TrimSpace(fullName), phone, email)
+
+	return nil
+}
+
+// GetUserPasswordHash returns the argon2/bcrypt password_hash for the given userID.
+func GetUserPasswordHash(ctx context.Context, tx *sql.Tx, userID string) (string, error) {
+	var hash string
+	err := tx.QueryRowContext(ctx, `SELECT password_hash FROM users WHERE id = $1 AND is_active = true LIMIT 1`, userID).Scan(&hash)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrUserNotFound
+		}
+		return "", fmt.Errorf("get user password hash: %w", err)
+	}
+	return hash, nil
+}
+
+// UpdateUserPassword updates the password hash for a user.
+func UpdateUserPassword(ctx context.Context, tx *sql.Tx, userID, passwordHash string) error {
+	res, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1 AND is_active = true`, userID, passwordHash)
+	if err != nil {
+		return fmt.Errorf("update user password: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }

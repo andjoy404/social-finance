@@ -244,10 +244,6 @@ class _SpecialResidentCreateScreenState
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Tambah Petugas'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => _confirmCancel(),
-          ),
         ),
         body: Form(
           key: _formKey,

@@ -11,6 +11,7 @@ import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/storage/app_storage.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/auth/presentation/screens/login_screen.dart';
 import 'package:social_finance/features/dashboard/presentation/screens/dashboard_screen.dart';
@@ -282,13 +283,19 @@ void main() {
     late ApiClient apiClient;
     late AuthService authService;
     late AuthRepository authRepository;
+    late InMemoryPreferencesStorage preferencesStorage;
+    late InMemorySecureAuthStorage secureAuthStorage;
 
     setUp(() {
       apiClient = ApiClient(baseUrl: 'http://test-server.local');
       authService = AuthService(apiClient);
+      preferencesStorage = InMemoryPreferencesStorage();
+      secureAuthStorage = InMemorySecureAuthStorage();
       authRepository = AuthRepository(
         authService: authService,
         apiClient: apiClient,
+        preferencesStorage: preferencesStorage,
+        secureAuthStorage: secureAuthStorage,
       );
     });
 
@@ -706,6 +713,8 @@ void main() {
         final repo = AuthRepository(
           authService: service,
           apiClient: unconfiguredClient,
+          preferencesStorage: InMemoryPreferencesStorage(),
+          secureAuthStorage: InMemorySecureAuthStorage(),
         );
 
         await repo.login('test@example.com', 'password');
@@ -749,9 +758,13 @@ void main() {
       'App does not throw when authState is AsyncError and keeps LoginScreen visible with error banner',
       (tester) async {
         final client = ApiClient(baseUrl: 'http://test.local');
+        final preferencesStorage = InMemoryPreferencesStorage();
+        final secureAuthStorage = InMemorySecureAuthStorage();
         final repo = AuthRepository(
           authService: AuthService(client),
           apiClient: client,
+          preferencesStorage: preferencesStorage,
+          secureAuthStorage: secureAuthStorage,
         );
         repo.state = AsyncError(
           AuthError('Email atau kata sandi salah.'),
@@ -760,7 +773,11 @@ void main() {
 
         await tester.pumpWidget(
           ProviderScope(
-            overrides: [authRepositoryProvider.overrideWith((ref) => repo)],
+            overrides: [
+              preferencesStorageProvider.overrideWithValue(preferencesStorage),
+              secureAuthStorageProvider.overrideWithValue(secureAuthStorage),
+              authRepositoryProvider.overrideWith((ref) => repo),
+            ],
             child: const App(),
           ),
         );
@@ -777,6 +794,8 @@ void main() {
       'Full App invalid login flow captures 401, shows error banner, and allows retry with valid login',
       (tester) async {
         final client = ApiClient(baseUrl: 'http://test.local');
+        final preferencesStorage = InMemoryPreferencesStorage();
+        final secureAuthStorage = InMemorySecureAuthStorage();
         var attempts = 0;
         client.dio.httpClientAdapter = MockAdapter((options) async {
           if (options.path.contains('/auth/me')) {
@@ -814,11 +833,17 @@ void main() {
         final repo = AuthRepository(
           authService: AuthService(client),
           apiClient: client,
+          preferencesStorage: preferencesStorage,
+          secureAuthStorage: secureAuthStorage,
         );
 
         await tester.pumpWidget(
           ProviderScope(
-            overrides: [authRepositoryProvider.overrideWith((ref) => repo)],
+            overrides: [
+              preferencesStorageProvider.overrideWithValue(preferencesStorage),
+              secureAuthStorageProvider.overrideWithValue(secureAuthStorage),
+              authRepositoryProvider.overrideWith((ref) => repo),
+            ],
             child: const App(),
           ),
         );

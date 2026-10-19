@@ -324,13 +324,26 @@ describe('W3.3 — RtCreate navigation', () => {
   })
 
   it('navigates to /rt on successful submission', async () => {
+    const onSaved = vi.fn()
+    const onClose = vi.fn()
     mockFetch((input) => {
       if (input.includes('/api/v1/rts')) {
         return okResponse({ id: 'rt-new', name: 'RT Baru', rw: 2, rt: '002', address: null, head_name: null, is_active: true, created_at: '', updated_at: '' })
       }
       return failResponse(404, { code: 'not_found' })
     })
-    renderRtCreate()
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: mockUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    render(
+      <MemoryRouter initialEntries={['/rt/create']}>
+        <RtCreate onSaved={onSaved} onClose={onClose} />
+      </MemoryRouter>,
+    )
     const nameInput = screen.getByLabelText(/Nama RT/i) as HTMLInputElement
     const rwInput = screen.getByLabelText(/RW/i) as HTMLInputElement
     const rtInput = screen.getByLabelText(/Kode RT/i) as HTMLInputElement
@@ -347,17 +360,29 @@ describe('W3.3 — RtCreate navigation', () => {
 
     await userEvent.click(submitBtn)
 
-    expect(document.querySelector('a[href="/rt"]')).toBeInTheDocument()
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('cancel button navigates back to /rt', async () => {
-    renderRtCreate()
-    const cancelLink = screen.getByRole('link', { name: /Batal/i })
-    expect(cancelLink).toHaveAttribute('href', '/rt')
+  it('cancel button closes modal via onClose and has danger styling', async () => {
+    const onClose = vi.fn()
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: mockUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    render(
+      <MemoryRouter initialEntries={['/rt/create']}>
+        <RtCreate onClose={onClose} />
+      </MemoryRouter>,
+    )
+    const cancelBtn = screen.getByRole('button', { name: /Batal/i })
+    expect(cancelBtn).toBeInTheDocument()
 
-    await userEvent.click(cancelLink)
+    await userEvent.click(cancelBtn)
 
-    const backLink = document.querySelector('a[href="/rt"]')
-    expect(backLink).toBeInTheDocument()
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

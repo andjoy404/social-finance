@@ -264,14 +264,18 @@ class _SpecialResidentEditScreenState
 
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Edit Petugas')),
+        appBar: AppBar(
+          title: const Text('Edit Petugas'),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_notFound) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Edit Petugas')),
+        appBar: AppBar(
+          title: const Text('Edit Petugas'),
+        ),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -306,10 +310,6 @@ class _SpecialResidentEditScreenState
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Edit Petugas'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => _confirmCancel(),
-          ),
         ),
         body: Form(
           key: _formKey,

@@ -13,6 +13,7 @@ export interface AuthUser {
   id: string
   name: string
   email: string
+  phone?: string | null
   systemRole: string | null
   role: string
   jabatan: string | null
@@ -37,6 +38,7 @@ function mapUser(raw: ApiUser): AuthUser {
     id: raw.id,
     name: raw.full_name,
     email: raw.email,
+    phone: raw.phone ?? null,
     systemRole: raw.system_role ?? null,
     role: raw.role,
     jabatan: raw.jabatan ?? null,
@@ -53,6 +55,7 @@ interface AuthContextValue {
   isInitializing: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => void
+  refreshUser?: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -61,6 +64,7 @@ const AuthContext = createContext<AuthContextValue>({
   isInitializing: true,
   login: async () => {},
   logout: () => {},
+  refreshUser: async () => {},
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -168,8 +172,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = '/login'
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    const pair = getSessionPair()
+    if (pair?.accessToken) {
+      const me = await apiMe(pair.accessToken)
+      setUser(mapUser(me))
+    }
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isInitializing, login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isInitializing, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

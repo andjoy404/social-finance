@@ -343,10 +343,6 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Tambah Iuran'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _confirmCancel,
-          ),
         ),
         body: Form(
           key: _formKey,

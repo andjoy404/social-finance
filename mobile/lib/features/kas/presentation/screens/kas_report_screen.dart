@@ -402,16 +402,29 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
                               Row(
                                 children: [
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1.5,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: accentColor.withValues(alpha: isDark ? 0.20 : 0.12),
+                                      color: accentColor.withValues(
+                                        alpha: isDark ? 0.20 : 0.12,
+                                      ),
                                       borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: accentColor.withValues(alpha: 0.35)),
+                                      border: Border.all(
+                                        color: accentColor.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                      ),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(_jenisIcon(tx.jenis), size: 9, color: accentColor),
+                                        Icon(
+                                          _jenisIcon(tx.jenis),
+                                          size: 9,
+                                          color: accentColor,
+                                        ),
                                         const SizedBox(width: 2),
                                         Text(
                                           isIncoming ? 'Masuk' : 'Keluar',

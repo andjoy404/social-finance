@@ -94,68 +94,78 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
-        title: const MenuAppBarTitle(title: 'Detail Tagihan'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
+          tooltip: 'Kembali',
         ),
+        title: const MenuAppBarTitle(title: 'Detail Tagihan'),
       ),
-      floatingActionButton: currentBill != null &&
-              (currentBill.status != IuranStatus.lunas || currentBill.isVoluntary)
+      floatingActionButton:
+          currentBill != null &&
+              (currentBill.status != IuranStatus.lunas ||
+                  currentBill.isVoluntary)
           ? _buildAndroidFAB(context, accentSoft)
           : null,
       body: currentBill != null
           ? _buildBillDetail(context, theme, isDark, currentBill, accentSoft)
           : (billState.isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : (billState.hasError
-                  ? RefreshIndicator(
-                      onRefresh: _onRefresh,
-                      child: Center(
-                        child: SingleChildScrollView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.all(AppSpacing.lg),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.error_outline, size: 64, color: AppColors.warning),
-                              const SizedBox(height: AppSpacing.md),
-                              Text('Gagal Memuat Data', style: theme.textTheme.titleLarge),
-                              const SizedBox(height: AppSpacing.sm),
-                              Text(
-                                billState.error.toString(),
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
+                ? const Center(child: CircularProgressIndicator())
+                : (billState.hasError
+                      ? RefreshIndicator(
+                          onRefresh: _onRefresh,
+                          child: Center(
+                            child: SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: const EdgeInsets.all(AppSpacing.lg),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.error_outline,
+                                    size: 64,
+                                    color: AppColors.warning,
+                                  ),
+                                  const SizedBox(height: AppSpacing.md),
+                                  Text(
+                                    'Gagal Memuat Data',
+                                    style: theme.textTheme.titleLarge,
+                                  ),
+                                  const SizedBox(height: AppSpacing.sm),
+                                  Text(
+                                    billState.error.toString(),
+                                    textAlign: TextAlign.center,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(height: AppSpacing.lg),
+                                  ElevatedButton.icon(
+                                    onPressed: _onRefresh,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Coba Lagi'),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: AppSpacing.lg),
-                              ElevatedButton.icon(
-                                onPressed: _onRefresh,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Coba Lagi'),
+                            ),
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _onRefresh,
+                          child: Center(
+                            child: SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              padding: const EdgeInsets.all(AppSpacing.lg),
+                              child: EmptyState(
+                                icon: Icons.receipt_long_outlined,
+                                title: 'Tagihan Tidak Ditemukan',
+                                description: 'Detail tagihan tidak tersedia.',
+                                actionText: 'Kembali',
+                                onAction: () => context.pop(),
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _onRefresh,
-                      child: Center(
-                        child: SingleChildScrollView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.all(AppSpacing.lg),
-                          child: EmptyState(
-                            icon: Icons.receipt_long_outlined,
-                            title: 'Tagihan Tidak Ditemukan',
-                            description: 'Detail tagihan tidak tersedia.',
-                            actionText: 'Kembali',
-                            onAction: () => context.pop(),
-                          ),
-                        ),
-                      ),
-                    ))),
+                        ))),
     );
   }
 
@@ -172,346 +182,358 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(AppSpacing.base),
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Status Header ──
-          AppCard(
-            useEmphasis: true,
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.receipt_long, size: 24, color: AppColors.accent),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Text(
-                        bill.householdName,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Status Header ──
+            AppCard(
+              useEmphasis: true,
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.receipt_long,
+                        size: 24,
+                        color: AppColors.accent,
                       ),
-                    ),
-                    AppBadge(
-                      label: getStatusLabel(bill.status),
-                      textColor: getStatusColor(bill.status, context),
-                      backgroundColor: getStatusColor(
-                        bill.status,
-                        context,
-                      ).withValues(alpha: isDark ? 0.18 : 0.10),
-                    ),
-                  ],
-                ),
-                // ── Progress bar for partial payment (in header card) ──
-                if (bill.status == IuranStatus.sebagian) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  _buildProgressBar(bill),
-                ],
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.lg),
-
-          // ── Bill Details ──
-          SectionHeader(title: 'Informasi Tagihan'),
-          const SizedBox(height: AppSpacing.sm),
-
-          AppCard(
-            padding: const EdgeInsets.all(AppSpacing.base),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildDetailRow(
-                  context,
-                  icon: Icons.home_outlined,
-                  label: 'Rumah',
-                  value: bill.householdName,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _buildDetailRow(
-                  context,
-                  icon: Icons.category_outlined,
-                  label: 'Jenis Iuran',
-                  value: bill.iuranType,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                _buildDetailRow(
-                  context,
-                  icon: Icons.calendar_today_outlined,
-                  label: 'Periode',
-                  trailing: _buildPeriodeBadge(bill.periode),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.lg),
-
-          // ── Payment Details ──
-          SectionHeader(title: 'Detail Pembayaran'),
-          const SizedBox(height: AppSpacing.sm),
-
-          AppCard(
-            padding: const EdgeInsets.all(AppSpacing.base),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildPaymentRow(
-                  context,
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: 'Nominal Tagihan',
-                  value: formatRupiah(bill.nominal),
-                  highlight: true,
-                ),
-                const Divider(height: 24),
-                _buildPaymentRow(
-                  context,
-                  icon: Icons.check_circle_outline,
-                  label: 'Jumlah Dibayar',
-                  value: formatRupiah(bill.paidAmount),
-                  valueColor: AppColors.success,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                if (bill.isVoluntary) ...[
-                  _buildPaymentRow(
-                    context,
-                    icon: Icons.volunteer_activism_outlined,
-                    label: 'Status',
-                    value: 'Sukarela',
-                    valueColor: AppColors.info,
-                  ),
-                ] else if (bill.isInArrears) ...[
-                  _buildPaymentRow(
-                    context,
-                    icon: Icons.warning_outlined,
-                    label: 'Sisa Tagihan',
-                    value: formatRupiah(bill.remainingAmount),
-                    valueColor: AppColors.warning,
-                    highlight: true,
-                  ),
-                ] else ...[
-                  _buildPaymentRow(
-                    context,
-                    icon: Icons.celebration_outlined,
-                    label: 'Status',
-                    value: 'Sudah Lunas',
-                    valueColor: AppColors.success,
-                  ),
-                ],
-              ],
-            ),
-          ),
-
-          // ── Verification section (if user can verify) ────────────────
-          Builder(
-            builder: (context) {
-              final canVerify = ref.read(canVerifyPaymentProvider);
-              if (!canVerify) return const SizedBox.shrink();
-
-              // Subscribe to pending payments (bill-level filter for this bill)
-              final pendingPayments = ref.watch(pendingPaymentsProvider(true));
-
-              if (pendingPayments.value == null ||
-                  pendingPayments.value!.isEmpty) {
-                return const SizedBox.shrink();
-              }
-
-              // Filter to only pending payments for this bill
-              final allPending = pendingPayments.value!;
-              final billPending = allPending
-                  .where((p) => p.billId == bill.id)
-                  .toList();
-
-              if (billPending.isEmpty) {
-                return const SizedBox.shrink();
-              }
-
-              return _buildVerificationSection(
-                context,
-                theme,
-                isDark,
-                billPending,
-              );
-            },
-          ),
-
-          const SizedBox(height: AppSpacing.lg),
-          SectionHeader(title: 'Riwayat Pembayaran'),
-          const SizedBox(height: AppSpacing.sm),
-          ref
-              .watch(billPaymentsProvider(bill.id))
-              .when(
-                data: (payments) {
-                  _checkAutoOpenPayment(payments);
-                  if (payments.isEmpty) {
-                    return AppCard(
-                      padding: const EdgeInsets.all(AppSpacing.base),
-                      child: Center(
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
                         child: Text(
-                          'Belum ada riwayat pembayaran.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: isDark
-                                ? AppColors.darkTextMuted
-                                : AppColors.lightTextMuted,
+                          bill.householdName,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                    );
-                  }
-                  return AppCard(
-                    padding: const EdgeInsets.all(AppSpacing.base),
-                    child: Column(
-                      children: payments.map((p) {
-                        return InkWell(
-                          onTap: () => _showPaymentDetailDialog(context, p),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: AppSpacing.xs,
+                      AppBadge(
+                        label: getStatusLabel(bill.status),
+                        textColor: getStatusColor(bill.status, context),
+                        backgroundColor: getStatusColor(
+                          bill.status,
+                          context,
+                        ).withValues(alpha: isDark ? 0.18 : 0.10),
+                      ),
+                    ],
+                  ),
+                  // ── Progress bar for partial payment (in header card) ──
+                  if (bill.status == IuranStatus.sebagian) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    _buildProgressBar(bill),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.lg),
+
+            // ── Bill Details ──
+            SectionHeader(title: 'Informasi Tagihan'),
+            const SizedBox(height: AppSpacing.sm),
+
+            AppCard(
+              padding: const EdgeInsets.all(AppSpacing.base),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDetailRow(
+                    context,
+                    icon: Icons.home_outlined,
+                    label: 'Rumah',
+                    value: bill.householdName,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildDetailRow(
+                    context,
+                    icon: Icons.category_outlined,
+                    label: 'Jenis Iuran',
+                    value: bill.iuranType,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildDetailRow(
+                    context,
+                    icon: Icons.calendar_today_outlined,
+                    label: 'Periode',
+                    trailing: _buildPeriodeBadge(bill.periode),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.lg),
+
+            // ── Payment Details ──
+            SectionHeader(title: 'Detail Pembayaran'),
+            const SizedBox(height: AppSpacing.sm),
+
+            AppCard(
+              padding: const EdgeInsets.all(AppSpacing.base),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildPaymentRow(
+                    context,
+                    icon: Icons.account_balance_wallet_outlined,
+                    label: 'Nominal Tagihan',
+                    value: formatRupiah(bill.nominal),
+                    highlight: true,
+                  ),
+                  const Divider(height: 24),
+                  _buildPaymentRow(
+                    context,
+                    icon: Icons.check_circle_outline,
+                    label: 'Jumlah Dibayar',
+                    value: formatRupiah(bill.paidAmount),
+                    valueColor: AppColors.success,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  if (bill.isVoluntary) ...[
+                    _buildPaymentRow(
+                      context,
+                      icon: Icons.volunteer_activism_outlined,
+                      label: 'Status',
+                      value: 'Sukarela',
+                      valueColor: AppColors.info,
+                    ),
+                  ] else if (bill.isInArrears) ...[
+                    _buildPaymentRow(
+                      context,
+                      icon: Icons.warning_outlined,
+                      label: 'Sisa Tagihan',
+                      value: formatRupiah(bill.remainingAmount),
+                      valueColor: AppColors.warning,
+                      highlight: true,
+                    ),
+                  ] else ...[
+                    _buildPaymentRow(
+                      context,
+                      icon: Icons.celebration_outlined,
+                      label: 'Status',
+                      value: 'Sudah Lunas',
+                      valueColor: AppColors.success,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // ── Verification section (if user can verify) ────────────────
+            Builder(
+              builder: (context) {
+                final canVerify = ref.read(canVerifyPaymentProvider);
+                if (!canVerify) return const SizedBox.shrink();
+
+                // Subscribe to pending payments (bill-level filter for this bill)
+                final pendingPayments = ref.watch(
+                  pendingPaymentsProvider(true),
+                );
+
+                if (pendingPayments.value == null ||
+                    pendingPayments.value!.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+
+                // Filter to only pending payments for this bill
+                final allPending = pendingPayments.value!;
+                final billPending = allPending
+                    .where((p) => p.billId == bill.id)
+                    .toList();
+
+                if (billPending.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+
+                return _buildVerificationSection(
+                  context,
+                  theme,
+                  isDark,
+                  billPending,
+                );
+              },
+            ),
+
+            const SizedBox(height: AppSpacing.lg),
+            SectionHeader(title: 'Riwayat Pembayaran'),
+            const SizedBox(height: AppSpacing.sm),
+            ref
+                .watch(billPaymentsProvider(bill.id))
+                .when(
+                  data: (payments) {
+                    _checkAutoOpenPayment(payments);
+                    if (payments.isEmpty) {
+                      return AppCard(
+                        padding: const EdgeInsets.all(AppSpacing.base),
+                        child: Center(
+                          child: Text(
+                            'Belum ada riwayat pembayaran.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
                             ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  p.status == PaymentStatus.approved
-                                      ? Icons.check_circle_outline
-                                      : p.status == PaymentStatus.rejected
-                                      ? Icons.cancel_outlined
-                                      : Icons.access_time_outlined,
-                                  size: 20,
-                                  color: p.status == PaymentStatus.approved
-                                      ? AppColors.success
-                                      : p.status == PaymentStatus.rejected
-                                      ? AppColors.danger
-                                      : AppColors.warning,
-                                ),
-                                const SizedBox(width: AppSpacing.sm),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Flexible(
-                                            child: Text(
-                                              'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}${p.submitterName != null && p.submitterName!.isNotEmpty ? ' · ${p.submitterName}' : ''}',
-                                              style: theme.textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                              overflow: TextOverflow.ellipsis,
-                                              maxLines: 1,
-                                            ),
-                                          ),
-                                          if (p.paymentNo != null &&
-                                              p.paymentNo!.isNotEmpty) ...[
-                                            const SizedBox(
-                                              width: AppSpacing.xs,
-                                            ),
+                          ),
+                        ),
+                      );
+                    }
+                    return AppCard(
+                      padding: const EdgeInsets.all(AppSpacing.base),
+                      child: Column(
+                        children: payments.map((p) {
+                          return InkWell(
+                            onTap: () => _showPaymentDetailDialog(context, p),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: AppSpacing.xs,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    p.status == PaymentStatus.approved
+                                        ? Icons.check_circle_outline
+                                        : p.status == PaymentStatus.rejected
+                                        ? Icons.cancel_outlined
+                                        : Icons.access_time_outlined,
+                                    size: 20,
+                                    color: p.status == PaymentStatus.approved
+                                        ? AppColors.success
+                                        : p.status == PaymentStatus.rejected
+                                        ? AppColors.danger
+                                        : AppColors.warning,
+                                  ),
+                                  const SizedBox(width: AppSpacing.sm),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
                                             Flexible(
                                               child: Text(
-                                                p.paymentNo!,
-                                                style: theme.textTheme.bodySmall
+                                                'Rp ${_formatAmount(p.amount)} · ${_formatMethod(p.method)}${p.submitterName != null && p.submitterName!.isNotEmpty ? ' · ${p.submitterName}' : ''}',
+                                                style: theme
+                                                    .textTheme
+                                                    .bodyMedium
                                                     ?.copyWith(
                                                       fontWeight:
-                                                          FontWeight.w500,
-                                                      color: isDark
-                                                          ? AppColors
-                                                                .darkTextMuted
-                                                          : AppColors
-                                                                .lightTextMuted,
+                                                          FontWeight.w600,
                                                     ),
                                                 overflow: TextOverflow.ellipsis,
                                                 maxLines: 1,
                                               ),
                                             ),
+                                            if (p.paymentNo != null &&
+                                                p.paymentNo!.isNotEmpty) ...[
+                                              const SizedBox(
+                                                width: AppSpacing.xs,
+                                              ),
+                                              Flexible(
+                                                child: Text(
+                                                  p.paymentNo!,
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        fontWeight:
+                                                            FontWeight.w500,
+                                                        color: isDark
+                                                            ? AppColors
+                                                                  .darkTextMuted
+                                                            : AppColors
+                                                                  .lightTextMuted,
+                                                      ),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  maxLines: 1,
+                                                ),
+                                              ),
+                                            ],
                                           ],
-                                        ],
-                                      ),
-                                      Text(
-                                        '${_formatDate(p.paidAt)} · ${p.status.name.toUpperCase()}',
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color: isDark
-                                                  ? AppColors.darkTextMuted
-                                                  : AppColors.lightTextMuted,
-                                            ),
-                                      ),
-                                    ],
+                                        ),
+                                        Text(
+                                          '${_formatDate(p.paidAt)} · ${p.status.name.toUpperCase()}',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: isDark
+                                                    ? AppColors.darkTextMuted
+                                                    : AppColors.lightTextMuted,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                                if (p.proofPath != null &&
-                                    p.proofPath!.isNotEmpty) ...[
-                                  const SizedBox(width: AppSpacing.sm),
-                                  PaymentProofThumbnail(
-                                    paymentId: p.id,
-                                    size: 40,
-                                    label:
-                                        'Bukti Pembayaran (${_formatDate(p.paidAt)})',
-                                  ),
+                                  if (p.proofPath != null &&
+                                      p.proofPath!.isNotEmpty) ...[
+                                    const SizedBox(width: AppSpacing.sm),
+                                    PaymentProofThumbnail(
+                                      paymentId: p.id,
+                                      size: 40,
+                                      label:
+                                          'Bukti Pembayaran (${_formatDate(p.paidAt)})',
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    );
+                  },
+                  loading: () => const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(AppSpacing.md),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                  error: (err, _) => AppCard(
+                    padding: const EdgeInsets.all(AppSpacing.base),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            size: 32,
+                            color: AppColors.warning,
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'Gagal memuat riwayat pembayaran',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                        );
-                      }).toList(),
-                    ),
-                  );
-                },
-                loading: () => const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(AppSpacing.md),
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-                error: (err, _) => AppCard(
-                  padding: const EdgeInsets.all(AppSpacing.base),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          size: 32,
-                          color: AppColors.warning,
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        Text(
-                          'Gagal memuat riwayat pembayaran',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            err.toString(),
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        Text(
-                          err.toString(),
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: isDark
-                                ? AppColors.darkTextMuted
-                                : AppColors.lightTextMuted,
+                          const SizedBox(height: AppSpacing.sm),
+                          TextButton.icon(
+                            onPressed: () =>
+                                ref.refresh(billPaymentsProvider(bill.id)),
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('Coba Lagi'),
                           ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        TextButton.icon(
-                          onPressed: () =>
-                              ref.refresh(billPaymentsProvider(bill.id)),
-                          icon: const Icon(Icons.refresh, size: 16),
-                          label: const Text('Coba Lagi'),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
 
-          const SizedBox(height: AppSpacing.xxl),
-        ], // Column children
-      ), // Column
-    ), // SingleChildScrollView
-  ); // RefreshIndicator + _buildBillDetail
+            const SizedBox(height: AppSpacing.xxl),
+          ], // Column children
+        ), // Column
+      ), // SingleChildScrollView
+    ); // RefreshIndicator + _buildBillDetail
   }
 
   // ── UI Helpers ──

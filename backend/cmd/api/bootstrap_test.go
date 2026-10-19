@@ -154,25 +154,35 @@ func TestBootstrap_DevseedNeverCreatesSuperAdmin(t *testing.T) {
 	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
+	var usersBefore, adminsBefore int
+	if err := pool.Raw().QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&usersBefore); err != nil {
+		t.Fatalf("query baseline users: %v", err)
+	}
+	if err := pool.Raw().QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE system_role = 'super_admin'`).Scan(&adminsBefore); err != nil {
+		t.Fatalf("query baseline super_admin count: %v", err)
+	}
+
 	// Run devseed
 	summary, err := devseed.Run(ctx, pool, "test")
 	if err != nil {
 		t.Fatalf("devseed failed: %v", err)
 	}
-	if summary.UsersCount != 29 {
-		t.Errorf("expected 29 users, got %d", summary.UsersCount)
+	if summary.UsersCount != 7 {
+		t.Errorf("expected canonical user upsert count 7, got %d", summary.UsersCount)
 	}
 
-	// Verify zero super_admin users exist
-	var superAdminCount int
-	err = pool.Raw().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM users WHERE system_role = 'super_admin' AND email LIKE '%@example.%'`,
-	).Scan(&superAdminCount)
-	if err != nil {
-		t.Fatalf("query super_admin count: %v", err)
+	var usersAfter, adminsAfter int
+	if err := pool.Raw().QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&usersAfter); err != nil {
+		t.Fatalf("query post-seed users: %v", err)
 	}
-	if superAdminCount != 0 {
-		t.Errorf("devseed must NEVER create super_admin, found %d", superAdminCount)
+	if err := pool.Raw().QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE system_role = 'super_admin'`).Scan(&adminsAfter); err != nil {
+		t.Fatalf("query post-seed super_admin count: %v", err)
+	}
+	if adminsAfter != adminsBefore {
+		t.Errorf("devseed changed super_admin count: before=%d after=%d", adminsBefore, adminsAfter)
+	}
+	if usersAfter < usersBefore {
+		t.Errorf("devseed reduced user count: before=%d after=%d", usersBefore, usersAfter)
 	}
 
 	// Verify bootstrap doesn't create when BOOTSTRAP_EMAIL is not set

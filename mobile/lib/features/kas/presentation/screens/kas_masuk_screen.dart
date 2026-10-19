@@ -7,7 +7,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,7 +15,6 @@ import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
-import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/features/kas/data/kas_models.dart';
 import 'package:social_finance/features/kas/data/kas_repository.dart';
@@ -43,7 +41,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
   final _tanggalCtrl = TextEditingController();
   final _nominalCtrl = TextEditingController();
   final _keteranganCtrl = TextEditingController();
-  final _referensiCtrl = TextEditingController();
 
   String _paymentMethod = 'CASH';
   bool _saving = false;
@@ -63,7 +60,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
     _tanggalCtrl.dispose();
     _nominalCtrl.dispose();
     _keteranganCtrl.dispose();
-    _referensiCtrl.dispose();
     super.dispose();
   }
 
@@ -76,7 +72,7 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
     if (_nominalCtrl.text.trim().isEmpty) {
       errors.add('Nominal harus diisi.');
     } else {
-      final parsed = int.tryParse(_nominalCtrl.text.trim());
+      final parsed = parseRupiahInput(_nominalCtrl.text.trim());
       if (parsed == null || parsed <= 0) {
         errors.add('Nominal harus berupa angka yang lebih besar dari 0.');
       }
@@ -98,7 +94,7 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
     });
 
     try {
-      final nominalInt = int.tryParse(_nominalCtrl.text.trim()) ?? 0;
+      final nominalInt = parseRupiahInput(_nominalCtrl.text.trim()) ?? 0;
       if (nominalInt <= 0) {
         setState(() {
           _error = 'Nominal harus lebih besar dari 0.';
@@ -111,9 +107,7 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
       final occurredAt =
           DateTime.tryParse(_tanggalCtrl.text.trim()) ?? DateTime.now();
 
-      final desc = _referensiCtrl.text.trim().isNotEmpty
-          ? '${_keteranganCtrl.text.trim()} (Ref: ${_referensiCtrl.text.trim()})'
-          : _keteranganCtrl.text.trim();
+      final desc = _keteranganCtrl.text.trim();
 
       await repository.createTransaction(
         amount: nominalInt,
@@ -215,8 +209,7 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return DoubleBackExitScope(
-      child: PopScope(
+    return PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, result) async {
           if (didPop) return;
@@ -226,10 +219,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
           appBar: AppBar(
             centerTitle: false,
             title: const Text('Tambah Kas Masuk'),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => _confirmCancel(),
-            ),
           ),
           body: Form(
             key: _formKey,
@@ -411,9 +400,10 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
-                                    '💵',
-                                    style: TextStyle(fontSize: 16),
+                                  Icon(
+                                    Icons.payments_outlined,
+                                    color: AppColors.info,
+                                    size: 16,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
@@ -463,9 +453,10 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
-                                    '🏦',
-                                    style: TextStyle(fontSize: 16),
+                                  Icon(
+                                    Icons.account_balance_outlined,
+                                    color: AppColors.accent,
+                                    size: 16,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
@@ -496,7 +487,7 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                   label: 'Nominal (Rp)',
                   hintText: 'Masukkan nominal',
                   keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  inputFormatters: [RupiahInputFormatter()],
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: AppSpacing.sm),
@@ -523,14 +514,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                   label: 'Keterangan',
                   hintText: 'Deskripsi transaksi',
                 ),
-                const SizedBox(height: AppSpacing.lg),
-
-                // Referensi (optional)
-                AppTextField(
-                  controller: _referensiCtrl,
-                  label: 'Referensi (opsional)',
-                  hintText: 'No. bukti transfer, dll.',
-                ),
                 const SizedBox(height: AppSpacing.xxl),
 
                 // Horizontal buttons: Simpan + Batal
@@ -541,7 +524,7 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                         decoration: BoxDecoration(
                           boxShadow: [
                             BoxShadow(
-                              color: AppColors.success.withValues(alpha: 0.15),
+                              color: AppColors.accent.withValues(alpha: 0.15),
                               blurRadius: 8,
                               offset: const Offset(0, 0),
                             ),
@@ -552,9 +535,9 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                           child: OutlinedButton(
                             onPressed: _saving ? null : _save,
                             style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: AppColors.success),
-                              foregroundColor: AppColors.success,
-                              backgroundColor: AppColors.success.withValues(
+                              side: const BorderSide(color: AppColors.accent),
+                              foregroundColor: AppColors.accent,
+                              backgroundColor: AppColors.accent.withValues(
                                 alpha: isDark ? 0.15 : 0.08,
                               ),
                               shape: RoundedRectangleBorder(
@@ -571,7 +554,7 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                                       strokeWidth: 2,
                                       backgroundColor: Colors.transparent,
                                       valueColor: AlwaysStoppedAnimation<Color>(
-                                        AppColors.success,
+                                        AppColors.accent,
                                       ),
                                     ),
                                   )
@@ -594,6 +577,9 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                         child: OutlinedButton(
                           onPressed: _saving ? null : _confirmCancel,
                           style: OutlinedButton.styleFrom(
+                            backgroundColor: AppColors.danger.withValues(
+                              alpha: isDark ? 0.15 : 0.08,
+                            ),
                             side: const BorderSide(color: AppColors.danger),
                             foregroundColor: AppColors.danger,
                             shape: RoundedRectangleBorder(
@@ -616,7 +602,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                   ],
                 ),
               ],
-            ),
           ),
         ),
       ),

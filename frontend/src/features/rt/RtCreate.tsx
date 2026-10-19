@@ -4,13 +4,17 @@ import {
   apiCreateRT,
   apiGetRT,
   apiUpdateRT,
+  apiDeactivateRT,
+  apiReactivateRT,
+  apiListRWs,
   ApiError,
   clearSessionPair,
   getSessionPair,
   type ApiCreateRTBody,
   type ApiUpdateRTBody,
+  type ApiRW,
 } from '@/app/api'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import {
   ApartmentOutlined,
@@ -22,8 +26,9 @@ import {
 
 /* ── Shared form shape ────────────────────────────────────────────────── */
 
-interface RtFormState {
+export interface RtFormState {
   name: string
+  rw_id: string
   rw: string
   rt: string
   address: string
@@ -32,23 +37,41 @@ interface RtFormState {
 
 const emptyForm: RtFormState = {
   name: '',
+  rw_id: '',
   rw: '',
   rt: '',
   address: '',
   head_name: '',
 }
 
+const dangerBtnStyle: React.CSSProperties = {
+  background: 'rgba(242, 73, 92, 0.16)',
+  border: '1px solid rgba(242, 73, 92, 0.6)',
+  color: 'var(--sf-danger)',
+}
+
 /* ── Shared inner form (used by both create and edit) ─────────────────── */
 
-function RtFormFields({
+export function RtFormFields({
   form,
   onChange,
   disabled,
+  rwList,
 }: {
   form: RtFormState
   onChange: (field: string, value: string) => void
   disabled: boolean
+  rwList: ApiRW[]
 }) {
+  const handleRwSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedId = e.target.value
+    onChange('rw_id', selectedId)
+    const found = rwList.find((r) => r.id === selectedId)
+    if (found) {
+      onChange('rw', String(found.rw_number))
+    }
+  }
+
   return (
     <>
       {/* Name */}
@@ -77,18 +100,36 @@ function RtFormFields({
             <NumberOutlined style={{ marginRight: 4 }} />
             RW <span style={{ color: 'var(--sf-danger)' }}>*</span>
           </label>
-          <input
-            id="rf-rw"
-            className="sf-form-input"
-            type="number"
-            value={form.rw}
-            onChange={(e) => onChange('rw', e.target.value)}
-            placeholder="Contoh: 1"
-            required
-            min="0"
-            inputMode="numeric"
-            disabled={disabled}
-          />
+          {rwList.length > 0 ? (
+            <select
+              id="rf-rw"
+              className="sf-form-input"
+              value={form.rw_id}
+              onChange={handleRwSelectChange}
+              required
+              disabled={disabled}
+            >
+              <option value="">Pilih RW...</option>
+              {rwList.map((rwItem) => (
+                <option key={rwItem.id} value={rwItem.id}>
+                  {rwItem.name || `RW ${String(rwItem.rw_number).padStart(3, '0')}`} (Nomor {rwItem.rw_number})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id="rf-rw"
+              className="sf-form-input"
+              type="number"
+              value={form.rw}
+              onChange={(e) => onChange('rw', e.target.value)}
+              placeholder="Contoh: 16"
+              required
+              min="0"
+              inputMode="numeric"
+              disabled={disabled}
+            />
+          )}
         </div>
 
         <div className="sf-form-field">
@@ -167,6 +208,28 @@ export function RtCreate({
   const [error, setError] = useState<ApiError | null>(null)
   const [form, setForm] = useState<RtFormState>(emptyForm)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const [rwList, setRwList] = useState<ApiRW[]>([])
+
+  useEffect(() => {
+    const pair = getSessionPair()
+    if (!pair?.accessToken) return
+    apiListRWs(pair.accessToken, { is_active: true, page_size: 100 })
+      .then((res) => {
+        if (Array.isArray(res?.data)) {
+          setRwList(res.data)
+          if (res.data.length === 1) {
+            setForm((prev) =>
+              prev.rw_id
+                ? prev
+                : { ...prev, rw_id: res.data[0].id, rw: String(res.data[0].rw_number) },
+            )
+          }
+        }
+      })
+      .catch(() => {
+        /* fallback to numeric input if RW endpoint not mocked in unit tests */
+      })
+  }, [])
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -199,6 +262,7 @@ export function RtCreate({
 
       const body: ApiCreateRTBody = {
         name: form.name.trim(),
+        ...(form.rw_id ? { rw_id: form.rw_id } : {}),
         rw: Number(form.rw),
         rt: form.rt.trim(),
         address: form.address.trim() || null,
@@ -243,12 +307,18 @@ export function RtCreate({
               {error.message}
             </div>
           )}
-          <RtFormFields form={form} onChange={handleChange} disabled={loading} />
+          <RtFormFields form={form} onChange={handleChange} disabled={loading} rwList={rwList} />
         </ModalBody>
         <ModalFooter>
-          <Link to="/rt" className="sf-btn-ghost">
+          <button
+            type="button"
+            className="sf-btn-ghost"
+            style={dangerBtnStyle}
+            onClick={handleClose}
+            disabled={loading}
+          >
             Batal
-          </Link>
+          </button>
           <button type="submit" className="sf-btn-primary" disabled={loading}>
             {loading ? 'Menyimpan...' : 'Simpan'}
           </button>
@@ -278,10 +348,13 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
 
   const [loadingData, setLoadingData] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [togglingActive, setTogglingActive] = useState(false)
+  const [isActive, setIsActive] = useState(true)
   const [error, setError] = useState<ApiError | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [form, setForm] = useState<RtFormState>(emptyForm)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const [rwList, setRwList] = useState<ApiRW[]>([])
 
   const fetchRt = useCallback(async () => {
     const pair = getSessionPair()
@@ -292,9 +365,17 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
     setNotFound(false)
 
     try {
-      const data = await apiGetRT(pair.accessToken, id)
+      const [data, rwsResp] = await Promise.all([
+        apiGetRT(pair.accessToken, id),
+        apiListRWs(pair.accessToken, { page_size: 100 }).catch(() => null),
+      ])
+      const loadedRws = Array.isArray(rwsResp?.data) ? rwsResp!.data : []
+      setRwList(loadedRws)
+      const matchedRwId = data.rw_id || loadedRws.find((r) => r.rw_number === data.rw)?.id || ''
+      setIsActive(data.is_active)
       setForm({
         name: data.name,
+        rw_id: matchedRwId,
         rw: String(data.rw),
         rt: data.rt,
         address: data.address ?? '',
@@ -312,7 +393,7 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
     } finally {
       setLoadingData(false)
     }
-  }, [id, navigate, handleClose])
+  }, [id, handleClose])
 
   useEffect(() => { void fetchRt() }, [fetchRt])
 
@@ -331,6 +412,32 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
     return true
   }
 
+  const handleToggleActive = async () => {
+    setTogglingActive(true)
+    setError(null)
+    try {
+      const pair = getSessionPair()
+      if (!pair?.accessToken) { handleClose(); return }
+      if (isActive) {
+        await apiDeactivateRT(pair.accessToken, id)
+        setIsActive(false)
+      } else {
+        const updated = await apiReactivateRT(pair.accessToken, id)
+        setIsActive(updated.is_active)
+      }
+      onCloseSuccess()
+      handleClose()
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(new ApiError(err.code, err.message || 'Gagal mengubah status RT.'))
+      } else {
+        setError(new ApiError('unexpected', 'Gagal mengubah status RT.'))
+      }
+    } finally {
+      setTogglingActive(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setValidationErrors([])
@@ -344,6 +451,7 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
 
       const body: ApiUpdateRTBody = {
         name: form.name.trim(),
+        ...(form.rw_id ? { rw_id: form.rw_id } : {}),
         rw: Number(form.rw),
         rt: form.rt.trim(),
         address: form.address.trim() || null,
@@ -370,8 +478,8 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
   return (
     <Modal open onClose={handleClose} width={520} overlayClassName={overlayClassName}>
       <ModalHeader
-        title="Ubah RT"
-        subtitle="Ubah informasi unit wilayah administratif"
+        title="Detail & Ubah RT"
+        subtitle="Informasi dan pengaturan unit wilayah administratif"
         onClose={handleClose}
       />
       {loadingData ? (
@@ -382,7 +490,7 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
             </div>
           </ModalBody>
           <ModalFooter>
-            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+            <button type="button" className="sf-btn-ghost" style={dangerBtnStyle} onClick={handleClose}>
               Tutup
             </button>
           </ModalFooter>
@@ -402,13 +510,37 @@ export function RtEdit({ id: propId, onClose: propOnClose, onSaved: propOnSaved,
                 {error.message}
               </div>
             )}
-            <RtFormFields form={form} onChange={handleChange} disabled={saving} />
+            <RtFormFields form={form} onChange={handleChange} disabled={saving || togglingActive} rwList={rwList} />
           </ModalBody>
           <ModalFooter>
-            <button type="button" className="sf-btn-ghost" onClick={handleClose} disabled={saving}>
+            <button
+              type="button"
+              className="sf-btn-ghost"
+              onClick={handleToggleActive}
+              disabled={saving || togglingActive}
+              style={{
+                marginRight: 'auto',
+                ...(isActive
+                  ? dangerBtnStyle
+                  : {
+                      background: 'rgba(115, 191, 105, 0.16)',
+                      border: '1px solid rgba(115, 191, 105, 0.6)',
+                      color: 'var(--sf-success)',
+                    }),
+              }}
+            >
+              {togglingActive ? 'Memproses...' : isActive ? 'Nonaktifkan RT' : 'Aktifkan RT'}
+            </button>
+            <button
+              type="button"
+              className="sf-btn-ghost"
+              style={dangerBtnStyle}
+              onClick={handleClose}
+              disabled={saving || togglingActive}
+            >
               Batal
             </button>
-            <button type="submit" className="sf-btn-primary" disabled={saving}>
+            <button type="submit" className="sf-btn-primary" disabled={saving || togglingActive}>
               {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
             </button>
           </ModalFooter>

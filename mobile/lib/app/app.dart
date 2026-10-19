@@ -17,7 +17,8 @@ import '../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../features/profile/presentation/screens/profile_screen.dart';
 import '../features/reports/presentation/screens/reports_screen.dart';
 import '../features/warga/data/warga_providers.dart';
-import '../features/warga/presentation/screens/warga_screen.dart';
+import 'package:social_finance/features/warga/presentation/screens/warga_screen.dart';
+import 'package:social_finance/features/rw/presentation/screens/rw_list_screen.dart';
 import '../features/warga/presentation/screens/household_create_screen.dart';
 import '../features/warga/presentation/screens/household_edit_screen.dart';
 import '../features/warga/presentation/screens/special_resident_create_screen.dart';
@@ -306,7 +307,9 @@ class _AppState extends ConsumerState<App> {
         return null;
       },
       errorBuilder: (context, state) => Scaffold(
-        appBar: AppBar(title: const Text('Halaman Tidak Ditemukan')),
+        appBar: AppBar(
+          title: const Text('Halaman Tidak Ditemukan'),
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -542,6 +545,11 @@ class _AppState extends ConsumerState<App> {
                   path: 'profile',
                   name: 'profile',
                   builder: (context, state) => const ProfileScreen(),
+                ),
+                GoRoute(
+                  path: 'rw',
+                  name: 'rw',
+                  builder: (context, state) => const RwListScreen(),
                 ),
               ],
             ),

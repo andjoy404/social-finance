@@ -25,7 +25,9 @@ import {
   IdcardOutlined,
   MailOutlined,
   CalendarOutlined,
+  LockOutlined,
 } from '@ant-design/icons'
+import { formatPhoneDisplay } from '@/styles/format'
 
 type OccupancyStatus = 'OWNER' | 'TENANT'
 
@@ -40,6 +42,7 @@ interface HouseholdFormState {
   address: string
   occupancy_status: OccupancyStatus
   is_active: boolean
+  password?: string
 }
 
 const emptyHouseholdForm: HouseholdFormState = {
@@ -51,6 +54,7 @@ const emptyHouseholdForm: HouseholdFormState = {
   address: '',
   occupancy_status: 'OWNER',
   is_active: true,
+  password: '',
 }
 
 /* ── Status select field ────────────────────────────────────────────── */
@@ -90,6 +94,7 @@ function HouseholdFormFields({
   showStartDate,
   startDate,
   onStartDateChange,
+  isEdit,
 }: {
   form: HouseholdFormState
   onChange: (field: string, value: string) => void
@@ -97,6 +102,7 @@ function HouseholdFormFields({
   showStartDate?: boolean
   startDate?: string
   onStartDateChange?: (value: string) => void
+  isEdit?: boolean
 }) {
   return (
     <>
@@ -265,6 +271,23 @@ function HouseholdFormFields({
           />
         </div>
       )}
+
+      {/* Kata Sandi (Opsional) */}
+      <div className="sf-form-field">
+        <label className="sf-form-label" htmlFor="hf-password">
+          <LockOutlined style={{ marginRight: 4 }} />
+          Kata Sandi (Opsional)
+        </label>
+        <input
+          id="hf-password"
+          className="sf-form-input"
+          type="password"
+          value={form.password ?? ''}
+          onChange={(e) => onChange('password', e.target.value)}
+          placeholder={isEdit ? 'Kosongkan jika tidak ingin mengubah kata sandi' : 'Minimal 8 karakter (opsional)'}
+          disabled={disabled}
+        />
+      </div>
     </>
   )
 }
@@ -380,6 +403,9 @@ export function HouseholdCreate() {
     }
     if (!startDate) errs.push('Tanggal mulai hunian harus diisi.')
     if (adminMode && !selectedRtId) errs.push('RT Tujuan harus dipilih.')
+    if (form.password && form.password.trim().length > 0 && form.password.trim().length < 8) {
+      errs.push('Kata sandi minimal 8 karakter.')
+    }
     if (errs.length > 0) { setValidationErrors(errs); return }
 
     setLoading(true)
@@ -397,6 +423,7 @@ export function HouseholdCreate() {
         is_active: form.is_active,
         address: form.address.trim() || null,
         start_date: startDate,
+        password: form.password?.trim() || undefined,
       }
 
       if (adminMode && selectedRtId) {
@@ -533,15 +560,18 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
 
     try {
       const data: ApiHousehold = await getHousehold(pair.accessToken, id)
+      const rawPhone = data.phone ?? data.head_resident?.phone ?? ''
+      const formattedPhone = rawPhone ? formatPhoneDisplay(rawPhone) : ''
       setForm({
         house_number: data.house_number ?? '',
         head_name: data.head_name ?? '',
         nik: data.nik ?? data.head_resident?.nik ?? '',
-        phone: data.phone ?? data.head_resident?.phone ?? '',
+        phone: formattedPhone === '-' ? '' : formattedPhone,
         email: data.email ?? data.head_resident?.email ?? '',
         address: data.address ?? '',
         occupancy_status: (data.occupancy_status as OccupancyStatus) || 'OWNER',
         is_active: data.is_active,
+        password: '',
       })
       setStartDate(data.start_date ? data.start_date.slice(0, 10) : new Date().toISOString().slice(0, 10))
     } catch (err) {
@@ -586,6 +616,9 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
     if (!startDate.trim()) {
       errs.push('Tanggal mulai hunian harus diisi.')
     }
+    if (form.password && form.password.trim().length > 0 && form.password.trim().length < 8) {
+      errs.push('Kata sandi minimal 8 karakter.')
+    }
     if (errs.length > 0) { setValidationErrors(errs); return false }
     return true
   }
@@ -611,6 +644,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         occupancy_status: form.occupancy_status,
         start_date: startDate.trim() || undefined,
         is_active: form.is_active,
+        password: form.password?.trim() || undefined,
       }
 
       await updateHousehold(pair.accessToken, id, body)
@@ -679,6 +713,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
               showStartDate
               startDate={startDate}
               onStartDateChange={setStartDate}
+              isEdit={true}
             />
 
             <StatusField

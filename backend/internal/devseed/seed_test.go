@@ -43,17 +43,17 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 		t.Errorf("expected 7 memberships, got %d", summary1.MembershipsCount)
 	}
 
-	if summary1.PositionUsersCount != 14 {
-		t.Errorf("expected 14 position users, got %d", summary1.PositionUsersCount)
+	if summary1.PositionUsersCount != 16 {
+		t.Errorf("expected 16 position users, got %d", summary1.PositionUsersCount)
 	}
-	if summary1.PositionMembershipsCount != 14 {
-		t.Errorf("expected 14 position memberships, got %d", summary1.PositionMembershipsCount)
+	if summary1.PositionMembershipsCount != 16 {
+		t.Errorf("expected 16 position memberships, got %d", summary1.PositionMembershipsCount)
 	}
 	if summary1.PermissionTypesCount != 12 {
 		t.Errorf("expected 12 permission types, got %d", summary1.PermissionTypesCount)
 	}
-	if summary1.PositionPermissionsCount != 41 {
-		t.Errorf("expected 41 position permissions, got %d", summary1.PositionPermissionsCount)
+	if summary1.PositionPermissionsCount != 43 {
+		t.Errorf("expected 43 position permissions, got %d", summary1.PositionPermissionsCount)
 	}
 	if summary1.BillsCount != 0 {
 		t.Errorf("expected 0 bills, got %d", summary1.BillsCount)
@@ -109,13 +109,12 @@ func TestDevSeed_NeverCreatesSuperAdmin(t *testing.T) {
 	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
-	_, err := devseed.Run(ctx, pool, "test")
-	if err != nil {
+	if _, err := devseed.Run(ctx, pool, "test"); err != nil {
 		t.Fatalf("seed failed: %v", err)
 	}
 
 	var superAdminCount int
-	q := `SELECT COUNT(*) FROM users WHERE system_role = 'super_admin' AND email LIKE '%@local.com'`
+	q := `SELECT COUNT(*) FROM users WHERE system_role = 'super_admin' AND (email LIKE 'rt%.rw16.%@example.com' OR email LIKE '%@rt%.rw16.local')`
 	if err := pool.Raw().QueryRowContext(ctx, q).Scan(&superAdminCount); err != nil {
 		t.Fatalf("query super_admin count: %v", err)
 	}

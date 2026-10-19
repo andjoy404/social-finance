@@ -154,174 +154,210 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
     return DoubleBackExitScope(
       child: Scaffold(
         appBar: AppBar(
+          automaticallyImplyLeading: false,
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Warga'),
         ),
         floatingActionButton: canWrite
             ? isWeb
-                ? _buildWebFab(context, fabIconSize, fabLabelSize, accentSoft, onFabPressed!)
-                : _buildAndroidFab(context, fabSize, fabIconSize, fabLabelSize, accentSoft, onFabPressed!)
+                  ? _buildWebFab(
+                      context,
+                      fabIconSize,
+                      fabLabelSize,
+                      accentSoft,
+                      onFabPressed!,
+                    )
+                  : _buildAndroidFab(
+                      context,
+                      fabSize,
+                      fabIconSize,
+                      fabLabelSize,
+                      accentSoft,
+                      onFabPressed!,
+                    )
             : null,
         body: RefreshIndicator(
-          onRefresh: () =>
-              ref.read(wargaListProvider.notifier).refresh(),
+          onRefresh: () => ref.read(wargaListProvider.notifier).refresh(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ── Search Section ──
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.base,
-                  AppSpacing.sm,
-                  AppSpacing.base,
-                  AppSpacing.sm,
+                padding: const EdgeInsets.only(
+                  top: AppSpacing.sm,
+                  left: AppSpacing.base,
+                  right: AppSpacing.base,
+                  bottom: AppSpacing.sm,
                 ),
-                child: AppTextField(
-                  controller: _searchController,
-                  hintText: 'Cari nama, alamat, atau nomor rumah...',
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          onPressed: _clearSearch,
-                        )
-                      : null,
-                  onChanged: (value) {
-                    ref.read(wargaSearchQueryProvider.notifier).state = value;
-                    setState(() {});
+                child: SizedBox(
+                  height: 38,
+                  child: AppTextField(
+                    controller: _searchController,
+                    hintText: 'Cari nama, alamat, atau nomor rumah...',
+                    isDense: true,
+                    fillColor: theme.scaffoldBackgroundColor,
+                    textAlignVertical: TextAlignVertical.center,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 0,
+                    ),
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 38,
+                    ),
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 38,
+                    ),
+                    prefixIcon: const Icon(Icons.search, size: 18),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: _clearSearch,
+                          )
+                        : null,
+                    onChanged: (value) {
+                      ref.read(wargaSearchQueryProvider.notifier).state = value;
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ),
+
+              // ── Summary Count ──
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.base,
+                  vertical: AppSpacing.xs,
+                ),
+                child: Text(
+                  'Menampilkan ${residents.length} warga',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+
+              // ── Content: Loading / Error / Empty / List ──
+              Expanded(
+                child: Builder(
+                  builder: (context) {
+                    if (wargaState.isLoading && !wargaState.hasValue) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (wargaState.hasError && !wargaState.hasValue) {
+                      return Center(
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 64,
+                                color: theme.colorScheme.error.withValues(
+                                  alpha: 0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Terjadi Kesalahan',
+                                style: theme.textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                errorMessage,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 16),
+                              SizedBox(
+                                height: 36,
+                                child: ElevatedButton(
+                                  onPressed: _retry,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: theme.colorScheme.primary
+                                        .withValues(alpha: 0.12),
+                                    foregroundColor: theme.colorScheme.primary,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(6),
+                                      side: BorderSide(
+                                        color: theme.colorScheme.primary
+                                            .withValues(alpha: 0.35),
+                                      ),
+                                    ),
+                                    textStyle: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.01,
+                                    ),
+                                  ),
+                                  child: const Text('Coba Lagi'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    if (residents.isEmpty) {
+                      return Center(
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          child: currentQuery.isNotEmpty
+                              ? EmptyState(
+                                  icon: Icons.search_off,
+                                  title: 'Warga Tidak Ditemukan',
+                                  description:
+                                      'Tidak ada data warga yang sesuai dengan "$currentQuery".',
+                                  actionText: 'Hapus Pencarian',
+                                  onAction: _clearSearch,
+                                )
+                              : const EmptyState(
+                                  icon: Icons.people_outline,
+                                  title: 'Belum Ada Warga',
+                                  description:
+                                      'Data kependudukan warga RT belum tersedia.',
+                                ),
+                        ),
+                      );
+                    }
+                    return ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.base,
+                        AppSpacing.xs,
+                        AppSpacing.base,
+                        AppSpacing.xl,
+                      ),
+                      itemCount: residents.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (context, index) {
+                        final resident = residents[index];
+                        return _ResidentCard(
+                          resident: resident,
+                          isDark: isDark,
+                          canWrite: canWrite,
+                        );
+                      },
+                    );
                   },
                 ),
               ),
-
-            // ── Summary Count ──
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.base,
-                vertical: AppSpacing.xs,
-              ),
-              child: Text(
-                'Menampilkan ${residents.length} warga',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-
-            // ── Content: Loading / Error / Empty / List ──
-            Expanded(
-              child: Builder(
-                builder: (context) {
-                  if (wargaState.isLoading && !wargaState.hasValue) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
-                  }
-                  if (wargaState.hasError && !wargaState.hasValue) {
-                    return Center(
-                      child: SingleChildScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              size: 64,
-                              color: theme.colorScheme.error.withValues(alpha: 0.5),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Terjadi Kesalahan',
-                              style: theme.textTheme.titleLarge,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              errorMessage,
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              height: 36,
-                              child: ElevatedButton(
-                                onPressed: _retry,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
-                                  foregroundColor: theme.colorScheme.primary,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(6),
-                                    side: BorderSide(
-                                      color: theme.colorScheme.primary.withValues(alpha: 0.35),
-                                    ),
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 0.01,
-                                  ),
-                                ),
-                                child: const Text('Coba Lagi'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-                  if (residents.isEmpty) {
-                    return Center(
-                      child: SingleChildScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: currentQuery.isNotEmpty
-                            ? EmptyState(
-                                icon: Icons.search_off,
-                                title: 'Warga Tidak Ditemukan',
-                                description:
-                                    'Tidak ada data warga yang sesuai dengan "$currentQuery".',
-                                actionText: 'Hapus Pencarian',
-                                onAction: _clearSearch,
-                              )
-                            : const EmptyState(
-                                icon: Icons.people_outline,
-                                title: 'Belum Ada Warga',
-                                description:
-                                    'Data kependudukan warga RT belum tersedia.',
-                              ),
-                      ),
-                    );
-                  }
-                  return ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.base,
-                      AppSpacing.xs,
-                      AppSpacing.base,
-                      AppSpacing.xl,
-                    ),
-                    itemCount: residents.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final resident = residents[index];
-                      return _ResidentCard(
-                        resident: resident,
-                        isDark: isDark,
-                        canWrite: canWrite,
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
   }
 
   Widget _buildWebFab(
@@ -331,7 +367,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
     Color accentSoft,
     VoidCallback onFabPressed,
   ) {
-    return Container(
+    final button = Container(
       decoration: BoxDecoration(
         color: accentSoft,
         borderRadius: BorderRadius.circular(24),
@@ -355,22 +391,23 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.person_add, size: iconSize, color: AppColors.accent),
-                const SizedBox(width: 6),
                 Text(
-                  'Tambah',
+                  '+',
                   style: TextStyle(
-                    fontSize: labelSize,
-                    fontWeight: FontWeight.w600,
                     color: AppColors.accent,
+                    fontWeight: FontWeight.w700,
+                    fontSize: iconSize,
                   ),
                 ),
+                SizedBox(width: 6),
+                Icon(Icons.person_add, size: iconSize, color: AppColors.accent),
               ],
             ),
           ),
         ),
       ),
     );
+    return Tooltip(message: 'Tambah Warga', child: button);
   }
 
   Widget _buildAndroidFab(
@@ -381,10 +418,10 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
     Color accentSoft,
     VoidCallback onFabPressed,
   ) {
-    return Container(
+    final button = Container(
       decoration: BoxDecoration(
         color: accentSoft,
-        borderRadius: BorderRadius.circular(fabSize / 2),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppColors.accent, width: 1),
         boxShadow: [
           BoxShadow(
@@ -399,15 +436,32 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
         clipBehavior: Clip.none,
         child: InkWell(
           onTap: onFabPressed,
-          borderRadius: BorderRadius.circular(fabSize / 2),
-          child: SizedBox(
-            width: fabSize,
-            height: fabSize,
-            child: Icon(Icons.person_add, size: iconSize, color: AppColors.accent),
+          borderRadius: BorderRadius.circular(24),
+          child: const SizedBox(
+            height: 44,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '+',
+                    style: TextStyle(
+                      color: AppColors.accent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  Icon(Icons.person_add, size: 18, color: AppColors.accent),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
+    return Tooltip(message: 'Tambah Warga', child: button);
   }
 }
 
@@ -450,17 +504,11 @@ class _ResidentCard extends ConsumerWidget {
           ? AppColors.darkBadgeNeutralBorder
           : AppColors.lightBadgeNeutralBorder;
       return Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 8,
-          vertical: 2,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         decoration: BoxDecoration(
           color: neutralBg,
           borderRadius: BorderRadius.circular(AppRadius.xs),
-          border: Border.all(
-            color: neutralBorder,
-            width: 0.5,
-          ),
+          border: Border.all(color: neutralBorder, width: 0.5),
         ),
         child: Text(
           text,
@@ -474,10 +522,7 @@ class _ResidentCard extends ConsumerWidget {
     }
     final color = resident.jabatanColor;
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 2,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: isDark ? 0.18 : 0.10),
         borderRadius: BorderRadius.circular(AppRadius.xs),
@@ -515,7 +560,7 @@ class _ResidentCard extends ConsumerWidget {
     // Pengurus RT and warga biasa get edit-warga (household) instead.
     final isPetugasKhusus =
         resident.jabatan != null &&
-            kPetugasKhususJabatan.contains(resident.jabatan!);
+        kPetugasKhususJabatan.contains(resident.jabatan!);
 
     return AppCard(
       padding: const EdgeInsets.all(AppSpacing.base),
@@ -585,7 +630,8 @@ class _ResidentCard extends ConsumerWidget {
                               ),
                             ),
                           ),
-                        if (resident.jabatan != null && resident.jabatan!.isNotEmpty)
+                        if (resident.jabatan != null &&
+                            resident.jabatan!.isNotEmpty)
                           _buildJabatanBadge(
                             resident: resident,
                             isDark: isDark,
@@ -692,7 +738,9 @@ class _ResidentCard extends ConsumerWidget {
                   clipBehavior: Clip.none,
                   child: InkWell(
                     onTap: () async {
-                      await context.push('/home/warga/edit/petugas/${resident.id}');
+                      await context.push(
+                        '/home/warga/edit/petugas/${resident.id}',
+                      );
                       ref.read(wargaListProvider.notifier).refresh();
                     },
                     borderRadius: BorderRadius.circular(AppRadius.xs),

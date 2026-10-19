@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ResidentDetail } from './ResidentDetail'
 import { persistSessionPair, type ApiResident } from '@/app/api'
@@ -254,9 +254,15 @@ describe('ResidentDetail — renders resident information', () => {
 
   it('can edit and save resident relationship_to_head', async () => {
     let patchBody: any = null
+    let patchHouseholdBody: any = null
     mockFetch((_url, init) => {
       if (init?.method === 'PATCH') {
-        patchBody = JSON.parse(init.body as string)
+        const body = JSON.parse(init.body as string)
+        if (_url.includes('/households/')) {
+          patchHouseholdBody = body
+        } else {
+          patchBody = body
+        }
         return mockSuccessResponse({ ...mockResident, relationship_to_head: patchBody.relationship_to_head })
       }
       return mockSuccessResponse(mockResident)
@@ -273,9 +279,15 @@ describe('ResidentDetail — renders resident information', () => {
       expect(screen.getByLabelText(/Hubungan dengan KK/i)).toBeInTheDocument()
     })
 
+    // Fill required fields from the expanded "Tambah Warga"-style form
+    const houseInput = screen.getByLabelText(/Nomor Rumah/i) as HTMLInputElement
+    fireEvent.change(houseInput, { target: { value: '001' } })
+
+    const dateInput = screen.getByLabelText(/Tanggal Mulai Hunian/i) as HTMLInputElement
+    fireEvent.change(dateInput, { target: { value: '2026-01-15' } })
+
     const select = screen.getByLabelText(/Hubungan dengan KK/i) as HTMLSelectElement
-    select.value = 'SPOUSE'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    fireEvent.change(select, { target: { value: 'SPOUSE' } })
 
     screen.getByText('Simpan Perubahan').click()
 
@@ -283,5 +295,7 @@ describe('ResidentDetail — renders resident information', () => {
       expect(patchBody).not.toBeNull()
       expect(patchBody.relationship_to_head).toBe('SPOUSE')
     })
+    expect(patchHouseholdBody.house_number).toBe('001')
+    expect(patchHouseholdBody.start_date).toBe('2026-01-15')
   })
 })

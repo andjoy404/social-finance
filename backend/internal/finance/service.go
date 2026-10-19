@@ -484,11 +484,13 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 			desc = fmt.Sprintf("Iuran Sukarela: %s - Periode %s%s", due.Name, bill.Period, pNo)
 		}
 		now := time.Now()
+		payMethod := string(payment.Method)
 		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
-			CategoryID:  catID,
-			Amount:      payment.Amount,
-			Type:        TransactionTypeIncome,
-			Description: desc,
+			CategoryID:    catID,
+			Amount:        payment.Amount,
+			Type:          TransactionTypeIncome,
+			Description:   desc,
+			PaymentMethod: &payMethod,
 		}, TransactionStatusPosted, nil, &payment.ID, &userID, now)
 		if err != nil {
 			return nil, fmt.Errorf("post ledger transaction for payment: %w", err)
@@ -815,11 +817,13 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 		desc = fmt.Sprintf("Iuran Sukarela: %s - Periode %s%s", due.Name, bill.Period, pNo)
 	}
 	now := time.Now()
+	payMethod := string(verifiedPayment.Method)
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
-		CategoryID:  catID,
-		Amount:      verifiedPayment.Amount,
-		Type:        TransactionTypeIncome,
-		Description: desc,
+		CategoryID:    catID,
+		Amount:        verifiedPayment.Amount,
+		Type:          TransactionTypeIncome,
+		Description:   desc,
+		PaymentMethod: &payMethod,
 	}, TransactionStatusPosted, nil, &verifiedPayment.ID, &verifierID, now)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for approved payment: %w", err)
@@ -952,11 +956,13 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 	}
 	desc := fmt.Sprintf("Pembayaran Multi-Periode (%s)%s", strings.Join(periods, ", "), mPNo)
 	now := time.Now()
+	mPayMethod := string(verifiedPayment.Method)
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
-		CategoryID:  catID,
-		Amount:      payment.Amount,
-		Type:        TransactionTypeIncome,
-		Description: desc,
+		CategoryID:    catID,
+		Amount:        payment.Amount,
+		Type:          TransactionTypeIncome,
+		Description:   desc,
+		PaymentMethod: &mPayMethod,
 	}, TransactionStatusPosted, nil, &payment.ID, &verifierID, now)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
@@ -1094,10 +1100,11 @@ func (s *Service) ReverseTransaction(ctx context.Context, tx *sql.Tx, rtID, user
 	// Create reversal transaction
 	now := time.Now()
 	revInput := CreateTransactionInput{
-		CategoryID:  orig.CategoryID,
-		Amount:      orig.Amount,
-		Type:        revType,
-		Description: desc,
+		CategoryID:    orig.CategoryID,
+		Amount:        orig.Amount,
+		Type:          revType,
+		Description:   desc,
+		PaymentMethod: orig.PaymentMethod,
 	}
 	reversal, err := TransactionCreate(ctx, tx, rtID, revInput, TransactionStatusPosted, &orig.ID, orig.PaymentID, &userID, now)
 	if err != nil {
@@ -1410,12 +1417,14 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		}
 		desc := fmt.Sprintf("Pembayaran Multi-Periode (%s)%s", strings.Join(periods, ", "), pNo)
 		now := time.Now()
+		mpMethod := string(payment.Method)
 		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
-			CategoryID:  catID,
-			Amount:      payment.Amount,
-			Type:        TransactionTypeIncome,
-			Description: desc,
-		}, TransactionStatusPosted, nil, &payment.ID, nil, now)
+			CategoryID:    catID,
+			Amount:        payment.Amount,
+			Type:          TransactionTypeIncome,
+			Description:   desc,
+			PaymentMethod: &mpMethod,
+		}, TransactionStatusPosted, nil, &payment.ID, &userID, now)
 		if err != nil {
 			return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
 		}
@@ -1559,17 +1568,19 @@ func (s *Service) UpdateManualTransaction(ctx context.Context, tx *sql.Tx, rtID,
 }
 
 func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID string, requestedPeriod string) (*DashboardSummary, error) {
-
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	if loc == nil {
 		loc = time.FixedZone("WIB", 7*3600)
 	}
 
 	now := time.Now().In(loc)
+	trimmedPeriod := strings.TrimSpace(requestedPeriod)
+	isAllPeriods := strings.EqualFold(trimmedPeriod, "all") || strings.EqualFold(trimmedPeriod, "semua")
+
 	currentPeriod := now.Format("2006-01")
-	if requestedPeriod != "" {
-		if _, err := time.Parse("2006-01", requestedPeriod); err == nil {
-			currentPeriod = requestedPeriod
+	if !isAllPeriods && trimmedPeriod != "" {
+		if _, err := time.Parse("2006-01", trimmedPeriod); err == nil {
+			currentPeriod = trimmedPeriod
 		}
 	}
 
@@ -1577,21 +1588,113 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 	startOfMonth := time.Date(tPeriod.Year(), tPeriod.Month(), 1, 0, 0, 0, 0, loc)
 	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
 
-	pb, err := CalculatePeriodBalance(ctx, tx, rtID, currentPeriod, startOfMonth, startOfNextMonth)
-	if err != nil {
-		return nil, fmt.Errorf("calculate period balance: %w", err)
+	var balanceStr, incomeStr, expenseStr, netMovementStr string
+	if isAllPeriods {
+		bal, err := CalculateBalance(ctx, tx, rtID)
+		if err != nil {
+			return nil, fmt.Errorf("calculate balance: %w", err)
+		}
+		balanceStr = bal.NetBalance
+		incomeStr = bal.TotalIncome
+		expenseStr = bal.TotalExpense
+		netMovementStr = bal.NetBalance
+	} else {
+		pb, err := CalculatePeriodBalance(ctx, tx, rtID, currentPeriod, startOfMonth, startOfNextMonth)
+		if err != nil {
+			return nil, fmt.Errorf("calculate period balance: %w", err)
+		}
+		balanceStr = pb.ClosingBalance
+		incomeStr = pb.TotalIncome
+		expenseStr = pb.TotalExpense
+		netMovementStr = pb.NetMovement
+	}
+
+	var cashAmt, transferAmt string
+	var cashCnt, transferCnt int
+	if isAllPeriods {
+		_ = tx.QueryRowContext(ctx,
+			`SELECT
+				COALESCE(SUM(CASE WHEN COALESCE(NULLIF(UPPER(t.payment_method), ''), UPPER(p.method::text), 'CASH') = 'CASH' THEN t.amount ELSE 0 END), 0)::text,
+				COALESCE(SUM(CASE WHEN COALESCE(NULLIF(UPPER(t.payment_method), ''), UPPER(p.method::text), 'CASH') = 'TRANSFER' THEN t.amount ELSE 0 END), 0)::text,
+				COUNT(CASE WHEN COALESCE(NULLIF(UPPER(t.payment_method), ''), UPPER(p.method::text), 'CASH') = 'CASH' THEN 1 END),
+				COUNT(CASE WHEN COALESCE(NULLIF(UPPER(t.payment_method), ''), UPPER(p.method::text), 'CASH') = 'TRANSFER' THEN 1 END)
+			 FROM transactions t
+			 LEFT JOIN payments p ON p.id = t.payment_id
+			 WHERE t.rt_id = $1 AND t.status = 'posted'`,
+			rtID,
+		).Scan(&cashAmt, &transferAmt, &cashCnt, &transferCnt)
+	} else {
+		_ = tx.QueryRowContext(ctx,
+			`SELECT
+				COALESCE(SUM(CASE WHEN COALESCE(NULLIF(UPPER(t.payment_method), ''), UPPER(p.method::text), 'CASH') = 'CASH' THEN t.amount ELSE 0 END), 0)::text,
+				COALESCE(SUM(CASE WHEN COALESCE(NULLIF(UPPER(t.payment_method), ''), UPPER(p.method::text), 'CASH') = 'TRANSFER' THEN t.amount ELSE 0 END), 0)::text,
+				COUNT(CASE WHEN COALESCE(NULLIF(UPPER(t.payment_method), ''), UPPER(p.method::text), 'CASH') = 'CASH' THEN 1 END),
+				COUNT(CASE WHEN COALESCE(NULLIF(UPPER(t.payment_method), ''), UPPER(p.method::text), 'CASH') = 'TRANSFER' THEN 1 END)
+			 FROM transactions t
+			 LEFT JOIN payments p ON p.id = t.payment_id
+			 WHERE t.rt_id = $1 AND t.status = 'posted'
+			   AND t.occurred_at >= $2 AND t.occurred_at < $3`,
+			rtID, startOfMonth, startOfNextMonth,
+		).Scan(&cashAmt, &transferAmt, &cashCnt, &transferCnt)
+	}
+	_, cashCanon, _ := ParseMoney(cashAmt)
+	_, transferCanon, _ := ParseMoney(transferAmt)
+	if cashCanon == "" {
+		cashCanon = "0.00"
+	}
+	if transferCanon == "" {
+		transferCanon = "0.00"
 	}
 
 	var totalHouseholds, paidHouseholds int
-	_ = tx.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM households WHERE rt_id = $1 AND is_active = true`,
-		rtID,
-	).Scan(&totalHouseholds)
-
-	_ = tx.QueryRowContext(ctx,
-		`SELECT COUNT(DISTINCT household_id) FROM bills WHERE rt_id = $1 AND period = $2 AND status = 'paid'`,
-		rtID, currentPeriod,
-	).Scan(&paidHouseholds)
+	if isAllPeriods {
+		_ = tx.QueryRowContext(ctx,
+			`WITH regular_bills AS (
+				SELECT ho.household_id, b.status
+				FROM bills b
+				JOIN dues d ON b.due_id = d.id
+				JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+				WHERE b.rt_id = $1
+				  AND b.status != 'cancelled'
+				  AND d.is_voluntary = false
+			),
+			household_summary AS (
+				SELECT household_id,
+				       COUNT(*) AS total_bills,
+				       COUNT(CASE WHEN status = 'paid' THEN 1 END) AS paid_bills
+				FROM regular_bills
+				GROUP BY household_id
+			)
+			SELECT COUNT(*),
+			       COUNT(CASE WHEN total_bills = paid_bills THEN 1 END)
+			FROM household_summary`,
+			rtID,
+		).Scan(&totalHouseholds, &paidHouseholds)
+	} else {
+		_ = tx.QueryRowContext(ctx,
+			`WITH regular_bills AS (
+				SELECT ho.household_id, b.status
+				FROM bills b
+				JOIN dues d ON b.due_id = d.id
+				JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
+				WHERE b.rt_id = $1
+				  AND b.period = $2
+				  AND b.status != 'cancelled'
+				  AND d.is_voluntary = false
+			),
+			household_summary AS (
+				SELECT household_id,
+				       COUNT(*) AS total_bills,
+				       COUNT(CASE WHEN status = 'paid' THEN 1 END) AS paid_bills
+				FROM regular_bills
+				GROUP BY household_id
+			)
+			SELECT COUNT(*),
+			       COUNT(CASE WHEN total_bills = paid_bills THEN 1 END)
+			FROM household_summary`,
+			rtID, currentPeriod,
+		).Scan(&totalHouseholds, &paidHouseholds)
+	}
 
 	pct := 0
 	if totalHouseholds > 0 {
@@ -1610,24 +1713,29 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 		pStr := mStart.Format("2006-01")
 
 		var incStr, expStr string
+		var incCount, expCount int
 		_ = tx.QueryRowContext(ctx,
 			`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text,
-			        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text
+			        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text,
+			        COUNT(CASE WHEN type = 'income' THEN 1 END),
+			        COUNT(CASE WHEN type = 'expense' THEN 1 END)
 			 FROM transactions
 			 WHERE rt_id = $1 AND status = 'posted'
 			   AND occurred_at >= $2 AND occurred_at < $3`,
 			rtID, mStart, mEnd,
-		).Scan(&incStr, &expStr)
+		).Scan(&incStr, &expStr, &incCount, &expCount)
 
 		incCents, _, _ := ParseMoney(incStr)
 		expCents, _, _ := ParseMoney(expStr)
 
 		mName := monthNames[m]
 		chart = append(chart, DashboardChartPoint{
-			Month:   mName,
-			Period:  pStr,
-			Income:  incCents / 100,
-			Expense: expCents / 100,
+			Month:        mName,
+			Period:       pStr,
+			Income:       incCents / 100,
+			Expense:      expCents / 100,
+			IncomeCount:  incCount,
+			ExpenseCount: expCount,
 		})
 	}
 
@@ -1638,14 +1746,20 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 	}
 
 	return &DashboardSummary{
-		Balance:            pb.ClosingBalance,
-		MonthlyIncome:      pb.TotalIncome,
-		MonthlyExpense:     pb.TotalExpense,
-		NetMovement:        pb.NetMovement,
-		DuesProgress:       DashboardDuesProgress{
+		Balance:        balanceStr,
+		MonthlyIncome:  incomeStr,
+		MonthlyExpense: expenseStr,
+		NetMovement:    netMovementStr,
+		DuesProgress: DashboardDuesProgress{
 			PaidHouseholds:  paidHouseholds,
 			TotalHouseholds: totalHouseholds,
 			Percentage:      pct,
+		},
+		PaymentMethodBreakdown: DashboardPaymentMethodBreakdown{
+			CashAmount:     cashCanon,
+			TransferAmount: transferCanon,
+			CashCount:      cashCnt,
+			TransferCount:  transferCnt,
 		},
 		Chart:              chart,
 		RecentTransactions: recent,

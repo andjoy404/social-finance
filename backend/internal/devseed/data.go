@@ -98,15 +98,15 @@ type PositionResidentSeed struct {
 	OccupancyID        string
 	RelationshipToHead *string
 	// Derived household chain for eligible positions
-	HouseID       string
-	HouseholdID   string
-	HouseNumber   string
-	HouseAddress  string
-	HeadName      string
-	EligiblePosIdx int
+	HouseID         string
+	HouseholdID     string
+	HouseNumber     string
+	HouseAddress    string
+	HeadName        string
+	EligiblePosIdx  int
 	EligiblePosName string
-	PositionIdx   int
-	IsEligible    bool
+	PositionIdx     int
+	IsEligible      bool
 }
 
 // SpecialPositionResidentSeed defines data needed to create a resident record
@@ -121,11 +121,11 @@ type SpecialPositionResidentSeed struct {
 
 // FinancialCategorySeed defines data for seeding financial categories.
 type FinancialCategorySeed struct {
-	ID        string
-	RTID      string
-	Name      string
-	Type      string // "income" or "expense"
-	IsActive  bool
+	ID       string
+	RTID     string
+	Name     string
+	Type     string // "income" or "expense"
+	IsActive bool
 }
 
 // DueSeed defines data for seeding dues.
@@ -287,7 +287,7 @@ var positionRTIndex = map[string]int{
 
 // positionHouseNumbers maps each RT index to house numbers.
 var positionHouseNumbers = map[int][]string{
-	0: {"06", "07", "08", "09", "10"},                 // RT 03
+	0: {"06", "07", "08", "09", "10"},                     // RT 03
 	4: {"U12/16", "U12/18", "U12/20", "U12/22", "U12/24"}, // RT 002
 }
 
@@ -319,15 +319,15 @@ var eligiblePositionIdx = map[string]int{
 var CanonicalPositionUsers []PositionSeed
 
 func init() {
-	positions := []string{"ketua", "wakil_ketua", "sekretaris", "bendahara", "keamanan", "sosial", "kebersihan_pembangunan"}
+	positions := []string{"ketua", "wakil_ketua", "sekretaris", "bendahara", "keamanan", "sosial", "kebersihan_pembangunan", "anggota"}
 	posNames := map[string]string{
-		"ketua":                  "Ketua",
-		"wakil_ketua":            "Wakil Ketua",
-		"sekretaris":             "Sekretaris",
-		"bendahara":              "Bendahara",
-		"keamanan":               "Keamanan",
-		"sosial":                 "Sosial",
-		"kebersihan_pembangunan": "Operasional",
+		"ketua":       "Ketua",
+		"wakil_ketua": "Wakil Ketua",
+		"sekretaris":  "Sekretaris",
+		"bendahara":   "Bendahara",
+		"keamanan":    "Keamanan",
+		"sosial":      "Sosial",
+		"anggota":     "Anggota",
 	}
 	// RT labels match the simplified email pattern used in database
 	rtLabels := map[int]string{
@@ -348,6 +348,7 @@ func init() {
 		"sosial":                 true,
 		"keamanan":               false,
 		"kebersihan_pembangunan": false,
+		"anggota":                false,
 	}
 
 	seedIdx := 0
@@ -519,20 +520,20 @@ func init() {
 		// Income category
 		incomeID := fmt.Sprintf("%08x-0000-3000-8000-000000000001", (8000+rtIdx)<<16|(8000+0))
 		CanonicalFinancialCategories = append(CanonicalFinancialCategories, FinancialCategorySeed{
-			ID:        incomeID,
-			RTID:      rtID,
-			Name:      "Iuran Warga",
-			Type:      "income",
-			IsActive:  true,
+			ID:       incomeID,
+			RTID:     rtID,
+			Name:     "Iuran Warga",
+			Type:     "income",
+			IsActive: true,
 		})
 		// Expense category
 		expenseID := fmt.Sprintf("%08x-0000-3000-8000-000000000002", (8000+rtIdx)<<16|(8000+1))
 		CanonicalFinancialCategories = append(CanonicalFinancialCategories, FinancialCategorySeed{
-			ID:        expenseID,
-			RTID:      rtID,
-			Name:      "Operasional RT",
-			Type:      "expense",
-			IsActive:  true,
+			ID:       expenseID,
+			RTID:     rtID,
+			Name:     "Operasional RT",
+			Type:     "expense",
+			IsActive: true,
 		})
 	}
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -384,4 +385,51 @@ func (s *Service) GetSystemProfile(ctx context.Context, tx *sql.Tx, userID strin
 		return nil, err
 	}
 	return result, nil
+}
+
+// UpdateProfile updates the profile of the authenticated user.
+func (s *Service) UpdateProfile(ctx context.Context, tx *sql.Tx, userID, fullName string, rawPhone, rawEmail *string) error {
+	trimmedName := strings.TrimSpace(fullName)
+	var canonPhone *string
+	if rawPhone != nil && strings.TrimSpace(*rawPhone) != "" {
+		p, err := NormalizePhone(*rawPhone)
+		if err != nil {
+			return fmt.Errorf("invalid phone number: %w", err)
+		}
+		canonPhone = &p
+	}
+
+	var canonEmail *string
+	if rawEmail != nil && strings.TrimSpace(*rawEmail) != "" {
+		em := strings.ToLower(strings.TrimSpace(*rawEmail))
+		canonEmail = &em
+	}
+
+	return UpdateUserProfile(ctx, tx, userID, trimmedName, canonPhone, canonEmail)
+}
+
+// ChangePassword changes the password of the authenticated user after verifying current password.
+func (s *Service) ChangePassword(ctx context.Context, tx *sql.Tx, userID, currentPassword, newPassword string) error {
+	if strings.TrimSpace(currentPassword) == "" {
+		return fmt.Errorf("current password is required")
+	}
+	if len(newPassword) < 8 {
+		return fmt.Errorf("new password must be at least 8 characters")
+	}
+
+	currentHash, err := GetUserPasswordHash(ctx, tx, userID)
+	if err != nil {
+		return err
+	}
+
+	if err := Verify(currentPassword, currentHash); err != nil {
+		return ErrInvalidPassword
+	}
+
+	newHash, err := Hash(newPassword)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	return UpdateUserPassword(ctx, tx, userID, newHash)
 }

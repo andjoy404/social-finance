@@ -7,7 +7,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,7 +15,6 @@ import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
-import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/features/kas/data/kas_api_models.dart';
 import 'package:social_finance/features/kas/data/kas_models.dart';
@@ -44,7 +42,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
   final _tanggalCtrl = TextEditingController();
   final _nominalCtrl = TextEditingController();
   final _keteranganCtrl = TextEditingController();
-  final _referensiCtrl = TextEditingController();
 
   List<BackendCategory> _expenseCategories = [];
   String? _selectedCategoryId;
@@ -100,7 +97,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
     _tanggalCtrl.dispose();
     _nominalCtrl.dispose();
     _keteranganCtrl.dispose();
-    _referensiCtrl.dispose();
     super.dispose();
   }
 
@@ -113,7 +109,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
     if (_nominalCtrl.text.trim().isEmpty) {
       errors.add('Nominal harus diisi.');
     } else {
-      final parsed = int.tryParse(_nominalCtrl.text.trim());
+      final parsed = parseRupiahInput(_nominalCtrl.text.trim());
       if (parsed == null || parsed <= 0) {
         errors.add('Nominal harus berupa angka yang lebih besar dari 0.');
       }
@@ -135,7 +131,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
     });
 
     try {
-      final nominalInt = int.tryParse(_nominalCtrl.text.trim()) ?? 0;
+      final nominalInt = parseRupiahInput(_nominalCtrl.text.trim()) ?? 0;
       if (nominalInt <= 0) {
         setState(() {
           _error = 'Nominal harus lebih besar dari 0.';
@@ -148,9 +144,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       final occurredAt =
           DateTime.tryParse(_tanggalCtrl.text.trim()) ?? DateTime.now();
 
-      final desc = _referensiCtrl.text.trim().isNotEmpty
-          ? '${_keteranganCtrl.text.trim()} (Ref: ${_referensiCtrl.text.trim()})'
-          : _keteranganCtrl.text.trim();
+      final desc = _keteranganCtrl.text.trim();
 
       await repository.createTransaction(
         categoryId: _selectedCategoryId,
@@ -253,8 +247,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return DoubleBackExitScope(
-      child: PopScope(
+    return PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, result) async {
           if (didPop) return;
@@ -264,10 +257,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
           appBar: AppBar(
             centerTitle: false,
             title: const Text('Tambah Kas Keluar'),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => _confirmCancel(),
-            ),
           ),
           body: Form(
             key: _formKey,
@@ -353,28 +342,43 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                         padding: const EdgeInsets.all(AppSpacing.md),
                         decoration: BoxDecoration(
                           border: Border.all(
-                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                            color: isDark
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
                           ),
                           borderRadius: BorderRadius.circular(AppRadius.base),
-                          color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                          color: isDark
+                              ? AppColors.darkSurface
+                              : AppColors.lightSurface,
                         ),
-                        child: Text('Operasional RT', style: theme.textTheme.bodyLarge),
+                        child: Text(
+                          'Operasional RT',
+                          style: theme.textTheme.bodyLarge,
+                        ),
                       )
                     else
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                        ),
                         decoration: BoxDecoration(
                           border: Border.all(
-                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                            color: isDark
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
                           ),
                           borderRadius: BorderRadius.circular(AppRadius.base),
-                          color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                          color: isDark
+                              ? AppColors.darkSurface
+                              : AppColors.lightSurface,
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
                             value: _selectedCategoryId,
                             isExpanded: true,
-                            dropdownColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                            dropdownColor: isDark
+                                ? AppColors.darkSurface
+                                : AppColors.lightSurface,
                             items: _expenseCategories.map((c) {
                               return DropdownMenuItem<String>(
                                 value: c.id,
@@ -507,9 +511,10 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
-                                    '💵',
-                                    style: TextStyle(fontSize: 16),
+                                  Icon(
+                                    Icons.payments_outlined,
+                                    color: AppColors.info,
+                                    size: 16,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
@@ -559,9 +564,10 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Text(
-                                    '🏦',
-                                    style: TextStyle(fontSize: 16),
+                                  Icon(
+                                    Icons.account_balance_outlined,
+                                    color: AppColors.accent,
+                                    size: 16,
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
@@ -592,7 +598,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                   label: 'Nominal (Rp)',
                   hintText: 'Masukkan nominal',
                   keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  inputFormatters: [RupiahInputFormatter()],
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: AppSpacing.sm),
@@ -619,14 +625,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                   label: 'Keterangan',
                   hintText: 'Deskripsi transaksi',
                 ),
-                const SizedBox(height: AppSpacing.lg),
-
-                // Referensi (optional)
-                AppTextField(
-                  controller: _referensiCtrl,
-                  label: 'Referensi (opsional)',
-                  hintText: 'No. bukti transfer, dll.',
-                ),
                 const SizedBox(height: AppSpacing.xxl),
 
                 // Horizontal buttons: Simpan + Batal
@@ -648,9 +646,9 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                           child: OutlinedButton(
                             onPressed: _saving ? null : _save,
                             style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: AppColors.danger),
-                              foregroundColor: AppColors.danger,
-                              backgroundColor: AppColors.danger.withValues(
+                              side: const BorderSide(color: AppColors.accent),
+                              foregroundColor: AppColors.accent,
+                              backgroundColor: AppColors.accent.withValues(
                                 alpha: isDark ? 0.15 : 0.08,
                               ),
                               shape: RoundedRectangleBorder(
@@ -667,7 +665,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                                       strokeWidth: 2,
                                       backgroundColor: Colors.transparent,
                                       valueColor: AlwaysStoppedAnimation<Color>(
-                                        AppColors.danger,
+                                        AppColors.accent,
                                       ),
                                     ),
                                   )
@@ -713,7 +711,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                 ),
               ],
             ),
-          ),
         ),
       ),
     );

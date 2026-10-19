@@ -19,6 +19,66 @@ interface FinancialChartProps {
   data: FinancialDataItem[]
 }
 
+const FULL_MONTH_MAP: Record<string, string> = {
+  Jan: 'Januari',
+  Feb: 'Februari',
+  Mar: 'Maret',
+  Apr: 'April',
+  Mei: 'Mei',
+  Jun: 'Juni',
+  Jul: 'Juli',
+  Agu: 'Agustus',
+  Sep: 'September',
+  Okt: 'Oktober',
+  Nov: 'November',
+  Des: 'Desember',
+}
+
+function CustomFinancialTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ dataKey?: string; value?: number }>
+  label?: string
+}) {
+  if (!active || !payload || payload.length === 0) return null
+
+  const incomeItem = payload.find((p) => p.dataKey === 'income')
+  const expenseItem = payload.find((p) => p.dataKey === 'expense')
+  const incomeVal = Number(incomeItem?.value ?? 0)
+  const expenseVal = Number(expenseItem?.value ?? 0)
+  const fullMonth = (label && FULL_MONTH_MAP[label]) ? FULL_MONTH_MAP[label] : (label ?? '')
+
+  return (
+    <div
+      style={{
+        background: 'var(--sf-surface)',
+        border: '1px solid var(--sf-border)',
+        borderRadius: 'var(--sf-radius-sm)',
+        fontSize: '12px',
+        boxShadow: 'var(--sf-shadow-sm)',
+        padding: '8px 12px',
+        color: 'var(--sf-text)',
+        minWidth: 160,
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--sf-text)' }}>
+        {fullMonth}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: 'var(--sf-success)', fontWeight: 600 }}>
+        <span>Masuk</span>
+        <span style={{ fontFamily: 'monospace' }}>Rp.{incomeVal.toLocaleString('id-ID')}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: 'var(--sf-danger)', fontWeight: 600, marginTop: 2 }}>
+        <span>Keluar</span>
+        <span style={{ fontFamily: 'monospace' }}>Rp.{expenseVal.toLocaleString('id-ID')}</span>
+      </div>
+    </div>
+  )
+}
+
 export function FinancialChart({ data }: FinancialChartProps) {
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -50,16 +110,7 @@ export function FinancialChart({ data }: FinancialChartProps) {
           }}
         />
         <Tooltip
-          formatter={(value: number) => [`Rp ${value.toLocaleString('id-ID')}`, '']}
-          contentStyle={{
-            background: 'var(--sf-surface)',
-            border: '1px solid var(--sf-border)',
-            borderRadius: 'var(--sf-radius-sm)',
-            fontSize: '12px',
-            boxShadow: 'var(--sf-shadow-sm)',
-            padding: '6px 10px',
-          }}
-          itemStyle={{ color: 'var(--sf-text)' }}
+          content={<CustomFinancialTooltip />}
           cursor={{ fill: 'var(--sf-accent)', fillOpacity: 0.10 }}
         />
         <Legend
@@ -85,3 +136,4 @@ export function FinancialChart({ data }: FinancialChartProps) {
     </ResponsiveContainer>
   )
 }
+

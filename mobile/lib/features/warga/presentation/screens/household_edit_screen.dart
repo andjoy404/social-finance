@@ -281,14 +281,18 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
 
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Edit Warga')),
+        appBar: AppBar(
+          title: const Text('Edit Warga'),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_notFound) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Edit Warga')),
+        appBar: AppBar(
+          title: const Text('Edit Warga'),
+        ),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -323,10 +327,6 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Edit Warga'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => _confirmCancel(),
-          ),
         ),
         body: Form(
           key: _formKey,

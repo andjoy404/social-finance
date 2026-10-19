@@ -63,6 +63,7 @@ type CreateHouseholdInput struct {
 	OccupancyStatus OccupancyStatus `json:"occupancy_status"`
 	StartDate       *string         `json:"start_date,omitempty"` // YYYY-MM-DD
 	IsActive        *bool           `json:"is_active,omitempty"`
+	Password        *string         `json:"password,omitempty"`
 }
 
 // UpdateHouseholdInput holds optional fields for updating a household.
@@ -77,6 +78,7 @@ type UpdateHouseholdInput struct {
 	StartDate       *string          `json:"start_date,omitempty"`
 	OccupancyStatus *OccupancyStatus `json:"occupancy_status,omitempty"`
 	IsActive        *bool            `json:"is_active,omitempty"`
+	Password        *string          `json:"password,omitempty"`
 }
 
 // MoveHouseholdInput holds the fields required to move a household to a new physical house.
@@ -122,6 +124,7 @@ type CreateResidentInput struct {
 	Email              *string `json:"email"`
 	RelationshipToHead *string `json:"relationship_to_head"`
 	StartDate          *string `json:"start_date,omitempty"` // YYYY-MM-DD
+	Password           *string `json:"password,omitempty"`
 }
 
 // MoveResidentInput holds fields for moving a resident to another household.
@@ -149,6 +152,7 @@ type UpdateResidentInput struct {
 	Email              *string `json:"email"`
 	RelationshipToHead *string `json:"relationship_to_head"`
 	IsActive           *bool   `json:"is_active"`
+	Password           *string `json:"password,omitempty"`
 }
 
 // ValidateNik validates that the NIK (national ID) is exactly 16 digits.

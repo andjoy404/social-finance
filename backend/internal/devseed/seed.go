@@ -442,6 +442,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		"keamanan":               {"warga.read", "reports.read"},
 		"sosial":                 {"warga.read", "reports.read"},
 		"kebersihan_pembangunan": {"warga.read", "reports.read"},
+		"anggota":                {"warga.read", "reports.read"},
 	}
 
 	for position, codes := range positionPermissions {

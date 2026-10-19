@@ -58,7 +58,7 @@ class BackendTransaction {
       status: json['status'] as String? ?? '',
       reversesTransactionId: json['reverses_transaction_id'] as String?,
       paymentId: json['payment_id'] as String?,
-      paymentNo: json['payment_no'] as String?,
+      paymentNo: (json['payment_no'] ?? json['reference_no']) as String?,
       description: json['description'] as String? ?? '',
       occurredAt: json['occurred_at'] as String?,
       categoryName: json['category_name'] as String?,

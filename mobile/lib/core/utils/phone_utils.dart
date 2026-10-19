@@ -80,4 +80,30 @@ class PhoneUtils {
     }
     return clean;
   }
+
+  /// Formats a phone number for user display using local Indonesian format (08...).
+  ///
+  /// Examples:
+  /// - `+6281298918220` -> `081298918220`
+  /// - `6281298918220` -> `081298918220`
+  /// - `081298918220` -> `081298918220`
+  /// - `null` or empty -> `-`
+  static String formatDisplay(String? raw) {
+    if (raw == null) return '-';
+    final clean = raw.trim().replaceAll(RegExp(r'[\s\-]'), '');
+    if (clean.isEmpty || clean == '-' || clean == '—') return '-';
+    if (clean.startsWith('+628')) {
+      return '08${clean.substring(4)}';
+    }
+    if (clean.startsWith('+62')) {
+      return '0${clean.substring(3)}';
+    }
+    if (clean.startsWith('628')) {
+      return '08${clean.substring(3)}';
+    }
+    if (clean.startsWith('62')) {
+      return '0${clean.substring(2)}';
+    }
+    return clean;
+  }
 }

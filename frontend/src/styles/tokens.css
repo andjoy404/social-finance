@@ -97,6 +97,14 @@
   --sf-chart-danger: #ef5350;
   --sf-chart-danger-glow: rgba(239, 83, 80, 0.2);
 
+  /* KAS table income/expense cell tint */
+  --sf-kas-income-bg: #f0fdf4;
+  --sf-kas-income-bg-hover: #dcfce7;
+  --sf-kas-income-header-bg: color-mix(in srgb, #22c55e 8%, var(--sf-bg));
+  --sf-kas-expense-bg: #fef2f2;
+  --sf-kas-expense-bg-hover: #fee2e2;
+  --sf-kas-expense-header-bg: color-mix(in srgb, #ef4444 8%, var(--sf-bg));
+
   /* Shadows — lighter for light background */
   --sf-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
   --sf-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -134,6 +142,14 @@
   --sf-chart-danger: #ff3366;
   --sf-chart-danger-glow: rgba(255, 51, 102, 0.4);
 
+  /* KAS table income/expense cell tint */
+  --sf-kas-income-bg: rgba(34, 197, 94, 0.12);
+  --sf-kas-income-bg-hover: rgba(34, 197, 94, 0.20);
+  --sf-kas-income-header-bg: color-mix(in srgb, #22c55e 12%, var(--sf-bg));
+  --sf-kas-expense-bg: rgba(239, 68, 68, 0.12);
+  --sf-kas-expense-bg-hover: rgba(239, 68, 68, 0.20);
+  --sf-kas-expense-header-bg: color-mix(in srgb, #ef4444 12%, var(--sf-bg));
+
   /* Semantic hover states */
   --sf-danger-hover: #ff6b7a;
 }
@@ -160,6 +176,12 @@
     --sf-chart-success-glow: rgba(0, 255, 136, 0.4);
     --sf-chart-danger: #ff3366;
     --sf-chart-danger-glow: rgba(255, 51, 102, 0.4);
+    --sf-kas-income-bg: rgba(34, 197, 94, 0.12);
+    --sf-kas-income-bg-hover: rgba(34, 197, 94, 0.20);
+    --sf-kas-income-header-bg: color-mix(in srgb, #22c55e 12%, var(--sf-bg));
+    --sf-kas-expense-bg: rgba(239, 68, 68, 0.12);
+    --sf-kas-expense-bg-hover: rgba(239, 68, 68, 0.20);
+    --sf-kas-expense-header-bg: color-mix(in srgb, #ef4444 12%, var(--sf-bg));
   }
 }
 

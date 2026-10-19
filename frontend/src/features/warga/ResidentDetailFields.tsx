@@ -1,6 +1,7 @@
 // ResidentDetailFields — renders the same form-field layout as Ubah / Create
 // but all inputs are disabled/read-only. No role/relationship info displayed.
 import type { ApiResident } from '@/app/api'
+import { formatPhoneDisplay } from '@/styles/format'
 import {
   UserOutlined,
   IdcardOutlined,
@@ -85,7 +86,7 @@ export function ResidentDetailFields({
             id="rd-phone"
             className="sf-form-input"
             type="text"
-            value={resident.phone ?? ''}
+            value={resident.phone ? formatPhoneDisplay(resident.phone) : ''}
             readOnly
             disabled
             aria-readonly

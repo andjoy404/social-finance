@@ -79,6 +79,32 @@ class AuthService {
     }
     return AuthUser.fromJson(data.cast<String, dynamic>());
   }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await client.dio.put(
+      '/api/v1/auth/password',
+      data: {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      },
+    );
+  }
+
+  Future<void> updateProfile({
+    required String fullName,
+    String? phone,
+    String? email,
+  }) async {
+    final body = <String, dynamic>{
+      'full_name': fullName,
+      if (phone != null) 'phone': phone,
+      if (email != null) 'email': email,
+    };
+    await client.dio.put('/api/v1/auth/profile', data: body);
+  }
 }
 
 final authServiceProvider = Provider<AuthService>((ref) {

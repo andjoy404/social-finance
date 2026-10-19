@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"social-finance/internal/auth"
 )
 
 // Standard domain errors.
@@ -44,6 +45,90 @@ func isPGNikViolation(err error) bool {
 // stringPtr returns a pointer to the given string value.
 func stringPtr(s string) *string {
 	return &s
+}
+
+func syncResidentUserAccount(ctx context.Context, tx *sql.Tx, rtID, residentID, fullName string, phone, email, password *string) error {
+	if password == nil || strings.TrimSpace(*password) == "" {
+		return nil
+	}
+	rawPass := strings.TrimSpace(*password)
+	if len(rawPass) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+	hash, err := auth.Hash(rawPass)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	// Check if resident already has user_id
+	var existingUserID sql.NullString
+	var resEmail, resPhone sql.NullString
+	_ = tx.QueryRowContext(ctx, `SELECT user_id, email, phone FROM residents WHERE id = $1`, residentID).Scan(&existingUserID, &resEmail, &resPhone)
+
+	targetEmail := ""
+	if email != nil && strings.TrimSpace(*email) != "" {
+		targetEmail = strings.ToLower(strings.TrimSpace(*email))
+	} else if resEmail.Valid && strings.TrimSpace(resEmail.String) != "" {
+		targetEmail = strings.ToLower(strings.TrimSpace(resEmail.String))
+	}
+
+	var canonPhone *string
+	if phone != nil && strings.TrimSpace(*phone) != "" {
+		if cp, err := auth.NormalizePhone(*phone); err == nil {
+			canonPhone = &cp
+		}
+	} else if resPhone.Valid && strings.TrimSpace(resPhone.String) != "" {
+		if cp, err := auth.NormalizePhone(resPhone.String); err == nil {
+			canonPhone = &cp
+		}
+	}
+
+	if existingUserID.Valid && existingUserID.String != "" {
+		_, err = tx.ExecContext(ctx, `UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, existingUserID.String, hash)
+		return err
+	}
+
+	var foundUserID string
+	if targetEmail != "" {
+		_ = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE lower(email) = $1 LIMIT 1`, targetEmail).Scan(&foundUserID)
+	}
+	if foundUserID == "" && canonPhone != nil {
+		_ = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE phone = $1 LIMIT 1`, *canonPhone).Scan(&foundUserID)
+	}
+
+	if foundUserID != "" {
+		_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, foundUserID, hash)
+		_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, foundUserID, residentID)
+		_, _ = tx.ExecContext(ctx,
+			`INSERT INTO user_rt_memberships (user_id, rt_id, role, is_active)
+			 VALUES ($1, $2, 'warga', true)
+			 ON CONFLICT (user_id, rt_id) WHERE is_active = true DO NOTHING`,
+			foundUserID, rtID,
+		)
+		return nil
+	}
+
+	if targetEmail == "" {
+		if canonPhone != nil {
+			targetEmail = strings.TrimPrefix(*canonPhone, "+") + "@warga.local"
+		} else {
+			targetEmail = "warga-" + residentID[:8] + "@warga.local"
+		}
+	}
+
+	newUserID, err := auth.CreateNewUser(ctx, tx, targetEmail, canonPhone, hash, fullName, "")
+	if err != nil {
+		return fmt.Errorf("create user: %w", err)
+	}
+
+	_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, newUserID, residentID)
+	_, _ = tx.ExecContext(ctx,
+		`INSERT INTO user_rt_memberships (user_id, rt_id, role, is_active)
+		 VALUES ($1, $2, 'warga', true)
+		 ON CONFLICT (user_id, rt_id) WHERE is_active = true DO NOTHING`,
+		newUserID, rtID,
+	)
+	return nil
 }
 
 type updateField struct {
@@ -339,6 +424,12 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 	item.Nik = resItem.Nik
 	item.Phone = resItem.Phone
 	item.Email = resItem.Email
+
+	if in.Password != nil && strings.TrimSpace(*in.Password) != "" {
+		if err := syncResidentUserAccount(ctx, tx, in.RTID, resItem.ID, headName, in.Phone, in.Email, in.Password); err != nil {
+			return nil, err
+		}
+	}
 
 	return &item, nil
 }
@@ -653,9 +744,10 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 		hasChanges = true
 	}
 
+	var headResID sql.NullString
+
 	// 3. Head Resident updates or repair legacy household
 	if hoID.Valid {
-		var headResID sql.NullString
 		err = tx.QueryRowContext(ctx,
 			`SELECT r.id
 			 FROM residency_periods rp
@@ -779,6 +871,17 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return nil, fmt.Errorf("update household: %w", err)
+		}
+		hasChanges = true
+	}
+
+	if in.Password != nil && strings.TrimSpace(*in.Password) != "" && headResID.Valid && headResID.String != "" {
+		hName := currentHeadName.String
+		if effectiveHeadName != nil && strings.TrimSpace(*effectiveHeadName) != "" {
+			hName = strings.TrimSpace(*effectiveHeadName)
+		}
+		if err := syncResidentUserAccount(ctx, tx, rtID, headResID.String, hName, in.Phone, in.Email, in.Password); err != nil {
+			return nil, err
 		}
 		hasChanges = true
 	}
@@ -1082,6 +1185,12 @@ func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtI
 			return nil, fmt.Errorf("create residency period: %w", err)
 		}
 
+		if in.Password != nil && strings.TrimSpace(*in.Password) != "" {
+			if err := syncResidentUserAccount(ctx, tx, rtID, item.ID, in.FullName, in.Phone, in.Email, in.Password); err != nil {
+				return nil, err
+			}
+		}
+
 		return ResidentGetByID(ctx, tx, item.ID, rtID)
 	}
 
@@ -1101,6 +1210,12 @@ func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtI
 			return nil, ErrDuplicateNik
 		}
 		return nil, fmt.Errorf("create special resident: %w", err)
+	}
+
+	if in.Password != nil && strings.TrimSpace(*in.Password) != "" {
+		if err := syncResidentUserAccount(ctx, tx, rtID, item.ID, in.FullName, in.Phone, in.Email, in.Password); err != nil {
+			return nil, err
+		}
 	}
 
 	return ResidentGetByID(ctx, tx, item.ID, rtID)
@@ -1597,6 +1712,40 @@ func ResidentUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Update
 			return nil, ErrNotFound
 		}
 		hasChanges = true
+	}
+
+	if in.Password != nil && strings.TrimSpace(*in.Password) != "" {
+		name := ""
+		if in.FullName != nil {
+			name = *in.FullName
+		}
+		if err := syncResidentUserAccount(ctx, tx, rtID, id, name, in.Phone, in.Email, in.Password); err != nil {
+			return nil, err
+		}
+		hasChanges = true
+	}
+
+	// Synchronize linked user account so the profile (/auth/me) reflects resident data changes.
+	// Mirrors UpdateUserProfile (auth/repository.go) which syncs users -> residents.
+	if in.FullName != nil || in.Phone != nil || in.Email != nil {
+		var userID sql.NullString
+		if err := tx.QueryRowContext(ctx,
+			`SELECT user_id FROM residents WHERE id = $1 AND rt_id = $2`,
+			id, rtID,
+		).Scan(&userID); err == nil && userID.Valid && userID.String != "" {
+			var fullName *string
+			if in.FullName != nil {
+				fullName = in.FullName
+			}
+			_, _ = tx.ExecContext(ctx, `
+				UPDATE users
+				SET full_name = CASE WHEN $2 != '' THEN $2 ELSE full_name END,
+				    phone = COALESCE($3, phone),
+				    email = COALESCE(NULLIF($4, ''), email),
+				    updated_at = NOW()
+				WHERE id = $1 AND is_active = true
+			`, userID.String, fullName, in.Phone, in.Email)
+		}
 	}
 
 	if !hasChanges {

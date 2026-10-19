@@ -3,7 +3,9 @@ package rt
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -124,11 +126,23 @@ func buildRouter(pool *database.Pool) *chi.Mux {
 	r.Use(auth.RequireAuth)
 	r.Use(auth.RequireSystemRole(auth.SystemRoleSuperAdmin))
 
+	r.Get("/api/v1/rws", h.ListAllRWs)
+	r.Post("/api/v1/rws", h.CreateRW)
+	r.Get("/api/v1/rws/{id}", h.GetRWByID)
+	r.Patch("/api/v1/rws/{id}", h.UpdateRW)
+	r.Patch("/api/v1/rws/{id}/deactivate", h.DeactivateRW)
+	r.Get("/api/v1/rws/{id}/memberships", h.ListRWMemberships)
+	r.Put("/api/v1/rws/{id}/memberships/{userId}/jabatan", h.SetRWJabatan)
+	r.Delete("/api/v1/rws/{id}/memberships/{userId}/jabatan", h.RemoveRWJabatan)
+
 	r.Post("/api/v1/rts", h.Create)
 	r.Get("/api/v1/rts/{id}", h.GetByID)
 	r.Get("/api/v1/rts", h.ListAll)
 	r.Patch("/api/v1/rts/{id}", h.Update)
 	r.Patch("/api/v1/rts/{id}/deactivate", h.Deactivate)
+	r.Get("/api/v1/rts/{id}/memberships", h.ListMemberships)
+	r.Put("/api/v1/rts/{id}/memberships/{userId}/jabatan", h.SetJabatan)
+	r.Delete("/api/v1/rts/{id}/memberships/{userId}/jabatan", h.RemoveJabatan)
 
 	return r
 }
@@ -499,5 +513,407 @@ func TestUnauthorized(t *testing.T) {
 
 	if rec2.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 for invalid token, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+}
+
+// ── RW Jabatan Assignment Regression Tests ──────────────────────────────────────
+
+func TestRWJabatanRouteRegistration(t *testing.T) {
+	pool := testPool(t)
+	r := buildRouter(pool)
+	setupEnv()
+	token := superAdminToken(t)
+
+	pool.Raw().Exec("DELETE FROM rws WHERE rw_number IN (880, 881)")
+	t.Cleanup(func() {
+		pool.Raw().Exec("DELETE FROM rws WHERE rw_number IN (880, 881)")
+		pool.Close()
+	})
+
+	// Create RW for tests
+	createReq := httptest.NewRequest("POST", "/api/v1/rws",
+		bytes.NewBufferString(`{"rw_number":880,"name":"RW 880"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	r.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create RW failed: %d %s", createRec.Code, createRec.Body.String())
+	}
+	var rwResp map[string]string
+	json.Unmarshal(createRec.Body.Bytes(), &rwResp)
+	rwID := rwResp["id"]
+
+	// Test PUT route is registered and reaches handler (not 404)
+	putReq := httptest.NewRequest("PUT",
+		"/api/v1/rws/"+rwID+"/memberships/test-user-uuid/jabatan",
+		bytes.NewBufferString(`{"jabatan":"ketua","rt_id":"test-rt-uuid"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.Header.Set("Authorization", "Bearer "+token)
+	putRec := httptest.NewRecorder()
+	r.ServeHTTP(putRec, putReq)
+
+	// Must NOT be 404 — if the route is registered, handler executes
+	if putRec.Code == http.StatusNotFound {
+		t.Errorf("PUT route not registered: got 404, expected handler to execute")
+	}
+
+	// Test DELETE route is registered and reaches handler (not 404)
+	deleteReq := httptest.NewRequest("DELETE",
+		"/api/v1/rws/"+rwID+"/memberships/test-user-uuid/jabatan", nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+token)
+	deleteRec := httptest.NewRecorder()
+	r.ServeHTTP(deleteRec, deleteReq)
+
+	if deleteRec.Code == http.StatusNotFound {
+		t.Errorf("DELETE route not registered: got 404, expected handler to execute")
+	}
+
+	// Test GET memberships route
+	getReq := httptest.NewRequest("GET", "/api/v1/rws/"+rwID+"/memberships", nil)
+	getReq.Header.Set("Authorization", "Bearer "+token)
+	getRec := httptest.NewRecorder()
+	r.ServeHTTP(getRec, getReq)
+
+	if getRec.Code == http.StatusNotFound {
+		t.Errorf("GET memberships route not registered: got 404, expected handler to execute")
+	}
+}
+
+func TestRWJabatanRejectsNonSuperAdmin(t *testing.T) {
+	pool := testPool(t)
+	r := buildRouter(pool)
+	setupEnv()
+	token := superAdminToken(t)
+
+	pool.Raw().Exec("DELETE FROM rws WHERE rw_number = 882")
+	t.Cleanup(func() {
+		pool.Raw().Exec("DELETE FROM rws WHERE rw_number = 882")
+		pool.Close()
+	})
+
+	// Create RW
+	createReq := httptest.NewRequest("POST", "/api/v1/rws",
+		bytes.NewBufferString(`{"rw_number":882,"name":"RW 882"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	r.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create RW failed: %d %s", createRec.Code, createRec.Body.String())
+	}
+	var rwResp map[string]string
+	json.Unmarshal(createRec.Body.Bytes(), &rwResp)
+	rwID := rwResp["id"]
+
+	// Build a non-super-admin token
+	auth.SigningSecret = []byte(testSigningKey)
+	claims := auth.TokenClaims{
+		UserID: "regular-user-uuid",
+		Role:   "warga",
+		RTID:   "test-rt-uuid",
+	}
+	claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(15 * time.Minute))
+	claims.IssuedAt = jwt.NewNumericDate(time.Now())
+	regularTok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSigningKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Non-super-admin should get 403, NOT 404
+	putReq := httptest.NewRequest("PUT",
+		"/api/v1/rws/"+rwID+"/memberships/test-user/jabatan",
+		bytes.NewBufferString(`{"jabatan":"ketua","rt_id":"test-rt"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.Header.Set("Authorization", "Bearer "+regularTok)
+	putRec := httptest.NewRecorder()
+	r.ServeHTTP(putRec, putReq)
+
+	if putRec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-super-admin, got %d: %s", putRec.Code, putRec.Body.String())
+	}
+}
+
+func TestRWJabatanReturns401WithoutAuth(t *testing.T) {
+	pool := testPool(t)
+	r := buildRouter(pool)
+
+	setupEnv()
+	token := superAdminToken(t)
+
+	pool.Raw().Exec("DELETE FROM rws WHERE rw_number = 883")
+	t.Cleanup(func() {
+		pool.Raw().Exec("DELETE FROM rws WHERE rw_number = 883")
+		pool.Close()
+	})
+
+	// Create RW
+	createReq := httptest.NewRequest("POST", "/api/v1/rws",
+		bytes.NewBufferString(`{"rw_number":883,"name":"RW 883"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	r.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create RW failed: %d %s", createRec.Code, createRec.Body.String())
+	}
+	var rwResp map[string]string
+	json.Unmarshal(createRec.Body.Bytes(), &rwResp)
+	rwID := rwResp["id"]
+
+	// PUT without auth token should return 401
+	putReq := httptest.NewRequest("PUT",
+		"/api/v1/rws/"+rwID+"/memberships/test-user/jabatan",
+		bytes.NewBufferString(`{"jabatan":"ketua","rt_id":"test-rt"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	// No Authorization header
+	putRec := httptest.NewRecorder()
+	r.ServeHTTP(putRec, putReq)
+
+	if putRec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without auth token, got %d: %s", putRec.Code, putRec.Body.String())
+	}
+
+	// DELETE without auth token should also return 401
+	deleteReq := httptest.NewRequest("DELETE",
+		"/api/v1/rws/"+rwID+"/memberships/test-user/jabatan", nil)
+	// No Authorization header
+	deleteRec := httptest.NewRecorder()
+	r.ServeHTTP(deleteRec, deleteReq)
+
+	if deleteRec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without auth token (DELETE), got %d: %s", deleteRec.Code, deleteRec.Body.String())
+	}
+}
+
+func TestRWJabatanReturns400ForInvalidInput(t *testing.T) {
+	pool := testPool(t)
+	r := buildRouter(pool)
+	setupEnv()
+	token := superAdminToken(t)
+
+	pool.Raw().Exec("DELETE FROM rws WHERE rw_number = 884")
+	t.Cleanup(func() {
+		pool.Raw().Exec("DELETE FROM rws WHERE rw_number = 884")
+		pool.Close()
+	})
+
+	// Create RW
+	createReq := httptest.NewRequest("POST", "/api/v1/rws",
+		bytes.NewBufferString(`{"rw_number":884,"name":"RW 884"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+token)
+	createRec := httptest.NewRecorder()
+	r.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create RW failed: %d %s", createRec.Code, createRec.Body.String())
+	}
+	var rwResp map[string]string
+	json.Unmarshal(createRec.Body.Bytes(), &rwResp)
+	rwID := rwResp["id"]
+
+	// Missing rt_id should return 400
+	putReq := httptest.NewRequest("PUT",
+		"/api/v1/rws/"+rwID+"/memberships/test-user/jabatan",
+		bytes.NewBufferString(`{"jabatan":"ketua"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.Header.Set("Authorization", "Bearer "+token)
+	putRec := httptest.NewRecorder()
+	r.ServeHTTP(putRec, putReq)
+
+	if putRec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing rt_id, got %d: %s", putRec.Code, putRec.Body.String())
+	}
+
+	// Invalid jabatan should return 400
+	putReq2 := httptest.NewRequest("PUT",
+		"/api/v1/rws/"+rwID+"/memberships/test-user/jabatan",
+		bytes.NewBufferString(`{"jabatan":"invalid_role","rt_id":"test-rt"}`))
+	putReq2.Header.Set("Content-Type", "application/json")
+	putReq2.Header.Set("Authorization", "Bearer "+token)
+	putRec2 := httptest.NewRecorder()
+	r.ServeHTTP(putRec2, putReq2)
+
+	if putRec2.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid jabatan, got %d: %s", putRec2.Code, putRec2.Body.String())
+	}
+}
+
+func TestRWJabatanReturns404ForNotRWFound(t *testing.T) {
+	pool := testPool(t)
+	r := buildRouter(pool)
+	setupEnv()
+	token := superAdminToken(t)
+
+	t.Cleanup(func() { pool.Close() })
+
+	// PUT to non-existent RW should return 404 (handler processes, not route mismatch)
+	putReq := httptest.NewRequest("PUT",
+		"/api/v1/rws/nonexistent-uuid-0000000000/memberships/test-user/jabatan",
+		bytes.NewBufferString(`{"jabatan":"ketua","rt_id":"test-rt"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.Header.Set("Authorization", "Bearer "+token)
+	putRec := httptest.NewRecorder()
+	r.ServeHTTP(putRec, putReq)
+
+	// Should be 404 for not-found RW (not 400, not 500, not 401)
+	if putRec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for non-existent RW, got %d: %s", putRec.Code, putRec.Body.String())
+	}
+}
+
+// TestRWJabatanNilRTIDRegression verifies that deleting RW jabatan does not
+// panic with a nil pointer dereference when the membership's rt_id is NULL.
+// Regression test for: DELETE /rws/{id}/memberships/{userId}/jabatan → 500
+func TestRWJabatanNilRTIDRegression(t *testing.T) {
+	pool := testPool(t)
+	r := buildRouter(pool)
+	setupEnv()
+	token := superAdminToken(t)
+
+	t.Cleanup(func() { pool.Close() })
+
+	// Insert a test user (system_role must be NULL for regular users)
+	var userID string
+	now := time.Now().Format("20060102150405")
+	err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO users (email, phone, password_hash, full_name, system_role, is_active)
+		 VALUES ($1, '08123456789', 'dummyhash', 'Test User Nil RT ' || $2, NULL, true)
+		 RETURNING id`,
+		"test-user-nil-rt-"+now+"@test.com", now,
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("failed to insert test user: %v", err)
+	}
+
+	// Insert a test RW (use rw_number that likely doesn't exist)
+	var rwID string
+	err = pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO rws (name, rw_number, address, is_active)
+		 VALUES ('Test RW Nil RT Regression', 999, 'Jl. Test', true)
+		 RETURNING id`,
+	).Scan(&rwID)
+	if err != nil {
+		t.Fatalf("failed to insert test RW: %v", err)
+	}
+
+	// Insert RW membership with jabatan but NULL rt_id (simulates RT deleted or never assigned)
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`INSERT INTO user_rw_memberships (user_id, rw_id, role, jabatan, rt_id, is_active)
+		 VALUES ($1, $2, 'pengurus', 'ketua', NULL, true)`,
+		userID, rwID,
+	)
+	if err != nil {
+		t.Fatalf("failed to insert RW membership: %v", err)
+	}
+
+	// Verify the membership exists and has jabatan
+	var jabatanBefore *string
+	err = pool.Raw().QueryRowContext(context.Background(),
+		`SELECT jabatan FROM user_rw_memberships WHERE user_id = $1 AND rw_id = $2`,
+		userID, rwID,
+	).Scan(&jabatanBefore)
+	if err != nil {
+		t.Fatalf("failed to verify membership before revoke: %v", err)
+	}
+	if jabatanBefore == nil || *jabatanBefore != "ketua" {
+		t.Fatalf("expected jabatan=ketua before revoke, got %v", jabatanBefore)
+	}
+
+	// DELETE should return 204 (not 500) — nil rt_id must not cause panic
+	delReq := httptest.NewRequest("DELETE",
+		"/api/v1/rws/"+rwID+"/memberships/"+userID+"/jabatan",
+		nil)
+	delReq.Header.Set("Authorization", "Bearer "+token)
+	delRec := httptest.NewRecorder()
+	r.ServeHTTP(delRec, delReq)
+
+	// Debug: print the actual response for diagnosis
+	t.Logf("Response status: %d", delRec.Code)
+	t.Logf("Response body: %s", delRec.Body.String())
+
+	if delRec.Code != http.StatusNoContent {
+		t.Errorf("expected 204 for nil-rt_id revoke, got %d: %s", delRec.Code, delRec.Body.String())
+	}
+
+	// Verify jabatan was actually revoked
+	var jabatanAfter *string
+	err = pool.Raw().QueryRowContext(context.Background(),
+		`SELECT jabatan FROM user_rw_memberships WHERE user_id = $1 AND rw_id = $2`,
+		userID, rwID,
+	).Scan(&jabatanAfter)
+	if err != nil {
+		t.Fatalf("failed to verify membership after revoke: %v", err)
+	}
+	if jabatanAfter != nil {
+		t.Errorf("expected jabatan=NULL after revoke, got %v", jabatanAfter)
+	}
+}
+
+// TestRWJabatanBusinessLogicNilRTID directly tests the business logic.
+func TestRWJabatanBusinessLogicNilRTID(t *testing.T) {
+	pool := testPool(t)
+	setupEnv()
+
+	t.Cleanup(func() { pool.Close() })
+
+	// Insert test user with unique email
+	var userID string
+	now := time.Now().Format("20060102150405")
+	err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO users (email, phone, password_hash, full_name, system_role, is_active)
+		 VALUES ($1, '08123456791', 'dummyhash', 'Test BL User ' || $2, NULL, true)
+		 RETURNING id`,
+		"test-bl-nil-rt-"+now+"@test.com", now,
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("failed to insert test user: %v", err)
+	}
+
+	// Insert test RW
+	var rwID string
+	err = pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO rws (name, rw_number, address, is_active)
+		 VALUES ('Test BL RW', 888, 'Jl. Test', true)
+		 RETURNING id`,
+	).Scan(&rwID)
+	if err != nil {
+		t.Fatalf("failed to insert test RW: %v", err)
+	}
+
+	// Insert membership with jabatan but NULL rt_id
+	_, err = pool.Raw().ExecContext(context.Background(),
+		`INSERT INTO user_rw_memberships (user_id, rw_id, role, jabatan, rt_id, is_active)
+		 VALUES ($1, $2, 'pengurus', 'ketua', NULL, true)`,
+		userID, rwID,
+	)
+	if err != nil {
+		t.Fatalf("failed to insert RW membership: %v", err)
+	}
+
+	// Test business logic directly
+	ctx := context.Background()
+	tx, err := pool.BeginTx(ctx)
+	if err != nil {
+		t.Fatalf("failed to begin tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	member, old, err := RemoveRWJabatan(ctx, tx, rwID, userID, userID)
+	if err != nil {
+		t.Logf("Business logic error: %v", err)
+		t.Logf("Error type: %T", err)
+		t.Logf("errors.Is(err, ErrRWMembershipNotFound): %v", errors.Is(err, ErrRWMembershipNotFound))
+		t.Logf("errors.Is(err, sql.ErrNoRows): %v", errors.Is(err, sql.ErrNoRows))
+		t.Logf("errors.Is(err, ErrRWNotFound): %v", errors.Is(err, ErrRWNotFound))
+		t.Logf("member: %v", member)
+		t.Logf("old: %v", old)
+		// Don't fail — we just want to see the debug output
+	} else {
+		t.Logf("Business logic succeeded. member.ID=%s, old=%v", member.ID, old)
+	}
+
+	if err := tx.Commit(); err != nil {
+		t.Logf("Commit error: %v", err)
 	}
 }

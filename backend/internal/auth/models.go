@@ -34,24 +34,26 @@ var ValidRoles = map[Role]bool{
 type Jabatan string
 
 const (
-	JabatanKetua               Jabatan = "ketua"
-	JabatanWakilKetua          Jabatan = "wakil_ketua"
-	JabatanSekretaris          Jabatan = "sekretaris"
-	JabatanBendahara           Jabatan = "bendahara"
-	JabatanKeamanan            Jabatan = "keamanan"
-	JabatanSosial              Jabatan = "sosial"
+	JabatanKetua                 Jabatan = "ketua"
+	JabatanWakilKetua            Jabatan = "wakil_ketua"
+	JabatanSekretaris            Jabatan = "sekretaris"
+	JabatanBendahara             Jabatan = "bendahara"
+	JabatanKeamanan              Jabatan = "keamanan"
+	JabatanSosial                Jabatan = "sosial"
 	JabatanKebersihanPembangunan Jabatan = "kebersihan_pembangunan"
+	JabatanAnggota               Jabatan = "anggota"
 )
 
 // ValidJabatans maps recognized RT positions.
 var ValidJabatans = map[Jabatan]bool{
-	JabatanKetua:               true,
-	JabatanWakilKetua:          true,
-	JabatanSekretaris:          true,
-	JabatanBendahara:           true,
-	JabatanKeamanan:            true,
-	JabatanSosial:              true,
+	JabatanKetua:                 true,
+	JabatanWakilKetua:            true,
+	JabatanSekretaris:            true,
+	JabatanBendahara:             true,
+	JabatanKeamanan:              true,
+	JabatanSosial:                true,
 	JabatanKebersihanPembangunan: true,
+	JabatanAnggota:               true,
 }
 
 // AllJabatans returns all valid jabatan values in a stable order.
@@ -63,6 +65,7 @@ var AllJabatans = []Jabatan{
 	JabatanKeamanan,
 	JabatanSosial,
 	JabatanKebersihanPembangunan,
+	JabatanAnggota,
 }
 
 // AuthContext is attached to the request context after successful

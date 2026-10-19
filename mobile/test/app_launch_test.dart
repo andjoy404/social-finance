@@ -14,10 +14,12 @@ import 'package:social_finance/features/dashboard/data/mock_dashboard_data.dart'
 import 'package:social_finance/features/dashboard/presentation/widgets/financial_summary_chart.dart';
 import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/client.dart';
+import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/providers/theme_provider.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/features/kas/data/kas_api_models.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
 
@@ -599,4 +601,236 @@ void main() {
       }
     });
   });
+
+  // ── A1, A2, A3, B1, B2, B3 Verification Tests ──
+
+  testWidgets('Header renders official SocialFinance logo (A3)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_dashboardViaMaterialApp());
+    await tester.pump();
+    expect(find.byKey(const Key('app-header-logo')), findsOneWidget);
+  });
+
+  testWidgets('Bottom navigation highlights Iuran item prominently (A2)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_authWidget(const App()));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    expect(find.byKey(const Key('nav-item-iuran')), findsOneWidget);
+  });
+
+  testWidgets(
+    'Horizontal swipe left/right navigates between main menu tabs and respects boundaries (A1)',
+    (tester) async {
+      await tester.pumpWidget(_authWidget(const App()));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+
+      // Starts on Beranda; swipe right at first menu should stay on Beranda
+      await tester.fling(
+        find.byKey(const Key('main-nav-swipe-detector')),
+        const Offset(300, 0),
+        1000,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('Selamat datang,'), findsOneWidget);
+
+      // Swipe left -> navigates to Kas
+      await tester.fling(
+        find.byKey(const Key('main-nav-swipe-detector')),
+        const Offset(-300, 0),
+        1000,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // Swipe right -> returns to Beranda
+      await tester.fling(
+        find.byKey(const Key('main-nav-swipe-detector')),
+        const Offset(300, 0),
+        1000,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.text('Selamat datang,'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Beranda supports pull-to-refresh and shows recent iuran reference & IPL badge (B1, B2)',
+    (tester) async {
+      var refreshCalled = 0;
+      await tester.pumpWidget(
+        rp.ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith(((ref) {
+              return _createTestAuthRepo({
+                'name': 'Heri Prastyo',
+                'role': AppRole.bendahara,
+                'rt': '002',
+                'rw': '016',
+              });
+            })),
+            wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
+          ],
+          child: MaterialApp(
+            home: DashboardScreen(
+              onRefreshOverride: () async {
+                refreshCalled++;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('dashboard-refresh-indicator')),
+        findsOneWidget,
+      );
+      // B2: Recent transactions show reference number and IPL badge, no Warga + houseNumber
+      expect(find.text('INV-2025-001'), findsOneWidget);
+      expect(find.text('IPL'), findsWidgets);
+
+      await tester.fling(
+        find.byType(SingleChildScrollView),
+        const Offset(0, 300),
+        1000,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(refreshCalled, equals(1));
+    },
+  );
+
+  testWidgets(
+    'FinancialSummaryChart tap shows transaction count and period detail banner (B3)',
+    (tester) async {
+      final summary = DashboardMockData.getSummary();
+      await tester.pumpWidget(
+        rp.ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: FinancialSummaryChart(
+                summary: summary,
+                theme: ThemeData(useMaterial3: true),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('chart-selected-detail')), findsNothing);
+
+      // Tap month label 'Sep' to select Pemasukan for Sep
+      await tester.tap(find.text('Sep'));
+      await tester.pump();
+
+      expect(find.byKey(const Key('chart-selected-detail')), findsOneWidget);
+      expect(find.text('Sep • Pemasukan'), findsOneWidget);
+      expect(find.textContaining('42 Transaksi'), findsOneWidget);
+
+      // Tap 'Sep' again to toggle to Pengeluaran for Sep
+      await tester.tap(find.text('Sep'));
+      await tester.pump();
+      expect(find.text('Sep • Pengeluaran'), findsOneWidget);
+      expect(find.textContaining('5 Transaksi'), findsOneWidget);
+
+      // Close detail indicator
+      await tester.tap(find.byKey(const Key('chart-detail-close')));
+      await tester.pump();
+      expect(find.byKey(const Key('chart-selected-detail')), findsNothing);
+    },
+  );
+
+  // ── P0/P1/P3 Master Task Verification Tests ──
+
+  test('AuthUser.fromJson parses rw_id, rw_name, and rt_rw into rwCode and rwName', () {
+    final user = AuthUser.fromJson({
+      'id': 'u-1',
+      'email': 'bendahara@local.com',
+      'full_name': 'Heri Prastyo',
+      'role': 'bendahara',
+      'rt_id': 'rt-002',
+      'rt_name': 'RT 002',
+      'rt_rw': '016',
+      'rw_id': 'rw-016',
+      'rw_name': 'RW 016',
+      'is_active': true,
+    });
+    expect(user.rtCode, equals('002'));
+    expect(user.rwId, equals('rw-016'));
+    expect(user.rwCode, equals('016'));
+    expect(user.rwName, equals('RW 016'));
+  });
+
+  test('BackendTransaction.fromJson falls back to reference_no for manual KAS transactions', () {
+    final tx = BackendTransaction.fromJson({
+      'id': 'tx-manual-1',
+      'rt_id': 'rt-002',
+      'category_id': 'cat-1',
+      'amount': '150000',
+      'type': 'expense',
+      'status': 'posted',
+      'reference_no': 'KAS-20260417-ABC12',
+      'description': 'Beli lampu jalan',
+    });
+    expect(tx.paymentNo, equals('KAS-20260417-ABC12'));
+  });
+
+  testWidgets(
+    'Dashboard renders Metode Pembayaran Donut Chart panel (Transfer vs Tunai) and handles empty data without NaN%',
+    (tester) async {
+      await tester.pumpWidget(_dashboardViaMaterialApp());
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('dashboard-payment-method-donut-card')),
+        findsOneWidget,
+      );
+      expect(find.text('Metode Pembayaran'), findsOneWidget);
+      expect(find.text('Transfer'), findsOneWidget);
+      expect(find.text('Tunai'), findsOneWidget);
+      expect(find.text('60%'), findsOneWidget);
+      expect(find.text('40%'), findsOneWidget);
+      expect(find.byType(PieChart), findsOneWidget);
+
+      // Verify empty state safety (0 / 0 never produces NaN%)
+      const emptyBreakdown = PaymentMethodBreakdown();
+      expect(emptyBreakdown.transferPercentage, equals(0));
+      expect(emptyBreakdown.cashPercentage, equals(0));
+    },
+  );
+
+  testWidgets(
+    'FinancialSummaryChart floating bar tooltip shows Bulan, Masuk, and Keluar above selected bar',
+    (tester) async {
+      final summary = DashboardMockData.getSummary();
+      await tester.pumpWidget(
+        rp.ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: FinancialSummaryChart(
+                summary: summary,
+                theme: ThemeData(useMaterial3: true),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('chart-bar-tooltip')), findsNothing);
+
+      await tester.tap(find.text('Sep'));
+      await tester.pump();
+
+      expect(find.byKey(const Key('chart-bar-tooltip')), findsOneWidget);
+      expect(find.textContaining('Masuk  Rp 4.250.000'), findsOneWidget);
+      expect(find.textContaining('Keluar  Rp 2.175.000'), findsOneWidget);
+    },
+  );
 }
+

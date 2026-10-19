@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { DatePicker } from 'antd'
+import dayjs from 'dayjs'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { useAuth } from '@/app/AuthContext'
 import { hasWargaWriteAccess } from '@/app/wargaAuth'
@@ -7,13 +9,14 @@ import { apiCreateTransaction, getSessionPair } from '@/app/api'
 import {
   ArrowDownOutlined,
   CalendarOutlined,
+  WalletOutlined,
+  BankOutlined,
 } from '@ant-design/icons'
 
 interface FormState {
   tanggal: string
   nominal: string
   keterangan: string
-  referensi: string
   paymentMethod: 'CASH' | 'TRANSFER'
 }
 
@@ -21,7 +24,6 @@ const emptyForm: FormState = {
   tanggal: new Date().toISOString().split('T')[0],
   nominal: '',
   keterangan: '',
-  referensi: '',
   paymentMethod: 'CASH',
 }
 
@@ -87,7 +89,7 @@ export function KasExpense() {
       await apiCreateTransaction(token, {
         amount: form.nominal,
         type: 'expense',
-        description: form.referensi.trim() ? `${form.keterangan.trim()} (Ref: ${form.referensi.trim()})` : form.keterangan.trim(),
+        description: form.keterangan.trim(),
         occurred_at: form.tanggal,
         payment_method: form.paymentMethod,
       })
@@ -137,8 +139,9 @@ export function KasExpense() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: 'var(--sf-danger)',
-                color: '#fff',
+                background: 'rgba(242, 73, 92, 0.16)',
+                border: '1px solid rgba(242, 73, 92, 0.6)',
+                color: 'var(--sf-danger)',
                 fontWeight: 600,
                 fontSize: 13,
                 cursor: 'default',
@@ -160,14 +163,16 @@ export function KasExpense() {
               <CalendarOutlined style={{ marginRight: 4 }} />
               Tanggal <span style={{ color: 'var(--sf-danger)' }}>*</span>
             </label>
-            <input
+            <DatePicker
               id="ke-tanggal"
-              className="sf-form-input"
-              type="date"
-              value={form.tanggal}
-              onChange={(e) => handleChange('tanggal', e.target.value)}
-              required
-              autoFocus
+              picker="date"
+              value={form.tanggal ? dayjs(form.tanggal) : null}
+              onChange={(date) => handleChange('tanggal', date?.format('YYYY-MM-DD') || '')}
+              allowClear={false}
+              placeholder="DD/MM/YYYY"
+              format="DD/MM/YYYY"
+              disabled={saving}
+              style={{ width: '100%' }}
             />
           </div>
 
@@ -191,14 +196,14 @@ export function KasExpense() {
                   padding: '6px 12px',
                   fontSize: 13,
                   fontWeight: 600,
-                  background: form.paymentMethod === 'CASH' ? 'rgba(169, 112, 255, 0.12)' : 'var(--sf-surface)',
-                  color: form.paymentMethod === 'CASH' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-                  border: form.paymentMethod === 'CASH' ? '1px solid rgba(169, 112, 255, 0.5)' : '1px solid var(--sf-border)',
-                  boxShadow: form.paymentMethod === 'CASH' ? '0 0 8px rgba(169, 112, 255, 0.15)' : 'none',
+                  background: form.paymentMethod === 'CASH' ? 'rgba(87, 148, 242, 0.16)' : 'var(--sf-surface)',
+                  color: form.paymentMethod === 'CASH' ? 'var(--sf-info)' : 'var(--sf-text-muted)',
+                  border: form.paymentMethod === 'CASH' ? '1px solid rgba(87, 148, 242, 0.6)' : '1px solid var(--sf-border)',
+                  boxShadow: form.paymentMethod === 'CASH' ? '0 0 8px rgba(87, 148, 242, 0.15)' : 'none',
                   transition: 'all 0.2s ease',
                 }}
               >
-                💵 Tunai (Cash)
+                <WalletOutlined style={{ color: form.paymentMethod === 'CASH' ? 'var(--sf-info)' : 'var(--sf-text-muted)' }} /> Tunai (Cash)
               </button>
               <button
                 type="button"
@@ -221,7 +226,7 @@ export function KasExpense() {
                   transition: 'all 0.2s ease',
                 }}
               >
-                🏦 Transfer Bank
+                <BankOutlined style={{ color: form.paymentMethod === 'TRANSFER' ? 'var(--sf-accent)' : 'var(--sf-text-muted)' }} /> Transfer Bank
               </button>
             </div>
           </div>
@@ -260,21 +265,6 @@ export function KasExpense() {
               style={{ resize: 'vertical' }}
             />
           </div>
-
-          {/* Referensi (optional) */}
-          <div className="sf-form-field">
-            <label className="sf-form-label" htmlFor="ke-referensi">
-              Referensi
-            </label>
-            <input
-              id="ke-referensi"
-              className="sf-form-input"
-              type="text"
-              value={form.referensi}
-              onChange={(e) => handleChange('referensi', e.target.value)}
-              placeholder="Referensi pembayaran (opsional)"
-            />
-          </div>
         </ModalBody>
         <ModalFooter>
           <button
@@ -282,13 +272,15 @@ export function KasExpense() {
             className="sf-btn"
             onClick={handleClose}
             style={{
-              background: 'transparent',
-              border: '1px solid var(--sf-border)',
-              color: 'var(--sf-text-muted)',
+              background: 'rgba(242, 73, 92, 0.16)',
+              border: '1px solid rgba(242, 73, 92, 0.6)',
+              color: 'var(--sf-danger)',
+              boxShadow: '0 0 12px rgba(242, 73, 92, 0.15)',
+              fontWeight: 600,
               padding: '7px 16px',
               borderRadius: 'var(--sf-radius-md)',
               fontSize: 13,
-              fontWeight: 500,
+              transition: 'all 0.2s ease',
             }}
           >
             Batal
@@ -297,10 +289,10 @@ export function KasExpense() {
             type="submit"
             className="sf-btn"
             style={{
-              background: 'rgba(242, 73, 92, 0.16)',
-              border: '1px solid rgba(242, 73, 92, 0.6)',
-              color: 'var(--sf-danger)',
-              boxShadow: '0 0 12px rgba(242, 73, 92, 0.15)',
+              background: 'rgba(169, 112, 255, 0.16)',
+              border: '1px solid rgba(169, 112, 255, 0.6)',
+              color: 'var(--sf-accent)',
+              boxShadow: '0 0 12px rgba(169, 112, 255, 0.15)',
               fontWeight: 600,
               padding: '7px 18px',
               borderRadius: 'var(--sf-radius-md)',
@@ -316,3 +308,4 @@ export function KasExpense() {
     </Modal>
   )
 }
+

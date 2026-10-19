@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/widgets/double_back_exit_scope.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/menu_app_bar_title.dart';
 
@@ -9,8 +8,7 @@ class CashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DoubleBackExitScope(
-      child: Scaffold(
+    return Scaffold(
         appBar: AppBar(
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Kas'),
@@ -22,7 +20,6 @@ class CashScreen extends StatelessWidget {
             description: 'Pengelolaan kas akan tersedia pada tahap berikutnya.',
           ),
         ),
-      ),
     );
   }
 }

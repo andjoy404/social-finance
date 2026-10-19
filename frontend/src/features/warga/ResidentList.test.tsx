@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ResidentList } from './ResidentList'
+import { Dashboard } from '@/features/dashboard/Dashboard'
+import { KasList } from '@/features/kas/KasList'
+import { IuranList } from '@/features/iuran/IuranList'
+import { RtList } from '@/features/rt/RtList'
 import { persistSessionPair, type ApiResident } from '@/app/api'
 import * as AuthModule from '@/app/AuthContext'
 import { MemoryRouter, useLocation } from 'react-router-dom'
@@ -434,11 +438,11 @@ describe('W4.2C — Authorization write action visibility', () => {
       expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
     })
 
-    // Tambah button must NOT be present
-    expect(screen.queryByRole('button', { name: /\+ Tambah/i })).not.toBeInTheDocument()
+    // + Warga button must NOT be present
+    expect(screen.queryByRole('button', { name: /\+ Warga/i })).not.toBeInTheDocument()
   })
 
-  it('shows Tambah for authorized position ketua', async () => {
+  it('shows + Warga for authorized position ketua', async () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
       user: {
         ...mockUser,
@@ -464,8 +468,8 @@ describe('W4.2C — Authorization write action visibility', () => {
       expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
     })
 
-    // Tambah button MUST be present
-    expect(screen.getByRole('button', { name: /\+ Tambah/i })).toBeInTheDocument()
+    // + Warga button MUST be present
+    expect(screen.getByRole('button', { name: /\+ Warga/i })).toBeInTheDocument()
   })
 
   it('shows Import Warga button for authorized position ketua and opens modal on click', async () => {
@@ -626,5 +630,161 @@ describe('W4.2C — Authorization write action visibility', () => {
 
     expect(screen.getByRole('button', { name: /Import Warga/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Export Warga/i })).toBeInTheDocument()
+  })
+
+  it('W4 & W5 — Warga table uses table-scrollable-container and + Warga button label', async () => {
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+    const { container } = renderResidentList()
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    const addButton = screen.getByRole('button', { name: /^\+\s*Warga$/i })
+    expect(addButton).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^\+\s*Tambah$/i })).not.toBeInTheDocument()
+    expect(container.querySelector('.table-wrapper')).not.toBeNull()
+  })
+
+  it('W1 — Dashboard filter box has vertical spacing and theme-consistent background', () => {
+    ;(globalThis as any).ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: mockUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    mockFetch(() => mockSuccessResponse({ data: [] }))
+    const { container } = render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+    const filterBox = container.querySelector('.sf-list-toolbar') as HTMLElement | null
+    expect(filterBox).not.toBeNull()
+    expect(container.querySelector('.sf-list-toolbar-left')).not.toBeNull()
+    expect(container.querySelector('.sf-list-toolbar-right')).not.toBeNull()
+    expect(container.textContent).toContain('Periode:')
+  })
+
+  it('W2 & W3 — KasList renders soft green/red cell backgrounds and blue Tunai badge', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: mockUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    mockFetch((url) => {
+      if (url.includes('/transactions')) {
+        return mockSuccessResponse({
+          data: [
+            {
+              id: 'tx-inc-1',
+              rt_id: 'rt-1',
+              category_id: 'cat-1',
+              category_name: 'Iuran Warga',
+              type: 'income',
+              amount: '150000.00',
+              running_balance: '150000.00',
+              status: 'posted',
+              payment_method: 'CASH',
+              transaction_date: '2026-10-05',
+              description: 'Pembayaran Iuran',
+              created_by: 'u-1',
+              creator_name: 'Bendahara',
+              created_at: '2026-10-05T00:00:00Z',
+              updated_at: '2026-10-05T00:00:00Z',
+            },
+            {
+              id: 'tx-exp-1',
+              rt_id: 'rt-1',
+              category_id: 'cat-2',
+              category_name: 'Kebersihan',
+              type: 'expense',
+              amount: '50000.00',
+              running_balance: '100000.00',
+              status: 'posted',
+              payment_method: 'TRANSFER',
+              transaction_date: '2026-10-06',
+              description: 'Beli sapu',
+              created_by: 'u-1',
+              creator_name: 'Bendahara',
+              created_at: '2026-10-06T00:00:00Z',
+              updated_at: '2026-10-06T00:00:00Z',
+            },
+          ],
+          pagination: { page: 1, per_page: 20, total: 2, total_pages: 1 },
+        })
+      }
+      return mockSuccessResponse({
+        opening_balance: '0.00',
+        total_income: '150000.00',
+        total_expense: '50000.00',
+        net_movement: '100000.00',
+        closing_balance: '100000.00',
+        transaction_count: 2,
+      })
+    })
+    const { container } = render(
+      <MemoryRouter initialEntries={['/kas']}>
+        <KasList />
+      </MemoryRouter>,
+    )
+    await waitFor(() => {
+      expect(container.querySelector('td.sf-kas-cell-income')).not.toBeNull()
+    })
+    expect(container.querySelector('td.sf-kas-cell-expense')).not.toBeNull()
+    const tunaiBadge = screen.getByText('Tunai')
+    expect(tunaiBadge).toBeInTheDocument()
+    expect(tunaiBadge.getAttribute('style')).toContain('#3b82f6')
+  })
+
+  it('W6 — IuranList renders + Iuran button label instead of + Tambah Iuran on Kelola Iuran tab', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: mockUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    mockFetch(() => mockSuccessResponse({ data: [], pagination: { page: 1, per_page: 20, total: 0, total_pages: 1 } }))
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Kelola Iuran/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^\+\s*Iuran$/i })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: /^\+\s*Tambah Iuran$/i })).not.toBeInTheDocument()
+  })
+
+  it('W7 — RtList renders + RT button label instead of + Tambah RT', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: { ...mockUser, role: 'super_admin', systemRole: 'super_admin' },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    mockFetch(() => mockSuccessResponse({ data: [], pagination: { page: 1, page_size: 20, total: 0, total_pages: 1 } }))
+    render(
+      <MemoryRouter initialEntries={['/rt']}>
+        <RtList />
+      </MemoryRouter>,
+    )
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^\+\s*RT$/i })).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: /^\+\s*Tambah RT$/i })).not.toBeInTheDocument()
   })
 })

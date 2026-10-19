@@ -67,7 +67,9 @@ class IuranProfileStatusScreen extends ConsumerWidget {
         : 'Profil akses gagal dimuat. Hak akses Iuran belum dapat diverifikasi.';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Iuran')),
+      appBar: AppBar(
+        title: const Text('Iuran'),
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
