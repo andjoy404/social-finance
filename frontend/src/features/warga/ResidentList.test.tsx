@@ -668,7 +668,7 @@ describe('W4.2C — Authorization write action visibility', () => {
     expect(filterBox).not.toBeNull()
     expect(container.querySelector('.sf-list-toolbar-left')).not.toBeNull()
     expect(container.querySelector('.sf-list-toolbar-right')).not.toBeNull()
-    expect(container.textContent).toContain('Periode:')
+    expect(container.textContent).toContain('Semua Periode')
   })
 
   it('W2 & W3 — KasList renders soft green/red cell backgrounds and blue Tunai badge', async () => {

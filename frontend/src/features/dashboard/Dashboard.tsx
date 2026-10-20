@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
 import { cleanKasDescription } from '@/features/kas/KasList'
 import { formatRupiah as formatKasRupiah } from '@/features/kas/kasTypes'
-import { DashboardOutlined } from '@ant-design/icons'
+import { DashboardOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { apiGetDashboardSummary, ApiDashboardSummary, getSessionPair } from '@/app/api'
 
 const MONTH_NAMES = [
@@ -141,81 +141,50 @@ export function Dashboard() {
         }
       />
 
-      {/* Period Filter Toolbar: Semua / Per Bulan */}
-      <div className="sf-list-toolbar">
-        <div className="sf-list-toolbar-left">
-          {/* Mode Toggle: Semua vs Per Bulan */}
-          <div style={{ display: 'inline-flex', gap: 4 }}>
-            <button
-              type="button"
-              className="sf-btn"
-              onClick={() => setIsAllPeriods(true)}
-              style={{
-                height: 32,
-                padding: '0 12px',
-                fontSize: 12,
-                fontWeight: 600,
-                background: isAllPeriods ? 'rgba(169, 112, 255, 0.16)' : 'var(--sf-surface)',
-                border: isAllPeriods ? '1px solid rgba(169, 112, 255, 0.6)' : '1px solid var(--sf-border)',
-                color: isAllPeriods ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              }}
-            >
-              Semua
-            </button>
-            <button
-              type="button"
-              className="sf-btn"
-              onClick={() => setIsAllPeriods(false)}
-              style={{
-                height: 32,
-                padding: '0 12px',
-                fontSize: 12,
-                fontWeight: 600,
-                background: !isAllPeriods ? 'rgba(169, 112, 255, 0.16)' : 'var(--sf-surface)',
-                border: !isAllPeriods ? '1px solid rgba(169, 112, 255, 0.6)' : '1px solid var(--sf-border)',
-                color: !isAllPeriods ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              }}
-            >
-              Per Bulan
-            </button>
-          </div>
-
+      {/* Period Filter Toolbar */}
+      <div className="sf-list-toolbar" style={{ marginTop: 0, marginBottom: 0 }}>
+        <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
+          {/* Period navigation */}
           <button
             type="button"
-            className="sf-btn"
+            className="sf-btn sf-btn-outline sf-kas-period-button"
             onClick={handlePrevMonth}
             disabled={isAllPeriods}
             style={{
-              height: 32,
-              padding: '0 10px',
+              padding: '6px 10px',
               fontSize: 13,
-              fontWeight: 600,
-              background: 'var(--sf-surface)',
-              border: '1px solid var(--sf-border)',
-              color: 'var(--sf-text)',
+              background: 'rgba(169, 112, 255, 0.06)',
+              border: '1px solid rgba(169, 112, 255, 0.35)',
+              color: 'var(--sf-accent)',
+              borderRadius: 'var(--sf-radius-sm)',
+              transition: 'all 0.25s ease',
               opacity: isAllPeriods ? 0.5 : 1,
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
             }}
             title="Bulan Sebelumnya"
+            aria-label="Bulan Sebelumnya"
           >
-            ←
+            <LeftOutlined style={{ fontSize: 11 }} />
           </button>
+
           <select
-            className="sf-form-select"
-            value={selectedMonth}
+            value={isAllPeriods ? '' : selectedMonth}
             disabled={isAllPeriods}
             onChange={(e) => {
               setIsAllPeriods(false)
               setSelectedMonth(parseInt(e.target.value, 10))
             }}
             style={{
-              height: 32,
-              padding: '0 10px',
+              padding: '6px 12px',
               fontSize: 13,
               fontWeight: 600,
-              background: 'var(--sf-surface)',
-              opacity: isAllPeriods ? 0.6 : 1,
+              borderRadius: 'var(--sf-radius-sm)',
+              border: '1px solid var(--sf-border)',
+              background: 'var(--sf-bg)',
+              color: 'var(--sf-text)',
+              cursor: isAllPeriods ? 'not-allowed' : 'pointer',
             }}
+            aria-label="Pilih Bulan"
           >
             {MONTH_NAMES.map((m, idx) => (
               <option key={m} value={idx + 1}>
@@ -223,22 +192,25 @@ export function Dashboard() {
               </option>
             ))}
           </select>
+
           <select
-            className="sf-form-select"
-            value={selectedYear}
+            value={isAllPeriods ? '' : selectedYear}
             disabled={isAllPeriods}
             onChange={(e) => {
               setIsAllPeriods(false)
               setSelectedYear(parseInt(e.target.value, 10))
             }}
             style={{
-              height: 32,
-              padding: '0 10px',
+              padding: '6px 12px',
               fontSize: 13,
               fontWeight: 600,
-              background: 'var(--sf-surface)',
-              opacity: isAllPeriods ? 0.6 : 1,
+              borderRadius: 'var(--sf-radius-sm)',
+              border: '1px solid var(--sf-border)',
+              background: 'var(--sf-bg)',
+              color: 'var(--sf-text)',
+              cursor: isAllPeriods ? 'not-allowed' : 'pointer',
             }}
+            aria-label="Pilih Tahun"
           >
             {[2024, 2025, 2026, 2027].map((y) => (
               <option key={y} value={y}>
@@ -246,30 +218,69 @@ export function Dashboard() {
               </option>
             ))}
           </select>
+
           <button
             type="button"
-            className="sf-btn"
+            className="sf-btn sf-btn-outline sf-kas-period-button"
             onClick={handleNextMonth}
             disabled={isAllPeriods}
             style={{
-              height: 32,
-              padding: '0 10px',
+              padding: '6px 10px',
               fontSize: 13,
-              fontWeight: 600,
-              background: 'var(--sf-surface)',
-              border: '1px solid var(--sf-border)',
-              color: 'var(--sf-text)',
+              background: 'rgba(169, 112, 255, 0.06)',
+              border: '1px solid rgba(169, 112, 255, 0.35)',
+              color: 'var(--sf-accent)',
+              borderRadius: 'var(--sf-radius-sm)',
+              transition: 'all 0.25s ease',
               opacity: isAllPeriods ? 0.5 : 1,
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
             }}
             title="Bulan Berikutnya"
+            aria-label="Bulan Berikutnya"
           >
-            →
+            <RightOutlined style={{ fontSize: 11 }} />
           </button>
         </div>
-        <div className="sf-list-toolbar-right">
-          <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>
-            Periode: <strong style={{ color: 'var(--sf-accent)' }}>{periodDisplayLabel}</strong>
+
+        {/* Right: Semua Periode button + Active Period Badge */}
+        <div className="sf-list-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={`sf-btn sf-kas-period-button ${isAllPeriods ? 'sf-btn-primary' : 'sf-btn-outline'}`}
+            onClick={() => setIsAllPeriods(!isAllPeriods)}
+            style={{
+              fontSize: 12,
+              padding: '6px 12px',
+              background: isAllPeriods
+                ? 'rgba(169, 112, 255, 0.14)'
+                : 'rgba(169, 112, 255, 0.06)',
+              border: isAllPeriods
+                ? '1px solid rgba(169, 112, 255, 0.55)'
+                : '1px solid rgba(169, 112, 255, 0.35)',
+              color: isAllPeriods ? 'var(--sf-accent)' : 'var(--sf-accent)',
+              borderRadius: 'var(--sf-radius-sm)',
+              transition: 'all 0.25s ease',
+              boxShadow: isAllPeriods
+                ? '0 0 12px rgba(169, 112, 255, 0.18)'
+                : '0 0 6px rgba(169, 112, 255, 0.06)',
+            }}
+          >
+            Semua Periode
+          </button>
+
+          <div
+            style={{
+              padding: '5px 12px',
+              borderRadius: 'var(--sf-radius-sm)',
+              background: 'rgba(59, 130, 246, 0.1)',
+              border: '1px solid rgba(59, 130, 246, 0.25)',
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--sf-accent)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {periodDisplayLabel}
           </div>
         </div>
       </div>
