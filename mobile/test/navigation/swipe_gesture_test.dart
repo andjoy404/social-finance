@@ -71,13 +71,30 @@ GoRouter _buildRouter({
 
 GoRoute _tabRoute({
   required String path,
-  required RouteBuilder builder,
-  List<RouteBase>? childRoutes,
+  required GoRouterWidgetBuilder builder,
+  List<RouteBase> childRoutes = const <RouteBase>[],
 }) {
   return GoRoute(
     path: path,
     builder: builder,
     routes: childRoutes,
+  );
+}
+
+/// Wraps page content in a Container with a key so assertions can scope
+/// to the page body (excluding the bottom nav bar labels).
+Widget _scoped(Widget child, String path) {
+  return Container(
+    key: Key('page-$path'),
+    child: child,
+  );
+}
+
+/// Finds page-content widgets by delegating to a scoped container.
+Finder scopedFinder(String path, Finder matcher) {
+  return find.descendant(
+    of: find.byKey(Key('page-$path')),
+    matching: matcher,
   );
 }
 
@@ -96,15 +113,15 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/kas',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Kas')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Kas')), '/home/kas'),
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -113,11 +130,11 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Beranda'), findsOneWidget);
-      expect(find.text('Kas'), findsNothing);
+      expect(scopedFinder('/home', find.text('Beranda')), findsOneWidget);
+      expect(scopedFinder('/home', find.text('Kas')), findsNothing);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
@@ -125,8 +142,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
 
-      expect(find.text('Beranda'), findsOneWidget);
-      expect(find.text('Kas'), findsNothing);
+      expect(scopedFinder('/home', find.text('Beranda')), findsOneWidget);
+      expect(scopedFinder('/home', find.text('Kas')), findsNothing);
     },
   );
 
@@ -142,15 +159,15 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/kas',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Kas')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Kas')), '/home/kas'),
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -159,10 +176,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Beranda'), findsOneWidget);
+      expect(scopedFinder('/home', find.text('Beranda')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home')),
         const Offset(300, 0),
         1000,
         warnIfMissed: false,
@@ -170,7 +187,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
 
-      expect(find.text('Beranda'), findsOneWidget);
+      expect(scopedFinder('/home', find.text('Beranda')), findsOneWidget);
     },
   );
 
@@ -186,15 +203,15 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/kas',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Kas')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Kas')), '/home/kas'),
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -203,28 +220,28 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Kas'), findsOneWidget);
+      expect(scopedFinder('/home/kas', find.text('Kas')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/kas')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('Kas'), findsOneWidget);
-      expect(find.text('Beranda'), findsNothing);
+      expect(scopedFinder('/home/kas', find.text('Kas')), findsOneWidget);
+      expect(scopedFinder('/home/kas', find.text('Beranda')), findsNothing);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/kas')),
         const Offset(300, 0),
         1000,
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('Kas'), findsOneWidget);
+      expect(scopedFinder('/home/kas', find.text('Kas')), findsOneWidget);
     },
   );
 
@@ -240,15 +257,15 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/iuran',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Iuran')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Iuran')), '/home/iuran'),
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -257,27 +274,27 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Iuran'), findsOneWidget);
+      expect(scopedFinder('/home/iuran', find.text('Iuran')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/iuran')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('Iuran'), findsOneWidget);
+      expect(scopedFinder('/home/iuran', find.text('Iuran')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/iuran')),
         const Offset(300, 0),
         1000,
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('Iuran'), findsOneWidget);
+      expect(scopedFinder('/home/iuran', find.text('Iuran')), findsOneWidget);
     },
   );
 
@@ -293,15 +310,15 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/warga',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Warga')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Warga')), '/home/warga'),
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -310,27 +327,27 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Warga'), findsOneWidget);
+      expect(scopedFinder('/home/warga', find.text('Warga')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/warga')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('Warga'), findsOneWidget);
+      expect(scopedFinder('/home/warga', find.text('Warga')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/warga')),
         const Offset(300, 0),
         1000,
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('Warga'), findsOneWidget);
+      expect(scopedFinder('/home/warga', find.text('Warga')), findsOneWidget);
     },
   );
 
@@ -346,11 +363,11 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -359,27 +376,27 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Profil'), findsOneWidget);
+      expect(scopedFinder('/home/profile', find.text('Profil')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/profile')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('Profil'), findsOneWidget);
+      expect(scopedFinder('/home/profile', find.text('Profil')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/profile')),
         const Offset(300, 0),
         1000,
         warnIfMissed: false,
       );
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('Profil'), findsOneWidget);
+      expect(scopedFinder('/home/profile', find.text('Profil')), findsOneWidget);
     },
   );
 
@@ -397,22 +414,22 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/warga',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Warga')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Warga')), '/home/warga'),
                   childRoutes: [
                     GoRoute(
                       path: 'baru',
                       builder: (BuildContext c, GoRouterState s) =>
-                          const Scaffold(body: Text('Tambah Warga')),
+                          _scoped(const Scaffold(body: Text('Tambah Warga')), '/home/warga/baru'),
                     ),
                   ],
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -421,10 +438,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Tambah Warga'), findsOneWidget);
+      expect(scopedFinder('/home/warga/baru', find.text('Tambah Warga')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/warga/baru')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
@@ -432,8 +449,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
 
-      expect(find.text('Tambah Warga'), findsOneWidget);
-      expect(find.text('Beranda'), findsNothing);
+      expect(scopedFinder('/home/warga/baru', find.text('Tambah Warga')), findsOneWidget);
+      expect(scopedFinder('/home/warga/baru', find.text('Beranda')), findsNothing);
     },
   );
 
@@ -449,21 +466,21 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/kas',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Kas')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Kas')), '/home/kas'),
                   childRoutes: [
                     GoRoute(
                       path: ':id',
-                      builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Detail Kas')),
+                      builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Detail Kas')), '/home/kas/abc123'),
                     ),
                   ],
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -472,10 +489,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Detail Kas'), findsOneWidget);
+      expect(scopedFinder('/home/kas/abc123', find.text('Detail Kas')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/kas/abc123')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
@@ -483,8 +500,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
 
-      expect(find.text('Detail Kas'), findsOneWidget);
-      expect(find.text('Beranda'), findsNothing);
+      expect(scopedFinder('/home/kas/abc123', find.text('Detail Kas')), findsOneWidget);
+      expect(scopedFinder('/home/kas/abc123', find.text('Beranda')), findsNothing);
     },
   );
 
@@ -500,22 +517,22 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/iuran',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Iuran')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Iuran')), '/home/iuran'),
                   childRoutes: [
                     GoRoute(
                       path: 'detail/:billId',
                       builder: (BuildContext c, GoRouterState s) =>
-                          const Scaffold(body: Text('Detail Tagihan')),
+                          _scoped(const Scaffold(body: Text('Detail Tagihan')), '/home/iuran/detail/bill1'),
                     ),
                   ],
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -524,10 +541,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Detail Tagihan'), findsOneWidget);
+      expect(scopedFinder('/home/iuran/detail/bill1', find.text('Detail Tagihan')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home/iuran/detail/bill1')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
@@ -535,8 +552,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
 
-      expect(find.text('Detail Tagihan'), findsOneWidget);
-      expect(find.text('Beranda'), findsNothing);
+      expect(scopedFinder('/home/iuran/detail/bill1', find.text('Detail Tagihan')), findsOneWidget);
+      expect(scopedFinder('/home/iuran/detail/bill1', find.text('Beranda')), findsNothing);
     },
   );
 
@@ -571,17 +588,17 @@ void main() {
                           ),
                         );
                       });
-                      return const Scaffold(body: Text('Beranda'));
+                      return _scoped(const Scaffold(body: Text('Beranda')), '/home');
                     },
                   ),
                 ),
                 _tabRoute(
                   path: '/home/kas',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Kas')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Kas')), '/home/kas'),
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -593,10 +610,10 @@ void main() {
       await tester.pump();
 
       expect(find.text('Modal'), findsOneWidget);
-      expect(find.text('Beranda'), findsOneWidget);
+      expect(scopedFinder('/home', find.text('Beranda')), findsOneWidget);
 
       await tester.fling(
-        find.byType(SafeArea),
+        find.byKey(const Key('page-/home')),
         const Offset(-300, 0),
         1000,
         warnIfMissed: false,
@@ -604,8 +621,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
 
-      expect(find.text('Beranda'), findsOneWidget);
-      expect(find.text('Kas'), findsNothing);
+      expect(scopedFinder('/home', find.text('Beranda')), findsOneWidget);
+      expect(scopedFinder('/home', find.text('Kas')), findsNothing);
     },
   );
 
@@ -663,23 +680,23 @@ void main() {
               tabRoutes: [
                 _tabRoute(
                   path: '/home',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Beranda')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Beranda')), '/home'),
                 ),
                 _tabRoute(
                   path: '/home/kas',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Kas')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Kas')), '/home/kas'),
                 ),
                 _tabRoute(
                   path: '/home/iuran',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Iuran')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Iuran')), '/home/iuran'),
                 ),
                 _tabRoute(
                   path: '/home/warga',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Warga')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Warga')), '/home/warga'),
                 ),
                 _tabRoute(
                   path: '/home/profile',
-                  builder: (BuildContext c, GoRouterState s) => const Scaffold(body: Text('Profil')),
+                  builder: (BuildContext c, GoRouterState s) => _scoped(const Scaffold(body: Text('Profil')), '/home/profile'),
                 ),
               ],
             ),
@@ -688,21 +705,35 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('Beranda'), findsOneWidget);
+      expect(scopedFinder('/home', find.text('Beranda')), findsOneWidget);
 
       // Tap Kas tab item
       await tester.tap(find.byKey(const Key('nav-item-kas')));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      expect(find.text('Kas'), findsOneWidget);
-      expect(find.text('Beranda'), findsNothing);
+      // Scoping to SafeArea (route content area) to exclude BottomAppBar nav labels
+      final Finder contentArea = find.byType(SafeArea).first;
+      expect(
+        find.descendant(of: contentArea, matching: find.text('Kas')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: contentArea, matching: find.text('Beranda')),
+        findsNothing,
+      );
 
       // Tap Iuran tab item
       await tester.tap(find.byKey(const Key('nav-item-iuran')));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      expect(find.text('Iuran'), findsOneWidget);
-      expect(find.text('Kas'), findsNothing);
+      expect(
+        find.descendant(of: find.byType(SafeArea).first, matching: find.text('Iuran')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byType(SafeArea).first, matching: find.text('Kas')),
+        findsNothing,
+      );
     },
   );
 }
