@@ -543,3 +543,88 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 })
+
+// ─── EMPTY VS ERROR STATE TESTS ──────────────────────────────────────────
+
+describe('IuranList - Empty vs Error States', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    ;(api.getSessionPair as any).mockReturnValue({
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+    })
+    ;(api.apiGetBill as any).mockResolvedValue(null)
+    ;(api.apiListPayments as any).mockResolvedValue({ data: [] })
+  })
+
+  it('shows empty state "Belum ada tagihan." when API returns empty data list', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Belum ada tagihan.')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Gagal memuat data tagihan')).toBeNull()
+  })
+
+  it('shows bills when API returns data', async () => {
+    const oneBill = [
+      {
+        id: 'bill-1',
+        rt_id: 'rt-1',
+        due_id: 'due-1',
+        household_occupancy_id: 'occ-1',
+        period: '2026-10',
+        due_date: '2026-10-31',
+        amount: '50000.00',
+        status: 'unpaid',
+        head_name: 'Budi Santoso',
+        house_number: 'A-10',
+        due_name: 'Iuran Keamanan',
+        created_at: '2026-10-01T00:00:00Z',
+        updated_at: '2026-10-01T00:00:00Z',
+        rt_code: '001',
+      },
+    ]
+
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: oneBill,
+      pagination: { page: 1, per_page: 10, total: 1, total_pages: 1 },
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Belum ada tagihan.')).toBeNull()
+  })
+
+  it('shows error message when API fails, not empty state', async () => {
+    ;(api.apiListBills as any).mockRejectedValue(new Error('Gagal memuat data tagihan'))
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Gagal memuat data tagihan')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Belum ada tagihan.')).toBeNull()
+  })
+})

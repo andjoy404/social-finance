@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
+import { useAuth } from '@/app/AuthContext'
 import {
   getSessionPair,
   apiDownloadWargaTemplate,
@@ -42,6 +43,8 @@ export function WargaImportModal({
   onSuccess,
   targetRtId,
 }: WargaImportModalProps) {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.systemRole === 'super_admin'
   const [step, setStep] = useState<Step>('upload')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [downloadingTemplate, setDownloadingTemplate] = useState(false)
@@ -148,8 +151,9 @@ export function WargaImportModal({
   const handlePreview = async () => {
     if (!selectedFile) return
 
-    // Validate RT selection (required for super_admin; not needed for tenant users)
-    if (!targetRtId) {
+    // Super admin must explicitly select an RT; tenant users use their own RT
+    // from the JWT auth context (backend resolves RT via ac.RTID).
+    if (isSuperAdmin && !targetRtId) {
       setError('Pilih RT target terlebih dahulu sebelum memvalidasi file.')
       return
     }
@@ -163,9 +167,11 @@ export function WargaImportModal({
     setLoading(true)
     setError(null)
     // Capture the RT used for this preview — commit must use the same RT
-    setPreviewRtId(targetRtId)
+    setPreviewRtId(targetRtId ?? null)
     try {
-      const res = await apiPreviewWargaImportXLSX(pair.accessToken, selectedFile, targetRtId)
+      // Tenant users do not send rt_id query; backend uses RT from auth context.
+      const rtId = isSuperAdmin ? targetRtId : undefined
+      const res = await apiPreviewWargaImportXLSX(pair.accessToken, selectedFile, rtId)
       setPreviewResult(res)
       setStep('preview')
     } catch (err) {
@@ -182,8 +188,9 @@ export function WargaImportModal({
   const handleCommit = async () => {
     if (!selectedFile) return
 
-    // Validate RT selection (required for super_admin; not needed for tenant users)
-    if (!targetRtId) {
+    // Super admin must explicitly select an RT; tenant users use their own RT
+    // from the JWT auth context (backend resolves RT via ac.RTID).
+    if (isSuperAdmin && !targetRtId) {
       setError('Pilih RT target terlebih dahulu sebelum mengimpor data.')
       return
     }
@@ -205,7 +212,9 @@ export function WargaImportModal({
     setLoading(true)
     setError(null)
     try {
-      const res = await apiCommitWargaImportXLSX(pair.accessToken, selectedFile, targetRtId)
+      // Tenant users do not send rt_id query; backend uses RT from auth context.
+      const rtId = isSuperAdmin ? targetRtId : undefined
+      const res = await apiCommitWargaImportXLSX(pair.accessToken, selectedFile, rtId)
       setCommitResult(res)
       setStep('success')
     } catch (err) {
@@ -641,7 +650,7 @@ export function WargaImportModal({
               type="button"
               className="sf-btn-primary"
               onClick={handlePreview}
-              disabled={!selectedFile || loading || !targetRtId}
+              disabled={!selectedFile || loading || (isSuperAdmin && !targetRtId)}
             >
               {loading ? 'Memvalidasi...' : 'Pratinjau Data'}
             </button>

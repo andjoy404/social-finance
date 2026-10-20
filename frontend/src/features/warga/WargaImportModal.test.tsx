@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 import { WargaImportModal } from './WargaImportModal'
 import { persistSessionPair } from '@/app/api'
 import * as apiModule from '@/app/api'
+import * as AuthModule from '@/app/AuthContext'
 
 describe('WargaImportModal Component', () => {
   beforeEach(() => {
@@ -334,5 +335,265 @@ describe('WargaImportModal Component', () => {
     await waitFor(() => {
       expect(screen.getByText(/RT dipilih/i)).toBeInTheDocument()
     })
+  })
+
+  // ── Super admin RT passing ────────────────────────────────────────────
+
+  it('super admin passes targetRtId to preview API', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'sa-1',
+        name: 'Super Admin',
+        email: 'sa@test.com',
+        systemRole: 'super_admin',
+        role: 'super_admin',
+        jabatan: null,
+        rt: null,
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    const previewSpy = vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="rt-super-1" />)
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenCalledWith(
+        'valid-test-token',
+        file,
+        'rt-super-1',
+      )
+    })
+  })
+
+  it('super admin passes targetRtId to commit API', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'sa-1',
+        name: 'Super Admin',
+        email: 'sa@test.com',
+        systemRole: 'super_admin',
+        role: 'super_admin',
+        jabatan: null,
+        rt: null,
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    const previewSpy = vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    const commitSpy = vi.spyOn(apiModule, 'apiCommitWargaImportXLSX').mockResolvedValue({
+      status: 'success',
+      imported_households: 1,
+      imported_residents: 1,
+    })
+
+    render(
+      <WargaImportModal
+        open={true}
+        onClose={() => {}}
+        targetRtId="rt-super-1"
+      />,
+    )
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenCalledWith('valid-test-token', file, 'rt-super-1')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Impor Sekarang/i }))
+
+    await waitFor(() => {
+      expect(commitSpy).toHaveBeenCalledWith('valid-test-token', file, 'rt-super-1')
+    })
+  })
+
+  it('super admin preview button disabled without targetRtId', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'sa-2',
+        name: 'Super Admin',
+        email: 'sa2@test.com',
+        systemRole: 'super_admin',
+        role: 'super_admin',
+        jabatan: null,
+        rt: null,
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(<WargaImportModal open={true} onClose={() => {}} />)
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    expect(screen.getByRole('button', { name: /Pratinjau Data/i })).toBeDisabled()
+  })
+
+  // ── Tenant user (Ketua RT) does NOT pass rtId ───────────────────────
+
+  it('ketua RT does not pass targetRtId to preview API', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'ketua-1',
+        name: 'Ketua RT',
+        email: 'ketua@test.com',
+        systemRole: null,
+        role: 'warga',
+        jabatan: 'ketua',
+        rt: { id: 'rt-ketua-1', name: 'RT 002' },
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    const previewSpy = vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="rt-ketua-1" />)
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenCalledWith('valid-test-token', file, undefined)
+    })
+  })
+
+  it('ketua RT does not pass targetRtId to commit API', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'ketua-2',
+        name: 'Ketua RT',
+        email: 'ketua2@test.com',
+        systemRole: null,
+        role: 'warga',
+        jabatan: 'ketua',
+        rt: { id: 'rt-ketua-2', name: 'RT 002' },
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    const previewSpy = vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    const commitSpy = vi.spyOn(apiModule, 'apiCommitWargaImportXLSX').mockResolvedValue({
+      status: 'success',
+      imported_households: 1,
+      imported_residents: 1,
+    })
+
+    render(
+      <WargaImportModal
+        open={true}
+        onClose={() => {}}
+        targetRtId="rt-ketua-2"
+      />,
+    )
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenCalledWith('valid-test-token', file, undefined)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Impor Sekarang/i }))
+
+    await waitFor(() => {
+      expect(commitSpy).toHaveBeenCalledWith('valid-test-token', file, undefined)
+    })
+  })
+
+  it('ketua RT preview button enabled with file even without targetRtId', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'ketua-3',
+        name: 'Ketua RT',
+        email: 'ketua3@test.com',
+        systemRole: null,
+        role: 'warga',
+        jabatan: 'ketua',
+        rt: { id: 'rt-ketua-3', name: 'RT 003' },
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(<WargaImportModal open={true} onClose={() => {}} />)
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    expect(screen.getByRole('button', { name: /Pratinjau Data/i })).not.toBeDisabled()
   })
 })

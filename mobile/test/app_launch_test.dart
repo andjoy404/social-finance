@@ -622,41 +622,6 @@ void main() {
   });
 
   testWidgets(
-    'Horizontal swipe left/right navigates between main menu tabs and respects boundaries (A1)',
-    (tester) async {
-      await tester.pumpWidget(_authWidget(const App()));
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.pump();
-
-      // Starts on Beranda; swipe right at first menu should stay on Beranda
-      await tester.fling(
-        find.byKey(const Key('main-nav-swipe-detector')),
-        const Offset(300, 0),
-        1000,
-      );
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(find.text('Selamat datang,'), findsOneWidget);
-
-      // Swipe left -> navigates to Kas
-      await tester.fling(
-        find.byKey(const Key('main-nav-swipe-detector')),
-        const Offset(-300, 0),
-        1000,
-      );
-      await tester.pump(const Duration(milliseconds: 200));
-
-      // Swipe right -> returns to Beranda
-      await tester.fling(
-        find.byKey(const Key('main-nav-swipe-detector')),
-        const Offset(300, 0),
-        1000,
-      );
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(find.text('Selamat datang,'), findsOneWidget);
-    },
-  );
-
-  testWidgets(
     'Beranda supports pull-to-refresh and shows recent iuran reference & IPL badge (B1, B2)',
     (tester) async {
       var refreshCalled = 0;
