@@ -29,11 +29,14 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
   final _nikCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
 
   String _occupancyStatus = 'OWNER';
   bool _isActive = true;
   String? _startDate;
+  String? _endDate;
+  bool _obscurePassword = true;
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -61,6 +64,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     _nikCtrl.dispose();
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
+    _passwordCtrl.dispose();
     _addressCtrl.dispose();
     super.dispose();
   }
@@ -106,7 +110,8 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
         _phoneCtrl.text = resident.phoneNumber ?? '';
         _emailCtrl.text = resident.email ?? '';
         _isActive = resident.isActive;
-        _startDate = hh?.startDate;
+        _startDate = hh?.startDate ?? resident.startDate;
+        _endDate = hh?.endDate ?? resident.endDate;
         _loading = false;
       });
     } on FormatException catch (_) {
@@ -151,6 +156,16 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     ).hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
+    if (_endDate != null && _endDate!.isNotEmpty && _startDate != null && _startDate!.isNotEmpty) {
+      final start = DateTime.tryParse(_startDate!);
+      final end = DateTime.tryParse(_endDate!);
+      if (start != null && end != null && !end.isAfter(start)) {
+        errors.add('Tanggal selesai tidak boleh sebelum tanggal mulai.');
+      }
+    }
+    if (_passwordCtrl.text.isNotEmpty && _passwordCtrl.text.length < 8) {
+      errors.add('Password minimal 8 karakter.');
+    }
 
     setState(() => _validationErrors = errors);
     return errors.isEmpty;
@@ -176,6 +191,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
         phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
         email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
         occupancyStatus: _occupancyStatus.isEmpty ? null : _occupancyStatus,
+        startDate: _startDate,
+        endDate: _endDate,
+        password: _passwordCtrl.text.trim().isEmpty ? null : _passwordCtrl.text.trim(),
         address: _addressCtrl.text.trim().isEmpty
             ? null
             : _addressCtrl.text.trim(),
@@ -282,7 +300,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     if (_loading) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Edit Warga'),
+          title: const Text('Ubah Warga'),
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -291,7 +309,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     if (_notFound) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Edit Warga'),
+          title: const Text('Ubah Warga'),
         ),
         body: Center(
           child: Column(
@@ -326,7 +344,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Edit Warga'),
+          title: const Text('Ubah Warga'),
         ),
         body: Form(
           key: _formKey,
@@ -513,7 +531,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Tanggal Mulai Hunian (READ-ONLY display)
+              // Tanggal Mulai Hunian
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -524,35 +542,157 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppColors.lightBorder),
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      color: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurface.withValues(alpha: 0.5),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 20,
-                          color: AppColors.accent,
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Text(
-                          _startDate ?? '-',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: isDark
-                                ? AppColors.darkTextMuted
-                                : AppColors.lightTextMuted,
+                  InkWell(
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final initial = _startDate != null && _startDate!.isNotEmpty
+                          ? (DateTime.tryParse(_startDate!) ?? now)
+                          : now;
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: initial,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          _startDate = picked.toLocal().toString().split(' ')[0];
+                        });
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.lightBorder),
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        color: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            size: 20,
+                            color: AppColors.accent,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: AppSpacing.md),
+                          Text(
+                            (_startDate == null || _startDate!.isEmpty)
+                                ? 'Pilih tanggal mulai'
+                                : _startDate!,
+                            style: theme.textTheme.bodyLarge,
+                          ),
+                          const Spacer(),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Tanggal Selesai Hunian (opsional)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Tanggal Selesai Hunian (opsional)',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (_endDate != null && _endDate!.isNotEmpty)
+                        TextButton(
+                          onPressed: () => setState(() => _endDate = null),
+                          child: const Text('Hapus', style: TextStyle(color: AppColors.danger, fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  InkWell(
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final initial = _endDate != null && _endDate!.isNotEmpty
+                          ? (DateTime.tryParse(_endDate!) ?? now)
+                          : (_startDate != null && _startDate!.isNotEmpty
+                              ? (DateTime.tryParse(_startDate!) ?? now)
+                              : now);
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: initial,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          _endDate = picked.toLocal().toString().split(' ')[0];
+                        });
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.lightBorder),
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        color: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            size: 20,
+                            color: AppColors.accent,
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          Text(
+                            (_endDate == null || _endDate!.isEmpty)
+                                ? 'Pilih tanggal selesai'
+                                : _endDate!,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: (_endDate == null || _endDate!.isEmpty)
+                                  ? (isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted)
+                                  : null,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Ubah Password (opsional)
+              AppTextField(
+                controller: _passwordCtrl,
+                label: 'Ubah Password',
+                hintText: 'Kosongkan jika tidak ingin mengubah password',
+                obscureText: _obscurePassword,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    color: AppColors.accent,
+                    size: 20,
+                  ),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
               ),
               const SizedBox(height: AppSpacing.lg),
 

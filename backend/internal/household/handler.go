@@ -295,6 +295,31 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 	canonEmail := NormalizeEmail(*req.Email)
 	req.Email = &canonEmail
 
+	var parsedStart *time.Time
+	if req.StartDate != nil && strings.TrimSpace(*req.StartDate) != "" {
+		trimmedStart := strings.TrimSpace(*req.StartDate)
+		ps, err := time.Parse("2006-01-02", trimmedStart)
+		if err != nil {
+			httpx.WriteValidationError(w, "start_date must be in YYYY-MM-DD format", nil)
+			return
+		}
+		parsedStart = &ps
+		req.StartDate = &trimmedStart
+	}
+	if req.EndDate != nil && strings.TrimSpace(*req.EndDate) != "" {
+		trimmedEnd := strings.TrimSpace(*req.EndDate)
+		pe, err := time.Parse("2006-01-02", trimmedEnd)
+		if err != nil {
+			httpx.WriteValidationError(w, "end_date must be in YYYY-MM-DD format", nil)
+			return
+		}
+		if parsedStart != nil && !pe.After(*parsedStart) {
+			httpx.WriteValidationError(w, "end_date must be after start_date", nil)
+			return
+		}
+		req.EndDate = &trimmedEnd
+	}
+
 	if req.IsActive == nil {
 		trueVal := true
 		req.IsActive = &trueVal
@@ -561,6 +586,31 @@ func (h *Handler) UpdateHousehold(w http.ResponseWriter, r *http.Request) {
 		req.Email = &canonEmail
 	}
 
+	var parsedStart *time.Time
+	if req.StartDate != nil && strings.TrimSpace(*req.StartDate) != "" {
+		trimmedStart := strings.TrimSpace(*req.StartDate)
+		ps, err := time.Parse("2006-01-02", trimmedStart)
+		if err != nil {
+			httpx.WriteValidationError(w, "start_date must be in YYYY-MM-DD format", nil)
+			return
+		}
+		parsedStart = &ps
+		req.StartDate = &trimmedStart
+	}
+	if req.EndDate != nil && strings.TrimSpace(*req.EndDate) != "" {
+		trimmedEnd := strings.TrimSpace(*req.EndDate)
+		pe, err := time.Parse("2006-01-02", trimmedEnd)
+		if err != nil {
+			httpx.WriteValidationError(w, "end_date must be in YYYY-MM-DD format", nil)
+			return
+		}
+		if parsedStart != nil && !pe.After(*parsedStart) {
+			httpx.WriteValidationError(w, "end_date must be after start_date", nil)
+			return
+		}
+		req.EndDate = &trimmedEnd
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -795,6 +845,31 @@ func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
 	}
 	canonEmail := NormalizeEmail(*req.Email)
 	req.Email = &canonEmail
+
+	var parsedStart *time.Time
+	if req.StartDate != nil && strings.TrimSpace(*req.StartDate) != "" {
+		trimmedStart := strings.TrimSpace(*req.StartDate)
+		ps, err := time.Parse("2006-01-02", trimmedStart)
+		if err != nil {
+			httpx.WriteValidationError(w, "start_date must be in YYYY-MM-DD format", nil)
+			return
+		}
+		parsedStart = &ps
+		req.StartDate = &trimmedStart
+	}
+	if req.EndDate != nil && strings.TrimSpace(*req.EndDate) != "" {
+		trimmedEnd := strings.TrimSpace(*req.EndDate)
+		pe, err := time.Parse("2006-01-02", trimmedEnd)
+		if err != nil {
+			httpx.WriteValidationError(w, "end_date must be in YYYY-MM-DD format", nil)
+			return
+		}
+		if parsedStart != nil && !pe.After(*parsedStart) {
+			httpx.WriteValidationError(w, "end_date must be after start_date", nil)
+			return
+		}
+		req.EndDate = &trimmedEnd
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
@@ -1059,6 +1134,31 @@ func (h *Handler) UpdateResident(w http.ResponseWriter, r *http.Request) {
 		}
 		canonEmail := NormalizeEmail(trimmed)
 		req.Email = &canonEmail
+	}
+
+	var parsedStart *time.Time
+	if req.StartDate != nil && strings.TrimSpace(*req.StartDate) != "" {
+		trimmedStart := strings.TrimSpace(*req.StartDate)
+		ps, err := time.Parse("2006-01-02", trimmedStart)
+		if err != nil {
+			httpx.WriteValidationError(w, "start_date must be in YYYY-MM-DD format", nil)
+			return
+		}
+		parsedStart = &ps
+		req.StartDate = &trimmedStart
+	}
+	if req.EndDate != nil && strings.TrimSpace(*req.EndDate) != "" {
+		trimmedEnd := strings.TrimSpace(*req.EndDate)
+		pe, err := time.Parse("2006-01-02", trimmedEnd)
+		if err != nil {
+			httpx.WriteValidationError(w, "end_date must be in YYYY-MM-DD format", nil)
+			return
+		}
+		if parsedStart != nil && !pe.After(*parsedStart) {
+			httpx.WriteValidationError(w, "end_date must be after start_date", nil)
+			return
+		}
+		req.EndDate = &trimmedEnd
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)

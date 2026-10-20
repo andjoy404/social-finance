@@ -358,7 +358,7 @@ export function Dashboard() {
               <span style={{
                 fontSize: 22,
                 fontWeight: 700,
-                color: 'var(--sf-accent)',
+              color: '#3b82f6',
                 lineHeight: 1.2,
               }}>
                 {duesPaid}/{duesTotal}

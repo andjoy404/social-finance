@@ -97,15 +97,26 @@ func syncResidentUserAccount(ctx context.Context, tx *sql.Tx, rtID, residentID, 
 	}
 
 	if foundUserID != "" {
-		_, _ = tx.ExecContext(ctx, `UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, foundUserID, hash)
-		_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, foundUserID, residentID)
-		_, _ = tx.ExecContext(ctx,
-			`INSERT INTO user_rt_memberships (user_id, rt_id, role, is_active)
-			 VALUES ($1, $2, 'warga', true)
-			 ON CONFLICT (user_id, rt_id) WHERE is_active = true DO NOTHING`,
-			foundUserID, rtID,
-		)
-		return nil
+		var otherResidentID sql.NullString
+		_ = tx.QueryRowContext(ctx, `SELECT id FROM residents WHERE user_id = $1 AND id != $2 LIMIT 1`, foundUserID, residentID).Scan(&otherResidentID)
+		if !otherResidentID.Valid {
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, foundUserID, hash); err != nil {
+				return fmt.Errorf("update existing user password: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, foundUserID, residentID); err != nil {
+				return fmt.Errorf("link resident to existing user: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO user_rt_memberships (user_id, rt_id, role, is_active)
+				 VALUES ($1, $2, 'warga', true)
+				 ON CONFLICT (user_id, rt_id) WHERE is_active = true DO NOTHING`,
+				foundUserID, rtID,
+			); err != nil {
+				return fmt.Errorf("insert user_rt_membership for existing user: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("email already linked to another resident in this RT")
 	}
 
 	if targetEmail == "" {
@@ -121,13 +132,17 @@ func syncResidentUserAccount(ctx context.Context, tx *sql.Tx, rtID, residentID, 
 		return fmt.Errorf("create user: %w", err)
 	}
 
-	_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, newUserID, residentID)
-	_, _ = tx.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, newUserID, residentID); err != nil {
+		return fmt.Errorf("link resident to new user: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO user_rt_memberships (user_id, rt_id, role, is_active)
 		 VALUES ($1, $2, 'warga', true)
 		 ON CONFLICT (user_id, rt_id) WHERE is_active = true DO NOTHING`,
 		newUserID, rtID,
-	)
+	); err != nil {
+		return fmt.Errorf("insert user_rt_membership for new user: %w", err)
+	}
 	return nil
 }
 
@@ -148,12 +163,12 @@ func setClause(fields []updateField, baseIdx int) string {
 func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 	var item Household
 	var houseNumber, address, occStatus sql.NullString
-	var hoStartDate sql.NullTime
+	var hoStartDate, hoEndDate sql.NullTime
 
 	err := scan(
 		&item.ID, &item.RTID, &item.HeadName,
 		&item.IsActive, &item.CreatedAt, &item.UpdatedAt,
-		&houseNumber, &address, &occStatus, &hoStartDate,
+		&houseNumber, &address, &occStatus, &hoStartDate, &hoEndDate,
 	)
 	if err != nil {
 		return nil, err
@@ -173,15 +188,24 @@ func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 		sd := hoStartDate.Time.Format("2006-01-02")
 		item.StartDate = &sd
 	}
+	if hoEndDate.Valid {
+		ed := hoEndDate.Time.Format("2006-01-02")
+		item.EndDate = &ed
+	}
 
 	return &item, nil
 }
 
 const householdBaseSelect = `
 	SELECT h.id, h.rt_id, h.head_name, h.is_active, h.created_at, h.updated_at,
-	       ph.house_number, ph.address, ho.occupancy_status, ho.start_date
+	       ph.house_number, ph.address, ho.occupancy_status, ho.start_date, ho.end_date
 	FROM households h
-	LEFT JOIN household_occupancies ho ON ho.household_id = h.id AND ho.end_date IS NULL
+	LEFT JOIN LATERAL (
+		SELECT * FROM household_occupancies
+		WHERE household_id = h.id
+		ORDER BY (end_date IS NULL) DESC, created_at DESC
+		LIMIT 1
+	) ho ON true
 	LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 `
 
@@ -189,7 +213,12 @@ const householdBaseSelect = `
 const householdBaseCount = `
 	SELECT COUNT(*)
 	FROM households h
-	LEFT JOIN household_occupancies ho ON ho.household_id = h.id AND ho.end_date IS NULL
+	LEFT JOIN LATERAL (
+		SELECT * FROM household_occupancies
+		WHERE household_id = h.id
+		ORDER BY (end_date IS NULL) DESC, created_at DESC
+		LIMIT 1
+	) ho ON true
 	LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 `
 
@@ -292,12 +321,21 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 		startDate = &now
 	}
 
+	var endDate *time.Time
+	if in.EndDate != nil && strings.TrimSpace(*in.EndDate) != "" {
+		d, parseErr := time.Parse("2006-01-02", strings.TrimSpace(*in.EndDate))
+		if parseErr != nil {
+			return nil, ErrInvalidDate
+		}
+		endDate = &d
+	}
+
 	var occID string
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO household_occupancies (physical_house_id, household_id, occupancy_status, start_date, end_date)
-		 VALUES ($1, $2, $3, $4, NULL)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id`,
-		phID, item.ID, in.OccupancyStatus, startDate,
+		phID, item.ID, in.OccupancyStatus, startDate, endDate,
 	).Scan(&occID)
 	if err != nil {
 		return nil, fmt.Errorf("create household occupancy: %w", err)
@@ -310,6 +348,10 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 	if startDate != nil {
 		sd := startDate.Format("2006-01-02")
 		item.StartDate = &sd
+	}
+	if endDate != nil {
+		ed := endDate.Format("2006-01-02")
+		item.EndDate = &ed
 	}
 
 	// 4. Create head resident & residency period
@@ -332,8 +374,8 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date, end_date)
-		 VALUES ($1, $2, $3, NULL)`,
-		resItem.ID, occID, startDate,
+		 VALUES ($1, $2, $3, $4)`,
+		resItem.ID, occID, startDate, endDate,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create head residency period: %w", err)
@@ -590,7 +632,12 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 	err := tx.QueryRowContext(ctx,
 		`SELECT h.id, h.head_name, ho.physical_house_id, ho.id
 		 FROM households h
-		 LEFT JOIN household_occupancies ho ON ho.household_id = h.id AND ho.end_date IS NULL
+		 LEFT JOIN LATERAL (
+		     SELECT * FROM household_occupancies
+		     WHERE household_id = h.id
+		     ORDER BY (end_date IS NULL) DESC, created_at DESC
+		     LIMIT 1
+		 ) ho ON true
 		 WHERE h.id = $1 AND h.rt_id = $2 LIMIT 1`,
 		id, rtID,
 	).Scan(&hhID, &currentHeadName, &phID, &hoID)
@@ -665,6 +712,36 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 		hasChanges = true
 	}
 
+	if hoID.Valid && in.EndDate != nil {
+		trimmedEnd := strings.TrimSpace(*in.EndDate)
+		if trimmedEnd == "" {
+			_, err = tx.ExecContext(ctx,
+				`UPDATE household_occupancies SET end_date = NULL, updated_at = now() WHERE id = $1`,
+				hoID.String,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("clear occupancy end_date: %w", err)
+			}
+			_, _ = tx.ExecContext(ctx,
+				`UPDATE residency_periods SET end_date = NULL WHERE household_occupancy_id = $1`,
+				hoID.String,
+			)
+		} else {
+			_, err = tx.ExecContext(ctx,
+				`UPDATE household_occupancies SET end_date = $1, updated_at = now() WHERE id = $2`,
+				trimmedEnd, hoID.String,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("update occupancy end_date: %w", err)
+			}
+			_, _ = tx.ExecContext(ctx,
+				`UPDATE residency_periods SET end_date = $1 WHERE household_occupancy_id = $2`,
+				trimmedEnd, hoID.String,
+			)
+		}
+		hasChanges = true
+	}
+
 	var headResID sql.NullString
 
 	// 3. Head Resident updates or repair legacy household
@@ -674,8 +751,7 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 			 FROM residency_periods rp
 			 JOIN residents r ON r.id = rp.resident_id
 			 WHERE rp.household_occupancy_id = $1
-			   AND rp.end_date IS NULL
-			 ORDER BY rp.created_at ASC
+			 ORDER BY (rp.end_date IS NULL) DESC, rp.created_at ASC
 			 LIMIT 1`,
 			hoID.String,
 		).Scan(&headResID)
@@ -1090,11 +1166,20 @@ func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtI
 			startDate = &now
 		}
 
+		var endDate *time.Time
+		if in.EndDate != nil && strings.TrimSpace(*in.EndDate) != "" {
+			d, parseErr := time.Parse("2006-01-02", strings.TrimSpace(*in.EndDate))
+			if parseErr != nil {
+				return nil, ErrInvalidDate
+			}
+			endDate = &d
+		}
+
 		var rpID string
 		err = tx.QueryRowContext(ctx,
 			`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date, end_date)
-			 VALUES ($1, $2, $3, NULL) RETURNING id`,
-			item.ID, hoID, startDate,
+			 VALUES ($1, $2, $3, $4) RETURNING id`,
+			item.ID, hoID, startDate, endDate,
 		).Scan(&rpID)
 		if err != nil {
 			return nil, fmt.Errorf("create residency period: %w", err)
@@ -1150,7 +1235,12 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 		        ho.household_id, rp.start_date, rp.end_date, r.user_id,
 		        rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 		 FROM residents r
-		 LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+		 LEFT JOIN LATERAL (
+		     SELECT * FROM residency_periods
+		     WHERE resident_id = r.id
+		     ORDER BY (end_date IS NULL) DESC, created_at DESC
+		     LIMIT 1
+		 ) rp ON true
 		 LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
 		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 		 LEFT JOIN rts rt ON r.rt_id = rt.id
@@ -1216,14 +1306,19 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 	var hhID, userID, jabatanStr, houseNumStr sql.NullString
 	var rtNumber, rtName sql.NullString
 	var rw sql.NullInt64
-	var rpStart sql.NullTime
+	var rpStart, rpEnd sql.NullTime
 
 	err := tx.QueryRowContext(ctx,
 		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
-		        ho.household_id, rp.start_date, r.user_id,
+		        ho.household_id, rp.start_date, rp.end_date, r.user_id,
 		        rt.rt, rt.rw, rt.name, urm.jabatan, ph.house_number
 		 FROM residents r
-		 LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+		 LEFT JOIN LATERAL (
+		     SELECT * FROM residency_periods
+		     WHERE resident_id = r.id
+		     ORDER BY (end_date IS NULL) DESC, created_at DESC
+		     LIMIT 1
+		 ) rp ON true
 		 LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
 		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 		 LEFT JOIN rts rt ON r.rt_id = rt.id
@@ -1233,7 +1328,7 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 	).Scan(
 		&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email, &item.IsActive,
 		&item.CreatedAt, &item.UpdatedAt,
-		&hhID, &rpStart,
+		&hhID, &rpStart, &rpEnd,
 		&userID,
 		&rtNumber, &rw, &rtName,
 		&jabatanStr,
@@ -1265,6 +1360,9 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 	if rpStart.Valid {
 		item.StartDate = stringPtr(rpStart.Time.Format("2006-01-02"))
 	}
+	if rpEnd.Valid {
+		item.EndDate = stringPtr(rpEnd.Time.Format("2006-01-02"))
+	}
 	if jabatanStr.Valid {
 		item.Jabatan = &jabatanStr.String
 	}
@@ -1281,7 +1379,12 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 	                 ho.household_id, rp.start_date, rp.end_date, r.user_id,
 	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 	          FROM residents r
-	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+	          LEFT JOIN LATERAL (
+	              SELECT * FROM residency_periods
+	              WHERE resident_id = r.id
+	              ORDER BY (end_date IS NULL) DESC, created_at DESC
+	              LIMIT 1
+	          ) rp ON true
 	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
 	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 	          LEFT JOIN rts rt ON r.rt_id = rt.id
@@ -1385,7 +1488,12 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 func ResidentCount(ctx context.Context, tx *sql.Tx, rtID string, householdID *string, isActive *bool) (int, error) {
 	query := `SELECT COUNT(*)
 	          FROM residents r
-	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+	          LEFT JOIN LATERAL (
+	              SELECT * FROM residency_periods
+	              WHERE resident_id = r.id
+	              ORDER BY (end_date IS NULL) DESC, created_at DESC
+	              LIMIT 1
+	          ) rp ON true
 	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
 	          WHERE r.rt_id = $1`
 
@@ -1421,7 +1529,12 @@ func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isAct
 	                 ho.household_id, rp.start_date, rp.end_date, r.user_id,
 	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 	          FROM residents r
-	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+	          LEFT JOIN LATERAL (
+	              SELECT * FROM residency_periods
+	              WHERE resident_id = r.id
+	              ORDER BY (end_date IS NULL) DESC, created_at DESC
+	              LIMIT 1
+	          ) rp ON true
 	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
 	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 	          LEFT JOIN rts rt ON r.rt_id = rt.id
@@ -1523,7 +1636,12 @@ func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isAct
 func ResidentCountAll(ctx context.Context, tx *sql.Tx, householdID *string, isActive *bool) (int, error) {
 	query := `SELECT COUNT(*)
 	          FROM residents r
-	          LEFT JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+	          LEFT JOIN LATERAL (
+	              SELECT * FROM residency_periods
+	              WHERE resident_id = r.id
+	              ORDER BY (end_date IS NULL) DESC, created_at DESC
+	              LIMIT 1
+	          ) rp ON true
 	          LEFT JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
 	          WHERE 1=1`
 
@@ -1614,6 +1732,49 @@ func ResidentUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Update
 			return nil, err
 		}
 		hasChanges = true
+	}
+
+	if (in.StartDate != nil && strings.TrimSpace(*in.StartDate) != "") || in.EndDate != nil {
+		var rpID sql.NullString
+		_ = tx.QueryRowContext(ctx,
+			`SELECT id FROM residency_periods
+			 WHERE resident_id = $1
+			 ORDER BY (end_date IS NULL) DESC, created_at DESC
+			 LIMIT 1`,
+			id,
+		).Scan(&rpID)
+
+		if rpID.Valid && rpID.String != "" {
+			if in.StartDate != nil && strings.TrimSpace(*in.StartDate) != "" {
+				trimmedStart := strings.TrimSpace(*in.StartDate)
+				if _, err := tx.ExecContext(ctx,
+					`UPDATE residency_periods SET start_date = $1, updated_at = now() WHERE id = $2`,
+					trimmedStart, rpID.String,
+				); err != nil {
+					return nil, fmt.Errorf("update resident start_date: %w", err)
+				}
+				hasChanges = true
+			}
+			if in.EndDate != nil {
+				trimmedEnd := strings.TrimSpace(*in.EndDate)
+				if trimmedEnd == "" {
+					if _, err := tx.ExecContext(ctx,
+						`UPDATE residency_periods SET end_date = NULL, updated_at = now() WHERE id = $1`,
+						rpID.String,
+					); err != nil {
+						return nil, fmt.Errorf("clear resident end_date: %w", err)
+					}
+				} else {
+					if _, err := tx.ExecContext(ctx,
+						`UPDATE residency_periods SET end_date = $1, updated_at = now() WHERE id = $2`,
+						trimmedEnd, rpID.String,
+					); err != nil {
+						return nil, fmt.Errorf("update resident end_date: %w", err)
+					}
+				}
+				hasChanges = true
+			}
+		}
 	}
 
 	// Synchronize linked user account so the profile (/auth/me) reflects resident data changes.

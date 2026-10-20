@@ -454,14 +454,6 @@ class _KasScreenState extends ConsumerState<KasScreen> {
           automaticallyImplyLeading: false,
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Kas'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.bar_chart_outlined, size: 20),
-              tooltip: 'Laporan KAS',
-              onPressed: () => context.push('/home/kas/laporan'),
-            ),
-            const SizedBox(width: 8),
-          ],
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -473,14 +465,6 @@ class _KasScreenState extends ConsumerState<KasScreen> {
           automaticallyImplyLeading: false,
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Kas'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.bar_chart_outlined, size: 20),
-              tooltip: 'Laporan KAS',
-              onPressed: () => context.push('/home/kas/laporan'),
-            ),
-            const SizedBox(width: 8),
-          ],
         ),
         body: Center(
           child: SingleChildScrollView(
@@ -536,20 +520,12 @@ class _KasScreenState extends ConsumerState<KasScreen> {
     final canWrite = _hasKasWriteAccess(ref);
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        centerTitle: false,
-        title: const MenuAppBarTitle(title: 'Kas'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.bar_chart_outlined, size: 20),
-            tooltip: 'Laporan KAS',
-            onPressed: () => context.push('/home/kas/laporan'),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      floatingActionButton: canWrite
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Kas'),
+        ),
+        floatingActionButton: canWrite
           ? () {
               final button = Container(
                 key: const Key('kas-add-transaction-btn'),

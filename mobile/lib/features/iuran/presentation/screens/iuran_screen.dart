@@ -35,6 +35,15 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
     if (widget.myBills) {
       _searchController.text = ref.read(iuranSearchQueryProvider);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final current = ref.read(iuranSelectedPeriodeProvider);
+        if (current.isEmpty) {
+          ref.read(iuranSelectedPeriodeProvider.notifier).state =
+              currentCalendarPeriod();
+        }
+      }
+    });
   }
 
   @override
@@ -204,14 +213,13 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                   filtered.isEmpty
                       ? Center(
                           child: SingleChildScrollView(
-                            physics: widget.myBills
-                                ? const AlwaysScrollableScrollPhysics()
-                                : null,
+                            physics: const AlwaysScrollableScrollPhysics(),
                             padding: const EdgeInsets.all(AppSpacing.lg),
                             child:
-                                _searchController.text.trim().isNotEmpty ||
+                                (billsState.valueOrNull?.isNotEmpty ?? false) &&
+                                (_searchController.text.trim().isNotEmpty ||
                                     periode.isNotEmpty ||
-                                    status.isNotEmpty
+                                    status.isNotEmpty)
                                 ? EmptyState(
                                     icon: Icons.receipt_long_outlined,
                                     title: 'Tagihan Tidak Ditemukan',
@@ -246,9 +254,7 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                           ),
                         )
                       : ListView.separated(
-                          physics: widget.myBills
-                              ? const AlwaysScrollableScrollPhysics()
-                              : null,
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(
                             AppSpacing.base,
                             AppSpacing.xs,

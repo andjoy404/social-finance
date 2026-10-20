@@ -29,10 +29,13 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
   final _nikCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
 
   String _occupancyStatus = 'OWNER';
   String _startDate = '';
+  String? _endDate;
+  bool _obscurePassword = true;
   bool _isActive = true;
   String? _selectedRtId;
   bool _saving = false;
@@ -61,6 +64,7 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
     _nikCtrl.dispose();
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
+    _passwordCtrl.dispose();
     _addressCtrl.dispose();
     super.dispose();
   }
@@ -118,6 +122,16 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
     if (_startDate.isEmpty) {
       errors.add('Tanggal mulai hunian harus diisi.');
     }
+    if (_endDate != null && _endDate!.isNotEmpty && _startDate.isNotEmpty) {
+      final start = DateTime.tryParse(_startDate);
+      final end = DateTime.tryParse(_endDate!);
+      if (start != null && end != null && !end.isAfter(start)) {
+        errors.add('Tanggal selesai tidak boleh sebelum tanggal mulai.');
+      }
+    }
+    if (_passwordCtrl.text.isNotEmpty && _passwordCtrl.text.length < 8) {
+      errors.add('Password minimal 8 karakter.');
+    }
     if (widget.isSuperAdmin && _selectedRtId == null) {
       errors.add('RT Tujuan harus dipilih.');
     }
@@ -144,6 +158,8 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
         email: _emailCtrl.text.trim(),
         occupancyStatus: _occupancyStatus,
         startDate: _startDate,
+        endDate: _endDate,
+        password: _passwordCtrl.text.trim().isEmpty ? null : _passwordCtrl.text.trim(),
         address: _addressCtrl.text.trim().isEmpty
             ? null
             : _addressCtrl.text.trim(),
@@ -560,6 +576,103 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Tanggal Selesai Hunian (opsional)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Tanggal Selesai Hunian (opsional)',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (_endDate != null && _endDate!.isNotEmpty)
+                        TextButton(
+                          onPressed: () => setState(() => _endDate = null),
+                          child: const Text('Hapus', style: TextStyle(color: AppColors.danger, fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  InkWell(
+                    onTap: () async {
+                      final now = DateTime.now();
+                      final initial = _endDate != null && _endDate!.isNotEmpty
+                          ? (DateTime.tryParse(_endDate!) ?? now)
+                          : (_startDate.isNotEmpty ? (DateTime.tryParse(_startDate) ?? now) : now);
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: initial,
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          _endDate = picked.toLocal().toString().split(' ')[0];
+                        });
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.lightBorder),
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        color: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            size: 20,
+                            color: AppColors.accent,
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          Text(
+                            (_endDate == null || _endDate!.isEmpty)
+                                ? 'Pilih tanggal selesai'
+                                : _endDate!,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: (_endDate == null || _endDate!.isEmpty)
+                                  ? (isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted)
+                                  : null,
+                            ),
+                          ),
+                          const Spacer(),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Buat Password
+              AppTextField(
+                controller: _passwordCtrl,
+                label: 'Buat Password',
+                hintText: 'Minimal 8 karakter (opsional)',
+                obscureText: _obscurePassword,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    color: AppColors.accent,
+                    size: 20,
+                  ),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
               ),
               const SizedBox(height: AppSpacing.lg),
 

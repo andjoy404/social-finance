@@ -458,12 +458,23 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
               ),
               data: (dues) {
                 if (dues.isEmpty) {
-                  return const Center(child: Text('Belum ada jenis iuran.'));
+                  return RefreshIndicator(
+                    onRefresh: () => ref.read(duesProvider.notifier).refresh(),
+                    child: const SingleChildScrollView(
+                      physics: AlwaysScrollableScrollPhysics(),
+                      child: SizedBox(
+                        height: 300,
+                        child: Center(child: Text('Belum ada jenis iuran.')),
+                      ),
+                    ),
+                  );
                 }
                 final filteredDues = _applyFilters(dues);
                 if (filteredDues.isEmpty) {
-                  return Center(
+                  return RefreshIndicator(
+                    onRefresh: () => ref.read(duesProvider.notifier).refresh(),
                     child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.all(AppSpacing.lg),
                       child: EmptyState(
                         icon: Icons.search_off,
@@ -479,6 +490,7 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
                 return RefreshIndicator(
                   onRefresh: () => ref.read(duesProvider.notifier).refresh(),
                   child: ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.base,
                       AppSpacing.xs,
@@ -660,7 +672,7 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
           child: const SizedBox(
             height: 44,
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
+              padding: EdgeInsets.symmetric(horizontal: 14),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -674,15 +686,6 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
                   ),
                   SizedBox(width: 6),
                   Icon(Icons.receipt_long, size: 18, color: AppColors.accent),
-                  SizedBox(width: 6),
-                  Text(
-                    'Buat Iuran',
-                    style: TextStyle(
-                      color: AppColors.accent,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  ),
                 ],
               ),
             ),

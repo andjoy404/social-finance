@@ -88,6 +88,30 @@ void main() {
       );
     });
 
+    test('jabatan ketua or bendahara with warga role can manage when permissions granted', () {
+      const managementPermissions = [
+        'finance.read',
+        'finance.create',
+        'finance.update',
+        'finance.approve',
+      ];
+      final ketuaUser = {
+        'role': AppRole.warga,
+        'jabatan': 'ketua',
+        'effective_permissions': managementPermissions,
+      };
+      expect(canReadIuran(ketuaUser), isTrue);
+      expect(canManageIuran(ketuaUser), isTrue);
+
+      final bendaharaUser = {
+        'role': 'warga',
+        'jabatan': 'bendahara',
+        'effective_permissions': managementPermissions,
+      };
+      expect(canReadIuran(bendaharaUser), isTrue);
+      expect(canManageIuran(bendaharaUser), isTrue);
+    });
+
     test('route access applies read and manage permissions to deep links', () {
       final warga = {
         'role': AppRole.warga,

@@ -718,7 +718,7 @@ export function KasList() {
               border: '1px solid rgba(59, 130, 246, 0.25)',
               fontSize: 12,
               fontWeight: 600,
-              color: 'var(--sf-accent)',
+              color: '#3b82f6',
               whiteSpace: 'nowrap',
             }}
           >

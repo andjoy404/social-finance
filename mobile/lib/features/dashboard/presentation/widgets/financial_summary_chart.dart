@@ -44,27 +44,11 @@ class FinancialSummaryChart extends StatefulWidget {
 
 class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
   int? _hoveredIndex;
-  int? _selectedIndex;
-  String? _selectedType; // 'income' or 'expense'
 
   void _onMonthTapped(int index) {
     if (index < 0 || index >= widget.summary.monthlyData.length) return;
     setState(() {
       _hoveredIndex = index;
-      if (_selectedIndex == index) {
-        // Toggle between income and expense on same month
-        _selectedType = _selectedType == 'income' ? 'expense' : 'income';
-      } else {
-        _selectedIndex = index;
-        _selectedType = 'income';
-      }
-    });
-  }
-
-  void _closeDetail() {
-    setState(() {
-      _selectedIndex = null;
-      _selectedType = null;
     });
   }
 
@@ -76,7 +60,14 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
         activeTooltipGroup < widget.summary.monthlyData.length;
 
     return Card(
-      child: Padding(
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () {
+          setState(() {
+            _hoveredIndex = null;
+          });
+        },
+        child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,18 +192,13 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
                 },
               ),
             ),
-            if (_selectedIndex != null)
-              _buildSelectedDetailBanner(
-                context,
-                _selectedIndex!,
-                _selectedType!,
-              ),
             const SizedBox(height: 16),
             _buildLegend(),
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildFloatingBarTooltip(
@@ -355,59 +341,6 @@ class _FinancialSummaryChartState extends State<FinancialSummaryChart> {
         const SizedBox(width: 24),
         _LegendItem(color: AppColors.expense, label: 'Pengeluaran'),
       ],
-    );
-  }
-
-  Widget _buildSelectedDetailBanner(
-    BuildContext context,
-    int index,
-    String type,
-  ) {
-    final point = widget.summary.monthlyData[index];
-    final isIncome = type == 'income';
-    final label = isIncome ? 'Pemasukan' : 'Pengeluaran';
-    final count = isIncome ? (point.incomeCount ?? 0) : (point.expenseCount ?? 0);
-    final color = isIncome ? AppColors.income : AppColors.expense;
-
-    return Container(
-      key: const Key('chart-selected-detail'),
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            '${point.month} • $label',
-            style: widget.theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '$count Transaksi',
-                style: widget.theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                key: const Key('chart-detail-close'),
-                icon: const Icon(Icons.close, size: 18),
-                color: color,
-                onPressed: _closeDetail,
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 

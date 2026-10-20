@@ -220,3 +220,61 @@ func TestMeSystemSuperAdminUsesExistingPermissionBypass(t *testing.T) {
 		t.Fatalf("super admin effective_permissions = %v, want %v", profile.EffectivePermissions, want)
 	}
 }
+
+func TestMeKetuaWithWargaRoleGetsEffectiveFinancePermissions(t *testing.T) {
+	handler, pool := setupEffectivePermissionTest(t)
+	var userID, rtID, membershipID string
+	err := pool.Raw().QueryRowContext(
+		context.Background(),
+		`INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
+		 VALUES (gen_random_uuid(), $1, 'dummy', 'Ketua Warga', NULL, true)
+		 RETURNING id`,
+		fmt.Sprintf("ketua-warga-%d@local.com", time.Now().UnixNano()),
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	err = pool.Raw().QueryRowContext(context.Background(), `SELECT id FROM rts LIMIT 1`).Scan(&rtID)
+	if err != nil {
+		t.Fatalf("get rt: %v", err)
+	}
+	err = pool.Raw().QueryRowContext(
+		context.Background(),
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		 VALUES (gen_random_uuid(), $1, $2, 'warga', 'ketua', true)
+		 RETURNING id`,
+		userID, rtID,
+	).Scan(&membershipID)
+	if err != nil {
+		t.Fatalf("insert membership: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	request = request.WithContext(context.WithValue(
+		request.Context(),
+		auth.AuthContextKey,
+		&auth.AuthContext{
+			UserID:       userID,
+			MembershipID: membershipID,
+			RTID:         rtID,
+			TenantRole:   auth.RoleWarga,
+			Jabatan:      auth.JabatanKetua,
+		},
+	))
+	response := httptest.NewRecorder()
+	handler.Me().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("/auth/me status = %d, body = %s", response.Code, response.Body.String())
+	}
+
+	var profile struct {
+		EffectivePermissions []string `json:"effective_permissions"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &profile); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	want := []string{"finance.read", "finance.create", "finance.update", "finance.approve"}
+	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
+		t.Fatalf("effective_permissions = %v, want %v", profile.EffectivePermissions, want)
+	}
+}

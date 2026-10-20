@@ -485,5 +485,52 @@ void main() {
       expect(find.byIcon(Icons.person_add), findsOneWidget);
       expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
     });
+
+    testWidgets('FAB has single person_add icon without duplicate plus text, and resident card icons have distinct colors', (tester) async {
+      const fullResident = MappedResident(
+        id: 'res-full-1',
+        name: 'Ahmad Dahlan',
+        houseNumber: 'A-12',
+        phoneNumber: '081234567890',
+        email: 'ahmad@example.com',
+        householdId: 'hh-1',
+      );
+      await tester.pumpWidget(
+        _createWargaTestApp(
+          residents: [fullResident],
+          currentUser: {
+            'id': 'user-ketua',
+            'email': 'ketua@example.com',
+            'role': AppRole.warga,
+            'system_role': null,
+            'jabatan': 'ketua',
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // FAB has person_add icon and NO extra '+' text widget
+      expect(find.byIcon(Icons.person_add), findsOneWidget);
+      expect(find.text('+'), findsNothing);
+
+      // Info icons are present with distinct colors
+      final homeFinder = find.byIcon(Icons.home_outlined);
+      final phoneFinder = find.byIcon(Icons.phone_outlined);
+      final emailFinder = find.byIcon(Icons.email_outlined);
+
+      expect(homeFinder, findsOneWidget);
+      expect(phoneFinder, findsOneWidget);
+      expect(emailFinder, findsOneWidget);
+
+      final homeIcon = tester.widget<Icon>(homeFinder);
+      final phoneIcon = tester.widget<Icon>(phoneFinder);
+      final emailIcon = tester.widget<Icon>(emailFinder);
+
+      expect(homeIcon.color, isNotNull);
+      expect(phoneIcon.color, isNotNull);
+      expect(emailIcon.color, isNotNull);
+      expect(homeIcon.color, isNot(equals(phoneIcon.color)));
+      expect(phoneIcon.color, isNot(equals(emailIcon.color)));
+    });
   });
 }

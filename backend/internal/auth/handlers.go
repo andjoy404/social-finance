@@ -419,7 +419,10 @@ func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.P
 		ac.TenantRole == RoleBendahara ||
 		ac.TenantRole == RolePengurus
 	roleAllowsManagement := ac.TenantRole == RoleBendahara ||
-		ac.TenantRole == RolePengurus
+		ac.TenantRole == RolePengurus ||
+		ac.Jabatan == JabatanKetua ||
+		ac.Jabatan == JabatanBendahara ||
+		ac.Jabatan == JabatanSekretaris
 
 	checks := []struct {
 		code       string
@@ -433,7 +436,11 @@ func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.P
 
 	resolver := NewPermissionResolver(pool)
 	for _, check := range checks {
-		if ac.SystemRole != SystemRoleSuperAdmin && !check.roleAllows {
+		// Jabatan-based users always go through the PermissionResolver to verify
+		// explicit position_permissions grants. Role-based users without jabatan
+		// are gated by roleAllows and then pass through the resolver (which
+		// returns true for role-based users without jabatan).
+		if ac.SystemRole != SystemRoleSuperAdmin && !check.roleAllows && ac.Jabatan == "" {
 			continue
 		}
 		allowed, err := resolver.HasPermission(ctx, tx, ac, check.code)

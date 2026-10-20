@@ -670,7 +670,7 @@ void main() {
   );
 
   testWidgets(
-    'FinancialSummaryChart tap shows transaction count and period detail banner (B3)',
+    'FinancialSummaryChart tap shows tooltip but no detail card (B3)',
     (tester) async {
       final summary = DashboardMockData.getSummary();
       await tester.pumpWidget(
@@ -688,25 +688,18 @@ void main() {
       await tester.pump();
 
       expect(find.byKey(const Key('chart-selected-detail')), findsNothing);
+      expect(find.byKey(const Key('chart-bar-tooltip')), findsNothing);
 
-      // Tap month label 'Sep' to select Pemasukan for Sep
+      // Tap month label 'Sep' — tooltip should appear, detail card should NOT
       await tester.tap(find.text('Sep'));
       await tester.pump();
 
-      expect(find.byKey(const Key('chart-selected-detail')), findsOneWidget);
-      expect(find.text('Sep • Pemasukan'), findsOneWidget);
-      expect(find.textContaining('42 Transaksi'), findsOneWidget);
-
-      // Tap 'Sep' again to toggle to Pengeluaran for Sep
-      await tester.tap(find.text('Sep'));
-      await tester.pump();
-      expect(find.text('Sep • Pengeluaran'), findsOneWidget);
-      expect(find.textContaining('5 Transaksi'), findsOneWidget);
-
-      // Close detail indicator
-      await tester.tap(find.byKey(const Key('chart-detail-close')));
-      await tester.pump();
+      expect(find.byKey(const Key('chart-bar-tooltip')), findsOneWidget);
+      expect(find.textContaining('Masuk  Rp 4.250.000'), findsOneWidget);
+      expect(find.textContaining('Keluar  Rp 2.175.000'), findsOneWidget);
       expect(find.byKey(const Key('chart-selected-detail')), findsNothing);
+      expect(find.text('Sep • Pemasukan'), findsNothing);
+      expect(find.textContaining('Transaksi'), findsNothing);
     },
   );
 
@@ -789,6 +782,7 @@ void main() {
 
       expect(find.byKey(const Key('chart-bar-tooltip')), findsNothing);
 
+      // Tap month label 'Sep' — tooltip should appear (tap + hover)
       await tester.tap(find.text('Sep'));
       await tester.pump();
 

@@ -49,6 +49,26 @@ final canVerifyPaymentProvider = Provider<bool>((ref) {
 /// Current search query.
 final iuranSearchQueryProvider = StateProvider<String>((ref) => '');
 
+/// Format current local calendar month & year ("Oktober 2026").
+String currentCalendarPeriod([DateTime? now]) {
+  final dt = now ?? DateTime.now();
+  const months = [
+    'Januari',
+    'Februari',
+    'Maret',
+    'April',
+    'Mei',
+    'Juni',
+    'Juli',
+    'Agustus',
+    'September',
+    'Oktober',
+    'November',
+    'Desember',
+  ];
+  return '${months[dt.month - 1]} ${dt.year}';
+}
+
 /// Selected periode filter (e.g. 'Oktober 2026').
 final iuranSelectedPeriodeProvider = StateProvider<String>((ref) => '');
 

@@ -167,9 +167,9 @@ void main() {
       await tester.tap(find.text('Kelola Iuran'));
       await tester.pumpAndSettle();
 
-      // A4: + Buat Iuran pill button exists
+      // A4: + pill button exists with tooltip
       expect(find.byKey(const Key('kelola-iuran-create-btn')), findsOneWidget);
-      expect(find.text('Buat Iuran'), findsOneWidget);
+      expect(find.byTooltip('Buat Iuran'), findsOneWidget);
 
       // D2: Edit button exists, Switch does NOT exist
       expect(find.byIcon(Icons.edit_outlined), findsWidgets);
