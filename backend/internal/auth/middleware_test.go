@@ -9,10 +9,171 @@ import (
 	"testing"
 	"time"
 
+	"social-finance/internal/database"
 	"social-finance/internal/testutil"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
+
+var rtCounter int64
+
+// testPool returns the shared test PostgreSQL connection pool.
+func testPool(t *testing.T) *database.Pool {
+	t.Helper()
+	return testutil.GetTestPool(t)
+}
+
+// toUUID maps a human-readable label to a deterministic UUID v4.
+func toUUID(s string) string {
+	return testUUID(s)
+}
+
+// makeToken generates a JWT access token from the given claims using the
+// SigningSecret configured for tests.
+func makeToken(claims TokenClaims) string {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	tokenStr, err := GenerateAccessToken(claims)
+	if err != nil {
+		panic(fmt.Sprintf("GenerateAccessToken failed: %v", err))
+	}
+	return tokenStr
+}
+
+// setupTestRT creates a test RT row in the database and returns its UUID.
+// Uses a timestamp suffix to ensure uniqueness across test runs.
+func setupTestRT(t *testing.T, pool *database.Pool, name string, rw int, rtStr string) string {
+	t.Helper()
+	AuthDBPool = pool
+	db := pool.Raw()
+	c := atomic.AddInt64(&rtCounter, 1)
+	timestamp := time.Now().UnixNano()
+	uniqueName := fmt.Sprintf("%s_%d_%d", name, c, timestamp)
+	uniqueRT := fmt.Sprintf("%s_%d_%d", rtStr, c, timestamp)
+
+	var id string
+	err := db.QueryRowContext(context.Background(),
+		`INSERT INTO rts (name, rw, rt, address, head_name, is_active)
+		 VALUES ($1, $2, $3, $4, $5, true) RETURNING id`,
+		uniqueName, rw, uniqueRT, "Test Address", "Test Head",
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("failed to insert test RT: %v", err)
+	}
+	return id
+}
+
+// makeTenantToken creates a JWT for a tenant user and upserts the corresponding
+// user and membership rows so that RequireAuth identity validation succeeds.
+func makeTenantToken(userID, membershipID, rtID string, role Role) string {
+	realUserID := toUUID(userID)
+	realMID := toUUID(membershipID)
+
+	if AuthDBPool != nil {
+		db := AuthDBPool.Raw()
+		ctx := context.Background()
+		_, err := db.ExecContext(ctx,
+			`INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+			 VALUES ($1, $2, '08123456789', 'dummyhash', $3, true)
+			 ON CONFLICT (id) DO UPDATE SET is_active = true`,
+			realUserID, fmt.Sprintf("%s@test.com", realUserID), "Test User "+userID,
+		)
+		if err != nil {
+			panic(fmt.Sprintf("failed to insert test user %s: %v", userID, err))
+		}
+		if _, err := uuid.Parse(rtID); err == nil {
+			_, err = db.ExecContext(ctx,
+				`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
+				 VALUES ($1, $2, $3, $4, true)
+				 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, is_active = true, rt_id = EXCLUDED.rt_id`,
+				realMID, realUserID, rtID, string(role),
+			)
+			if err != nil {
+				panic(fmt.Sprintf("failed to insert test membership %s: %v", membershipID, err))
+			}
+		}
+	}
+
+	return makeToken(TokenClaims{
+		UserID: realUserID,
+		MID:    realMID,
+		RTID:   rtID,
+		Role:   string(role),
+	})
+}
+
+// makeTenantTokenWithJabatan creates a JWT for a tenant user with a jabatan
+// claim, and upserts the corresponding user, membership (with jabatan), and RT rows.
+func makeTenantTokenWithJabatan(userID, membershipID, rtID string, role Role, jabatan Jabatan) string {
+	realUserID := toUUID(userID)
+	realMID := toUUID(membershipID)
+
+	if AuthDBPool != nil {
+		db := AuthDBPool.Raw()
+		ctx := context.Background()
+		_, err := db.ExecContext(ctx,
+			`INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+			 VALUES ($1, $2, '08123456789', 'dummyhash', $3, true)
+			 ON CONFLICT (id) DO UPDATE SET is_active = true`,
+			realUserID, fmt.Sprintf("%s@test.com", realUserID), "Test User "+userID,
+		)
+		if err != nil {
+			panic(fmt.Sprintf("failed to insert test user %s: %v", userID, err))
+		}
+		if _, err := uuid.Parse(rtID); err == nil {
+			_, err = db.ExecContext(ctx,
+				`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+				 VALUES ($1, $2, $3, $4, $5, true)
+				 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, jabatan = EXCLUDED.jabatan, is_active = true, rt_id = EXCLUDED.rt_id`,
+				realMID, realUserID, rtID, string(role), string(jabatan),
+			)
+			if err != nil {
+				panic(fmt.Sprintf("failed to insert test membership with jabatan %s: %v", membershipID, err))
+			}
+		}
+	}
+
+	return makeToken(TokenClaims{
+		UserID:  realUserID,
+		MID:     realMID,
+		RTID:    rtID,
+		Role:    string(role),
+		Jabatan: string(jabatan),
+	})
+}
+
+// makeSuperAdminToken creates a JWT for a system-level SUPER_ADMIN user.
+func makeSuperAdminToken() string {
+	realUserID := toUUID("super-admin-user-uuid")
+
+	if AuthDBPool != nil {
+		db := AuthDBPool.Raw()
+		ctx := context.Background()
+		_, err := db.ExecContext(ctx,
+			`INSERT INTO users (id, email, phone, password_hash, full_name, system_role, is_active)
+			 VALUES ($1, $2, '08123456789', 'dummyhash', 'Test Super Admin', 'super_admin', true)
+			 ON CONFLICT (id) DO UPDATE SET system_role = 'super_admin', is_active = true`,
+			realUserID, fmt.Sprintf("%s@test.com", realUserID),
+		)
+		if err != nil {
+			panic(fmt.Sprintf("failed to insert test super_admin user: %v", err))
+		}
+	}
+
+	return makeToken(TokenClaims{
+		UserID:  realUserID,
+		SysRole: "super_admin",
+	})
+}
+
+// makeAuthRequest creates an HTTP request with the given method, path, and Bearer token.
+func makeAuthRequest(method, path, token string) *http.Request {
+	req := httptest.NewRequest(method, path, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return req
+}
 
 func TestRequireAuthMissingAuthorizationHeader(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
@@ -1097,5 +1258,343 @@ func TestRequireAllowedRT(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200 for system-only super admin, got %d", rec.Code)
+	}
+}
+
+// TestRequireJabatanKetuaPasses verifies that a Ketua RT user passes RequireJabatan(JabatanKetua).
+func TestRequireJabatanKetuaPasses(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+
+	setupTenantIdentity(t, "user-uuid-ketua", "member-uuid-ketua", "rt-uuid-test", "ketua@example.com", RoleWarga)
+
+	userID := testUUID("user-uuid-ketua")
+	memberID := testUUID("member-uuid-ketua")
+	rtID := testUUID("rt-uuid-test")
+
+	claims := TokenClaims{
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
+		Role:    "warga",
+		Jabatan: "ketua",
+	}
+
+	tokenStr, err := GenerateAccessToken(claims)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	received := false
+	handler := RequireAuth(RequireJabatan(JabatanKetua)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = true
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	req := httptest.NewRequest("GET", "/api/v1/warga/import/preview", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for jabatan=ketua, got %d", rec.Code)
+	}
+	if !received {
+		t.Error("handler should be reached for jabatan=ketua")
+	}
+}
+
+// TestRequireJabatanSekretarisRejected verifies that a non-allowed jabatan is rejected.
+func TestRequireJabatanSekretarisRejected(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+
+	setupTenantIdentity(t, "user-uuid-sek", "member-uuid-sek", "rt-uuid-test", "sekretaris@example.com", RoleWarga)
+
+	userID := testUUID("user-uuid-sek")
+	memberID := testUUID("member-uuid-sek")
+	rtID := testUUID("rt-uuid-test")
+
+	claims := TokenClaims{
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
+		Role:    "warga",
+		Jabatan: "sekretaris",
+	}
+
+	tokenStr, err := GenerateAccessToken(claims)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	received := false
+	handler := RequireAuth(RequireJabatan(JabatanKetua)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = true
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	req := httptest.NewRequest("GET", "/api/v1/warga/import/preview", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for jabatan=sekretaris, got %d", rec.Code)
+	}
+	if received {
+		t.Error("handler should NOT be reached for non-allowed jabatan")
+	}
+}
+
+// TestRequireJabatanNoJabatanPasses verifies that a user without jabatan passes through.
+func TestRequireJabatanNoJabatanPasses(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+
+	setupTenantIdentity(t, "user-uuid-pg", "member-uuid-pg", "rt-uuid-test", "pengurus@example.com", RolePengurus)
+
+	userID := testUUID("user-uuid-pg")
+	memberID := testUUID("member-uuid-pg")
+	rtID := testUUID("rt-uuid-test")
+
+	claims := TokenClaims{
+		UserID:  userID,
+		MID:     memberID,
+		RTID:    rtID,
+		Role:    "pengurus",
+		Jabatan: "",
+	}
+
+	tokenStr, err := GenerateAccessToken(claims)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	received := false
+	handler := RequireAuth(RequireJabatan(JabatanKetua)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = true
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	req := httptest.NewRequest("GET", "/api/v1/warga/import/preview", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for no jabatan, got %d", rec.Code)
+	}
+	if !received {
+		t.Error("handler should be reached for user without jabatan")
+	}
+}
+
+// TestRequireJabatanSystemAdminPasses verifies super admin bypasses RequireJabatan.
+func TestRequireJabatanSystemAdminPasses(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+
+	setupSystemOnlyIdentity(t, "user-uuid-sa", "sa@example.com")
+
+	userID := testUUID("user-uuid-sa")
+
+	claims := TokenClaims{
+		UserID:  userID,
+		SysRole: "super_admin",
+		Jabatan: "keamanan", // arbitrary jabatan — should not matter
+	}
+
+	tokenStr, err := GenerateAccessToken(claims)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	received := false
+	handler := RequireAuth(RequireJabatan(JabatanKetua)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = true
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	req := httptest.NewRequest("GET", "/api/v1/warga/import/preview", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for super admin, got %d", rec.Code)
+	}
+	if !received {
+		t.Error("handler should be reached for super admin")
+	}
+}
+
+// TestRequireJabatanUnauthenticated verifies unauthenticated requests get 401.
+func TestRequireJabatanUnauthenticated(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/warga/import/preview", nil)
+	rec := httptest.NewRecorder()
+
+	handler := RequireJabatan(JabatanKetua)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for unauthenticated request with RequireJabatan, got %d", rec.Code)
+	}
+}
+
+// TestRequireAccessRolePengurusPasses verifies role-based Pengurus passes RequireAccess.
+func TestRequireAccessRolePengurusPasses(t *testing.T) {
+	rtID := setupTestRT(t, testPool(t), "RAAcc-P", 1, "RACCP")
+	pToken := makeTenantToken("user-p-a", "mid-p-a", rtID, RolePengurus)
+	req := makeAuthRequest(http.MethodGet, "/test", pToken)
+
+	rec := httptest.NewRecorder()
+	handler := RequireAuth(RequireAccess(
+		[]Role{RolePengurus, RoleBendahara},
+		[]Jabatan{JabatanKetua, JabatanBendahara},
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for role-based Pengurus, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRequireAccessRoleBendaharaPasses verifies role-based Bendahara passes RequireAccess.
+func TestRequireAccessRoleBendaharaPasses(t *testing.T) {
+	rtID := setupTestRT(t, testPool(t), "RAAcc-B", 1, "RACCB")
+	bToken := makeTenantToken("user-b-a", "mid-b-a", rtID, RoleBendahara)
+	req := makeAuthRequest(http.MethodGet, "/test", bToken)
+
+	rec := httptest.NewRecorder()
+	handler := RequireAuth(RequireAccess(
+		[]Role{RolePengurus, RoleBendahara},
+		[]Jabatan{JabatanKetua, JabatanBendahara},
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for role-based Bendahara, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRequireAccessJabatanKetuaPasses verifies jabatan-based Ketua with role="warga" passes.
+func TestRequireAccessJabatanKetuaPasses(t *testing.T) {
+	rtID := setupTestRT(t, testPool(t), "RAAcc-K", 1, "RACKK")
+	kToken := makeTenantTokenWithJabatan("user-k-a", "mid-k-a", rtID, RoleWarga, JabatanKetua)
+	req := makeAuthRequest(http.MethodGet, "/test", kToken)
+
+	rec := httptest.NewRecorder()
+	handler := RequireAuth(RequireAccess(
+		[]Role{RolePengurus, RoleBendahara},
+		[]Jabatan{JabatanKetua, JabatanBendahara},
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for jabatan-based Ketua with role=warga, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRequireAccessJabatanBendaharaPasses verifies jabatan-based Bendahara passes.
+func TestRequireAccessJabatanBendaharaPasses(t *testing.T) {
+	rtID := setupTestRT(t, testPool(t), "RAAcc-JB", 1, "RACJB")
+	jbToken := makeTenantTokenWithJabatan("user-jb-a", "mid-jb-a", rtID, RolePengurus, JabatanBendahara)
+	req := makeAuthRequest(http.MethodGet, "/test", jbToken)
+
+	rec := httptest.NewRecorder()
+	handler := RequireAuth(RequireAccess(
+		[]Role{RolePengurus, RoleBendahara},
+		[]Jabatan{JabatanKetua, JabatanBendahara},
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for jabatan-based Bendahara, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRequireAccessRoleWargaBlocked verifies role-based Warga is denied.
+func TestRequireAccessRoleWargaBlocked(t *testing.T) {
+	rtID := setupTestRT(t, testPool(t), "RAAcc-W", 1, "RACWW")
+	wToken := makeTenantToken("user-w-a", "mid-w-a", rtID, RoleWarga)
+	req := makeAuthRequest(http.MethodGet, "/test", wToken)
+
+	rec := httptest.NewRecorder()
+	handler := RequireAuth(RequireAccess(
+		[]Role{RolePengurus, RoleBendahara},
+		[]Jabatan{JabatanKetua, JabatanBendahara},
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for role-based Warga, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRequireAccessJabatanSekretarisBlocked verifies jabatan-based Sekretaris without matching role is denied.
+func TestRequireAccessJabatanSekretarisBlocked(t *testing.T) {
+	rtID := setupTestRT(t, testPool(t), "RAAcc-S", 1, "RACSS")
+	sToken := makeTenantTokenWithJabatan("user-s-a", "mid-s-a", rtID, RoleWarga, JabatanSekretaris)
+	req := makeAuthRequest(http.MethodGet, "/test", sToken)
+
+	rec := httptest.NewRecorder()
+	handler := RequireAuth(RequireAccess(
+		[]Role{RolePengurus, RoleBendahara},
+		[]Jabatan{JabatanKetua, JabatanBendahara},
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for jabatan-based Sekretaris with role=warga, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRequireAccessSystemAdminPasses verifies SUPER_ADMIN bypasses RequireAccess.
+func TestRequireAccessSystemAdminPasses(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	setupSystemOnlyIdentity(t, "user-uuid-sa", "sa-test@example.com")
+	saToken := makeSuperAdminToken()
+	req := makeAuthRequest(http.MethodGet, "/test", saToken)
+
+	rec := httptest.NewRecorder()
+	handler := RequireAuth(RequireAccess(
+		[]Role{RolePengurus, RoleBendahara},
+		[]Jabatan{JabatanKetua, JabatanBendahara},
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for SUPER_ADMIN, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRequireAccessUnauthenticated verifies unauthenticated requests are rejected.
+func TestRequireAccessUnauthenticated(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+
+	rec := httptest.NewRecorder()
+	handler := RequireAccess(
+		[]Role{RolePengurus, RoleBendahara},
+		[]Jabatan{JabatanKetua, JabatanBendahara},
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for unauthenticated request with RequireAccess, got %d", rec.Code)
 	}
 }

@@ -63,7 +63,7 @@ describe('WargaImportModal Component', () => {
   })
 
   it('accepts valid .xlsx file and enables preview button', () => {
-    render(<WargaImportModal open={true} onClose={() => {}} />)
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="test-rt-id" />)
 
     const file = new File(['valid content'], 'warga_data.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -93,7 +93,7 @@ describe('WargaImportModal Component', () => {
       preview_data: [],
     })
 
-    render(<WargaImportModal open={true} onClose={() => {}} />)
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="test-rt-id" />)
 
     const file = new File(['dummy'], 'test.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -146,7 +146,7 @@ describe('WargaImportModal Component', () => {
     const onSuccess = vi.fn()
     const onClose = vi.fn()
 
-    render(<WargaImportModal open={true} onClose={onClose} onSuccess={onSuccess} />)
+    render(<WargaImportModal open={true} onClose={onClose} onSuccess={onSuccess} targetRtId="test-rt-id" />)
 
     const file = new File(['valid'], 'warga.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -190,7 +190,7 @@ describe('WargaImportModal Component', () => {
       preview_data: [],
     })
 
-    render(<WargaImportModal open={true} onClose={() => {}} />)
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="test-rt-id" />)
 
     const file = new File(['content'], 'test.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -207,5 +207,132 @@ describe('WargaImportModal Component', () => {
     fireEvent.click(screen.getByRole('button', { name: /Ganti File/i }))
 
     expect(screen.getByText(/Template Format Excel \(\.xlsx\)/i)).toBeInTheDocument()
+  })
+
+  it('disables preview button when targetRtId is not provided', () => {
+    render(<WargaImportModal open={true} onClose={() => {}} />)
+
+    // Preview button should be disabled when no targetRtId (even without a file)
+    expect(screen.getByRole('button', { name: /Pratinjau Data/i })).toBeDisabled()
+  })
+
+  it('blocks commit when RT changed after preview', async () => {
+    const previewSpy = vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    const commitSpy = vi.spyOn(apiModule, 'apiCommitWargaImportXLSX').mockResolvedValue({
+      status: 'success',
+      imported_households: 1,
+      imported_residents: 1,
+    })
+
+    const { rerender } = render(
+      <WargaImportModal
+        open={true}
+        onClose={() => {}}
+        targetRtId="rt-123"
+      />,
+    )
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    // Preview with RT 123
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenCalled()
+    })
+
+    // Simulate RT change via rerender — parent now passes a different targetRtId
+    rerender(
+      <WargaImportModal
+        open={true}
+        onClose={() => {}}
+        targetRtId="rt-456" // Different RT
+      />,
+    )
+
+    // Click commit — should be blocked by RT mismatch guard
+    fireEvent.click(screen.getByRole('button', { name: /Impor Sekarang/i }))
+
+    await waitFor(() => {
+      expect(commitSpy).not.toHaveBeenCalled()
+    })
+    expect(screen.getByText(/RT pilihan berubah/i)).toBeInTheDocument()
+  })
+
+  it('allows commit when RT is unchanged', async () => {
+    const previewSpy = vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    const commitSpy = vi.spyOn(apiModule, 'apiCommitWargaImportXLSX').mockResolvedValue({
+      status: 'success',
+      imported_households: 1,
+      imported_residents: 1,
+    })
+
+    render(
+      <WargaImportModal
+        open={true}
+        onClose={() => {}}
+        targetRtId="rt-123"
+      />,
+    )
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+
+    await waitFor(() => {
+      expect(previewSpy).toHaveBeenCalled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Impor Sekarang/i }))
+
+    await waitFor(() => {
+      expect(commitSpy).toHaveBeenCalled()
+    })
+  })
+
+  it('renders RT indicator in preview step', async () => {
+    vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="rt-abc" />)
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/RT dipilih/i)).toBeInTheDocument()
+    })
   })
 })

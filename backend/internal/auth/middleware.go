@@ -238,10 +238,104 @@ func GetAuthContext(r *http.Request) *AuthContext {
 	return ac
 }
 
-// AllowedRTCodes defines the set of RT codes that are permitted for operational access.
-var AllowedRTCodes = map[string]bool{
-	"002": true,
-	"003": true,
+// RequireJabatan returns a middleware that checks whether the authenticated user's
+// jabatan is in the allowed set for their active membership. Returns 403 if not
+// authorised.
+//
+// This middleware is for jabatan-based access control (e.g. Ketua RT accessing
+// import/export endpoints) that RequireRole cannot handle, because jabatan is
+// stored in the JWT jabatan claim while RequireRole only checks the role claim.
+//
+// System-level SUPER_ADMIN always passes through regardless of jabatan.
+// Users WITHOUT a jabatan pass through without DB query — their access is
+// enforced solely by RequireRole middleware, which is stacked after RequireJabatan.
+//
+// Usage:
+//
+//	r.Group(func(r chi.Router) {
+//	    r.Use(auth.RequireAuth)
+//	    r.Use(auth.RequireJabatan(pool, auth.JabatanKetua))
+//	    r.Post("/api/v1/warga/import/preview/xlsx", handlePreview)
+//	})
+func RequireJabatan(allowed ...Jabatan) func(http.Handler) http.Handler {
+	allowedMap := make(map[Jabatan]bool, len(allowed))
+	for _, j := range allowed {
+		allowedMap[j] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
+			if !ok || ac == nil {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+				return
+			}
+			// System-level SUPER_ADMIN bypass — unrestricted access.
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Users without a jabatan pass through — their role is enforced by RequireRole middleware.
+			if ac.Jabatan == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !allowedMap[ac.Jabatan] {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireAccess returns a middleware that checks whether the authenticated user
+// has the required role OR jabatan for their active membership. Returns 403
+// if neither matches.
+//
+// This is used for routes that accept both role-based (e.g. Pengurus, Bendahara)
+// and jabatan-based (e.g. Ketua RT with role="warga") access control.
+//
+// Usage:
+//
+//	r.Use(auth.RequireAccess(
+//	    []auth.Role{auth.RolePengurus, auth.RoleBendahara},
+//	    []auth.Jabatan{auth.JabatanKetua, auth.JabatanBendahara},
+//	))
+func RequireAccess(roles []Role, jabatans []Jabatan) func(http.Handler) http.Handler {
+	roleMap := make(map[Role]bool, len(roles))
+	for _, r := range roles {
+		roleMap[r] = true
+	}
+	jabatMap := make(map[Jabatan]bool, len(jabatans))
+	for _, j := range jabatans {
+		jabatMap[j] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
+			if !ok || ac == nil {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+				return
+			}
+			// System-level SUPER_ADMIN bypass — unrestricted access.
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Role-based check
+			if roleMap[ac.TenantRole] {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Jabatan-based check
+			if jabatMap[ac.Jabatan] {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Neither role nor jabatan matches — forbidden.
+			httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		})
+	}
 }
 
 // RequireAllowedRT returns a middleware that verifies the tenant RT is in the allowed
@@ -298,4 +392,10 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// AllowedRTCodes defines the set of RT codes that are permitted for operational access.
+var AllowedRTCodes = map[string]bool{
+	"002": true,
+	"003": true,
 }
