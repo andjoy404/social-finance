@@ -6,7 +6,9 @@ import {
   clearSessionPair,
   getSessionPair,
   apiDownloadWargaExport,
+  apiListRTs,
   type ApiResident,
+  type ApiRT,
 } from '@/app/api'
 import { hasWargaWriteAccess, hasWargaImportAccess, hasWargaExportAccess } from '@/app/wargaAuth'
 import { usePersistedPageSize } from '@/hooks/usePersistedPageSize'
@@ -15,7 +17,7 @@ import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
-import { UserOutlined, CloseOutlined, DownOutlined, UploadOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons'
+import { UserOutlined, CloseOutlined, DownOutlined, ImportOutlined, FileExcelOutlined, PlusOutlined, EnvironmentOutlined } from '@ant-design/icons'
 import { DataChoiceModal } from './DataChoiceModal'
 import { WargaImportModal } from './WargaImportModal'
 import { formatPhoneDisplay } from '@/styles/format'
@@ -164,6 +166,13 @@ export function ResidentList() {
   const [importOpen, setImportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
 
+  // RT selection state for super_admin import/export
+  const [importRtId, setImportRtId] = useState<string | undefined>()
+  const [exportRtId, setExportRtId] = useState<string | undefined>()
+  const [importRtList, setImportRtList] = useState<ApiRT[]>([])
+  const [exportRtList, setExportRtList] = useState<ApiRT[]>([])
+  const [rtFetchError, setRtFetchError] = useState<string | null>(null)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<ApiError | null>(null)
   const [residentList, setResidentList] = useState<ApiResident[]>([])
@@ -220,6 +229,47 @@ export function ResidentList() {
 
   // AbortController to prevent stale GET responses from overwriting newer data
   const abortRef = useRef<AbortController | null>(null)
+
+  // Fetch RT list for super_admin on mount (shared between import and export)
+  useEffect(() => {
+    if (!isSuperAdmin) return
+    // Only fetch once
+    if (importRtList.length > 0 || rtFetchError) return
+
+    const fetchRts = async () => {
+      const pair = getSessionPair()
+      if (!pair?.accessToken) return
+      try {
+        const resp = await apiListRTs(pair.accessToken, {
+          page: 1,
+          page_size: 100,
+          is_active: true,
+        })
+        const rts = resp.data
+        setImportRtList(rts)
+        setExportRtList(rts)
+        // Do NOT auto-select first RT — user must explicitly choose
+      } catch {
+        setRtFetchError('Gagal memuat daftar RT. Harap coba lagi.')
+      }
+    }
+
+    fetchRts()
+  }, [isSuperAdmin])
+
+  // Close import modal and reset preview if RT changes mid-flow
+  const resetImportPreview = useCallback(() => {
+    setImportOpen(false)
+  }, [])
+
+  useEffect(() => {
+    if (!importOpen) return
+    // If an RT was already selected and the user changes the selector,
+    // close the modal so the next preview/commit uses the new RT.
+    if (importRtId !== undefined && importRtId !== null) {
+      resetImportPreview()
+    }
+  }, [importRtId, importOpen, resetImportPreview])
 
   const fetchResidents = useCallback(async (p: number, size: number) => {
     // Abort any in-flight request before starting a new one
@@ -360,11 +410,18 @@ export function ResidentList() {
   }, [navigate])
 
   const handleExport = useCallback(async () => {
+    // For super_admin, require RT selection
+    if (isSuperAdmin && !exportRtId) {
+      setRtFetchError('Pilih RT target terlebih dahulu sebelum mengekspor data warga.')
+      return
+    }
+
     const pair = getSessionPair()
     if (!pair?.accessToken) return
+
     setExporting(true)
     try {
-      const blob = await apiDownloadWargaExport(pair.accessToken, isSuperAdmin ? user?.rt?.id : undefined)
+      const blob = await apiDownloadWargaExport(pair.accessToken, isSuperAdmin ? exportRtId : undefined)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -378,7 +435,7 @@ export function ResidentList() {
     } finally {
       setExporting(false)
     }
-  }, [isSuperAdmin, user?.rt?.id])
+  }, [isSuperAdmin, exportRtId])
 
   const statusValueLabel: string | null = statusValue === 'aktif' ? 'Aktif' : statusValue === 'tidak_aktif' ? 'Tidak Aktif' : null
 
@@ -519,13 +576,46 @@ export function ResidentList() {
           </div>
 
           {/* Action buttons — hidden for unauthorized users */}
-          <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Super Admin: RT selector for import/export */}
+            {isSuperAdmin && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                <EnvironmentOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
+                <select
+                  value={exportRtId || ''}
+                  onChange={(e) => {
+                    const val = e.target.value || undefined
+                    setExportRtId(val)
+                    setImportRtId(val)
+                  }}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: 12,
+                    borderRadius: 'var(--sf-radius-sm)',
+                    border: '1px solid var(--sf-border)',
+                    background: 'var(--sf-bg)',
+                    color: exportRtId ? 'var(--sf-text)' : 'var(--sf-text-muted)',
+                    cursor: 'pointer',
+                    minWidth: 140,
+                  }}
+                  aria-label="Pilih RT target"
+                >
+                  <option value="">Pilih RT...</option>
+                  {exportRtList.map((rt) => (
+                    <option key={rt.id} value={rt.id}>
+                      RT {rt.rt} {rt.name ? `(${rt.name})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {canExport && (
               <button
                 type="button"
                 className="sf-btn-secondary"
                 onClick={handleExport}
-                disabled={exporting}
+                disabled={exporting || (isSuperAdmin && !exportRtId)}
                 style={{
                   padding: '6px 14px',
                   fontSize: '12px',
@@ -534,7 +624,7 @@ export function ResidentList() {
                   gap: '6px',
                 }}
               >
-                <DownloadOutlined style={{ fontSize: 13 }} />
+                <FileExcelOutlined style={{ fontSize: 13 }} />
                 {exporting ? 'Mengunduh...' : 'Export Warga'}
               </button>
             )}
@@ -544,6 +634,7 @@ export function ResidentList() {
                 type="button"
                 className="sf-btn-secondary"
                 onClick={() => setImportOpen(true)}
+                disabled={isSuperAdmin && !importRtId}
                 style={{
                   padding: '6px 14px',
                   fontSize: '12px',
@@ -552,7 +643,7 @@ export function ResidentList() {
                   gap: '6px',
                 }}
               >
-                <UploadOutlined style={{ fontSize: 13 }} />
+                <ImportOutlined style={{ fontSize: 13 }} />
                 Import Warga
               </button>
             )}
@@ -573,7 +664,7 @@ export function ResidentList() {
           open={importOpen}
           onClose={() => setImportOpen(false)}
           onSuccess={() => void fetchResidents(1, pageSize)}
-          targetRtId={isSuperAdmin ? user.rt?.id : undefined}
+          targetRtId={importRtId}
         />
 
         {/* Error */}

@@ -559,11 +559,15 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	})
 
 	// Management read access: bendahara, pengurus (warga denied). Super admin allowed.
+	// Both role-based (Bendahara, Pengurus) and jabatan-based (Ketua) access allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "warga.export"))
-		r.Use(auth.RequireRole(auth.RoleBendahara, auth.RolePengurus))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanBendahara},
+		))
 		r.Get("/api/v1/warga/template", household.HandleWargaTemplateXLSX(pool))
 		r.Get("/api/v1/warga/export/xlsx", household.HandleWargaExportXLSX(pool))
 	})
@@ -590,13 +594,17 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	})
 
 	// Warga import requires additional warga.import permission (only ketua).
+	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua) access allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "warga.create"))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
 		r.Use(auth.RequirePermission(pool, "warga.import"))
-		r.Use(auth.RequireRole(auth.RolePengurus, auth.RoleBendahara))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanBendahara},
+		))
 		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
 		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
 		r.Post("/api/v1/warga/import/preview/xlsx", household.HandleWargaImportPreviewXLSX(pool))

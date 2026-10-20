@@ -18,6 +18,7 @@ import {
   ExclamationCircleOutlined,
   ArrowLeftOutlined,
   InfoCircleOutlined,
+  EnvironmentOutlined,
 } from '@ant-design/icons'
 
 export interface WargaImportModalProps {
@@ -49,6 +50,8 @@ export function WargaImportModal({
   const [previewResult, setPreviewResult] = useState<ApiWargaImportPreviewResponse | null>(null)
   const [commitResult, setCommitResult] = useState<ApiWargaImportCommitResponse | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+  // Track which RT the preview was taken against — prevents preview/commit RT mismatch
+  const [previewRtId, setPreviewRtId] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -59,6 +62,7 @@ export function WargaImportModal({
     setCommitResult(null)
     setError(null)
     setIsDragOver(false)
+    setPreviewRtId(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -143,6 +147,13 @@ export function WargaImportModal({
 
   const handlePreview = async () => {
     if (!selectedFile) return
+
+    // Validate RT selection (required for super_admin; not needed for tenant users)
+    if (!targetRtId) {
+      setError('Pilih RT target terlebih dahulu sebelum memvalidasi file.')
+      return
+    }
+
     const pair = getSessionPair()
     if (!pair?.accessToken) {
       setError('Sesi telah berakhir. Silakan masuk kembali.')
@@ -151,6 +162,8 @@ export function WargaImportModal({
 
     setLoading(true)
     setError(null)
+    // Capture the RT used for this preview — commit must use the same RT
+    setPreviewRtId(targetRtId)
     try {
       const res = await apiPreviewWargaImportXLSX(pair.accessToken, selectedFile, targetRtId)
       setPreviewResult(res)
@@ -168,6 +181,21 @@ export function WargaImportModal({
 
   const handleCommit = async () => {
     if (!selectedFile) return
+
+    // Validate RT selection (required for super_admin; not needed for tenant users)
+    if (!targetRtId) {
+      setError('Pilih RT target terlebih dahulu sebelum mengimpor data.')
+      return
+    }
+
+    // Safety: commit must use the same RT as the preview
+    if (previewRtId !== null && targetRtId !== previewRtId) {
+      setError(
+        'RT pilihan berubah sejak pratinjau. Harap tutup dan mulai ulang import untuk RT ini.',
+      )
+      return
+    }
+
     const pair = getSessionPair()
     if (!pair?.accessToken) {
       setError('Sesi telah berakhir. Silakan masuk kembali.')
@@ -340,6 +368,26 @@ export function WargaImportModal({
         {/* STEP 2: Preview & Validation */}
         {step === 'preview' && previewResult && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {/* Selected RT indicator */}
+            {targetRtId && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  background: 'var(--sf-bg)',
+                  border: '1px solid var(--sf-border)',
+                  fontSize: 12,
+                  color: 'var(--sf-text-muted)',
+                }}
+              >
+                <EnvironmentOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
+                <span>RT dipilih: <strong style={{ color: 'var(--sf-text)' }}>{targetRtId}</strong></span>
+              </div>
+            )}
+
             {/* Summary Counters */}
             <div
               style={{
@@ -593,7 +641,7 @@ export function WargaImportModal({
               type="button"
               className="sf-btn-primary"
               onClick={handlePreview}
-              disabled={!selectedFile || loading}
+              disabled={!selectedFile || loading || !targetRtId}
             >
               {loading ? 'Memvalidasi...' : 'Pratinjau Data'}
             </button>
