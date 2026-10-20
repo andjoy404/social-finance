@@ -148,6 +148,15 @@ export function IuranList() {
   const [periodeValue, setPeriodeValue] = useState<string>(initialPeriode)
   const [jenisValue, setJenisValue] = useState<string>(initialJenis)
 
+  // Dropdown menu visibility state
+  const [statusOpen, setStatusOpen] = useState(false)
+  const [periodeOpen, setPeriodeOpen] = useState(false)
+  const [jenisOpen, setJenisOpen] = useState(false)
+
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
+  const periodeDropdownRef = useRef<HTMLDivElement>(null)
+  const jenisDropdownRef = useRef<HTMLDivElement>(null)
+
   const [page, setPage] = useState(initialPage)
   const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:iuran', [10, 25, 50, 100], initialPageSize)
 
@@ -174,6 +183,24 @@ export function IuranList() {
 
     setSearchParams(params, { replace: true })
   }, [searchParams, debouncedSearch, filterType, statusValue, periodeValue, jenisValue, page, pageSize, activeTab, setSearchParams])
+
+  // Close all dropdown menus when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(target)) {
+        setStatusOpen(false)
+      }
+      if (periodeDropdownRef.current && !periodeDropdownRef.current.contains(target)) {
+        setPeriodeOpen(false)
+      }
+      if (jenisDropdownRef.current && !jenisDropdownRef.current.contains(target)) {
+        setJenisOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Notification state
   const [wasteTruckStatus, setWasteTruckStatus] = useState<string | null>(null)
@@ -609,37 +636,39 @@ export function IuranList() {
                         </button>
                       </span>
                     ) : (
-                      <div className="sf-status-dropdown">
+                      <div className="sf-status-dropdown" ref={statusDropdownRef}>
                         <button
                           type="button"
                           className="sf-status-selector-trigger"
-                          onClick={() => {}}
+                          onClick={(e) => { e.stopPropagation(); setStatusOpen(!statusOpen) }}
                           aria-haspopup="listbox"
-                          aria-expanded={false}
+                          aria-expanded={statusOpen}
                         >
                           Pilih Status
                           <DownOutlined style={{ fontSize: 9, color: 'var(--sf-text-muted)' }} />
                         </button>
-                        <div className="sf-status-dropdown-menu" role="listbox">
-                          {STATUS_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              className={`sf-status-dropdown-item ${statusValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
-                              onClick={() => handleStatusSelect(opt.value)}
-                              role="button"
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
+                        {statusOpen && (
+                          <div className="sf-status-dropdown-menu" role="listbox">
+                            {STATUS_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                className={`sf-status-dropdown-item ${statusValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
+                                onClick={() => { handleStatusSelect(opt.value); setStatusOpen(false) }}
+                                role="button"
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 ) : filterType === 'periode' ? (
                   <div className="sf-status-selector">
                     {periodeLabel ? (
-                      <span className="sf-status-badge sf-status-badge__active">
+                      <span className="sf-status-badge sf-status-badge__active" style={{ color: '#3b82f6' }}>
                         {periodeLabel}
                         <button
                           type="button"
@@ -652,30 +681,32 @@ export function IuranList() {
                         </button>
                       </span>
                     ) : (
-                      <div className="sf-status-dropdown">
+                      <div className="sf-status-dropdown" ref={periodeDropdownRef}>
                         <button
                           type="button"
                           className="sf-status-selector-trigger"
-                          onClick={() => {}}
+                          onClick={(e) => { e.stopPropagation(); setPeriodeOpen(!periodeOpen) }}
                           aria-haspopup="listbox"
-                          aria-expanded={false}
+                          aria-expanded={periodeOpen}
                         >
                           Pilih Periode
                           <DownOutlined style={{ fontSize: 9, color: 'var(--sf-text-muted)' }} />
                         </button>
-                        <div className="sf-status-dropdown-menu" role="listbox">
-                          {uniquePeriodesOptions.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              className={`sf-status-dropdown-item ${periodeValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
-                              onClick={() => handlePeriodeSelect(opt.value)}
-                              role="button"
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
+                        {periodeOpen && (
+                          <div className="sf-status-dropdown-menu" role="listbox">
+                            {uniquePeriodesOptions.map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                className={`sf-status-dropdown-item ${periodeValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
+                                onClick={() => { handlePeriodeSelect(opt.value); setPeriodeOpen(false) }}
+                                role="button"
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -695,30 +726,32 @@ export function IuranList() {
                         </button>
                       </span>
                     ) : (
-                      <div className="sf-status-dropdown">
+                      <div className="sf-status-dropdown" ref={jenisDropdownRef}>
                         <button
                           type="button"
                           className="sf-status-selector-trigger"
-                          onClick={() => {}}
+                          onClick={(e) => { e.stopPropagation(); setJenisOpen(!jenisOpen) }}
                           aria-haspopup="listbox"
-                          aria-expanded={false}
+                          aria-expanded={jenisOpen}
                         >
                           Pilih Jenis
                           <DownOutlined style={{ fontSize: 9, color: 'var(--sf-text-muted)' }} />
                         </button>
-                        <div className="sf-status-dropdown-menu" role="listbox">
-                          {IURAN_TYPE_OPTIONS.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              className={`sf-status-dropdown-item ${jenisValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
-                              onClick={() => handleJenisSelect(opt.value)}
-                              role="button"
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
+                        {jenisOpen && (
+                          <div className="sf-status-dropdown-menu" role="listbox">
+                            {IURAN_TYPE_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                className={`sf-status-dropdown-item ${jenisValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
+                                onClick={() => { handleJenisSelect(opt.value); setJenisOpen(false) }}
+                                role="button"
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

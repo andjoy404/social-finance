@@ -66,6 +66,7 @@ export function ResidentDetail() {
     occupancyStatus: 'OWNER' as OccupancyStatus,
     address: '',
     startDate: '',
+    endDate: '',
   })
 
   // Determine whether this record needs household fields.
@@ -88,6 +89,7 @@ export function ResidentDetail() {
       occupancyStatus: (resident.occupancy_status as OccupancyStatus) || 'OWNER',
       address: '',
       startDate: resident.start_date ? resident.start_date.slice(0, 10) : '',
+      endDate: resident.end_date ? resident.end_date.slice(0, 10) : '',
     })
     setValidationErrors([])
     setEditError(null)
@@ -246,6 +248,9 @@ export function ResidentDetail() {
             if (resident.household_id && !isNonResident) {
               if (!editForm.houseNumber.trim()) errs.push('Nomor rumah harus diisi.')
               if (!editForm.startDate.trim()) errs.push('Tanggal mulai hunian harus diisi.')
+              if (editForm.endDate.trim() && editForm.startDate.trim() && editForm.endDate.trim() <= editForm.startDate.trim()) {
+                errs.push('Tanggal selesai tidak boleh sebelum tanggal mulai.')
+              }
             }
             if (editForm.password && editForm.password.trim().length > 0 && editForm.password.trim().length < 8) {
               errs.push('Kata sandi minimal 8 karakter.')
@@ -285,6 +290,8 @@ export function ResidentDetail() {
                   nik: editForm.nik.trim() || undefined,
                   phone: editForm.phone.trim() || undefined,
                   email: editForm.email.trim() || undefined,
+                  start_date: editForm.startDate.trim() || undefined,
+                  end_date: editForm.endDate.trim() ? editForm.endDate.trim() : null,
                   is_active: editForm.isActive,
                   password: editForm.password.trim() || undefined,
                 })
@@ -299,7 +306,8 @@ export function ResidentDetail() {
                   email: editForm.email.trim() || undefined,
                   address: editForm.address.trim() || null,
                   occupancy_status: editForm.occupancyStatus,
-                  start_date: editForm.startDate.trim(),
+                  start_date: editForm.startDate.trim() || undefined,
+                  end_date: editForm.endDate.trim() ? editForm.endDate.trim() : null,
                   is_active: editForm.isActive,
                 }
                 await updateHousehold(pair.accessToken, resident.household_id, householdBody)
@@ -466,6 +474,24 @@ export function ResidentDetail() {
                   value={editForm.startDate}
                   onChange={(e) => setEditForm((prev) => ({ ...prev, startDate: e.target.value }))}
                   required
+                  disabled={saving}
+                />
+              </div>
+            )}
+
+            {/* Tanggal Selesai Hunian (Opsional) */}
+            {resident.household_id && (
+              <div className="sf-form-field">
+                <label className="sf-form-label" htmlFor="edit-end-date">
+                  <CalendarOutlined style={{ marginRight: 4 }} />
+                  Tanggal Selesai Hunian (Opsional)
+                </label>
+                <input
+                  id="edit-end-date"
+                  className="sf-form-input"
+                  type="date"
+                  value={editForm.endDate}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, endDate: e.target.value }))}
                   disabled={saving}
                 />
               </div>

@@ -61,6 +61,8 @@ class BackendResident {
   final int? rw;
   final String? rtName;
   final String? jabatan;
+  final String? startDate;
+  final String? endDate;
 
   const BackendResident({
     required this.id,
@@ -75,6 +77,8 @@ class BackendResident {
     this.rw,
     this.rtName,
     this.jabatan,
+    this.startDate,
+    this.endDate,
   });
 
   factory BackendResident.fromJson(Map<String, dynamic> json) {
@@ -91,6 +95,8 @@ class BackendResident {
       rw: (json['rw'] as num?)?.toInt(),
       rtName: json['rt_name'] as String?,
       jabatan: json['jabatan'] as String?,
+      startDate: json['start_date'] as String?,
+      endDate: json['end_date'] as String?,
     );
   }
 }
@@ -106,6 +112,7 @@ class BackendHousehold {
   final String? occupancyStatus;
   final bool isActive;
   final String? startDate;
+  final String? endDate;
 
   const BackendHousehold({
     required this.id,
@@ -116,6 +123,7 @@ class BackendHousehold {
     this.occupancyStatus,
     required this.isActive,
     this.startDate,
+    this.endDate,
   });
 
   factory BackendHousehold.fromJson(Map<String, dynamic> json) {
@@ -128,6 +136,7 @@ class BackendHousehold {
       occupancyStatus: json['occupancy_status'] as String?,
       isActive: json['is_active'] as bool? ?? true,
       startDate: json['start_date'] as String?,
+      endDate: json['end_date'] as String?,
     );
   }
 }
@@ -142,8 +151,10 @@ class CreateHouseholdRequest {
   final String email;
   final String occupancyStatus;
   final String startDate;
+  final String? endDate;
   final String? address;
   final bool isActive;
+  final String? password;
 
   const CreateHouseholdRequest({
     required this.houseNumber,
@@ -153,8 +164,10 @@ class CreateHouseholdRequest {
     required this.email,
     required this.occupancyStatus,
     required this.startDate,
+    this.endDate,
     this.address,
     this.isActive = true,
+    this.password,
   });
 
   Map<String, dynamic> toJson() {
@@ -167,8 +180,10 @@ class CreateHouseholdRequest {
       'occupancy_status': occupancyStatus,
       'start_date': startDate,
     };
+    if (endDate != null && endDate!.isNotEmpty) data['end_date'] = endDate;
     if (address != null) data['address'] = address!;
     data['is_active'] = isActive;
+    if (password != null && password!.isNotEmpty) data['password'] = password;
     return data;
   }
 }
@@ -182,8 +197,11 @@ class UpdateHouseholdRequest {
   final String? phone;
   final String? email;
   final String? occupancyStatus;
+  final String? startDate;
+  final String? endDate;
   final String? address;
   final bool? isActive;
+  final String? password;
 
   const UpdateHouseholdRequest({
     this.houseNumber,
@@ -192,8 +210,11 @@ class UpdateHouseholdRequest {
     this.phone,
     this.email,
     this.occupancyStatus,
+    this.startDate,
+    this.endDate,
     this.address,
     this.isActive,
+    this.password,
   });
 
   Map<String, dynamic> toJson() {
@@ -204,8 +225,11 @@ class UpdateHouseholdRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (occupancyStatus != null) data['occupancy_status'] = occupancyStatus;
+    if (startDate != null && startDate!.isNotEmpty) data['start_date'] = startDate;
+    if (endDate != null) data['end_date'] = endDate;
     if (address != null) data['address'] = address;
     if (isActive != null) data['is_active'] = isActive;
+    if (password != null && password!.isNotEmpty) data['password'] = password;
     return data;
   }
 }
@@ -280,6 +304,8 @@ class UpdateResidentRequest {
   final String? phone;
   final String? email;
   final bool? isActive;
+  final String? startDate;
+  final String? endDate;
   final String? password;
 
   const UpdateResidentRequest({
@@ -288,6 +314,8 @@ class UpdateResidentRequest {
     this.phone,
     this.email,
     this.isActive,
+    this.startDate,
+    this.endDate,
     this.password,
   });
 
@@ -298,6 +326,9 @@ class UpdateResidentRequest {
     if (phone != null) data['phone'] = phone;
     if (email != null) data['email'] = email;
     if (isActive != null) data['is_active'] = isActive;
+    if (startDate != null && startDate!.isNotEmpty) data['start_date'] = startDate;
+    if (endDate != null) data['end_date'] = endDate;
+    if (password != null && password!.isNotEmpty) data['password'] = password;
     return data;
   }
 }
@@ -319,6 +350,8 @@ class MappedResident {
   final int? rw;
   final String? rtName;
   final String? jabatan;
+  final String? startDate;
+  final String? endDate;
 
   const MappedResident({
     required this.id,
@@ -335,6 +368,8 @@ class MappedResident {
     this.rw,
     this.rtName,
     this.jabatan,
+    this.startDate,
+    this.endDate,
   });
 
   String get maskedNik {
@@ -448,6 +483,8 @@ class MappedResident {
       rw: resident.rw,
       rtName: resident.rtName,
       jabatan: mappedJabatan,
+      startDate: household?.startDate ?? resident.startDate,
+      endDate: household?.endDate ?? resident.endDate,
     );
   }
 }

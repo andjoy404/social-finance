@@ -625,6 +625,7 @@ export interface ApiCreateHouseholdBody {
   occupancy_status: 'OWNER' | 'TENANT'
   address?: string | null
   start_date?: string
+  end_date?: string
   rt_id?: string
   is_active?: boolean
   password?: string
@@ -639,6 +640,7 @@ export interface ApiUpdateHouseholdBody {
   address?: string | null
   occupancy_status?: 'OWNER' | 'TENANT'
   start_date?: string
+  end_date?: string | null
   is_active?: boolean
   password?: string
 }
@@ -764,6 +766,7 @@ export interface ApiCreateResidentBody {
   phone?: string | null
   email?: string | null
   start_date?: string
+  end_date?: string
   password?: string
 }
 
@@ -772,6 +775,8 @@ export interface ApiUpdateResidentBody {
   nik?: string
   phone?: string | null
   email?: string | null
+  start_date?: string
+  end_date?: string | null
   is_active?: boolean
   password?: string
 }

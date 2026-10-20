@@ -94,6 +94,9 @@ function HouseholdFormFields({
   showStartDate,
   startDate,
   onStartDateChange,
+  showEndDate,
+  endDate,
+  onEndDateChange,
   isEdit,
 }: {
   form: HouseholdFormState
@@ -102,6 +105,9 @@ function HouseholdFormFields({
   showStartDate?: boolean
   startDate?: string
   onStartDateChange?: (value: string) => void
+  showEndDate?: boolean
+  endDate?: string
+  onEndDateChange?: (value: string) => void
   isEdit?: boolean
 }) {
   return (
@@ -272,6 +278,24 @@ function HouseholdFormFields({
         </div>
       )}
 
+      {/* Tanggal Selesai Hunian (Opsional) */}
+      {showEndDate && onEndDateChange && (
+        <div className="sf-form-field">
+          <label className="sf-form-label" htmlFor="hf-end-date">
+            <CalendarOutlined style={{ marginRight: 4 }} />
+            Tanggal Selesai Hunian (Opsional)
+          </label>
+          <input
+            id="hf-end-date"
+            className="sf-form-input"
+            type="date"
+            value={endDate ?? ''}
+            onChange={(e) => onEndDateChange(e.target.value)}
+            disabled={disabled}
+          />
+        </div>
+      )}
+
       {/* Kata Sandi (Opsional) */}
       <div className="sf-form-field">
         <label className="sf-form-label" htmlFor="hf-password">
@@ -333,6 +357,7 @@ export function HouseholdCreate() {
   const [error, setError] = useState<ApiErrorType | null>(null)
   const [form, setForm] = useState<HouseholdFormState>(emptyHouseholdForm)
   const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [validationErrors, setValidationErrors] = useState<string[]>([])
 
   /* SUPER_ADMIN RT selector state */
@@ -402,6 +427,9 @@ export function HouseholdCreate() {
       errs.push('Format email tidak valid.')
     }
     if (!startDate) errs.push('Tanggal mulai hunian harus diisi.')
+    if (endDate.trim() && startDate.trim() && endDate.trim() <= startDate.trim()) {
+      errs.push('Tanggal selesai tidak boleh sebelum tanggal mulai.')
+    }
     if (adminMode && !selectedRtId) errs.push('RT Tujuan harus dipilih.')
     if (form.password && form.password.trim().length > 0 && form.password.trim().length < 8) {
       errs.push('Kata sandi minimal 8 karakter.')
@@ -423,6 +451,7 @@ export function HouseholdCreate() {
         is_active: form.is_active,
         address: form.address.trim() || null,
         start_date: startDate,
+        end_date: endDate.trim() || undefined,
         password: form.password?.trim() || undefined,
       }
 
@@ -500,6 +529,9 @@ export function HouseholdCreate() {
             showStartDate
             startDate={startDate}
             onStartDateChange={setStartDate}
+            showEndDate
+            endDate={endDate}
+            onEndDateChange={setEndDate}
           />
 
           <StatusField
@@ -548,6 +580,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
   const [notFound, setNotFound] = useState(false)
   const [form, setForm] = useState<HouseholdFormState>(emptyHouseholdForm)
   const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [validationErrors, setValidationErrors] = useState<string[]>([])
 
   const fetchHousehold = useCallback(async () => {
@@ -574,6 +607,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         password: '',
       })
       setStartDate(data.start_date ? data.start_date.slice(0, 10) : new Date().toISOString().slice(0, 10))
+      setEndDate(data.end_date ? data.end_date.slice(0, 10) : '')
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
@@ -616,6 +650,9 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
     if (!startDate.trim()) {
       errs.push('Tanggal mulai hunian harus diisi.')
     }
+    if (endDate.trim() && startDate.trim() && endDate.trim() <= startDate.trim()) {
+      errs.push('Tanggal selesai tidak boleh sebelum tanggal mulai.')
+    }
     if (form.password && form.password.trim().length > 0 && form.password.trim().length < 8) {
       errs.push('Kata sandi minimal 8 karakter.')
     }
@@ -643,6 +680,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         address: form.address.trim() || null,
         occupancy_status: form.occupancy_status,
         start_date: startDate.trim() || undefined,
+        end_date: endDate.trim() ? endDate.trim() : null,
         is_active: form.is_active,
         password: form.password?.trim() || undefined,
       }
@@ -713,6 +751,9 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
               showStartDate
               startDate={startDate}
               onStartDateChange={setStartDate}
+              showEndDate
+              endDate={endDate}
+              onEndDateChange={setEndDate}
               isEdit={true}
             />
 

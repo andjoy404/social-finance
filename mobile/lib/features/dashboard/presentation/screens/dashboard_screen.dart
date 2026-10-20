@@ -187,8 +187,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final defaultSummary = ref.watch(dashboardSummaryProvider);
     final DashboardSummary summary = _apiSummary ?? defaultSummary;
     final defaultKasTransactions = ref.watch(recentKasTransactionsProvider);
-    final List<KasTransaction> kasTransactions =
-        (_apiSummary != null && _apiSummary!.recentKasTransactions.isNotEmpty)
+    final List<KasTransaction> kasTransactions = _apiSummary != null
         ? _apiSummary!.recentKasTransactions
         : defaultKasTransactions;
 

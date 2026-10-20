@@ -388,21 +388,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
           borderRadius: BorderRadius.circular(24),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '+',
-                  style: TextStyle(
-                    color: AppColors.accent,
-                    fontWeight: FontWeight.w700,
-                    fontSize: iconSize,
-                  ),
-                ),
-                SizedBox(width: 6),
-                Icon(Icons.person_add, size: iconSize, color: AppColors.accent),
-              ],
-            ),
+            child: Icon(Icons.person_add, size: iconSize, color: AppColors.accent),
           ),
         ),
       ),
@@ -441,21 +427,7 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
             height: 44,
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '+',
-                    style: TextStyle(
-                      color: AppColors.accent,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                    ),
-                  ),
-                  SizedBox(width: 6),
-                  Icon(Icons.person_add, size: 18, color: AppColors.accent),
-                ],
-              ),
+              child: Icon(Icons.person_add, size: 20, color: AppColors.accent),
             ),
           ),
         ),
@@ -545,9 +517,10 @@ class _ResidentCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final iconColor = theme.brightness == Brightness.dark
-        ? AppColors.darkTextMuted
-        : AppColors.lightTextMuted;
+    final isDark = theme.brightness == Brightness.dark;
+    final homeIconColor = isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
+    final phoneIconColor = isDark ? AppColors.success : const Color(0xFF16A34A);
+    final emailIconColor = isDark ? AppColors.info : const Color(0xFF2563EB);
 
     // Occupancy styling matching web Badge variants:
     // OWNER ('Pemilik'): violet accent
@@ -671,7 +644,7 @@ class _ResidentCard extends ConsumerWidget {
           if (resident.houseNumber.isNotEmpty) ...[
             Row(
               children: [
-                Icon(Icons.home_outlined, size: 16, color: iconColor),
+                Icon(Icons.home_outlined, size: 16, color: homeIconColor),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -690,7 +663,7 @@ class _ResidentCard extends ConsumerWidget {
               resident.phoneNumber!.isNotEmpty) ...[
             Row(
               children: [
-                Icon(Icons.phone_outlined, size: 16, color: iconColor),
+                Icon(Icons.phone_outlined, size: 16, color: phoneIconColor),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -706,7 +679,7 @@ class _ResidentCard extends ConsumerWidget {
           if (resident.email != null && resident.email!.isNotEmpty) ...[
             Row(
               children: [
-                Icon(Icons.email_outlined, size: 16, color: iconColor),
+                Icon(Icons.email_outlined, size: 16, color: emailIconColor),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(

@@ -131,6 +131,24 @@ export function ResidentDetailFields({
         />
       </div>
 
+      {/* Tanggal Selesai */}
+      <div className="sf-form-field">
+        <label className="sf-form-label" htmlFor="rd-end-date">
+          <CalendarOutlined style={{ marginRight: 4 }} />
+          Tanggal Selesai
+        </label>
+        <input
+          id="rd-end-date"
+          className="sf-form-input"
+          type="text"
+          value={resident.end_date ?? ''}
+          readOnly
+          disabled
+          aria-readonly
+          style={readOnlyStyle}
+        />
+      </div>
+
       {/* RT + RW */}
       <div className="sf-form-grid-2">
         <div className="sf-form-field">

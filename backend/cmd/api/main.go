@@ -572,24 +572,39 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Get("/api/v1/warga/export/xlsx", household.HandleWargaExportXLSX(pool))
 	})
 
-	// Write access: pengurus only. System-level SUPER_ADMIN can access and
-	// will derive target RT from existing resources (not from auth context).
-	// jabatan-based users evaluated via position_permissions for warga.create / warga.update.
+	// Write access: warga creation (households & residents).
+	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) access allowed.
+	// Users with a jabatan must possess the warga.create permission in position_permissions.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequirePermission(pool, "warga.create"))
-		r.Use(auth.RequirePermission(pool, "warga.update"))
-		r.Use(auth.RequireRole(auth.RolePengurus))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
+		))
 		r.Post("/api/v1/households", hh.CreateHousehold)
+		r.Post("/api/v1/residents", hh.CreateResident)
+		r.Post("/api/v1/residents/special", hh.CreateSpecialResident)
+	})
+
+	// Write access: warga mutation (update, move, deactivate for households & residents).
+	// Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) access allowed.
+	// Users with a jabatan must possess the warga.update permission in position_permissions.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequirePermission(pool, "warga.update"))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
+		))
 		r.Post("/api/v1/households/{id}/move", hh.MoveHousehold)
 		r.Patch("/api/v1/households/{id}", hh.UpdateHousehold)
 		r.Delete("/api/v1/households/{id}", hh.DeactivateHousehold)
-		r.Post("/api/v1/residents", hh.CreateResident)
 		r.Post("/api/v1/residents/{id}/move", hh.MoveResident)
 		r.Patch("/api/v1/residents/{id}", hh.UpdateResident)
 		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
-		r.Post("/api/v1/residents/special", hh.CreateSpecialResident)
 		r.Patch("/api/v1/residents/special/{id}", hh.UpdateSpecialResident)
 	})
 
@@ -652,12 +667,14 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// NOTE: The seed data has NO category-specific permissions (no "category.manage").
 	// Adding RequirePermission here would block ALL jabatan-based users
 	// (including ketua) because the position_permissions table has no mapping for it.
-	// This route group intentionally stays on RequireRole only until the permission
-	// model includes a category permission code. See audit report for details.
+	// Both role-based (Pengurus) and jabatan-based (Ketua) access allowed.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireRole(auth.RolePengurus))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus},
+			[]auth.Jabatan{auth.JabatanKetua},
+		))
 		r.Post("/api/v1/categories", finH.CreateCategory)
 		r.Patch("/api/v1/categories/{id}", finH.UpdateCategory)
 		r.Delete("/api/v1/categories/{id}", finH.DeactivateCategory)
@@ -671,7 +688,10 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Use(auth.RequirePermission(pool, "finance.create"))
 		r.Use(auth.RequirePermission(pool, "finance.update"))
 		r.Use(auth.RequirePermission(pool, "finance.approve"))
-		r.Use(auth.RequireRole(auth.RoleBendahara, auth.RolePengurus))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RoleBendahara, auth.RolePengurus},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanBendahara},
+		))
 		r.Post("/api/v1/dues", finH.CreateDue)
 		r.Patch("/api/v1/dues/{id}", finH.UpdateDue)
 		r.Delete("/api/v1/dues/{id}", finH.DeactivateDue)

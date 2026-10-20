@@ -22,18 +22,20 @@ bool canAccessIuranPath(String path, Map<String, dynamic>? user) {
 
 bool _roleAllowsRead(Map<String, dynamic> user) {
   if (user['system_role'] == 'super_admin') return true;
-  return switch (_roleValue(user['role'])) {
-    'warga' || 'bendahara' || 'pengurus' => true,
-    _ => false,
-  };
+  final role = _roleValue(user['role']);
+  if (role == 'warga' || role == 'bendahara' || role == 'pengurus') return true;
+  final jabatan = user['jabatan'] as String?;
+  if (jabatan != null && jabatan.isNotEmpty) return true;
+  return false;
 }
 
 bool _roleAllowsManagement(Map<String, dynamic> user) {
   if (user['system_role'] == 'super_admin') return true;
-  return switch (_roleValue(user['role'])) {
-    'bendahara' || 'pengurus' => true,
-    _ => false,
-  };
+  final role = _roleValue(user['role']);
+  if (role == 'bendahara' || role == 'pengurus') return true;
+  final jabatan = user['jabatan'] as String?;
+  if (jabatan == 'ketua' || jabatan == 'bendahara') return true;
+  return false;
 }
 
 bool _hasPermission(Map<String, dynamic> user, String permission) {

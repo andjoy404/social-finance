@@ -167,8 +167,8 @@ func TestBootstrap_DevseedNeverCreatesSuperAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("devseed failed: %v", err)
 	}
-	if summary.UsersCount != 7 {
-		t.Errorf("expected canonical user upsert count 7, got %d", summary.UsersCount)
+	if summary.UsersCount != 8 {
+		t.Errorf("expected canonical user upsert count 8, got %d", summary.UsersCount)
 	}
 
 	var usersAfter, adminsAfter int
