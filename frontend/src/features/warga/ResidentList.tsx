@@ -166,8 +166,16 @@ export function ResidentList() {
   const [importOpen, setImportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
 
-  // RT selection state for super_admin import/export
-  const [importRtId, setImportRtId] = useState<string | undefined>()
+  // RT selection state for super_admin import/export.
+  // Non-super-admin users (Ketua RT, Pengurus, Bendahara) operate within their
+  // own RT only — default importRtId to the user's RT so the preview/commit
+  // button can enable after a valid file is selected. Super Admin must
+  // explicitly select an RT (remains undefined until chosen); never auto-select
+  // the first RT.
+  const [importRtId, setImportRtId] = useState<string | undefined>(() => {
+    if (isSuperAdmin) return undefined
+    return user.rt?.id ?? undefined
+  })
   const [exportRtId, setExportRtId] = useState<string | undefined>()
   const [importRtList, setImportRtList] = useState<ApiRT[]>([])
   const [exportRtList, setExportRtList] = useState<ApiRT[]>([])
@@ -257,19 +265,25 @@ export function ResidentList() {
     fetchRts()
   }, [isSuperAdmin])
 
-  // Close import modal and reset preview if RT changes mid-flow
+  // Close import modal and reset preview if RT changes mid-flow.
   const resetImportPreview = useCallback(() => {
     setImportOpen(false)
   }, [])
 
+  // Remember the importRtId value the modal was opened with so we only
+  // reset when the target RT actually changes (e.g. Super Admin switching the
+  // RT selector), not on the initial open for non-super-admin users whose
+  // importRtId defaults to their own RT.
+  const prevImportRtIdRef = useRef<string | undefined>(importRtId)
+
   useEffect(() => {
     if (!importOpen) return
-    // If an RT was already selected and the user changes the selector,
-    // close the modal so the next preview/commit uses the new RT.
-    if (importRtId !== undefined && importRtId !== null) {
+    // Reset preview/commit only when target RT changes mid-flow.
+    if (prevImportRtIdRef.current !== importRtId) {
       resetImportPreview()
     }
-  }, [importRtId, importOpen, resetImportPreview])
+    prevImportRtIdRef.current = importRtId
+  }, [importOpen, importRtId, resetImportPreview])
 
   const fetchResidents = useCallback(async (p: number, size: number) => {
     // Abort any in-flight request before starting a new one

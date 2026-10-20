@@ -1598,3 +1598,229 @@ func TestRequireAccessUnauthenticated(t *testing.T) {
 		t.Errorf("expected 401 for unauthenticated request with RequireAccess, got %d", rec.Code)
 	}
 }
+
+// setupKetuaRTTestIdentity creates an RT with an allowed code ("002"), a user,
+// and an active membership with role="warga" and jabatan="ketua". It returns
+// the JWT token and the RT ID. The RT code "002" is in AllowedRTCodes so
+// RequireAllowedRT passes.
+func setupKetuaRTTestIdentity(t *testing.T, userID, membershipID, rtID string) (string, string) {
+	t.Helper()
+	pool := testutil.GetTestPool(t)
+	db := pool.Raw()
+	ctx := context.Background()
+
+	realUserID := testUUID(userID)
+	realMID := testUUID(membershipID)
+
+	// Reuse an existing active RT with an allowed code ("002") so we do not
+	// conflict with the uniq_rts_active constraint left by prior test runs.
+	// Insert one only if none exists.
+	var realRTID string
+	err := db.QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '002' AND is_active = true LIMIT 1`).Scan(&realRTID)
+	if err != nil {
+		realRTID = testUUID(rtID)
+		_, err = db.ExecContext(ctx, `
+			INSERT INTO rts (id, name, rw, rt, address, head_name, is_active)
+			VALUES ($1, $2, 16, '002', 'Test Address', 'Test Head', true)
+		`, realRTID)
+		if err != nil {
+			t.Fatalf("insert test RT: %v", err)
+		}
+	}
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+		VALUES ($1, $2, '08123456789', 'dummyhash', 'Test Ketua', true)
+		ON CONFLICT (id) DO UPDATE SET is_active = true
+	`, realUserID, fmt.Sprintf("%s@test.com", userID))
+	if err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		VALUES ($1, $2, $3, $4, $5, true)
+		ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, jabatan = EXCLUDED.jabatan, is_active = true, rt_id = EXCLUDED.rt_id
+	`, realMID, realUserID, realRTID, string(RoleWarga), string(JabatanKetua))
+	if err != nil {
+		t.Fatalf("insert test membership: %v", err)
+	}
+
+	token := makeToken(TokenClaims{
+		UserID: realUserID,
+		MID:    realMID,
+		RTID:   realRTID,
+		Role:   string(RoleWarga),
+		Jabatan: string(JabatanKetua),
+	})
+	return token, realRTID
+}
+
+// readChain composes the exact middleware chain used by GET /api/v1/residents,
+// /api/v1/bills, and /api/v1/transactions so tests exercise the real protection.
+func readChain(pool *database.Pool, permission string, inner http.Handler) http.Handler {
+	return RequireAuth(RequireAllowedRT(pool)(RequirePermission(pool, permission)(RequireRole(RoleWarga, RoleBendahara, RolePengurus)(inner))))
+}
+
+func TestKetuaRTReadAccessChain(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	pool := testPool(t)
+	oldPool := AuthDBPool
+	AuthDBPool = pool
+	t.Cleanup(func() { AuthDBPool = oldPool })
+
+	token, _ := setupKetuaRTTestIdentity(t, "user-krt-chain", "member-krt-chain", "rt-krt-chain")
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("Ketua RT reads residents (warga.read)", func(t *testing.T) {
+		handler := readChain(pool, "warga.read", inner)
+		req := makeAuthRequest(http.MethodGet, "/api/v1/residents", token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 for Ketua RT reading residents, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("Ketua RT reads bills (finance.read)", func(t *testing.T) {
+		handler := readChain(pool, "finance.read", inner)
+		req := makeAuthRequest(http.MethodGet, "/api/v1/bills", token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 for Ketua RT reading bills, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("Ketua RT reads transactions (finance.read)", func(t *testing.T) {
+		handler := readChain(pool, "finance.read", inner)
+		req := makeAuthRequest(http.MethodGet, "/api/v1/transactions", token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 for Ketua RT reading transactions, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+func TestKetuaRTWithoutRequiredPermissionDenied(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	pool := testPool(t)
+	oldPool := AuthDBPool
+	AuthDBPool = pool
+	t.Cleanup(func() { AuthDBPool = oldPool })
+
+	token, _ := setupKetuaRTTestIdentity(t, "user-krt-noperm", "member-krt-noperm", "rt-krt-noperm")
+
+	// Remove the ketua -> warga.read position permission so the permission
+	// check fails, then restore it afterwards.
+	ctx := context.Background()
+	_, err := pool.Raw().ExecContext(ctx, `
+		DELETE FROM position_permissions pp
+		USING permission_types pt
+		WHERE pp.permission_id = pt.id AND pp.position = $1 AND pt.code = $2
+	`, string(JabatanKetua), "warga.read")
+	if err != nil {
+		t.Fatalf("delete position permission: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Raw().ExecContext(context.Background(), `
+			INSERT INTO position_permissions (position, permission_id)
+			SELECT $1, id FROM permission_types WHERE code = $2
+			ON CONFLICT (position, permission_id) DO NOTHING
+		`, string(JabatanKetua), "warga.read")
+	})
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := readChain(pool, "warga.read", inner)
+
+	req := makeAuthRequest(http.MethodGet, "/api/v1/residents", token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for Ketua RT without warga.read permission, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadChainDisallowedTenantRole(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	pool := testPool(t)
+	oldPool := AuthDBPool
+	AuthDBPool = pool
+	t.Cleanup(func() { AuthDBPool = oldPool })
+
+	// Reuse an existing Ketua RT identity (membership role=warga is DB-valid;
+	// the JWT tenant role is what RequireRole evaluates).
+	token, rtID := setupKetuaRTTestIdentity(t, "user-krt-norole", "member-krt-norole", "rt-krt-norole")
+
+	// Override the JWT tenant role to "keamanan" — not in the read whitelist.
+	token = makeToken(TokenClaims{
+		UserID: testUUID("user-krt-norole"),
+		MID:    testUUID("member-krt-norole"),
+		RTID:   rtID,
+		Role:   "keamanan", // not in {warga, bendahara, pengurus}
+		Jabatan: string(JabatanKetua),
+	})
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := readChain(pool, "warga.read", inner)
+
+	req := makeAuthRequest(http.MethodGet, "/api/v1/residents", token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for disallowed tenant role keamanan, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSuperAdminReadAccessNoRegression(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	pool := testPool(t)
+	oldPool := AuthDBPool
+	AuthDBPool = pool
+	t.Cleanup(func() { AuthDBPool = oldPool })
+
+	setupSystemOnlyIdentity(t, "user-sa-read", "sa-read@example.com")
+	token := makeToken(TokenClaims{
+		UserID: testUUID("user-sa-read"),
+		SysRole: "super_admin",
+	})
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for _, permission := range []string{"warga.read", "finance.read"} {
+		handler := readChain(pool, permission, inner)
+		for _, path := range []string{"/api/v1/residents", "/api/v1/bills", "/api/v1/transactions"} {
+			req := makeAuthRequest(http.MethodGet, path, token)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("expected 200 for SUPER_ADMIN on %s (%s), got %d: %s", path, permission, rec.Code, rec.Body.String())
+			}
+		}
+	}
+}
+
+func TestUnauthenticatedReadAccessDenied(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	pool := testutil.GetTestPool(t)
+	handler := readChain(pool, "warga.read", inner)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/residents", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for unauthenticated request, got %d", rec.Code)
+	}
+}
