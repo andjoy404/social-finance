@@ -265,11 +265,7 @@ export function IuranList() {
         return
       }
 
-      if (!resp?.data) {
-        throw new Error('Gagal memuat data tagihan')
-      }
-
-      const bills = resp.data.map(mapBill)
+      const bills = resp?.data?.map(mapBill) ?? []
       setAllBills(bills)
 
       const serverTotal = resp.pagination?.total ?? bills.length

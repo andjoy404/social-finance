@@ -1248,13 +1248,23 @@ class KasTransactionCard extends StatelessWidget {
     }
 
     // ── Full display text for row 2 ──
-    // For iuran reguler, detailText is already the full label.
+    // For iuran income (non-sukarela), show due name · reference (with safe fallback).
     // For everything else, prepend kategori label to detailText.
-    final row2Text = detailText == 'Pembayaran Iuran'
-        ? 'Pembayaran Iuran'
-        : (detailText.isNotEmpty
-              ? '${transaction.kategori.label} · $detailText'
-              : transaction.kategori.label);
+    String row2Text;
+    if (isIuranIncome && !isSukarela) {
+      // Iuran transaksi: tampilkan nama due dan referensi (dengan fallback aman)
+      if (dueTrimmed.isNotEmpty) {
+        row2Text = '$dueTrimmed · $refText';
+      } else {
+        row2Text = refText;
+      }
+    } else if (detailText == 'Pembayaran Iuran') {
+      row2Text = 'Pembayaran Iuran';
+    } else {
+      row2Text = detailText.isNotEmpty
+          ? '${transaction.kategori.label} · $detailText'
+          : transaction.kategori.label;
+    }
 
     return InkWell(
       onTap: onTap,
@@ -1291,13 +1301,26 @@ class KasTransactionCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  nominalDisplay,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: accentColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      nominalDisplay,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: accentColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      isIncoming ? 'masuk' : 'keluar',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: accentColor,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
