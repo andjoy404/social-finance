@@ -1647,10 +1647,10 @@ func setupKetuaRTTestIdentity(t *testing.T, userID, membershipID, rtID string) (
 	}
 
 	token := makeToken(TokenClaims{
-		UserID: realUserID,
-		MID:    realMID,
-		RTID:   realRTID,
-		Role:   string(RoleWarga),
+		UserID:  realUserID,
+		MID:     realMID,
+		RTID:    realRTID,
+		Role:    string(RoleWarga),
 		Jabatan: string(JabatanKetua),
 	})
 	return token, realRTID
@@ -1760,10 +1760,10 @@ func TestReadChainDisallowedTenantRole(t *testing.T) {
 
 	// Override the JWT tenant role to "keamanan" — not in the read whitelist.
 	token = makeToken(TokenClaims{
-		UserID: testUUID("user-krt-norole"),
-		MID:    testUUID("member-krt-norole"),
-		RTID:   rtID,
-		Role:   "keamanan", // not in {warga, bendahara, pengurus}
+		UserID:  testUUID("user-krt-norole"),
+		MID:     testUUID("member-krt-norole"),
+		RTID:    rtID,
+		Role:    "keamanan", // not in {warga, bendahara, pengurus}
 		Jabatan: string(JabatanKetua),
 	})
 
@@ -1789,7 +1789,7 @@ func TestSuperAdminReadAccessNoRegression(t *testing.T) {
 
 	setupSystemOnlyIdentity(t, "user-sa-read", "sa-read@example.com")
 	token := makeToken(TokenClaims{
-		UserID: testUUID("user-sa-read"),
+		UserID:  testUUID("user-sa-read"),
 		SysRole: "super_admin",
 	})
 
