@@ -21,7 +21,7 @@ import (
 var excelHeaders = []string{
 	"house_number", "head_name", "occupancy_status",
 	"address", "resident_name", "nik", "phone",
-	"email", "relationship_to_head",
+	"email",
 }
 
 // RequiredColumns are the Excel columns that must be present for import.
@@ -144,7 +144,6 @@ func parseExcelRows(f *excelize.File) ([]WargaCSVRow, []RowError, error) {
 			Nik:                nikRaw,
 			Phone:              getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
 			Email:              getVal(record, "email", "resident_email"),
-			RelationshipToHead: getVal(record, "relationship_to_head", "hubungan"),
 		}
 
 		// Field-level validation (identical to ParseWargaCSV).
@@ -575,8 +574,7 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 			   r.full_name as resident_name,
 			   COALESCE(r.nik, '') as nik,
 			   COALESCE(r.phone, '') as phone,
-			   COALESCE(r.email, '') as email,
-			   COALESCE(rp.relationship_to_head, '') as relationship_to_head
+			   COALESCE(r.email, '') as email
 			 FROM residents r
 			 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 			 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
@@ -596,8 +594,7 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 			   r.full_name as resident_name,
 			   COALESCE(r.nik, '') as nik,
 			   COALESCE(r.phone, '') as phone,
-			   COALESCE(r.email, '') as email,
-			   COALESCE(rp.relationship_to_head, '') as relationship_to_head
+			   COALESCE(r.email, '') as email
 			 FROM residents r
 			 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 			 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
@@ -632,10 +629,10 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 
 	rowNum := 2
 	for rows.Next() {
-		var houseNum, headName, occStatus, addr, resName, nik, phone, email, rel string
+		var houseNum, headName, occStatus, addr, resName, nik, phone, email string
 		if err := rows.Scan(
 			&houseNum, &headName, &occStatus, &addr,
-			&resName, &nik, &phone, &email, &rel,
+			&resName, &nik, &phone, &email,
 		); err != nil {
 			f.Close()
 			return nil, fmt.Errorf("scan export row: %w", err)
@@ -644,7 +641,7 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 		var cell string
 		for ci, val := range []string{
 			houseNum, headName, occStatus, addr,
-			resName, nik, phone, email, rel,
+			resName, nik, phone, email,
 		} {
 			cell, _ = excelize.CoordinatesToCellName(ci+1, rowNum)
 			if err := f.SetCellValue("Warga", cell, val); err != nil {
@@ -661,8 +658,8 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 	}
 
 	// Set column widths for readability.
-	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"}
-	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28, 20}
+	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H"}
+	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28}
 	for i, col := range columns {
 		if i < len(widths) {
 			f.SetColWidth("Warga", col, col, widths[i])
@@ -692,8 +689,8 @@ func buildTemplateXLSX() (*excelize.File, error) {
 	}
 
 	// Set column widths matching export.
-	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I"}
-	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28, 20}
+	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H"}
+	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28}
 	for i, col := range columns {
 		if i < len(widths) {
 			f.SetColWidth("Template", col, col, widths[i])

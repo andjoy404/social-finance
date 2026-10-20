@@ -155,7 +155,7 @@ function HouseholdFormFields({
           type="text"
           value={form.head_name}
           onChange={(e) => onChange('head_name', e.target.value)}
-          placeholder="Nama lengkap kepala keluarga / warga"
+          placeholder="Nama lengkap warga"
           required
           disabled={disabled}
         />

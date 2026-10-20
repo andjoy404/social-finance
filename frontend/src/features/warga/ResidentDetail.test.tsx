@@ -37,7 +37,6 @@ const mockResident: ApiResident = {
   nik: '3201011234560001',
   phone: '081234567890',
   email: 'budi@example.com',
-  relationship_to_head: 'HEAD',
   is_active: true,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
@@ -236,7 +235,6 @@ describe('ResidentDetail — renders resident information', () => {
       nik: '9999999999990001',
       phone: null,
       email: 'position.ketua.rt03@example.com',
-      relationship_to_head: 'HEAD',
       rt_number: '03',
       rw: 16,
       rt_name: 'Wisma Rukun Tunggal',
@@ -251,51 +249,369 @@ describe('ResidentDetail — renders resident information', () => {
       expect(screen.getByText('Position Ketua RT 03')).toBeInTheDocument()
     })
   })
+})
 
-  it('can edit and save resident relationship_to_head', async () => {
-    let patchBody: any = null
-    let patchHouseholdBody: any = null
-    mockFetch((_url, init) => {
-      if (init?.method === 'PATCH') {
-        const body = JSON.parse(init.body as string)
-        if (_url.includes('/households/')) {
-          patchHouseholdBody = body
-        } else {
-          patchBody = body
-        }
-        return mockSuccessResponse({ ...mockResident, relationship_to_head: patchBody.relationship_to_head })
+// ---- Edit flow and warga:refresh tests ----
+
+describe('ResidentDetail — edit flow dispatches warga:refresh on success', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    persistSessionPair({ accessToken: 'test-jwt-token', refreshToken: 'refresh-token' })
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('dispatches warga:refresh after successful resident update', async () => {
+    let eventDispatched = false
+    const handler = () => { eventDispatched = true }
+    window.addEventListener('warga:refresh', handler)
+
+    let residentPatchCount = 0
+    let getCallCount = 0
+    mockFetch((url, init) => {
+      if (init?.method === 'PATCH' && url.includes('/residents/')) {
+        residentPatchCount++
+        return mockSuccessResponse({ ...mockResident, full_name: 'Updated Name' })
       }
-      return mockSuccessResponse(mockResident)
+      if (init?.method === 'PATCH' && url.includes('/households/')) {
+        return mockSuccessResponse({ id: 'hh-1', house_number: '001' })
+      }
+      if (init?.method === 'GET' && url.includes('/residents/')) {
+        getCallCount++
+        // First GET = initial load, subsequent GETs = post-update refetch
+        if (getCallCount === 1) {
+          return mockSuccessResponse(mockResident)
+        }
+        return mockSuccessResponse({ ...mockResident, full_name: 'Updated Name' })
+      }
+      // getHousehold for address
+      return mockSuccessResponse({ id: 'hh-1', house_number: '001', head_name: 'Budi', address: null })
     })
+
     renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(screen.getByText('Ubah')).toBeInTheDocument()
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    // Click edit
+    screen.getByText('Ubah').click()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Simpan Perubahan/i })).toBeInTheDocument()
+    })
+
+    // Fill form fields
+    const nameInput = screen.getByLabelText(/Nama Lengkap\s*\*/i) as HTMLInputElement
+    fireEvent.change(nameInput, { target: { value: 'Updated Name' } })
+
+    const houseInput = screen.getByLabelText(/Nomor Rumah\s*\*/i) as HTMLInputElement
+    fireEvent.change(houseInput, { target: { value: '001' } })
+
+    const startDateInput = screen.getByLabelText(/Tanggal Mulai Hunian\s*\*/i) as HTMLInputElement
+    fireEvent.change(startDateInput, { target: { value: '2026-01-01' } })
+
+    // Submit
+    screen.getByRole('button', { name: /Simpan Perubahan/i }).click()
+
+    await waitFor(() => {
+      expect(residentPatchCount).toBeGreaterThanOrEqual(1)
+    })
+
+    await waitFor(() => {
+      expect(eventDispatched).toBe(true)
+    })
+
+    // UI should switch back from edit mode and show the refreshed data
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Updated Name')).toBeInTheDocument()
+    })
+
+    window.removeEventListener('warga:refresh', handler)
+  })
+
+  it('does NOT dispatch warga:refresh when update fails', async () => {
+    let eventDispatched = false
+    const handler = () => { eventDispatched = true }
+    window.addEventListener('warga:refresh', handler)
+
+    mockFetch((url, init) => {
+      if (init?.method === 'PATCH' && url.includes('/residents/')) {
+        return errorResponse(400, 'validation_error', 'Validation failed')
+      }
+      if (init?.method === 'GET' && url.includes('/residents/')) {
+        return mockSuccessResponse(mockResident)
+      }
+      return mockSuccessResponse({ id: 'hh-1', house_number: '001', head_name: 'Budi', address: null })
+    })
+
+    renderResidentDetail(mockPengurusUser)
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
     })
 
     screen.getByText('Ubah').click()
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Hubungan dengan KK/i)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Simpan Perubahan/i })).toBeInTheDocument()
     })
 
-    // Fill required fields from the expanded "Tambah Warga"-style form
-    const houseInput = screen.getByLabelText(/Nomor Rumah/i) as HTMLInputElement
+    // Fill required fields
+    const nameInput = screen.getByLabelText(/Nama Lengkap\s*\*/i) as HTMLInputElement
+    fireEvent.change(nameInput, { target: { value: 'Updated Name' } })
+
+    const houseInput = screen.getByLabelText(/Nomor Rumah\s*\*/i) as HTMLInputElement
     fireEvent.change(houseInput, { target: { value: '001' } })
 
-    const dateInput = screen.getByLabelText(/Tanggal Mulai Hunian/i) as HTMLInputElement
-    fireEvent.change(dateInput, { target: { value: '2026-01-15' } })
+    const startDateInput = screen.getByLabelText(/Tanggal Mulai Hunian\s*\*/i) as HTMLInputElement
+    fireEvent.change(startDateInput, { target: { value: '2026-01-01' } })
 
-    const select = screen.getByLabelText(/Hubungan dengan KK/i) as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'SPOUSE' } })
+    // Submit
+    screen.getByRole('button', { name: /Simpan Perubahan/i }).click()
 
-    screen.getByText('Simpan Perubahan').click()
+    // Wait for error to appear (error message comes from API response)
+    await waitFor(() => {
+      expect(screen.getByText('Validation failed')).toBeInTheDocument()
+    })
+
+    await new Promise(r => setTimeout(r, 100))
+
+    expect(eventDispatched).toBe(false)
+
+    window.removeEventListener('warga:refresh', handler)
+  })
+
+  it('allows update for residents without household (no household_id)', async () => {
+    // Regression test: residents without household_id (e.g., special/unattached residents)
+    // must not be blocked by household-level validation (houseNumber, startDate).
+    let patchCallCount = 0
+    mockFetch((url, init) => {
+      if (init?.method === 'PATCH' && url.includes('/residents/')) {
+        patchCallCount++
+        return mockSuccessResponse({
+          ...mockResident,
+          id: 'no-hh-resident-1',
+          full_name: 'Warga Tanpa Rumah',
+          household_id: null,
+        })
+      }
+      if (init?.method === 'GET' && url.includes('/residents/')) {
+        // Initial load + post-update refetch
+        return mockSuccessResponse({
+          ...mockResident,
+          id: 'no-hh-resident-1',
+          full_name: 'Warga Tanpa Rumah',
+          household_id: null,
+          house_number: null,
+          start_date: null,
+          occupancy_status: null,
+        })
+      }
+      return mockSuccessResponse({ id: 'hh-x', house_number: null, head_name: null, address: null })
+    })
+
+    renderResidentDetail(mockPengurusUser)
 
     await waitFor(() => {
-      expect(patchBody).not.toBeNull()
-      expect(patchBody.relationship_to_head).toBe('SPOUSE')
+      expect(screen.getByText('Warga Tanpa Rumah')).toBeInTheDocument()
     })
-    expect(patchHouseholdBody.house_number).toBe('001')
-    expect(patchHouseholdBody.start_date).toBe('2026-01-15')
+
+    // Click edit
+    screen.getByText('Ubah').click()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Simpan Perubahan/i })).toBeInTheDocument()
+    })
+
+    // Fill required resident fields
+    const nameInput = screen.getByLabelText(/Nama Lengkap\s*\*/i) as HTMLInputElement
+    fireEvent.change(nameInput, { target: { value: 'Warga Tanpa Rumah Updated' } })
+
+    // Household fields (house number, start date) should NOT be rendered
+    // for residents without a household_id.
+    expect(screen.queryByLabelText(/Nomor Rumah/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Tanggal Mulai/i)).not.toBeInTheDocument()
+
+    // Submit — should succeed without any household fields
+    screen.getByRole('button', { name: /Simpan Perubahan/i }).click()
+
+    // Should succeed — PATCH is called and no validation errors appear
+    await waitFor(() => {
+      expect(patchCallCount).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  it('allows update for non-resident personnel (Keamanan) with jabatan but no household', async () => {
+    // Test: non-resident personnel (Keamanan/Operasional) have jabatan and no household_id.
+    // The form must not show household fields, and must call updateSpecialResident.
+    let specialEndpointCalled = false
+    let regularEndpointCalled = false
+    let householdEndpointCalled = false
+
+    const mockNonResident: ApiResident = {
+      id: 'special-res-1',
+      rt_id: 'rt-1',
+      household_id: null,
+      full_name: 'Ahmad Keamanan',
+      nik: null,
+      phone: '081234567891',
+      email: 'ahmad@example.com',
+      is_active: true,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+      jabatan: 'keamanan',
+      house_number: null,
+      start_date: null,
+      occupancy_status: null,
+    }
+
+    mockFetch((url, init) => {
+      if (init?.method === 'PATCH' && url.includes('/residents/special/')) {
+        specialEndpointCalled = true
+        return mockSuccessResponse({
+          ...mockNonResident,
+          full_name: 'Ahmad Keamanan Updated',
+        })
+      }
+      if (init?.method === 'PATCH' && url.includes('/residents/') && !url.includes('/residents/special/')) {
+        regularEndpointCalled = true
+      }
+      if (init?.method === 'PATCH' && url.includes('/households/')) {
+        householdEndpointCalled = true
+      }
+      if (init?.method === 'GET' && url.includes('/residents/')) {
+        return mockSuccessResponse(mockNonResident)
+      }
+      return mockSuccessResponse({ id: 'hh-x', house_number: null, head_name: null, address: null })
+    })
+
+    renderResidentDetail(mockPengurusUser)
+
+    await waitFor(() => {
+      expect(screen.getByText('Ahmad Keamanan')).toBeInTheDocument()
+    })
+
+    // Click edit
+    screen.getByText('Ubah').click()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Simpan Perubahan/i })).toBeInTheDocument()
+    })
+
+    // Household fields must NOT be rendered for non-resident personnel
+    expect(screen.queryByLabelText(/Nomor Rumah/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Tanggal Mulai/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/Status Hunian/i)).not.toBeInTheDocument()
+
+    // Fill only the name field
+    const nameInput = screen.getByLabelText(/Nama Lengkap\s*\*/i) as HTMLInputElement
+    fireEvent.change(nameInput, { target: { value: 'Ahmad Keamanan Updated' } })
+
+    // Submit
+    screen.getByRole('button', { name: /Simpan Perubahan/i }).click()
+
+    // Special endpoint must be called for non-resident personnel
+    await waitFor(() => {
+      expect(specialEndpointCalled).toBe(true)
+    })
+
+    // Regular resident endpoint must NOT be called
+    expect(regularEndpointCalled).toBe(false)
+
+    // Household endpoint must NOT be called
+    expect(householdEndpointCalled).toBe(false)
+  })
+
+  it('uses regular resident endpoint (not special) for residents with jabatan AND household_id', async () => {
+    // Regression test: residents with jabatan AND household_id must use the regular
+    // endpoint (/api/v1/residents/:id), not the special endpoint.
+    // The special endpoint requires NO active residency period, which this resident has.
+    let specialEndpointCalled = false
+    let regularEndpointCalled = false
+    let householdEndpointCalled = false
+
+    mockFetch((url, init) => {
+      if (init?.method === 'PATCH' && url.includes('/residents/special/')) {
+        specialEndpointCalled = true
+      }
+      if (init?.method === 'PATCH' && url.includes('/residents/') && !url.includes('/residents/special/')) {
+        regularEndpointCalled = true
+        return mockSuccessResponse({
+          id: 'position-1',
+          rt_id: 'rt-1',
+          household_id: 'hh-1',
+          full_name: 'Position Ketua RT 03',
+          nik: '9999999999990001',
+          phone: '081234567890',
+          email: 'ketua.rt03@example.com',
+          is_active: true,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+          jabatan: 'wakil_ketua',
+        })
+      }
+      if (init?.method === 'PATCH' && url.includes('/households/')) {
+        householdEndpointCalled = true
+        return mockSuccessResponse({ id: 'hh-1', house_number: '001' })
+      }
+      if (init?.method === 'GET' && url.includes('/residents/')) {
+        // Initial load
+        return mockSuccessResponse({
+          id: 'position-1',
+          rt_id: 'rt-1',
+          household_id: 'hh-1',
+          full_name: 'Position Ketua RT 03',
+          nik: '9999999999990001',
+          phone: '081234567890',
+          email: 'ketua.rt03@example.com',
+          is_active: true,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+          jabatan: 'wakil_ketua',
+        })
+      }
+      return mockSuccessResponse({ id: 'hh-1', house_number: '001', head_name: 'Budi', address: null })
+    })
+
+    renderResidentDetail(mockPengurusUser)
+
+    await waitFor(() => {
+      expect(screen.getByText('Position Ketua RT 03')).toBeInTheDocument()
+    })
+
+    // Click edit
+    screen.getByText('Ubah').click()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Simpan Perubahan/i })).toBeInTheDocument()
+    })
+
+    // Fill required form fields
+    const nameInput = screen.getByLabelText(/Nama Lengkap\s*\*/i) as HTMLInputElement
+    fireEvent.change(nameInput, { target: { value: 'Position Ketua RT 03 Updated' } })
+
+    const houseInput = screen.getByLabelText(/Nomor Rumah\s*\*/i) as HTMLInputElement
+    fireEvent.change(houseInput, { target: { value: '001' } })
+
+    const startDateInput = screen.getByLabelText(/Tanggal Mulai Hunian\s*\*/i) as HTMLInputElement
+    fireEvent.change(startDateInput, { target: { value: '2026-01-01' } })
+
+    // Submit
+    screen.getByRole('button', { name: /Simpan Perubahan/i }).click()
+
+    // Wait for save to complete
+    await waitFor(() => {
+      expect(regularEndpointCalled).toBe(true)
+    })
+
+    // Special endpoint must NOT be called for residents with household_id
+    await waitFor(() => {
+      expect(specialEndpointCalled).toBe(false)
+    })
+
+    // Household endpoint should also be called
+    expect(householdEndpointCalled).toBe(true)
   })
 })

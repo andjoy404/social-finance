@@ -53,8 +53,6 @@ void main() {
           id: 'res-1',
           name: 'Budi Santoso',
           houseNumber: 'A1',
-          isHeadOfHousehold: true,
-          relationship: 'Kepala Keluarga',
         ),
       ];
 
@@ -86,15 +84,11 @@ void main() {
           id: 'res-1',
           name: 'Budi Santoso',
           houseNumber: 'A1',
-          isHeadOfHousehold: true,
-          relationship: 'Kepala Keluarga',
         ),
         const MappedResident(
           id: 'res-2',
           name: 'Siti Aminah',
           houseNumber: 'A2',
-          isHeadOfHousehold: true,
-          relationship: 'Kepala Keluarga',
         ),
       ];
 

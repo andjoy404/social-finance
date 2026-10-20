@@ -218,7 +218,15 @@ export function ResidentList() {
     }
   }, [occupancyOpen])
 
+  // AbortController to prevent stale GET responses from overwriting newer data
+  const abortRef = useRef<AbortController | null>(null)
+
   const fetchResidents = useCallback(async (p: number, size: number) => {
+    // Abort any in-flight request before starting a new one
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     const pair = getSessionPair()
     if (!pair?.accessToken) {
       setError(new ApiError('auth_expired', 'Sesi telah berakhir. Silakan masuk kembali.'))
@@ -229,9 +237,10 @@ export function ResidentList() {
     setError(null)
 
     try {
-      const params: Record<string, string | number | boolean | undefined> = {
+      const params: import('@/app/api').ApiListResidentsParams = {
         page: p,
         page_size: size,
+        signal: controller.signal,
       }
 
       if (filterType === 'status' && statusValue === 'aktif') params.is_active = true
@@ -239,12 +248,19 @@ export function ResidentList() {
 
       if (search.trim()) params.search = search.trim()
 
-      const resp = await listResidents(pair.accessToken, params as import('@/app/api').ApiListResidentsParams)
+      const resp = await listResidents(pair.accessToken, params)
 
-      setResidentList(resp.data)
-      setTotalPages(resp.pagination.total_pages)
-      setTotal(resp.pagination.total)
+      // Only update state if this request is still the latest
+      if (!controller.signal.aborted) {
+        setResidentList(resp.data)
+        setTotalPages(resp.pagination.total_pages)
+        setTotal(resp.pagination.total)
+      }
     } catch (err) {
+      // Ignore AbortError — it means a newer request replaced this one
+      if ((err instanceof DOMException || err instanceof Error) && err.name === 'AbortError') {
+        return
+      }
       if (err instanceof ApiError && err.code === 'auth_expired') {
         clearSessionPair()
         window.location.href = '/login'
@@ -254,7 +270,9 @@ export function ResidentList() {
         setError(new ApiError('unexpected', 'Gagal memuat data warga.'))
       }
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) {
+        setLoading(false)
+      }
     }
   }, [filterType, statusValue, search])
 
@@ -270,6 +288,14 @@ export function ResidentList() {
     url.searchParams.delete('refresh')
     window.history.replaceState({}, '', url.pathname + url.search)
   }, [refresh, fetchResidents, page, pageSize])
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      void fetchResidents(page, pageSize)
+    }
+    window.addEventListener('warga:refresh', handleRefresh)
+    return () => window.removeEventListener('warga:refresh', handleRefresh)
+  }, [fetchResidents, page, pageSize])
 
   const handleFilter = (filter: FilterType) => {
     setFilterType(filter)

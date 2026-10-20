@@ -170,7 +170,6 @@ Indexes:
 | `household_id` | `uuid` | NOT NULL, FK → `households.id` | Household membership |
 | `full_name` | `text` | NOT NULL | |
 | `phone` | `text` | NULL | |
-| `relationship_to_head` | `text` | NULL | e.g. "self", "spouse", "child" |
 | `is_active` | `boolean` | NOT NULL, default `true` | Soft delete flag |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
@@ -186,7 +185,7 @@ Indexes:
 
 - `physical_houses` — Physical structures (`rt_id`, `house_number`, `address`, `is_active`)
 - `household_occupancies` — Temporal occupancy periods (`household_id`, `physical_house_id`, `occupancy_status`, `start_date`, `end_date`)
-- `residency_periods` — Resident-to-occupancy temporal links (`resident_id`, `household_occupancy_id`, `relationship_to_head`, `start_date`, `end_date`)
+- `residency_periods` — Resident-to-occupancy temporal links (`resident_id`, `household_occupancy_id`, `start_date`, `end_date`)
 
 ---
 

@@ -43,8 +43,6 @@ class _TrackingWargaRepository extends WargaRepository {
           id: 'res-${tokensUsed.length}',
           name: 'Data for ${client.token?.substring(0, 8) ?? "none"}',
           houseNumber: 'A1',
-          isHeadOfHousehold: true,
-          relationship: 'Kepala Keluarga',
         ),
       ],
       pagination: const PaginationInfo(

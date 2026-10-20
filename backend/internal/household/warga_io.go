@@ -19,16 +19,15 @@ import (
 
 // WargaCSVRow models a parsed single line from the Warga import template.
 type WargaCSVRow struct {
-	RowNumber          int    `json:"row_number"`
-	HouseNumber        string `json:"house_number"`
-	HeadName           string `json:"head_name"`
-	OccupancyStatus    string `json:"occupancy_status"`
-	Address            string `json:"address"`
-	ResidentName       string `json:"resident_name"`
-	Nik                string `json:"nik"`
-	Phone              string `json:"phone"`
-	Email              string `json:"email"`
-	RelationshipToHead string `json:"relationship_to_head"`
+	RowNumber      int    `json:"row_number"`
+	HouseNumber    string `json:"house_number"`
+	HeadName       string `json:"head_name"`
+	OccupancyStatus string `json:"occupancy_status"`
+	Address        string `json:"address"`
+	ResidentName   string `json:"resident_name"`
+	Nik            string `json:"nik"`
+	Phone          string `json:"phone"`
+	Email          string `json:"email"`
 }
 
 // RowError captures an error on a specific row and field.
@@ -156,7 +155,6 @@ func ParseWargaCSV(r io.Reader) ([]WargaCSVRow, []RowError, error) {
 			Nik:                getVal(record, "nik", "resident_nik", "ktp"),
 			Phone:              getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
 			Email:              getVal(record, "email", "resident_email"),
-			RelationshipToHead: getVal(record, "relationship_to_head", "hubungan"),
 		}
 
 		// Field validations
@@ -486,19 +484,10 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 				return nil, fmt.Errorf("insert resident %s: %w", res.ResidentName, err)
 			}
 
-			rel := res.RelationshipToHead
-			if rel == "" && strings.EqualFold(res.ResidentName, grp.HeadName) {
-				rel = RelationshipHead
-			}
-			var relPtr *string
-			if rel != "" {
-				relPtr = &rel
-			}
-
 			_, err = tx.ExecContext(ctx,
-				`INSERT INTO residency_periods (resident_id, household_occupancy_id, relationship_to_head, start_date)
-				 VALUES ($1, $2, $3, CURRENT_DATE)`,
-				resID, hoID, relPtr,
+				`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date)
+				 VALUES ($1, $2, CURRENT_DATE)`,
+				resID, hoID,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("insert residency period for %s: %w", res.ResidentName, err)
@@ -551,8 +540,7 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 		   r.full_name as resident_name,
 		   COALESCE(r.nik, '') as nik,
 		   COALESCE(r.phone, '') as phone,
-		   COALESCE(r.email, '') as email,
-		   COALESCE(rp.relationship_to_head, '') as relationship_to_head
+		   COALESCE(r.email, '') as email
 		 FROM residents r
 		 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
 		 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
@@ -573,24 +561,24 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 	header := []string{
 		"house_number", "head_name", "occupancy_status",
 		"address", "resident_name", "nik", "phone",
-		"email", "relationship_to_head",
+		"email",
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("write csv header: %w", err)
 	}
 
 	for rows.Next() {
-		var houseNum, headName, occStatus, addr, resName, nik, phone, email, rel string
+		var houseNum, headName, occStatus, addr, resName, nik, phone, email string
 		if err := rows.Scan(
 			&houseNum, &headName, &occStatus, &addr,
-			&resName, &nik, &phone, &email, &rel,
+			&resName, &nik, &phone, &email,
 		); err != nil {
 			return fmt.Errorf("scan export row: %w", err)
 		}
 
 		record := []string{
 			houseNum, headName, occStatus, addr,
-			resName, nik, phone, email, rel,
+			resName, nik, phone, email,
 		}
 		if err := writer.Write(record); err != nil {
 			return fmt.Errorf("write csv row: %w", err)

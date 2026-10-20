@@ -56,7 +56,6 @@ class BackendResident {
   final String? phone;
   final String? nik;
   final String? email;
-  final String? relationshipToHead;
   final bool isActive;
   final String? rtNumber;
   final int? rw;
@@ -71,7 +70,6 @@ class BackendResident {
     this.phone,
     this.nik,
     this.email,
-    this.relationshipToHead,
     required this.isActive,
     this.rtNumber,
     this.rw,
@@ -88,7 +86,6 @@ class BackendResident {
       phone: json['phone'] as String?,
       nik: json['nik'] as String?,
       email: json['email'] as String?,
-      relationshipToHead: json['relationship_to_head'] as String?,
       isActive: json['is_active'] as bool? ?? true,
       rtNumber: json['rt_number'] as String?,
       rw: (json['rw'] as num?)?.toInt(),
@@ -275,6 +272,36 @@ class UpdateSpecialResidentRequest {
   }
 }
 
+/// Update request for a regular resident (resident-level fields only, no jabatan).
+@immutable
+class UpdateResidentRequest {
+  final String? fullName;
+  final String? nik;
+  final String? phone;
+  final String? email;
+  final bool? isActive;
+  final String? password;
+
+  const UpdateResidentRequest({
+    this.fullName,
+    this.nik,
+    this.phone,
+    this.email,
+    this.isActive,
+    this.password,
+  });
+
+  Map<String, dynamic> toJson() {
+    final data = <String, dynamic>{};
+    if (fullName != null) data['full_name'] = fullName;
+    if (nik != null) data['nik'] = nik;
+    if (phone != null) data['phone'] = phone;
+    if (email != null) data['email'] = email;
+    if (isActive != null) data['is_active'] = isActive;
+    return data;
+  }
+}
+
 /// Mapped resident for the mobile UI.
 @immutable
 class MappedResident {
@@ -283,8 +310,6 @@ class MappedResident {
   final String name;
   final String? nik;
   final String houseNumber;
-  final bool isHeadOfHousehold;
-  final String relationship;
   final String? phoneNumber;
   final String? email;
   final String? address;
@@ -301,8 +326,6 @@ class MappedResident {
     required this.name,
     this.nik,
     this.houseNumber = '',
-    required this.isHeadOfHousehold,
-    required this.relationship,
     this.phoneNumber,
     this.email,
     this.address,
@@ -351,27 +374,6 @@ class MappedResident {
     }
     if (parts.isEmpty) return null;
     return parts.join(' · ');
-  }
-
-  /// User-facing relationship label adhering to Social Finance rules:
-  /// - HEAD -> Kepala Keluarga
-  /// - CHILD -> Kerabat
-  /// - SPOUSE -> Keluarga
-  String get displayRelationship {
-    if (isHeadOfHousehold) return 'Kepala Keluarga';
-    final upper = relationship.toUpperCase();
-    if (upper == 'CHILD') return 'Kerabat';
-    if (upper == 'SPOUSE') return 'Keluarga';
-    if (upper == 'HEAD') return 'Kepala Keluarga';
-    if (relationship.isNotEmpty) return relationship;
-    return 'Keluarga';
-  }
-
-  /// Badge background color for relationship
-  /// Simplified: uses accent color for all relationship types
-  /// This matches Web behavior which uses semantic accent color
-  Color get relationshipColor {
-    return AppColors.accent;
   }
 
   /// User-facing jabatan label (Indonesian position name).
@@ -426,8 +428,6 @@ class MappedResident {
     BackendResident resident,
     BackendHousehold? household,
   ) {
-    final isHead = resident.relationshipToHead == 'HEAD';
-    final relationshipLabel = resident.relationshipToHead;
     final mappedJabatan = resident.jabatan;
     return MappedResident(
       id: resident.id,
@@ -435,10 +435,6 @@ class MappedResident {
       name: resident.fullName,
       nik: resident.nik,
       houseNumber: household?.houseNumber ?? '',
-      isHeadOfHousehold: isHead,
-      relationship: isHead
-          ? (relationshipLabel ?? 'Kepala Keluarga')
-          : (relationshipLabel ?? ''),
       phoneNumber: resident.phone,
       email: resident.email,
       address: household?.address,

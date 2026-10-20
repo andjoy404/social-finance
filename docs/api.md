@@ -590,7 +590,6 @@ Response (200 OK): the resident object:
   "phone": "+6281234567890",
   "nik": "3201234567890001",
   "email": "ahmad@example.com",
-  "relationship_to_head": "HEAD",
   "is_active": true,
   "created_at": "2026-09-16T10:00:00Z",
   "updated_at": "2026-09-16T10:00:00Z",
@@ -614,8 +613,7 @@ Request:
 {
   "household_id": "550e8400-e29b-41d4-a716-446655440000",
   "full_name": "Siti Aminah",
-  "phone": "+6281234567891",
-  "relationship_to_head": "spouse"
+  "phone": "+6281234567891"
 }
 ```
 
@@ -639,7 +637,6 @@ Request body: partial update, any combination of:
 {
   "full_name": "Siti Aminah",
   "phone": "+6281234567891",
-  "relationship_to_head": "spouse",
   "is_active": true
 }
 ```
@@ -772,7 +769,7 @@ Optional query parameters. No implicit sorting unless specified.
 - `GET /api/v1/warga/export` (Pengurus, Bendahara)
   - Exports tenant-scoped current resident and household projection to CSV.
   - Response: `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="warga_export.csv"`.
-  - Columns: `house_number,kk_number,head_name,occupancy_status,address,household_phone,resident_name,resident_phone,relationship_to_head`.
+  - Columns: `house_number,kk_number,head_name,occupancy_status,address,household_phone,resident_name,resident_phone`.
 
 ### 10.2 Warga Import Preview
 - `POST /api/v1/warga/import/preview` (Pengurus)

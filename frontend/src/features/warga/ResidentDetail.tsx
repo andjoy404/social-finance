@@ -59,7 +59,6 @@ export function ResidentDetail() {
     nik: '',
     phone: '',
     email: '',
-    relationshipToHead: '',
     isActive: true,
     password: '',
     // Household-level fields (from "Tambah Warga" form)
@@ -68,6 +67,10 @@ export function ResidentDetail() {
     address: '',
     startDate: '',
   })
+
+  // Determine whether this record needs household fields.
+  // Non-resident personnel (jabatan + no household_id) do not need these.
+  const isNonResident = !!(resident?.jabatan && !resident.household_id)
 
   const handleStartEdit = () => {
     if (!resident) return
@@ -78,7 +81,6 @@ export function ResidentDetail() {
       nik: resident.nik || '',
       phone: formattedPhone === '-' ? '' : formattedPhone,
       email: resident.email || '',
-      relationshipToHead: resident.relationship_to_head || '',
       isActive: resident.is_active,
       password: '',
       // Household-level fields
@@ -239,8 +241,12 @@ export function ResidentDetail() {
             if (editForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email.trim())) {
               errs.push('Format email tidak valid.')
             }
-            if (!editForm.houseNumber.trim()) errs.push('Nomor rumah harus diisi.')
-            if (!editForm.startDate.trim()) errs.push('Tanggal mulai hunian harus diisi.')
+            // Only require household fields when the resident is linked to a household
+            // AND the record is not a non-resident personnel (jabatan without household).
+            if (resident.household_id && !isNonResident) {
+              if (!editForm.houseNumber.trim()) errs.push('Nomor rumah harus diisi.')
+              if (!editForm.startDate.trim()) errs.push('Tanggal mulai hunian harus diisi.')
+            }
             if (editForm.password && editForm.password.trim().length > 0 && editForm.password.trim().length < 8) {
               errs.push('Kata sandi minimal 8 karakter.')
             }
@@ -260,8 +266,12 @@ export function ResidentDetail() {
               }
 
               // ── Update resident (resident-level fields) ──
-              if (resident.jabatan) {
-                await updateSpecialResident(pair.accessToken, resident.id, {
+              // Special endpoint (/api/v1/residents/special/:id) requires NO active residency period.
+              // Only use it for residents with jabatan AND no household_id.
+              // Residents with jabatan AND household_id use the regular endpoint + household endpoint.
+              let updatedResident: ApiResident | null = null
+              if (resident.jabatan && !resident.household_id) {
+                updatedResident = await updateSpecialResident(pair.accessToken, resident.id, {
                   full_name: editForm.fullName.trim(),
                   nik: editForm.nik.trim() || undefined,
                   phone: editForm.phone.trim() || undefined,
@@ -270,12 +280,11 @@ export function ResidentDetail() {
                   is_active: editForm.isActive,
                 })
               } else {
-                await updateResident(pair.accessToken, resident.id, {
+                updatedResident = await updateResident(pair.accessToken, resident.id, {
                   full_name: editForm.fullName.trim(),
                   nik: editForm.nik.trim() || undefined,
                   phone: editForm.phone.trim() || undefined,
                   email: editForm.email.trim() || undefined,
-                  relationship_to_head: editForm.relationshipToHead.trim() || null,
                   is_active: editForm.isActive,
                   password: editForm.password.trim() || undefined,
                 })
@@ -298,7 +307,7 @@ export function ResidentDetail() {
 
               // Refresh resident details from API
               const updated = await getResident(pair.accessToken, resident.id)
-              setResident(updated)
+              setResident(updated || updatedResident)
               setIsEditing(false)
               window.dispatchEvent(new CustomEvent('warga:refresh'))
             } catch (err: any) {
@@ -336,40 +345,42 @@ export function ResidentDetail() {
               />
             </div>
 
-            {/* Nomor Rumah + Status Hunian */}
-            <div className="sf-form-grid-2">
-              <div className="sf-form-field">
-                <label className="sf-form-label" htmlFor="edit-house-number">
-                  <HomeOutlined />
-                  Nomor Rumah <span style={{ color: 'var(--sf-danger)' }}>*</span>
-                </label>
-                <input
-                  id="edit-house-number"
-                  className="sf-form-input"
-                  type="text"
-                  value={editForm.houseNumber}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, houseNumber: e.target.value }))}
-                  required
-                  disabled={saving}
-                  placeholder="Contoh: 001"
-                />
+            {/* Nomor Rumah + Status Hunian — only for residents with a household */}
+            {resident.household_id && (
+              <div className="sf-form-grid-2">
+                <div className="sf-form-field">
+                  <label className="sf-form-label" htmlFor="edit-house-number">
+                    <HomeOutlined />
+                    Nomor Rumah <span style={{ color: 'var(--sf-danger)' }}>*</span>
+                  </label>
+                  <input
+                    id="edit-house-number"
+                    className="sf-form-input"
+                    type="text"
+                    value={editForm.houseNumber}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, houseNumber: e.target.value }))}
+                    required
+                    disabled={saving}
+                    placeholder="Contoh: 001"
+                  />
+                </div>
+                <div className="sf-form-field">
+                  <label className="sf-form-label" htmlFor="edit-occupancy">
+                    Status Hunian <span style={{ color: 'var(--sf-danger)' }}>*</span>
+                  </label>
+                  <select
+                    id="edit-occupancy"
+                    className="sf-form-select"
+                    value={editForm.occupancyStatus}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, occupancyStatus: e.target.value as OccupancyStatus }))}
+                    disabled={saving}
+                  >
+                    <option value="OWNER">Pemilik</option>
+                    <option value="TENANT">Penyewa</option>
+                  </select>
+                </div>
               </div>
-              <div className="sf-form-field">
-                <label className="sf-form-label" htmlFor="edit-occupancy">
-                  Status Hunian <span style={{ color: 'var(--sf-danger)' }}>*</span>
-                </label>
-                <select
-                  id="edit-occupancy"
-                  className="sf-form-select"
-                  value={editForm.occupancyStatus}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, occupancyStatus: e.target.value as OccupancyStatus }))}
-                  disabled={saving}
-                >
-                  <option value="OWNER">Pemilik</option>
-                  <option value="TENANT">Penyewa</option>
-                </select>
-              </div>
-            </div>
+            )}
 
             {/* NIK + Telepon */}
             <div className="sf-form-grid-2">
@@ -441,43 +452,24 @@ export function ResidentDetail() {
               </div>
             </div>
 
-            {/* Tanggal Mulai Hunian */}
-            <div className="sf-form-field">
-              <label className="sf-form-label" htmlFor="edit-start-date">
-                <CalendarOutlined style={{ marginRight: 4 }} />
-                Tanggal Mulai Hunian <span style={{ color: 'var(--sf-danger)' }}>*</span>
-              </label>
-              <input
-                id="edit-start-date"
-                className="sf-form-input"
-                type="date"
-                value={editForm.startDate}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, startDate: e.target.value }))}
-                required
-                disabled={saving}
-              />
-            </div>
-
-            {/* Hubungan dengan KK */}
-            <div className="sf-form-field">
-              <label className="sf-form-label" htmlFor="edit-relationship">
-                Hubungan dengan KK
-              </label>
-              <select
-                id="edit-relationship"
-                className="sf-form-select"
-                value={editForm.relationshipToHead}
-                onChange={(e) => setEditForm((prev) => ({ ...prev, relationshipToHead: e.target.value }))}
-                disabled={saving}
-              >
-                <option value="">-- Pilih Hubungan --</option>
-                <option value="HEAD">Kepala Keluarga</option>
-                <option value="SPOUSE">Suami / Istri</option>
-                <option value="CHILD">Anak</option>
-                <option value="PARENT">Orang Tua</option>
-                <option value="OTHER">Lainnya</option>
-              </select>
-            </div>
+            {/* Tanggal Mulai Hunian — only for residents with a household */}
+            {resident.household_id && (
+              <div className="sf-form-field">
+                <label className="sf-form-label" htmlFor="edit-start-date">
+                  <CalendarOutlined style={{ marginRight: 4 }} />
+                  Tanggal Mulai Hunian <span style={{ color: 'var(--sf-danger)' }}>*</span>
+                </label>
+                <input
+                  id="edit-start-date"
+                  className="sf-form-input"
+                  type="date"
+                  value={editForm.startDate}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                  required
+                  disabled={saving}
+                />
+              </div>
+            )}
 
             {/* Kata Sandi Baru (Opsional) */}
             <div className="sf-form-field">

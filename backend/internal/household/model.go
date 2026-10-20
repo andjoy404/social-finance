@@ -27,9 +27,6 @@ func (o OccupancyStatus) IsValid() bool {
 	return o == OccupancyOwner || o == OccupancyTenant
 }
 
-// Canonical relationship value for household head.
-const RelationshipHead = "HEAD"
-
 // Household represents a household within an RT with its current physical house and occupancy.
 type Household struct {
 	ID              string           `json:"id"`
@@ -91,47 +88,44 @@ type MoveHouseholdInput struct {
 
 // Resident represents a resident linked to a household.
 type Resident struct {
-	ID                 string    `json:"id"`
-	RTID               string    `json:"rt_id"`
-	HouseholdID        *string   `json:"household_id,omitempty"`
-	FullName           string    `json:"full_name"`
-	Phone              *string   `json:"phone,omitempty"`
-	Nik                *string   `json:"nik,omitempty"`
-	Email              *string   `json:"email,omitempty"`
-	RelationshipToHead *string   `json:"relationship_to_head,omitempty"`
-	StartDate          *string   `json:"start_date,omitempty"` // YYYY-MM-DD
-	EndDate            *string   `json:"end_date,omitempty"`   // YYYY-MM-DD
-	IsActive           bool      `json:"is_active"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
-	RTNumber           *string   `json:"rt_number,omitempty"`
-	RW                 *int      `json:"rw,omitempty"`
-	RTName             *string   `json:"rt_name,omitempty"`
-	UserID             *string   `json:"user_id,omitempty"`
-	Jabatan            *string   `json:"jabatan,omitempty"`
-	OccupancyStatus    *string   `json:"occupancy_status,omitempty"`
-	HouseNumber        *string   `json:"house_number,omitempty"`
+	ID          string    `json:"id"`
+	RTID        string    `json:"rt_id"`
+	HouseholdID *string   `json:"household_id,omitempty"`
+	FullName    string    `json:"full_name"`
+	Phone       *string   `json:"phone,omitempty"`
+	Nik         *string   `json:"nik,omitempty"`
+	Email       *string   `json:"email,omitempty"`
+	StartDate   *string   `json:"start_date,omitempty"` // YYYY-MM-DD
+	EndDate     *string   `json:"end_date,omitempty"`   // YYYY-MM-DD
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	RTNumber    *string   `json:"rt_number,omitempty"`
+	RW          *int      `json:"rw,omitempty"`
+	RTName      *string   `json:"rt_name,omitempty"`
+	UserID      *string   `json:"user_id,omitempty"`
+	Jabatan     *string   `json:"jabatan,omitempty"`
+	OccupancyStatus *string   `json:"occupancy_status,omitempty"`
+	HouseNumber    *string   `json:"house_number,omitempty"`
 }
 
 // CreateResidentInput holds the fields for creating a new resident.
 // HouseholdID is required for normal residents; nil/empty for special residents
 // (keamanan, kebersihan_pembangunan) who have no household chain.
 type CreateResidentInput struct {
-	HouseholdID        *string `json:"household_id"`
-	FullName           string  `json:"full_name"`
-	Phone              *string `json:"phone"`
-	Nik                *string `json:"nik"`
-	Email              *string `json:"email"`
-	RelationshipToHead *string `json:"relationship_to_head"`
-	StartDate          *string `json:"start_date,omitempty"` // YYYY-MM-DD
-	Password           *string `json:"password,omitempty"`
+	HouseholdID *string `json:"household_id"`
+	FullName    string  `json:"full_name"`
+	Phone       *string `json:"phone"`
+	Nik         *string `json:"nik"`
+	Email       *string `json:"email"`
+	StartDate   *string `json:"start_date,omitempty"` // YYYY-MM-DD
+	Password    *string `json:"password,omitempty"`
 }
 
 // MoveResidentInput holds fields for moving a resident to another household.
 type MoveResidentInput struct {
 	DestinationHouseholdID string  `json:"destination_household_id"`
 	StartDate              string  `json:"start_date"` // YYYY-MM-DD (Required)
-	RelationshipToHead     *string `json:"relationship_to_head,omitempty"`
 }
 
 // TrimAndValidateHouseNumber trims whitespace and validates the house_number.
@@ -146,13 +140,12 @@ func (in *CreateHouseholdInput) TrimAndValidateHouseNumber() error {
 
 // UpdateResidentInput holds optional fields for updating a resident.
 type UpdateResidentInput struct {
-	FullName           *string `json:"full_name"`
-	Phone              *string `json:"phone"`
-	Nik                *string `json:"nik"`
-	Email              *string `json:"email"`
-	RelationshipToHead *string `json:"relationship_to_head"`
-	IsActive           *bool   `json:"is_active"`
-	Password           *string `json:"password,omitempty"`
+	FullName   *string `json:"full_name"`
+	Phone      *string `json:"phone"`
+	Nik        *string `json:"nik"`
+	Email      *string `json:"email"`
+	IsActive   *bool   `json:"is_active"`
+	Password   *string `json:"password,omitempty"`
 }
 
 // ValidateNik validates that the NIK (national ID) is exactly 16 digits.

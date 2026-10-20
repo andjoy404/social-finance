@@ -167,6 +167,44 @@ class _KasScreenState extends ConsumerState<KasScreen> {
     }
   }
 
+  /// Refresh KAS data without showing the initial full-page loading indicator.
+  ///
+  /// Used by pull-to-refresh (RefreshIndicator) so the existing content
+  /// remains visible while new data is fetched.  Errors are set into
+  /// [_error] which the build method renders as a recoverable error card.
+  Future<void> _refreshData() async {
+    if (!mounted) return;
+
+    final repository = ref.read(kasRepositoryProvider);
+    final periodParam = _isAllPeriods
+        ? null
+        : '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+
+    try {
+      final futureTransactions = repository.fetchAllTransactions(
+        period: periodParam,
+      );
+      final futureBalance = repository.fetchBalance(period: periodParam);
+
+      final results = await Future.wait([futureTransactions, futureBalance]);
+
+      if (!mounted) return;
+
+      _allTransactions = results[0] as List<KasTransaction>;
+      _balance = results[1] as BackendBalance;
+
+      setState(() {
+        _error = null;
+        _applyFilters(_allTransactions);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = repository.mapDioError(e).message;
+      });
+    }
+  }
+
   void _clearSearch() {
     _searchController.clear();
     _refreshFiltered();
@@ -564,346 +602,353 @@ class _KasScreenState extends ConsumerState<KasScreen> {
               return Tooltip(message: 'Tambah Transaksi', child: button);
             }()
           : null,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: AppSpacing.sm),
+      body: RefreshIndicator(
+        onRefresh: _refreshData,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: AppSpacing.sm),
 
-          // ── FILTER AREA (pindah di atas Summary Cards) ──
-          // Month Navigator & Filter Periode (Date / Semua)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-            height: 38,
-            decoration: BoxDecoration(
-              color: theme.scaffoldBackgroundColor,
-              borderRadius: BorderRadius.circular(AppRadius.base),
-              border: Border.all(
-                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-              ),
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: AppSpacing.xs,
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: _isAllPeriods ? null : _prevMonth,
-                  tooltip: 'Bulan Sebelumnya',
-                  visualDensity: VisualDensity.compact,
-                ),
-                Expanded(
-                  child: InkWell(
-                    onTap: _isAllPeriods ? null : _pickMonth,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 4,
-                        horizontal: 8,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _isAllPeriods
-                                ? 'Semua Periode'
-                                : _formatMonthYear(_activeDate),
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: _isAllPeriods
-                                  ? theme.colorScheme.onSurfaceVariant
-                                  : AppColors.accent,
-                            ),
-                          ),
-                          if (!_isAllPeriods) ...[
-                            const SizedBox(width: 4),
-                            const Icon(
-                              Icons.arrow_drop_down,
-                              size: 20,
-                              color: AppColors.accent,
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: _isAllPeriods ? null : _nextMonth,
-                  tooltip: 'Bulan Berikutnya',
-                  visualDensity: VisualDensity.compact,
-                ),
-                const SizedBox(width: 4),
-                ChoiceChip(
-                  label: Text(
-                    _isAllPeriods ? 'Per Bulan' : 'Semua',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                  selected: _isAllPeriods,
-                  visualDensity: VisualDensity.compact,
-                  onSelected: (val) {
-                    setState(() {
-                      _isAllPeriods = !_isAllPeriods;
-                    });
-                    _loadData();
-                  },
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.xs),
-
-          // Arus Kas & Metode Filter Row
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: theme.scaffoldBackgroundColor,
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      border: Border.all(
-                        color: isDark
-                            ? AppColors.darkBorder
-                            : AppColors.lightBorder,
-                      ),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _filterArus,
-                        isExpanded: true,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                        dropdownColor: theme.scaffoldBackgroundColor,
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'all',
-                            child: Text('Semua Arus Kas'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'masuk',
-                            child: Text('Pemasukan (Masuk)'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'keluar',
-                            child: Text('Pengeluaran (Keluar)'),
-                          ),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _filterArus = val);
-                            _refreshFiltered();
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Container(
-                    height: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: theme.scaffoldBackgroundColor,
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      border: Border.all(
-                        color: isDark
-                            ? AppColors.darkBorder
-                            : AppColors.lightBorder,
-                      ),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _filterMetode,
-                        isExpanded: true,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                        dropdownColor: theme.scaffoldBackgroundColor,
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'all',
-                            child: Text('Semua Metode'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'CASH',
-                            child: Text('Tunai (Cash)'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'TRANSFER',
-                            child: Text('Transfer Bank'),
-                          ),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _filterMetode = val);
-                            _refreshFiltered();
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.xs),
-
-          // ── Search ──
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-            child: SizedBox(
+            // ── FILTER AREA (pindah di atas Summary Cards) ──
+            // Month Navigator & Filter Periode (Date / Semua)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
               height: 38,
-              child: AppTextField(
-                controller: _searchController,
-                hintText: 'Cari transaksi...',
-                isDense: true,
-                fillColor: theme.scaffoldBackgroundColor,
-                textAlignVertical: TextAlignVertical.center,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 0,
+              decoration: BoxDecoration(
+                color: theme.scaffoldBackgroundColor,
+                borderRadius: BorderRadius.circular(AppRadius.base),
+                border: Border.all(
+                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
                 ),
-                prefixIconConstraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 38,
-                ),
-                suffixIconConstraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 38,
-                ),
-                prefixIcon: const Icon(Icons.search, size: 18),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        padding: EdgeInsets.zero,
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: _clearSearch,
-                      )
-                    : null,
-                onChanged: _onSearchChanged,
               ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-
-          // ── 5 Neraca Summary Cards ──
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: SummaryChip(
-                        label: 'Saldo Awal',
-                        value: RupiahFormatter.format(openingBalance),
-                        color: theme.colorScheme.onSurface,
-                        isEditable: canWrite && !_isAllPeriods,
-                        onEdit: () =>
-                            _showEditOpeningBalanceDialog(openingBalance),
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: SummaryChip(
-                        label: 'Saldo Akhir',
-                        value: RupiahFormatter.format(closingBalance),
-                        color: AppColors.accent,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SummaryChip(
-                        label: 'Total Masuk',
-                        value: '+${RupiahFormatter.format(totalMasuk)}',
-                        color: AppColors.success,
-                        icon: Icons.arrow_downward,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: SummaryChip(
-                        label: 'Total Keluar',
-                        value: '-${RupiahFormatter.format(totalKeluar)}',
-                        color: AppColors.danger,
-                        icon: Icons.arrow_upward,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: SummaryChip(
-                        label: 'Mutasi Bersih',
-                        value:
-                            '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
-                        color: AppColors.info,
-                        icon: netMovement >= 0
-                            ? Icons.arrow_downward
-                            : Icons.arrow_upward,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-
-          // ── Content (Transaction List directly below Summary Cards, no divider) ──
-          Expanded(
-            child: _filteredTransactions.isEmpty
-                ? Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: _searchController.text.isNotEmpty
-                          ? EmptyState(
-                              icon: Icons.search_off,
-                              title: 'Transaksi Tidak Ditemukan',
-                              description:
-                                  'Tidak ada transaksi yang sesuai dengan pencarian.',
-                              actionText: 'Hapus Pencarian',
-                              onAction: _clearSearch,
-                            )
-                          : const EmptyState(
-                              icon: Icons.receipt_long_outlined,
-                              title: 'Belum Ada Transaksi',
-                              description: 'Transaksi KAS akan muncul di sini.',
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.xs,
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left),
+                    onPressed: _isAllPeriods ? null : _prevMonth,
+                    tooltip: 'Bulan Sebelumnya',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: _isAllPeriods ? null : _pickMonth,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 4,
+                          horizontal: 8,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _isAllPeriods
+                                  ? 'Semua Periode'
+                                  : _formatMonthYear(_activeDate),
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: _isAllPeriods
+                                    ? theme.colorScheme.onSurfaceVariant
+                                    : AppColors.accent,
+                              ),
                             ),
+                            if (!_isAllPeriods) ...[
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_drop_down,
+                                size: 20,
+                                color: AppColors.accent,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.base,
-                      AppSpacing.xs,
-                      AppSpacing.base,
-                      AppSpacing.xl,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: _isAllPeriods ? null : _nextMonth,
+                    tooltip: 'Bulan Berikutnya',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 4),
+                  ChoiceChip(
+                    label: Text(
+                      _isAllPeriods ? 'Per Bulan' : 'Semua',
+                      style: const TextStyle(fontSize: 11),
                     ),
-                    itemCount: _filteredTransactions.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final tx = _filteredTransactions[index];
-                      return KasTransactionCard(
-                        transaction: tx,
-                        isDark: isDark,
-                        onTap: () => context.push('/home/kas/detail/${tx.id}'),
-                      );
+                    selected: _isAllPeriods,
+                    visualDensity: VisualDensity.compact,
+                    onSelected: (val) {
+                      setState(() {
+                        _isAllPeriods = !_isAllPeriods;
+                      });
+                      _loadData();
                     },
                   ),
-          ),
-        ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.xs),
+
+            // Arus Kas & Metode Filter Row
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 38,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: theme.scaffoldBackgroundColor,
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        border: Border.all(
+                          color: isDark
+                              ? AppColors.darkBorder
+                              : AppColors.lightBorder,
+                        ),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _filterArus,
+                          isExpanded: true,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          dropdownColor: theme.scaffoldBackgroundColor,
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'all',
+                              child: Text('Semua Arus Kas'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'masuk',
+                              child: Text('Pemasukan (Masuk)'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'keluar',
+                              child: Text('Pengeluaran (Keluar)'),
+                            ),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() => _filterArus = val);
+                              _refreshFiltered();
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Container(
+                      height: 38,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: theme.scaffoldBackgroundColor,
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        border: Border.all(
+                          color: isDark
+                              ? AppColors.darkBorder
+                              : AppColors.lightBorder,
+                        ),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _filterMetode,
+                          isExpanded: true,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          dropdownColor: theme.scaffoldBackgroundColor,
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'all',
+                              child: Text('Semua Metode'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'CASH',
+                              child: Text('Tunai (Cash)'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'TRANSFER',
+                              child: Text('Transfer Bank'),
+                            ),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() => _filterMetode = val);
+                              _refreshFiltered();
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.xs),
+
+            // ── Search ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
+              child: SizedBox(
+                height: 38,
+                child: AppTextField(
+                  controller: _searchController,
+                  hintText: 'Cari transaksi...',
+                  isDense: true,
+                  fillColor: theme.scaffoldBackgroundColor,
+                  textAlignVertical: TextAlignVertical.center,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 0,
+                  ),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 36,
+                    minHeight: 38,
+                  ),
+                  suffixIconConstraints: const BoxConstraints(
+                    minWidth: 36,
+                    minHeight: 38,
+                  ),
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          padding: EdgeInsets.zero,
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: _clearSearch,
+                        )
+                      : null,
+                  onChanged: _onSearchChanged,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+
+            // ── 5 Neraca Summary Cards ──
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Saldo Awal',
+                          value: RupiahFormatter.format(openingBalance),
+                          color: theme.colorScheme.onSurface,
+                          isEditable: canWrite && !_isAllPeriods,
+                          onEdit: () =>
+                              _showEditOpeningBalanceDialog(openingBalance),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Saldo Akhir',
+                          value: RupiahFormatter.format(closingBalance),
+                          color: AppColors.accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Total Masuk',
+                          value: '+${RupiahFormatter.format(totalMasuk)}',
+                          color: AppColors.success,
+                          icon: Icons.arrow_downward,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Total Keluar',
+                          value: '-${RupiahFormatter.format(totalKeluar)}',
+                          color: AppColors.danger,
+                          icon: Icons.arrow_upward,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: SummaryChip(
+                          label: 'Mutasi Bersih',
+                          value:
+                              '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
+                          color: AppColors.info,
+                          icon: netMovement >= 0
+                              ? Icons.arrow_downward
+                              : Icons.arrow_upward,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+
+            // ── Content (Transaction List directly below Summary Cards, no divider) ──
+            Expanded(
+              child: _filteredTransactions.isEmpty
+                  ? Center(
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: _searchController.text.isNotEmpty
+                            ? EmptyState(
+                                icon: Icons.search_off,
+                                title: 'Transaksi Tidak Ditemukan',
+                                description:
+                                    'Tidak ada transaksi yang sesuai dengan pencarian.',
+                                actionText: 'Hapus Pencarian',
+                                onAction: _clearSearch,
+                              )
+                            : const EmptyState(
+                                icon: Icons.receipt_long_outlined,
+                                title: 'Belum Ada Transaksi',
+                                description:
+                                    'Transaksi KAS akan muncul di sini.',
+                              ),
+                      ),
+                    )
+                  : ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.base,
+                        AppSpacing.xs,
+                        AppSpacing.base,
+                        AppSpacing.xl,
+                      ),
+                      itemCount: _filteredTransactions.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (context, index) {
+                        final tx = _filteredTransactions[index];
+                        return KasTransactionCard(
+                          transaction: tx,
+                          isDark: isDark,
+                          onTap: () =>
+                              context.push('/home/kas/detail/${tx.id}'),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

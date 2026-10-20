@@ -79,8 +79,8 @@ func TestGetOccupancyIDForUser_PrefixAndEmailMatching(t *testing.T) {
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO residency_periods (resident_id, household_occupancy_id, relationship_to_head, start_date)
-		VALUES ($1, $2, 'HEAD', CURRENT_DATE)
+		INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date)
+		VALUES ($1, $2, CURRENT_DATE)
 	`, testResID, testOccupancyID)
 	if err != nil {
 		t.Fatalf("create residency period: %v", err)

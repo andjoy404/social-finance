@@ -332,15 +332,13 @@ func TestCheckpointB5_E2E(t *testing.T) {
 
 	// Scenario 8: Resident creation in household
 	t.Run("08_Resident_Creation", func(t *testing.T) {
-		rel := "CHILD"
 		phone := "+62812345678"
 		residentPayload := map[string]any{
-			"household_id":         householdID1,
-			"full_name":            "E2EB5-" + fmt.Sprintf("%d", timestamp),
-			"nik":                  fmt.Sprintf("317103%010d", timestamp%10000000000),
-			"phone":                phone,
-			"email":                "resident1@test.com",
-			"relationship_to_head": rel,
+			"household_id":  householdID1,
+			"full_name":     "E2EB5-" + fmt.Sprintf("%d", timestamp),
+			"nik":           fmt.Sprintf("317103%010d", timestamp%10000000000),
+			"phone":         phone,
+			"email":         "resident1@test.com",
 		}
 		resp, body := doRequest(t, http.MethodPost, "/api/v1/residents", tokenPengurusA, residentPayload)
 		if resp.StatusCode != http.StatusCreated {
@@ -417,10 +415,8 @@ func TestCheckpointB5_E2E(t *testing.T) {
 
 	// Scenario 10: Resident move to another household
 	t.Run("10_Resident_Move_To_Another_Household", func(t *testing.T) {
-		rel := "OTHER"
 		movePayload := map[string]any{
 			"destination_household_id": householdID2,
-			"relationship_to_head":     rel,
 			"start_date":               time.Now().AddDate(0, 0, 3).Format("2006-01-02"),
 		}
 		resp, body := doRequest(t, http.MethodPost, "/api/v1/residents/"+residentID1+"/move", tokenPengurusA, movePayload)
@@ -437,14 +433,12 @@ func TestCheckpointB5_E2E(t *testing.T) {
 	// Scenario 11: Resident deactivation closes residency period
 	t.Run("11_Resident_Deactivation", func(t *testing.T) {
 		// Create a resident specifically to deactivate
-		rel := "SPOUSE"
 		rPayload := map[string]any{
-			"household_id":         householdID2,
-			"full_name":            "Resident To Deactivate",
-			"nik":                  fmt.Sprintf("317104%010d", timestamp%10000000000),
-			"phone":                "+62812345679",
-			"email":                "resident2@test.com",
-			"relationship_to_head": rel,
+			"household_id":  householdID2,
+			"full_name":     "Resident To Deactivate",
+			"nik":           fmt.Sprintf("317104%010d", timestamp%10000000000),
+			"phone":         "+62812345679",
+			"email":         "resident2@test.com",
 		}
 		rResp, rBody := doRequest(t, http.MethodPost, "/api/v1/residents", tokenPengurusA, rPayload)
 		if rResp.StatusCode != http.StatusCreated {

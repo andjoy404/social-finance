@@ -30,7 +30,8 @@ class _SpecialResidentEditScreenState
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
 
-  String _jabatan = 'keamanan';
+  String _jabatan = '';
+  bool _hasJabatan = false;
   bool _isActive = true;
   bool _loading = true;
   bool _saving = false;
@@ -74,11 +75,6 @@ class _SpecialResidentEditScreenState
 
       if (!mounted) return;
 
-      // Verify this is a special resident (has jabatan)
-      if (resident.jabatan == null || resident.jabatan!.isEmpty) {
-        throw const FormatException('Not a special resident');
-      }
-
       // Map to MappedResident for field access
       final mapped = MappedResident.fromBackend(resident, null);
 
@@ -87,7 +83,8 @@ class _SpecialResidentEditScreenState
         _nikCtrl.text = mapped.nik ?? '';
         _phoneCtrl.text = mapped.phoneNumber ?? '';
         _emailCtrl.text = mapped.email ?? '';
-        _jabatan = mapped.jabatan ?? 'keamanan';
+        _hasJabatan = resident.jabatan != null && resident.jabatan!.isNotEmpty;
+        _jabatan = _hasJabatan ? (resident.jabatan ?? '') : '';
         _isActive = mapped.isActive;
         _loading = false;
       });
@@ -102,7 +99,7 @@ class _SpecialResidentEditScreenState
       } else {
         if (mounted) {
           setState(() {
-            _error = 'Data petugas tidak ditemukan.';
+            _error = 'Data tidak dapat dimuat.';
             _loading = false;
           });
         }
@@ -153,19 +150,36 @@ class _SpecialResidentEditScreenState
     });
 
     try {
-      final request = UpdateSpecialResidentRequest(
-        fullName: _fullNameCtrl.text.trim().isEmpty
-            ? null
-            : _fullNameCtrl.text.trim(),
-        nik: _nikCtrl.text.trim().isEmpty ? null : _nikCtrl.text.trim(),
-        phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
-        email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
-        jabatan: _jabatan.isEmpty ? null : _jabatan,
-        isActive: _isActive,
-      );
-
       final repo = ref.read(wargaRepositoryProvider);
-      await repo.updateSpecialResident(widget.residentId, request: request);
+
+      if (_hasJabatan) {
+        // Special resident (has jabatan) — use the special endpoint
+        final request = UpdateSpecialResidentRequest(
+          fullName: _fullNameCtrl.text.trim().isEmpty
+              ? null
+              : _fullNameCtrl.text.trim(),
+          nik: _nikCtrl.text.trim().isEmpty ? null : _nikCtrl.text.trim(),
+          phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+          email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+          jabatan: _jabatan.isEmpty ? null : _jabatan,
+          isActive: _isActive,
+        );
+
+        await repo.updateSpecialResident(widget.residentId, request: request);
+      } else {
+        // Regular resident (no jabatan) — use the regular endpoint
+        final request = UpdateResidentRequest(
+          fullName: _fullNameCtrl.text.trim().isEmpty
+              ? null
+              : _fullNameCtrl.text.trim(),
+          nik: _nikCtrl.text.trim().isEmpty ? null : _nikCtrl.text.trim(),
+          phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
+          email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+          isActive: _isActive,
+        );
+
+        await repo.updateResident(widget.residentId, request: request);
+      }
 
       // Refresh warga list
       await ref.read(wargaListProvider.notifier).refresh();
@@ -173,7 +187,7 @@ class _SpecialResidentEditScreenState
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Data petugas berhasil diperbarui.'),
+            content: Text('Data warga berhasil diperbarui.'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -377,47 +391,49 @@ class _SpecialResidentEditScreenState
                   ),
                 ),
 
-              // Jenis Petugas
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Jenis Petugas',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  DropdownButtonFormField<String>(
-                    initialValue: _jabatan,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                        vertical: AppSpacing.sm,
+              // Jenis Petugas (hanya ditampilkan jika warga memiliki jabatan)
+              if (_hasJabatan)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Jenis Petugas',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'keamanan',
-                        child: Text('Seksi Keamanan'),
+                    const SizedBox(height: AppSpacing.sm),
+                    DropdownButtonFormField<String>(
+                      initialValue: _jabatan.isEmpty ? null : _jabatan,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
                       ),
-                      DropdownMenuItem(
-                        value: 'kebersihan_pembangunan',
-                        child: Text('Operasional'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _jabatan = value);
-                      }
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'keamanan',
+                          child: Text('Seksi Keamanan'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'kebersihan_pembangunan',
+                          child: Text('Operasional'),
+                        ),
+                      ],
+                      hint: const Text('Pilih jabatan'),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _jabatan = value);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              if (_hasJabatan) const SizedBox(height: AppSpacing.lg),
 
               // Nama
               AppTextField(

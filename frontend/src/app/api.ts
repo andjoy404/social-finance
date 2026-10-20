@@ -258,7 +258,18 @@ async function authenticatedApiRequest(
   url: string,
   opts: RequestInit,
 ): Promise<Response> {
-  let currentRes = await fetch(url, opts)
+  const method = (opts.method || 'GET').toUpperCase()
+  const isGet = method === 'GET'
+  const headers: Record<string, string> = {
+    ...(opts.headers as Record<string, string> || {}),
+    ...(isGet ? { 'Cache-Control': 'no-store', Pragma: 'no-cache', Expires: '0' } : {}),
+  }
+  const fetchOpts: RequestInit = {
+    ...opts,
+    ...(isGet ? { cache: 'no-store' } : {}),
+    headers,
+  }
+  let currentRes = await fetch(url, fetchOpts)
   let attempts = 0
 
   while (currentRes.status === 401 && attempts < 1) {
@@ -283,10 +294,10 @@ async function authenticatedApiRequest(
       throw new ApiError('auth_expired', 'Session expired')
     }
     const retryHeaders: Record<string, string> = {
-      ...(opts.headers as Record<string, string> || {}),
+      ...headers,
     }
     retryHeaders['Authorization'] = `Bearer ${token}`
-    const retryOpts: RequestInit = { ...opts, headers: retryHeaders as HeadersInit }
+    const retryOpts: RequestInit = { ...fetchOpts, headers: retryHeaders as HeadersInit }
     currentRes = await fetch(url, retryOpts)
   }
 
@@ -733,7 +744,6 @@ export interface ApiResident {
   nik?: string | null
   phone: string | null
   email?: string | null
-  relationship_to_head: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -753,7 +763,6 @@ export interface ApiCreateResidentBody {
   nik: string
   phone?: string | null
   email?: string | null
-  relationship_to_head?: string | null
   start_date?: string
   password?: string
 }
@@ -763,7 +772,6 @@ export interface ApiUpdateResidentBody {
   nik?: string
   phone?: string | null
   email?: string | null
-  relationship_to_head?: string | null
   is_active?: boolean
   password?: string
 }
@@ -771,7 +779,6 @@ export interface ApiUpdateResidentBody {
 export interface ApiMoveResidentBody {
   destination_household_id: string
   start_date: string
-  relationship_to_head?: string | null
 }
 
 export interface ApiListResidentsParams {
@@ -780,6 +787,7 @@ export interface ApiListResidentsParams {
   is_active?: boolean
   search?: string
   household_id?: string
+  signal?: AbortSignal
 }
 
 export async function listResidents(token: string, params: ApiListResidentsParams): Promise<ApiPaginated<ApiResident>> {
@@ -792,7 +800,7 @@ export async function listResidents(token: string, params: ApiListResidentsParam
   const res = await authenticatedApiRequest(BASE + '/residents?' + q.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
-    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    signal: params.signal ?? (typeof AbortSignal !== 'undefined' ? AbortSignal.timeout(TIMEOUT_MS) : undefined),
   })
   const data = await json<ApiPaginated<ApiResident>>(res)
   if (!data) throw new ApiError('unexpected', 'Response data missing')
@@ -1671,7 +1679,6 @@ export interface ApiWargaImportRowData {
   nik: string
   phone: string
   email: string
-  relationship_to_head: string
 }
 
 export interface ApiWargaImportPreviewResponse {

@@ -193,8 +193,8 @@ func TestSuperAdminWriteResidentNoRT(t *testing.T) {
 	hnB := "SAWRB1"
 	hhBID := insertTestHouseholdFixture(t, pool.Raw(), rtBID, "SAWR Head B", &hnB, strPtr("Addr B"), occPtr(OccupancyOwner))
 
-	resAID := insertTestResidentFixture(t, pool.Raw(), rtAID, hhAID, "SAWR Resident A", strPtr("Self"))
-	resBID := insertTestResidentFixture(t, pool.Raw(), rtBID, hhBID, "SAWR Resident B", strPtr("Self"))
+	resAID := insertTestResidentFixture(t, pool.Raw(), rtAID, hhAID, "SAWR Resident A")
+	resBID := insertTestResidentFixture(t, pool.Raw(), rtBID, hhBID, "SAWR Resident B")
 
 	adminToken := makeSuperAdminToken(t)
 
@@ -447,7 +447,7 @@ func TestTenantCrossRTIsolation(t *testing.T) {
 	hhAID := insertTestHouseholdFixture(t, pool.Raw(), rtAID, "Iso Head A", strPtr("ISO-A1"), strPtr("A Addr"), occPtr(OccupancyOwner))
 	hnB := "ISO-B1"
 	hhBID := insertTestHouseholdFixture(t, pool.Raw(), rtBID, "Iso Head B", &hnB, strPtr("B Addr"), occPtr(OccupancyOwner))
-	resBID := insertTestResidentFixture(t, pool.Raw(), rtBID, hhBID, "Iso Resident B", strPtr("Self"))
+	resBID := insertTestResidentFixture(t, pool.Raw(), rtBID, hhBID, "Iso Resident B")
 
 	pengurusAToken := makeTenantToken(t, "pengurus-a", "membership-a", rtAID, auth.RolePengurus)
 	pengurusBToken := makeTenantToken(t, "pengurus-b", "membership-b", rtBID, auth.RolePengurus)
@@ -786,7 +786,7 @@ func TestBendaharaWritePermissionsRegression(t *testing.T) {
 	// POST /residents — its own fixture with embedded hhID
 	t.Run("pengurus/POST /residents", func(t *testing.T) {
 		resHHID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "BPResCreateHead", strPtr("BP-RC01"), strPtr("BP-RC Addr"), occPtr(OccupancyOwner))
-		body := fmt.Sprintf(`{"household_id":"%s","full_name":"BP Resident Baseline","nik":"1111111111111150","phone":"081100000150","email":"bpresbase@example.com","relationship_to_head":"Self"}`, resHHID)
+		body := fmt.Sprintf(`{"household_id":"%s","full_name":"BP Resident Baseline","nik":"1111111111111150","phone":"081100000150","email":"bpresbase@example.com"}`, resHHID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+pengurusToken)
@@ -807,7 +807,7 @@ func TestBendaharaWritePermissionsRegression(t *testing.T) {
 	})
 
 	// PATCH /residents/{id} — needs its own resident
-	resPatchID := insertTestResidentFixture(t, pool.Raw(), rtID, hhPatchID, "BP Resident Patch", strPtr("Self"))
+	resPatchID := insertTestResidentFixture(t, pool.Raw(), rtID, hhPatchID, "BP Resident Patch")
 	t.Run("pengurus/PATCH /residents/{id}", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPatch, "/api/v1/residents/"+resPatchID, bytes.NewBufferString(`{"full_name":"RevisedBPRes"}`))
 		req.Header.Set("Content-Type", "application/json")
@@ -827,7 +827,7 @@ func TestBendaharaWritePermissionsRegression(t *testing.T) {
 	// MOVE /residents/{id} — source hh A, dest hh B
 	hhSrcID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "BPResSrcHead", strPtr("BP-S01"), strPtr("BP-Src Addr"), occPtr(OccupancyOwner))
 	hhDstID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "BPResDstHead", strPtr("BP-D02"), strPtr("BP-Dst Addr"), occPtr(OccupancyOwner))
-	resMoveID := insertTestResidentFixture(t, pool.Raw(), rtID, hhSrcID, "BP Resident Move", strPtr("Self"))
+	resMoveID := insertTestResidentFixture(t, pool.Raw(), rtID, hhSrcID, "BP Resident Move")
 	t.Run("pengurus/POST /residents/{id}/move", func(t *testing.T) {
 		moveDate := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 		body := fmt.Sprintf(`{"destination_household_id":"%s","start_date":"%s"}`, hhDstID, moveDate)
@@ -850,7 +850,7 @@ func TestBendaharaWritePermissionsRegression(t *testing.T) {
 	})
 
 	// DELETE /residents/{id} — its own resident
-	resDelID := insertTestResidentFixture(t, pool.Raw(), rtID, hhDelID, "BP Resident Delete", strPtr("Self"))
+	resDelID := insertTestResidentFixture(t, pool.Raw(), rtID, hhDelID, "BP Resident Delete")
 	t.Run("pengurus/DELETE /residents/{id}", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodDelete, "/api/v1/residents/"+resDelID, nil)
 		req.Header.Set("Authorization", "Bearer "+pengurusToken)
@@ -869,7 +869,7 @@ func TestBendaharaWritePermissionsRegression(t *testing.T) {
 	// --- Bendahara denial tests (independent fixtures) ---
 	t.Run("bendahara write permissions", func(t *testing.T) {
 		bhHhID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "BPHHHead", strPtr("BP-BH01"), strPtr("BP-BH Addr"), occPtr(OccupancyOwner))
-		bhResID := insertTestResidentFixture(t, pool.Raw(), rtID, bhHhID, "BP Resident", strPtr("Self"))
+		bhResID := insertTestResidentFixture(t, pool.Raw(), rtID, bhHhID, "BP Resident")
 
 		bendaharaWrites := []struct {
 			name     string
@@ -967,7 +967,7 @@ func TestWargaWritePermissionsRegression(t *testing.T) {
 	// --- Warga denial tests (independent fixtures) ---
 	t.Run("warga write permissions", func(t *testing.T) {
 		whHhID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "WPHHHead", strPtr("WP-WH01"), strPtr("WP-WH Addr"), occPtr(OccupancyOwner))
-		whResID := insertTestResidentFixture(t, pool.Raw(), rtID, whHhID, "WP Resident", strPtr("Self"))
+		whResID := insertTestResidentFixture(t, pool.Raw(), rtID, whHhID, "WP Resident")
 
 		wargaWrites := []struct {
 			name     string
@@ -1061,11 +1061,11 @@ func TestCrossRTIsolationGET(t *testing.T) {
 
 	hnA := "CRT-A1"
 	hhAID := insertTestHouseholdFixture(t, pool.Raw(), rtAID, "Head A", &hnA, strPtr("Addr A"), occPtr(OccupancyOwner))
-	resAID := insertTestResidentFixture(t, pool.Raw(), rtAID, hhAID, "Resident A", strPtr("Self"))
+	resAID := insertTestResidentFixture(t, pool.Raw(), rtAID, hhAID, "Resident A")
 
 	hnB := "CRT-B1"
 	hhBID := insertTestHouseholdFixture(t, pool.Raw(), rtBID, "Head B", &hnB, strPtr("Addr B"), occPtr(OccupancyOwner))
-	resBID := insertTestResidentFixture(t, pool.Raw(), rtBID, hhBID, "Resident B", strPtr("Self"))
+	resBID := insertTestResidentFixture(t, pool.Raw(), rtBID, hhBID, "Resident B")
 
 	wargaTokenA := makeTenantToken(t, "user-w-a", "mem-w-a", rtAID, auth.RoleWarga)
 	pengurusTokenA := makeTenantToken(t, "user-p-a", "mem-p-a", rtAID, auth.RolePengurus)
