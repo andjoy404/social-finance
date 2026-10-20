@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   apiListTransactions,
@@ -56,6 +56,46 @@ export function KasReport() {
   const [jenisValue, setJenisValue] = useState<string | null>(null)
   const [kategoriValue, setKategoriValue] = useState<string | null>(null)
   const [periodeValue, setPeriodeValue] = useState<string | null>(null)
+  const [kategoriOpen, setKategoriOpen] = useState(false)
+  const [periodeOpen, setPeriodeOpen] = useState(false)
+  const kategoriDropdownRef = useRef<HTMLDivElement>(null)
+  const periodeDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!kategoriOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (kategoriDropdownRef.current && !kategoriDropdownRef.current.contains(e.target as Node)) {
+        setKategoriOpen(false)
+      }
+    }
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setKategoriOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [kategoriOpen])
+
+  useEffect(() => {
+    if (!periodeOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (periodeDropdownRef.current && !periodeDropdownRef.current.contains(e.target as Node)) {
+        setPeriodeOpen(false)
+      }
+    }
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setPeriodeOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [periodeOpen])
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = usePersistedPageSize('social-finance:table-page-size:kas-report', [10, 25, 50, 100])
@@ -149,12 +189,22 @@ export function KasReport() {
 
   const handlePage = (p: number) => { if (p >= 1 && p <= totalPages) setPage(p) }
   const handlePageSizeChange = (newSize: number) => { setPageSize(newSize); setPage(1) }
-  const handleFilter = (filter: FilterType) => { setFilterType(filter); setPage(1); if (filter === 'semua') { setJenisValue(null); setKategoriValue(null); setPeriodeValue(null) } }
+  const handleFilter = (filter: FilterType) => {
+    setFilterType(filter)
+    setPage(1)
+    setKategoriOpen(false)
+    setPeriodeOpen(false)
+    if (filter === 'semua') {
+      setJenisValue(null)
+      setKategoriValue(null)
+      setPeriodeValue(null)
+    }
+  }
   const handleSearch = (value: string) => { setSearch(value); setPage(1) }
-  const handleKategoriSelect = (val: string) => { setKategoriValue(val); setPage(1) }
-  const handleKategoriClear = () => setKategoriValue(null)
-  const handlePeriodeSelect = (val: string) => { setPeriodeValue(val); setPage(1) }
-  const handlePeriodeClear = () => setPeriodeValue(null)
+  const handleKategoriSelect = (val: string) => { setKategoriValue(val); setKategoriOpen(false); setPage(1) }
+  const handleKategoriClear = () => { setKategoriValue(null); setKategoriOpen(false) }
+  const handlePeriodeSelect = (val: string) => { setPeriodeValue(val); setPeriodeOpen(false); setPage(1) }
+  const handlePeriodeClear = () => { setPeriodeValue(null); setPeriodeOpen(false) }
 
   return (
     <>
@@ -245,15 +295,23 @@ export function KasReport() {
                         <button type="button" className="sf-status-badge-clear" onClick={handleKategoriClear}>×</button>
                       </span>
                     ) : (
-                      <div className="sf-status-dropdown">
-                        <button type="button" className="sf-status-selector-trigger" onClick={() => {}}>
+                      <div className="sf-status-dropdown" ref={kategoriDropdownRef}>
+                        <button
+                          type="button"
+                          className="sf-status-selector-trigger"
+                          onClick={() => setKategoriOpen((prev) => !prev)}
+                          aria-haspopup="listbox"
+                          aria-expanded={kategoriOpen}
+                        >
                           Pilih Kategori<span style={{ fontSize: 9, color: 'var(--sf-text-muted)' }}>▼</span>
                         </button>
-                        <div className="sf-status-dropdown-menu" role="listbox">
-                          {allKategoriValues.map((kat) => (
-                            <button key={kat} type="button" className={`sf-status-dropdown-item ${kategoriValue === kat ? 'sf-status-dropdown-item-active' : ''}`} onClick={() => handleKategoriSelect(kat)}>{kat}</button>
-                          ))}
-                        </div>
+                        {kategoriOpen && (
+                          <div className="sf-status-dropdown-menu" role="listbox">
+                            {allKategoriValues.map((kat) => (
+                              <button key={kat} type="button" className={`sf-status-dropdown-item ${kategoriValue === kat ? 'sf-status-dropdown-item-active' : ''}`} onClick={() => handleKategoriSelect(kat)}>{kat}</button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -265,21 +323,29 @@ export function KasReport() {
                         <button type="button" className="sf-status-badge-clear" onClick={handlePeriodeClear}>×</button>
                       </span>
                     ) : (
-                      <div className="sf-status-dropdown">
-                        <button type="button" className="sf-status-selector-trigger" onClick={() => {}}>
+                      <div className="sf-status-dropdown" ref={periodeDropdownRef}>
+                        <button
+                          type="button"
+                          className="sf-status-selector-trigger"
+                          onClick={() => setPeriodeOpen((prev) => !prev)}
+                          aria-haspopup="listbox"
+                          aria-expanded={periodeOpen}
+                        >
                           Pilih Periode<span style={{ fontSize: 9, color: 'var(--sf-text-muted)' }}>▼</span>
                         </button>
-                        <div className="sf-status-dropdown-menu" role="listbox">
-                          {allPeriodeValues.map((p) => {
-                            const [year, month] = p.split('-')
-                            const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
-                            return (
-                              <button key={p} type="button" className={`sf-status-dropdown-item ${periodeValue === p ? 'sf-status-dropdown-item-active' : ''}`} onClick={() => handlePeriodeSelect(p)}>
-                                {months[parseInt(month, 10) - 1]} {year}
-                              </button>
-                            )
-                          })}
-                        </div>
+                        {periodeOpen && (
+                          <div className="sf-status-dropdown-menu" role="listbox">
+                            {allPeriodeValues.map((p) => {
+                              const [year, month] = p.split('-')
+                              const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
+                              return (
+                                <button key={p} type="button" className={`sf-status-dropdown-item ${periodeValue === p ? 'sf-status-dropdown-item-active' : ''}`} onClick={() => handlePeriodeSelect(p)}>
+                                  {months[parseInt(month, 10) - 1]} {year}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

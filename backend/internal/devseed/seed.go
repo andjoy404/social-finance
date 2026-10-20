@@ -190,17 +190,16 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 	// 6. Residency Periods
 	for _, rp := range CanonicalResidencyPeriods {
 		q := `
-			INSERT INTO residency_periods (id, resident_id, household_occupancy_id, relationship_to_head, start_date, end_date)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO residency_periods (id, resident_id, household_occupancy_id, start_date, end_date)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (id) DO UPDATE SET
 				resident_id = EXCLUDED.resident_id,
 				household_occupancy_id = EXCLUDED.household_occupancy_id,
-				relationship_to_head = EXCLUDED.relationship_to_head,
 				start_date = EXCLUDED.start_date,
 				end_date = EXCLUDED.end_date,
 				updated_at = now()
 		`
-		if _, err := tx.ExecContext(ctx, q, rp.ID, rp.ResidentID, rp.HouseholdOccupancyID, rp.RelationshipToHead, rp.StartDate, rp.EndDate); err != nil {
+		if _, err := tx.ExecContext(ctx, q, rp.ID, rp.ResidentID, rp.HouseholdOccupancyID, rp.StartDate, rp.EndDate); err != nil {
 			return nil, fmt.Errorf("upsert residency_period %s: %w", rp.ID, err)
 		}
 		summary.ResidencyPeriodsCount++
@@ -215,21 +214,82 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 	for _, u := range CanonicalUsers {
 		// HARD CONSTRAINT: Never allow super_admin to be seeded automatically
 		// Super Admin must be created solely via --bootstrap CLI
-		userQ := `
-			INSERT INTO users (id, email, phone, password_hash, full_name, is_active, system_role)
-			VALUES ($1, $2, $3, $4, $5, true, NULL)
-			ON CONFLICT ((lower(TRIM(BOTH FROM email)))) DO UPDATE SET
-				phone = EXCLUDED.phone,
-				password_hash = EXCLUDED.password_hash,
-				full_name = EXCLUDED.full_name,
-				is_active = EXCLUDED.is_active,
-				updated_at = now()
-			RETURNING id
+		//
+		// Dual-match upsert: match by seed ID first, fall back to email.
+		// If seed ID and seed email point to two different accounts, abort
+		// with a clear diagnostic error rather than silently updating the
+		// wrong user.
+		resolveQ := `
+			SELECT
+				id_by_id::text,
+				id_by_email::text
+			FROM (
+				SELECT
+					(SELECT id FROM users WHERE id = $1) AS id_by_id,
+					(SELECT id FROM users
+					 WHERE lower(TRIM(BOTH FROM email)) = lower(TRIM(BOTH FROM $2))) AS id_by_email
+			) sub
 		`
+		var idByID, idByEmail *string
+		if err := tx.QueryRowContext(ctx, resolveQ, u.ID, u.Email).Scan(&idByID, &idByEmail); err != nil {
+			return nil, fmt.Errorf("resolve user %s (%s): %w", u.Email, u.ID, err)
+		}
+
 		var userID string
-		err := tx.QueryRowContext(ctx, userQ, u.ID, u.Email, u.Phone, passwordHash, u.FullName).Scan(&userID)
-		if err != nil {
-			return nil, fmt.Errorf("upsert user %s (%s): %w", u.Email, u.ID, err)
+
+		switch {
+		case idByID != nil && idByEmail != nil && *idByID != *idByEmail:
+			// Seed ID and seed email point to two different accounts.
+			// This is ambiguous and must be resolved before proceeding.
+			return nil, fmt.Errorf(
+				"seed user %s (%s): ID matched account %s but email matched account %s — ambiguous identity, aborting to prevent silent update of the wrong user",
+				u.Email, u.ID, *idByID, *idByEmail,
+			)
+
+		case idByID != nil:
+			// Seed ID matched an existing user — update it
+			updateQ := `
+				UPDATE users SET
+					phone = $2,
+					password_hash = $3,
+					full_name = $4,
+					is_active = true,
+					updated_at = now()
+				WHERE id = $1
+				RETURNING id
+			`
+			if err := tx.QueryRowContext(ctx, updateQ, u.ID, u.Phone, passwordHash, u.FullName).Scan(&userID); err != nil {
+				return nil, fmt.Errorf("update user %s (%s): %w", u.Email, u.ID, err)
+			}
+
+		default:
+			// No seed ID match — check if email matched
+			if idByEmail != nil {
+				// Email matched an existing user with different ID — update it
+				updateByEmailQ := `
+					UPDATE users SET
+						phone = $2,
+						password_hash = $3,
+						full_name = $4,
+						is_active = true,
+						updated_at = now()
+					WHERE id = $1
+					RETURNING id
+				`
+				if err := tx.QueryRowContext(ctx, updateByEmailQ, *idByEmail, u.Phone, passwordHash, u.FullName).Scan(&userID); err != nil {
+					return nil, fmt.Errorf("update user by email %s: %w", u.Email, err)
+				}
+			} else {
+				// Neither ID nor email matched — insert new user
+				insertQ := `
+					INSERT INTO users (id, email, phone, password_hash, full_name, is_active, system_role)
+					VALUES ($1, $2, $3, $4, $5, true, NULL)
+					RETURNING id
+				`
+				if err := tx.QueryRowContext(ctx, insertQ, u.ID, u.Email, u.Phone, passwordHash, u.FullName).Scan(&userID); err != nil {
+					return nil, fmt.Errorf("insert user %s (%s): %w", u.Email, u.ID, err)
+				}
+			}
 		}
 		summary.UsersCount++
 
@@ -254,7 +314,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		userQ := `
 			INSERT INTO users (id, email, phone, password_hash, full_name, is_active, system_role)
 			VALUES ($1, $2, $3, $4, $5, true, NULL)
-			ON CONFLICT ((lower(TRIM(BOTH FROM email)))) DO UPDATE SET
+			ON CONFLICT (id) DO UPDATE SET
 				phone = EXCLUDED.phone,
 				password_hash = EXCLUDED.password_hash,
 				full_name = EXCLUDED.full_name,
@@ -358,11 +418,11 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 
 		// 5. Create residency period for this resident
 		rpQ := `
-			INSERT INTO residency_periods (id, resident_id, household_occupancy_id, relationship_to_head, start_date, end_date)
-			VALUES (gen_random_uuid(), $1, $2, $3, CURRENT_DATE, NULL)
+			INSERT INTO residency_periods (id, resident_id, household_occupancy_id, start_date, end_date)
+			VALUES (gen_random_uuid(), $1, $2, CURRENT_DATE, NULL)
 			ON CONFLICT DO NOTHING
 		`
-		if _, err := tx.ExecContext(ctx, rpQ, residentID, prs.OccupancyID, prs.RelationshipToHead); err != nil {
+		if _, err := tx.ExecContext(ctx, rpQ, residentID, prs.OccupancyID); err != nil {
 			return nil, fmt.Errorf("create position resident occupancy: %w", err)
 		}
 
@@ -442,6 +502,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		"keamanan":               {"warga.read", "reports.read"},
 		"sosial":                 {"warga.read", "reports.read"},
 		"kebersihan_pembangunan": {"warga.read", "reports.read"},
+		"anggota":                {"warga.read", "reports.read"},
 	}
 
 	for position, codes := range positionPermissions {

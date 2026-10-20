@@ -64,9 +64,9 @@ func validateMembershipJabatan(ctx context.Context, tx *sql.Tx, userID, rtID str
 	err := tx.QueryRowContext(ctx, `
 		SELECT jabatan
 		FROM user_rt_memberships
-		WHERE user_id = $1 AND rt_id = $2 AND is_active = true AND jabatan IS NOT NULL
+		WHERE user_id = $1 AND rt_id = $2 AND is_active = true AND jabatan IS NOT NULL AND jabatan = $3
 		LIMIT 1
-	`, userID, rtID).Scan(&resultJabatan)
+	`, userID, rtID, string(expectedJabatan)).Scan(&resultJabatan)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil

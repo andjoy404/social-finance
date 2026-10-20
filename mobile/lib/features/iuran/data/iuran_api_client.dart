@@ -137,6 +137,7 @@ class IuranApiClient {
     String? status,
     String? period,
     String? householdOccupancyId,
+    bool myBills = false,
     int page = 1,
     int pageSize = 20,
   }) async {
@@ -150,6 +151,7 @@ class IuranApiClient {
     if (householdOccupancyId != null && householdOccupancyId.isNotEmpty) {
       query['household_occupancy_id'] = householdOccupancyId;
     }
+    if (myBills) query['my_bills'] = 'true';
 
     final response = await dio.get('/api/v1/bills', queryParameters: query);
     return _parsePaginatedBills(response.data);

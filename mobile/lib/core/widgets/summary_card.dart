@@ -35,11 +35,31 @@ class SummaryCard extends StatelessWidget {
     final cardBg = isDark ? AppColors.darkSurface : AppColors.lightSurface;
     final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
 
+    final border = (accentColor != null)
+        ? Border.all(
+            color: isDark
+                ? accentColor!.withValues(alpha: 0.35)
+                : accentColor!.withValues(alpha: 0.25),
+            width: 1,
+          )
+        : Border.all(color: borderColor, width: 1);
+
+    final shadows = (accentColor != null && isDark)
+        ? [
+            BoxShadow(
+              color: accentColor!.withValues(alpha: 0.12),
+              blurRadius: 8,
+              spreadRadius: 0,
+            ),
+          ]
+        : null;
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: cardBg,
-        border: Border.all(color: borderColor, width: 1),
+        border: border,
         borderRadius: BorderRadius.circular(AppRadius.base),
+        boxShadow: shadows,
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),

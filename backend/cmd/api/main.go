@@ -431,6 +431,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Use(auth.RequireAuth)
 		r.Post("/api/v1/auth/logout", authH.Logout().(http.HandlerFunc))
 		r.Get("/api/v1/auth/me", authH.Me().(http.HandlerFunc))
+		r.Put("/api/v1/auth/profile", authH.UpdateProfile().(http.HandlerFunc))
+		r.Put("/api/v1/auth/password", authH.ChangePassword().(http.HandlerFunc))
 	})
 
 	// Test environment inspection endpoint used by E2E tests to ensure test DB isolation.
@@ -520,11 +522,22 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireSystemRole(auth.SystemRoleSuperAdmin))
+		r.Get("/api/v1/rws", rtHandler.ListAllRWs)
+		r.Post("/api/v1/rws", rtHandler.CreateRW)
+		r.Get("/api/v1/rws/{id}", rtHandler.GetRWByID)
+		r.Patch("/api/v1/rws/{id}", rtHandler.UpdateRW)
+		r.Patch("/api/v1/rws/{id}/deactivate", rtHandler.DeactivateRW)
+		r.Get("/api/v1/rws/{id}/memberships", rtHandler.ListRWMemberships)
+		r.Put("/api/v1/rws/{id}/memberships/{userId}/jabatan", rtHandler.SetRWJabatan)
+		r.Delete("/api/v1/rws/{id}/memberships/{userId}/jabatan", rtHandler.RemoveRWJabatan)
 		r.Get("/api/v1/rts", rtHandler.ListAll)
 		r.Post("/api/v1/rts", rtHandler.Create)
 		r.Get("/api/v1/rts/{id}", rtHandler.GetByID)
 		r.Patch("/api/v1/rts/{id}", rtHandler.Update)
 		r.Patch("/api/v1/rts/{id}/deactivate", rtHandler.Deactivate)
+		r.Get("/api/v1/rts/{id}/memberships", rtHandler.ListMemberships)
+		r.Put("/api/v1/rts/{id}/memberships/{userId}/jabatan", rtHandler.SetJabatan)
+		r.Delete("/api/v1/rts/{id}/memberships/{userId}/jabatan", rtHandler.RemoveJabatan)
 	})
 
 	// Household and resident routes (tenant-scoped, requires auth context).

@@ -769,6 +769,30 @@ input { font-family: inherit; }
   background: var(--sf-table-row-hover) !important;
 }
 
+.table-wrapper table th.sf-kas-col-income {
+  background: var(--sf-kas-income-header-bg) !important;
+}
+
+.table-wrapper table th.sf-kas-col-expense {
+  background: var(--sf-kas-expense-header-bg) !important;
+}
+
+.table-wrapper table td.sf-kas-cell-income {
+  background: var(--sf-kas-income-bg) !important;
+}
+
+.table-wrapper table td.sf-kas-cell-expense {
+  background: var(--sf-kas-expense-bg) !important;
+}
+
+.table-wrapper table tbody tr:hover > td.sf-kas-cell-income {
+  background: var(--sf-kas-income-bg-hover) !important;
+}
+
+.table-wrapper table tbody tr:hover > td.sf-kas-cell-expense {
+  background: var(--sf-kas-expense-bg-hover) !important;
+}
+
 .table-wrapper table tbody > tr:last-child > td {
   border-bottom: none !important;
 }
@@ -779,7 +803,35 @@ input { font-family: inherit; }
   text-decoration: none;
 }
 
-/* ── Fixed-width Action column ───────────────────────────────────────── */
+.sf-administrasi-members-title {
+  padding: 12px 20px 0;
+}
+
+.table-wrapper table.sf-administrasi-table {
+  width: max-content !important;
+  min-width: 100% !important;
+  table-layout: auto !important;
+  box-sizing: border-box;
+  border-collapse: collapse;
+}
+
+.table-wrapper table.sf-administrasi-table th,
+.table-wrapper table.sf-administrasi-table td {
+  white-space: nowrap !important;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+
+.table-wrapper table.sf-administrasi-table th:nth-child(1),
+.table-wrapper table.sf-administrasi-table td:nth-child(1) { min-width: 180px; }
+.table-wrapper table.sf-administrasi-table th:nth-child(2),
+.table-wrapper table.sf-administrasi-table td:nth-child(2) { min-width: 220px; }
+.table-wrapper table.sf-administrasi-table th:nth-child(3),
+.table-wrapper table.sf-administrasi-table td:nth-child(3) { width: 120px; min-width: 120px; text-align: center; }
+.table-wrapper table.sf-administrasi-table th:nth-child(4),
+.table-wrapper table.sf-administrasi-table td:nth-child(4) { min-width: 180px; }
+.table-wrapper table.sf-administrasi-table th.sf-table-action,
+.table-wrapper table.sf-administrasi-table td.sf-table-action { min-width: 260px; width: auto; max-width: none; text-align: center; }
 
 .sf-table-action {
   width: 110px;
@@ -943,6 +995,7 @@ input { font-family: inherit; }
   padding: 2px 8px;
   font-size: 11px;
   font-weight: 600;
+  line-height: 1;
   border-radius: 5px;
   background: var(--sf-accent-soft);
   color: var(--sf-accent);
@@ -1666,6 +1719,34 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
 }
 
 .sf-btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Small button — matches badge height for inline actions */
+
+.sf-btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  height: 22px;
+  line-height: 1;
+  border: none;
+  border-radius: var(--sf-radius-sm);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.sf-btn-danger.sf-btn-sm {
+  background: var(--sf-danger);
+  color: #fff;
+}
+
+.sf-btn-danger.sf-btn-sm:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sf-danger) 85%, var(--sf-text));
+}
+
+.sf-btn-danger.sf-btn-sm:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

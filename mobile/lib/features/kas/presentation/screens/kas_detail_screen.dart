@@ -21,7 +21,11 @@ bool _hasKasWriteAccess(WidgetRef ref) {
   if (systemRole == 'super_admin') return true;
 
   final jabatan = authState?.valueOrNull?['jabatan'] as String?;
-  if (jabatan != null && (jabatan == 'ketua' || jabatan == 'bendahara' || jabatan == 'sekretaris' || jabatan == 'wakil_ketua')) {
+  if (jabatan != null &&
+      (jabatan == 'ketua' ||
+          jabatan == 'bendahara' ||
+          jabatan == 'sekretaris' ||
+          jabatan == 'wakil_ketua')) {
     return true;
   }
 
@@ -32,10 +36,19 @@ bool _hasKasWriteAccess(WidgetRef ref) {
 String cleanKasDescription(String desc) {
   if (desc.isEmpty) return '';
   return desc
-      .replaceAll(RegExp(r'\s*\(Bill:\s*[a-f0-9-]+\)', caseSensitive: false), '')
+      .replaceAll(
+        RegExp(r'\s*\(Bill:\s*[a-f0-9-]+\)', caseSensitive: false),
+        '',
+      )
       .replaceAll(RegExp(r'\s*\(Period:\s*[^)]+\)', caseSensitive: false), '')
-      .replaceAll(RegExp(r'\s*Payment for bill\s*[a-f0-9-]+', caseSensitive: false), 'Pembayaran Iuran')
-      .replaceAll(RegExp(r'\s*Voluntary contribution for due\s+', caseSensitive: false), 'Iuran Sukarela: ')
+      .replaceAll(
+        RegExp(r'\s*Payment for bill\s*[a-f0-9-]+', caseSensitive: false),
+        'Pembayaran Iuran',
+      )
+      .replaceAll(
+        RegExp(r'\s*Voluntary contribution for due\s+', caseSensitive: false),
+        'Iuran Sukarela: ',
+      )
       .trim();
 }
 
@@ -43,10 +56,7 @@ String cleanKasDescription(String desc) {
 class KasDetailScreen extends ConsumerStatefulWidget {
   final String transactionId;
 
-  const KasDetailScreen({
-    super.key,
-    required this.transactionId,
-  });
+  const KasDetailScreen({super.key, required this.transactionId});
 
   @override
   ConsumerState<KasDetailScreen> createState() => _KasDetailScreenState();
@@ -97,11 +107,12 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
       return Scaffold(
         appBar: AppBar(
           centerTitle: false,
-          title: const Text('Detail Transaksi'),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () => context.pop(),
+            tooltip: 'Kembali',
           ),
+          title: const Text('Detail Transaksi'),
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -111,11 +122,12 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
       return Scaffold(
         appBar: AppBar(
           centerTitle: false,
-          title: const Text('Detail Transaksi'),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () => context.pop(),
+            tooltip: 'Kembali',
           ),
+          title: const Text('Detail Transaksi'),
         ),
         body: Center(
           child: SingleChildScrollView(
@@ -160,25 +172,26 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
     final accentColor = isIncoming ? AppColors.success : AppColors.danger;
     final icon = isIncoming ? Icons.arrow_downward : Icons.arrow_upward;
     final canWrite = _hasKasWriteAccess(ref);
-    final isManual = tx.dueName == null || tx.dueName!.isEmpty;
+    final isFromIuran =
+        (tx.dueName != null && tx.dueName!.isNotEmpty) ||
+        (tx.referensi != null && tx.referensi!.startsWith('PAY-')) ||
+        tx.kategori == KasCategory.iuranWarga ||
+        tx.kategori == KasCategory.iuranPaksa;
+    final isManual = !isFromIuran;
 
-    String formattedKeterangan;
-    if (tx.dueName != null && tx.dueName!.isNotEmpty) {
-      final citizen = tx.citizenName ?? 'Warga';
-      final house = (tx.houseNumber != null && tx.houseNumber!.isNotEmpty) ? ' · ${tx.houseNumber}' : '';
-      formattedKeterangan = '[${tx.dueName}] $citizen$house';
-    } else {
-      formattedKeterangan = cleanKasDescription(tx.keterangan);
-    }
+    final String formattedKeterangan = isFromIuran
+        ? ''
+        : cleanKasDescription(tx.keterangan);
 
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
-        title: const Text('Detail Transaksi'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.pop(),
+          tooltip: 'Kembali',
         ),
+        title: const Text('Detail Transaksi'),
       ),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.base),
@@ -269,11 +282,14 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                   isDark: isDark,
                   theme: theme,
                 ),
-                if (tx.paymentMethod != null && tx.paymentMethod!.isNotEmpty) ...[
+                if (tx.paymentMethod != null &&
+                    tx.paymentMethod!.isNotEmpty) ...[
                   const Divider(height: 24),
                   _DetailRow(
                     label: 'Metode',
-                    value: tx.paymentMethod == 'CASH' ? 'Tunai (Cash)' : 'Transfer Bank',
+                    value: tx.paymentMethod == 'CASH'
+                        ? 'Tunai (Cash)'
+                        : 'Transfer Bank',
                     isDark: isDark,
                     theme: theme,
                   ),
@@ -337,10 +353,13 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
   Future<void> _showEditTransactionDialog(KasTransaction tx) async {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final nominalCtrl = TextEditingController(text: tx.nominal.replaceAll(RegExp(r'[^0-9]'), ''));
+    final nominalCtrl = TextEditingController(
+      text: tx.nominal.replaceAll(RegExp(r'[^0-9]'), ''),
+    );
     final keteranganCtrl = TextEditingController(text: tx.keterangan);
     final tanggalCtrl = TextEditingController(
-      text: '${tx.tanggal.year}-${tx.tanggal.month.toString().padLeft(2, '0')}-${tx.tanggal.day.toString().padLeft(2, '0')}',
+      text:
+          '${tx.tanggal.year}-${tx.tanggal.month.toString().padLeft(2, '0')}-${tx.tanggal.day.toString().padLeft(2, '0')}',
     );
     String paymentMethod = (tx.paymentMethod ?? 'CASH').toUpperCase();
     if (paymentMethod != 'CASH' && paymentMethod != 'TRANSFER') {
@@ -360,29 +379,37 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
           builder: (statefulCtx, setDialogState) {
             if (loadingCats) {
               final repo = ref.read(kasRepositoryProvider);
-              repo.fetchCategories(isActive: true).then((cats) {
-                final targetType = tx.jenis == KasJenis.masuk ? 'income' : 'expense';
-                final filtered = cats.where((c) => c.type == targetType).toList();
-                String? defaultCatId;
-                for (final c in filtered) {
-                  if (c.name.toLowerCase() == tx.kategori.label.toLowerCase()) {
-                    defaultCatId = c.id;
-                    break;
-                  }
-                }
-                if (defaultCatId == null && filtered.isNotEmpty) {
-                  defaultCatId = filtered.first.id;
-                }
-                setDialogState(() {
-                  categories = filtered;
-                  selectedCategoryId = defaultCatId;
-                  loadingCats = false;
-                });
-              }).catchError((_) {
-                setDialogState(() {
-                  loadingCats = false;
-                });
-              });
+              repo
+                  .fetchCategories(isActive: true)
+                  .then((cats) {
+                    final targetType = tx.jenis == KasJenis.masuk
+                        ? 'income'
+                        : 'expense';
+                    final filtered = cats
+                        .where((c) => c.type == targetType)
+                        .toList();
+                    String? defaultCatId;
+                    for (final c in filtered) {
+                      if (c.name.toLowerCase() ==
+                          tx.kategori.label.toLowerCase()) {
+                        defaultCatId = c.id;
+                        break;
+                      }
+                    }
+                    if (defaultCatId == null && filtered.isNotEmpty) {
+                      defaultCatId = filtered.first.id;
+                    }
+                    setDialogState(() {
+                      categories = filtered;
+                      selectedCategoryId = defaultCatId;
+                      loadingCats = false;
+                    });
+                  })
+                  .catchError((_) {
+                    setDialogState(() {
+                      loadingCats = false;
+                    });
+                  });
             }
 
             return AlertDialog(
@@ -393,30 +420,51 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (error != null) ...[
-                      Text(error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                      Text(
+                        error!,
+                        style: const TextStyle(
+                          color: AppColors.danger,
+                          fontSize: 12,
+                        ),
+                      ),
                       const SizedBox(height: AppSpacing.sm),
                     ],
                     // Tanggal
-                    Text('Tanggal', style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      'Tanggal',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     InkWell(
                       onTap: () async {
                         final picked = await showDatePicker(
                           context: context,
-                          initialDate: DateTime.tryParse(tanggalCtrl.text) ?? DateTime.now(),
+                          initialDate:
+                              DateTime.tryParse(tanggalCtrl.text) ??
+                              DateTime.now(),
                           firstDate: DateTime(2020),
                           lastDate: DateTime(2035),
                         );
                         if (picked != null) {
                           setDialogState(() {
-                            tanggalCtrl.text = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+                            tanggalCtrl.text =
+                                '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
                           });
                         }
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
-                          border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          border: Border.all(
+                            color: isDark
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
+                          ),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                         ),
                         child: Row(
@@ -431,19 +479,35 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                     const SizedBox(height: AppSpacing.md),
                     // Kategori
                     if (categories.isNotEmpty) ...[
-                      Text('Kategori', style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+                      Text(
+                        'Kategori',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         decoration: BoxDecoration(
-                          border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                          border: Border.all(
+                            color: isDark
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
+                          ),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
                             value: selectedCategoryId,
                             isExpanded: true,
-                            items: categories.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
+                            items: categories
+                                .map(
+                                  (c) => DropdownMenuItem(
+                                    value: c.id,
+                                    child: Text(c.name),
+                                  ),
+                                )
+                                .toList(),
                             onChanged: (val) {
                               if (val != null) {
                                 setDialogState(() => selectedCategoryId = val);
@@ -468,20 +532,27 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                     // Metode
-                    Text('Metode Pembayaran', style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
+                    Text(
+                      'Metode Pembayaran',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Row(
                       children: [
                         ChoiceChip(
                           label: const Text('Tunai'),
                           selected: paymentMethod == 'CASH',
-                          onSelected: (val) => setDialogState(() => paymentMethod = 'CASH'),
+                          onSelected: (val) =>
+                              setDialogState(() => paymentMethod = 'CASH'),
                         ),
                         const SizedBox(width: 8),
                         ChoiceChip(
                           label: const Text('Transfer'),
                           selected: paymentMethod == 'TRANSFER',
-                          onSelected: (val) => setDialogState(() => paymentMethod = 'TRANSFER'),
+                          onSelected: (val) =>
+                              setDialogState(() => paymentMethod = 'TRANSFER'),
                         ),
                       ],
                     ),
@@ -497,9 +568,12 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                   onPressed: saving
                       ? null
                       : () async {
-                          final amountInt = int.tryParse(nominalCtrl.text.trim()) ?? 0;
+                          final amountInt =
+                              int.tryParse(nominalCtrl.text.trim()) ?? 0;
                           if (amountInt <= 0) {
-                            setDialogState(() => error = 'Nominal harus lebih besar dari 0');
+                            setDialogState(
+                              () => error = 'Nominal harus lebih besar dari 0',
+                            );
                             return;
                           }
                           setDialogState(() {
@@ -508,7 +582,9 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                           });
                           try {
                             final repo = ref.read(kasRepositoryProvider);
-                            final occ = DateTime.tryParse(tanggalCtrl.text) ?? tx.tanggal;
+                            final occ =
+                                DateTime.tryParse(tanggalCtrl.text) ??
+                                tx.tanggal;
                             await repo.updateTransaction(
                               id: tx.id,
                               categoryId: selectedCategoryId,
@@ -524,7 +600,9 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Transaksi berhasil diperbarui.'),
+                                  content: Text(
+                                    'Transaksi berhasil diperbarui.',
+                                  ),
                                   backgroundColor: AppColors.success,
                                 ),
                               );
@@ -594,10 +672,7 @@ class _DetailRow extends StatelessWidget {
                   backgroundColor: badgeColor!.withValues(alpha: 0.12),
                   textColor: badgeColor,
                 )
-              : Text(
-                  value,
-                  style: theme.textTheme.bodyMedium,
-                ),
+              : Text(value, style: theme.textTheme.bodyMedium),
         ),
       ],
     );

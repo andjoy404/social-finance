@@ -589,6 +589,8 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		totalPages = (total + pageSize - 1) / pageSize
 	}
 
+	_ = tx.Commit()
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": bills,
 		"pagination": map[string]any{

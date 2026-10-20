@@ -138,6 +138,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       final rememberMe = await preferencesStorage.getRememberMe();
       if (!rememberMe) {
         await secureAuthStorage.clearSession();
+        await secureAuthStorage.clearLoginCredentials();
         return false;
       }
 
@@ -202,6 +203,11 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   /// Clears in-flight requests, tokens, session storage, and in-memory state.
   Future<void> changeServer(String newServerUrl) async {
     final normalized = UrlUtils.normalizeUrl(newServerUrl);
+    final storedLogin = await secureAuthStorage.getLoginCredentials();
+    if (storedLogin != null &&
+        UrlUtils.normalizeUrl(storedLogin.serverUrl) != normalized) {
+      await secureAuthStorage.clearLoginCredentials();
+    }
     if (apiClient.baseUrl == normalized) return;
 
     // 1. Reset client (clears tokens and in-flight refresh)
@@ -237,7 +243,17 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         state = AsyncError(AuthError(urlErr), StackTrace.current);
         return;
       }
-      await changeServer(serverUrl);
+      try {
+        await changeServer(serverUrl);
+      } catch (_) {
+        state = AsyncError(
+          AuthError(
+            'Kredensial tersimpan tidak dapat diperiksa dengan aman. Coba lagi.',
+          ),
+          StackTrace.current,
+        );
+        return;
+      }
     }
 
     // 2. Determine and validate login identifier
@@ -281,12 +297,14 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     apiClient.clearAllTokens();
     state = const AsyncLoading();
 
+    var loginSucceeded = false;
     try {
       final response = await authService.login(
         email: effectiveEmail,
         phone: effectivePhone,
         password: password,
       );
+      loginSucceeded = true;
       late final AuthUser effectiveUser;
       try {
         effectiveUser = await authService.getMe();
@@ -307,27 +325,31 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         return;
       }
 
-      _setCurrentUser(effectiveUser, response.accessToken);
-
       // Save preferences and secure session
-      await preferencesStorage.setRememberMe(rememberMe);
       final activeServerUrl = apiClient.baseUrl;
-      if (activeServerUrl.isNotEmpty) {
-        await preferencesStorage.setLastApiUrl(activeServerUrl);
-      }
-      if (effectiveEmail != null && effectiveEmail.isNotEmpty) {
-        await preferencesStorage.setLastEmail(effectiveEmail);
-        await preferencesStorage.setLastLoginMethod('email');
-      }
-      if (phone != null && phone.isNotEmpty) {
-        await preferencesStorage.setLastPhone(phone);
-        await preferencesStorage.setLastLoginMethod('phone');
-      } else if (effectivePhone != null && effectivePhone.isNotEmpty) {
-        await preferencesStorage.setLastPhone(effectivePhone);
-        await preferencesStorage.setLastLoginMethod('phone');
+      try {
+        await preferencesStorage.setRememberMe(rememberMe);
+        if (activeServerUrl.isNotEmpty) {
+          await preferencesStorage.setLastApiUrl(activeServerUrl);
+        }
+        if (effectiveEmail != null && effectiveEmail.isNotEmpty) {
+          await preferencesStorage.setLastEmail(effectiveEmail);
+          await preferencesStorage.setLastLoginMethod('email');
+        } else if (effectivePhone != null && effectivePhone.isNotEmpty) {
+          await preferencesStorage.setLastPhone(effectivePhone);
+          await preferencesStorage.setLastLoginMethod('phone');
+        }
+      } catch (e) {
+        developer.log('Preferences save error: $e', name: 'AuthRepository');
       }
 
       if (rememberMe) {
+        await secureAuthStorage.saveLoginCredentials(
+          identifier: effectivePhone ?? effectiveEmail!,
+          loginMethod: effectivePhone == null ? 'email' : 'phone',
+          password: password,
+          serverUrl: activeServerUrl,
+        );
         await secureAuthStorage.saveSession(
           accessToken: response.accessToken,
           refreshToken: response.refreshToken,
@@ -335,11 +357,28 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
           userData: effectiveUser.toJson(),
         );
       } else {
+        await secureAuthStorage.clearLoginCredentials();
         await secureAuthStorage.clearSession();
       }
+      _setCurrentUser(effectiveUser, response.accessToken);
     } catch (e, st) {
+      if (loginSucceeded) {
+        try {
+          await authService.logout();
+        } catch (_) {}
+        apiClient.clearAllTokens();
+        try {
+          await secureAuthStorage.clearSession();
+        } catch (_) {}
+      }
       _currentUser = null;
-      final authError = _mapError(e);
+      final authError = e is AuthError
+          ? e
+          : (loginSucceeded
+                ? AuthError(
+                    'Login berhasil, tetapi data Ingat Saya tidak dapat disimpan dengan aman. Coba lagi atau nonaktifkan Ingat Saya.',
+                  )
+                : _mapError(e));
       state = AsyncError(authError, st);
     }
   }
@@ -348,6 +387,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     _currentUser = {
       'id': user.id,
       'email': user.email,
+      'phone': user.phone,
       'name': user.name.isNotEmpty ? user.name : user.email,
       'role': mapStringToAppRole(user.role, systemRoleStr: user.systemRole),
       'system_role': user.systemRole,
@@ -358,7 +398,9 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
           : _profilePermissionsUnavailable,
       'rt_id': user.rtId,
       'rt': user.rtCode,
-      'rw': null,
+      'rw': user.rwCode,
+      'rw_id': user.rwId,
+      'rw_name': user.rwName,
       'access_token': accessToken,
     };
     state = AsyncData(_currentUser);
@@ -408,6 +450,37 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       await secureAuthStorage.clearSession();
       _currentUser = null;
       state = null;
+    }
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      await authService.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
+    } catch (e) {
+      throw _mapError(e);
+    }
+  }
+
+  Future<void> updateProfile({
+    required String fullName,
+    String? phone,
+    String? email,
+  }) async {
+    try {
+      await authService.updateProfile(
+        fullName: fullName,
+        phone: phone,
+        email: email,
+      );
+      await reloadProfile();
+    } catch (e) {
+      throw _mapError(e);
     }
   }
 

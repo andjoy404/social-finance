@@ -12,11 +12,13 @@ class MainNavigationShell extends ConsumerStatefulWidget {
   const MainNavigationShell({super.key, required this.child});
 
   @override
-  ConsumerState<MainNavigationShell> createState() => _MainNavigationShellState();
+  ConsumerState<MainNavigationShell> createState() =>
+      _MainNavigationShellState();
 }
 
 class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   int _currentIndex = 0;
+  int _currentMatch = 0;
 
   static const _homeTab = _NavRoute(
     path: '/home',
@@ -35,6 +37,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     label: 'Iuran',
     icon: Icons.receipt_long_outlined,
     activeIcon: Icons.receipt_long,
+    isProminent: true,
   );
   static const _wargaTab = _NavRoute(
     path: '/home/warga',
@@ -58,43 +61,59 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     return const [_homeTab, _profileTab];
   }
 
+  int _resolveCurrentMatch(List<_NavRoute> tabs, String location) {
+    var bestMatch = 0;
+    var found = false;
+    for (var i = 0; i < tabs.length; i++) {
+      final tabPath = tabs[i].path;
+      if (location == tabPath || location.startsWith('$tabPath/')) {
+        if (!found || tabPath.length > tabs[bestMatch].path.length) {
+          bestMatch = i;
+          found = true;
+        }
+      }
+    }
+    return bestMatch;
+  }
+
+  String _currentLocation(BuildContext context) {
+    return GoRouter.of(context).routeInformationProvider.value.uri.path;
+  }
+
+  /// Used by DoubleBackExitScope to determine whether system back should
+  /// exit the app or navigate to the parent route.
+  bool _isDirectlyOnTopLevelTab(String currentLocation, List<_NavRoute> tabs) {
+    return tabs.any((t) => t.path == currentLocation);
+  }
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   @override
   void didUpdateWidget(MainNavigationShell oldWidget) {
     super.didUpdateWidget(oldWidget);
     final tabs = _getActiveTabs();
-    final location = GoRouterState.of(context).matchedLocation;
-    var bestMatch = -1;
-    for (var i = 0; i < tabs.length; i++) {
-      final tabPath = tabs[i].path;
-      if (location == tabPath || location.startsWith('$tabPath/')) {
-        if (bestMatch == -1 ||
-            tabPath.length > tabs[bestMatch].path.length) {
-          bestMatch = i;
-        }
-      }
-    }
-    if (bestMatch != -1 && bestMatch != _currentIndex) {
-      setState(() => _currentIndex = bestMatch);
+    final location = _currentLocation(context);
+    final bestMatch = _resolveCurrentMatch(tabs, location);
+    if (bestMatch != _currentIndex) {
+      setState(() {
+        _currentIndex = bestMatch;
+        _currentMatch = bestMatch;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final tabs = _getActiveTabs();
-    final location = GoRouterState.of(context).matchedLocation;
-    var currentMatch = 0;
-    for (var i = 0; i < tabs.length; i++) {
-      final tabPath = tabs[i].path;
-      if (location == tabPath || location.startsWith('$tabPath/')) {
-        if (currentMatch == 0 ||
-            tabPath.length > tabs[currentMatch].path.length) {
-          currentMatch = i;
-        }
-      }
-    }
+    final location = _currentLocation(context);
+    final currentMatch = _resolveCurrentMatch(tabs, location);
+
+    _currentMatch = currentMatch;
 
     return DoubleBackExitScope(
+      allowPop: !_isDirectlyOnTopLevelTab(location, tabs),
       child: Scaffold(
+        key: _scaffoldKey,
         body: SafeArea(
           bottom: false,
           child: widget.child,
@@ -105,9 +124,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
             children: List.generate(
               tabs.length,
               (index) => _NavRailItem(
+                key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
                 tab: tabs[index],
-                isSelected: index == currentMatch,
-                onTap: () => _onTabTapped(tabs, index),
+                isSelected: index == _currentMatch,
+                onTap: () => _onTabTapped(tabs, index, context),
               ),
             ),
           ),
@@ -116,13 +136,14 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     );
   }
 
-  void _onTabTapped(List<_NavRoute> tabs, int index) {
+  void _onTabTapped(List<_NavRoute> tabs, int index, BuildContext tapContext) {
     if (index >= 0 && index < tabs.length) {
       final tab = tabs[index];
-      if (GoRouterState.of(context).matchedLocation != tab.path) {
+      final currentLocation = _currentLocation(tapContext);
+      if (currentLocation != tab.path) {
         context.go(tab.path);
       }
-      setState(() => _currentIndex = index);
+      setState(() => _currentMatch = index);
     }
   }
 }
@@ -132,12 +153,14 @@ class _NavRoute {
   final String label;
   final IconData icon;
   final IconData activeIcon;
+  final bool isProminent;
 
   const _NavRoute({
     required this.path,
     required this.label,
     required this.icon,
     required this.activeIcon,
+    this.isProminent = false,
   });
 }
 
@@ -147,6 +170,7 @@ class _NavRailItem extends StatelessWidget {
   final VoidCallback onTap;
 
   const _NavRailItem({
+    super.key,
     required this.tab,
     required this.isSelected,
     required this.onTap,
@@ -155,35 +179,61 @@ class _NavRailItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isProminent = tab.isProminent;
+
+    final Color iconColor = isSelected
+        ? AppColors.seed
+        : (isProminent ? AppColors.accent : theme.colorScheme.onSurfaceVariant);
+
+    final Color labelColor = isSelected
+        ? AppColors.seed
+        : (isProminent ? AppColors.accent : theme.colorScheme.onSurfaceVariant);
+
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: EdgeInsets.symmetric(
+          horizontal: isProminent ? 14 : 10,
+          vertical: isProminent ? 4 : 5,
+        ),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.hoverTint : null,
-          borderRadius: BorderRadius.circular(8),
+          color: isProminent
+              ? (isSelected
+                    ? AppColors.accent.withValues(alpha: 0.20)
+                    : AppColors.accent.withValues(alpha: 0.08))
+              : (isSelected ? AppColors.hoverTint : null),
+          borderRadius: BorderRadius.circular(isProminent ? 12 : 8),
+          border: isProminent
+              ? Border.all(
+                  color: isSelected
+                      ? AppColors.accent
+                      : AppColors.accent.withValues(alpha: 0.35),
+                  width: isSelected ? 1.5 : 1.0,
+                )
+              : null,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               isSelected ? tab.activeIcon : tab.icon,
-              size: 22,
-              color: isSelected
-                  ? AppColors.seed
-                  : theme.colorScheme.onSurfaceVariant,
+              size: isProminent ? 24 : 22,
+              color: iconColor,
             ),
             const SizedBox(height: 2),
             Text(
               tab.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: isSelected
-                    ? AppColors.seed
-                    : theme.colorScheme.onSurfaceVariant,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                fontSize: 11,
+                color: labelColor,
+                fontWeight: isSelected
+                    ? FontWeight.w700
+                    : (isProminent ? FontWeight.w600 : FontWeight.normal),
+                fontSize: isProminent ? 11.5 : 11,
+                height: 1.1,
               ),
             ),
           ],

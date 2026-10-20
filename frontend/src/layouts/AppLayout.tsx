@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '@/app/AuthContext'
 import { Sidebar } from '@/components/Sidebar'
@@ -5,6 +6,7 @@ import { ThemeMenu } from '@/components/ThemeMenu'
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
 import { Dropdown, Avatar } from 'antd'
 import logoImg from '@/assets/logo.png'
+import { ProfileModal } from '@/features/profile/ProfileModal'
 
 function getInitials(name?: string): string {
   if (!name || !name.trim()) return ''
@@ -15,6 +17,7 @@ function getInitials(name?: string): string {
 
 export function AppLayout() {
   const { user, logout } = useAuth()
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   if (!user) return null
 
@@ -24,6 +27,11 @@ export function AppLayout() {
 
   const menuItems = [
     {
+      key: 'profile',
+      icon: <UserOutlined style={{ fontSize: 14 }} />,
+      label: 'Profil',
+    },
+    {
       key: 'logout',
       icon: <LogoutOutlined style={{ fontSize: 14 }} />,
       label: 'Keluar',
@@ -31,7 +39,9 @@ export function AppLayout() {
   ]
 
   const handleMenuClick = (e: { key: string }) => {
-    if (e.key === 'logout') {
+    if (e.key === 'profile') {
+      setIsProfileOpen(true)
+    } else if (e.key === 'logout') {
       handleLogout()
     }
   }
@@ -88,6 +98,8 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+
+      <ProfileModal open={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
     </div>
   )
 }

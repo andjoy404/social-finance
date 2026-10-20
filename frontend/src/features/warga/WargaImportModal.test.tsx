@@ -133,7 +133,6 @@ describe('WargaImportModal Component', () => {
           nik: '3201011111110001',
           phone: '08123456789',
           email: 'budi@test.com',
-          relationship_to_head: 'HEAD',
         },
       ],
     })

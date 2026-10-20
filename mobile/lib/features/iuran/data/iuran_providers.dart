@@ -58,21 +58,19 @@ final iuranSelectedStatusProvider = StateProvider<String>((ref) => '');
 // ─── Pending Payments (for verification) ────────────────────────────
 
 /// Loads all PENDING payments for verification by bendahara/pengurus.
-final pendingPaymentsProvider =
-    FutureProvider.autoDispose.family<List<BackendPayment>, bool>(
-      (ref, canVerify) async {
-    if (!canVerify) return [];
+final pendingPaymentsProvider = FutureProvider.autoDispose
+    .family<List<BackendPayment>, bool>((ref, canVerify) async {
+      if (!canVerify) return [];
 
-    final repository = ref.read(iuranRepositoryProvider);
+      final repository = ref.read(iuranRepositoryProvider);
 
-    try {
-      final result = await repository.fetchPendingPayments();
-      return result;
-    } catch (e) {
-      return [];
-    }
-  },
-);
+      try {
+        final result = await repository.fetchPendingPayments();
+        return result;
+      } catch (e) {
+        return [];
+      }
+    });
 
 // ─── Bills (list with computed paidAmount) ────────────────────────────
 
@@ -81,19 +79,42 @@ final billsProvider =
       () => BillsNotifier(),
     );
 
+/// Loads bills limited by the backend to the authenticated user's household.
+final myBillsProvider =
+    AsyncNotifierProvider.autoDispose<BillsNotifier, List<IuranBill>>(
+      () => BillsNotifier(myBills: true),
+    );
+
 class BillsNotifier extends AutoDisposeAsyncNotifier<List<IuranBill>> {
+  BillsNotifier({this.myBills = false});
+
+  final bool myBills;
+  String? _lastToken;
+
   @override
   Future<List<IuranBill>> build() async {
-    return _fetch();
+    ref.watch(authRepositoryProvider);
+    ref.watch(iuranRepositoryProvider);
+    final accessToken = ref.read(authRepositoryProvider.notifier).accessToken;
+
+    if (accessToken == null || accessToken.isEmpty) {
+      throw StateError('Sesi pengguna tidak tersedia.');
+    }
+
+    if (accessToken == _lastToken) {
+      return _fetch(propagateError: myBills);
+    }
+    _lastToken = accessToken;
+    return _fetch(propagateError: true);
   }
 
-  Future<List<IuranBill>> _fetch() async {
+  Future<List<IuranBill>> _fetch({bool propagateError = false}) async {
     final repository = ref.read(iuranRepositoryProvider);
 
     state = const AsyncLoading();
 
     try {
-      final result = await repository.fetchAllBills();
+      final result = await repository.fetchAllBills(myBills: myBills);
       debugPrint('[IuranDebug] billsProvider got=${result.length} bills');
       state = AsyncData(result);
       return result;
@@ -101,6 +122,7 @@ class BillsNotifier extends AutoDisposeAsyncNotifier<List<IuranBill>> {
       debugPrint('[IuranDebug] billsProvider error=$e');
       final error = repository.mapDioError(e);
       state = AsyncError(error, st);
+      if (propagateError) Error.throwWithStackTrace(error, st);
       return [];
     }
   }
@@ -114,9 +136,32 @@ class BillsNotifier extends AutoDisposeAsyncNotifier<List<IuranBill>> {
 /// sorted oldest to newest by period.
 final filteredBillsProvider = Provider<List<IuranBill>>((ref) {
   final state = ref.watch(billsProvider);
-  final query = ref.watch(iuranSearchQueryProvider).trim().toLowerCase();
-  final periode = ref.watch(iuranSelectedPeriodeProvider);
-  final status = ref.watch(iuranSelectedStatusProvider);
+  return _filterBills(
+    state,
+    query: ref.watch(iuranSearchQueryProvider),
+    periode: ref.watch(iuranSelectedPeriodeProvider),
+    status: ref.watch(iuranSelectedStatusProvider),
+  );
+});
+
+/// Filtered bills for the user-scoped Tagihan tab.
+final filteredMyBillsProvider = Provider<List<IuranBill>>((ref) {
+  final state = ref.watch(myBillsProvider);
+  return _filterBills(
+    state,
+    query: ref.watch(iuranSearchQueryProvider),
+    periode: ref.watch(iuranSelectedPeriodeProvider),
+    status: ref.watch(iuranSelectedStatusProvider),
+  );
+});
+
+List<IuranBill> _filterBills(
+  AsyncValue<List<IuranBill>> state, {
+  required String query,
+  required String periode,
+  required String status,
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
 
   final bills = switch (state) {
     AsyncData(:final value) => value,
@@ -126,15 +171,18 @@ final filteredBillsProvider = Provider<List<IuranBill>>((ref) {
   };
 
   var filtered = bills.where((b) {
-    final searchMatch = query.isEmpty ||
-        b.householdName.toLowerCase().contains(query) ||
-        b.iuranType.toLowerCase().contains(query);
+    final searchMatch =
+        normalizedQuery.isEmpty ||
+        b.householdName.toLowerCase().contains(normalizedQuery) ||
+        b.iuranType.toLowerCase().contains(normalizedQuery);
     final periodeMatch = periode.isEmpty || b.periode == periode;
     final statusMatch = status.isEmpty || b.status.name == status;
     return searchMatch && periodeMatch && statusMatch;
   }).toList();
 
-  debugPrint('[IuranDebug] filteredBillsProvider input=${bills.length} -> output=${filtered.length} (query="$query", periode="$periode", status="$status")');
+  debugPrint(
+    '[IuranDebug] filteredBills input=${bills.length} -> output=${filtered.length} (query="$normalizedQuery", periode="$periode", status="$status")',
+  );
 
   // Sort: unpaid/partial first (oldest→newest), then paid (newest→oldest)
   filtered.sort((a, b) {
@@ -148,11 +196,15 @@ final filteredBillsProvider = Provider<List<IuranBill>>((ref) {
     final bParsed = _parsePeriodForSort(b.periode);
     final yearCmp = aParsed[0].compareTo(bParsed[0]);
     if (yearCmp != 0) return aPaid ? bParsed[0].compareTo(aParsed[0]) : yearCmp;
-    return aPaid ? bParsed[1].compareTo(aParsed[1]) : yearCmp != 0 ? yearCmp : aParsed[1].compareTo(bParsed[1]);
+    return aPaid
+        ? bParsed[1].compareTo(aParsed[1])
+        : yearCmp != 0
+        ? yearCmp
+        : aParsed[1].compareTo(bParsed[1]);
   });
 
   return filtered;
-});
+}
 
 /// Sort helper: parse "Oktober 2026" → [2026, 10] for chronological ordering.
 List<int> _parsePeriodForSort(String period) {
@@ -179,20 +231,18 @@ List<int> _parsePeriodForSort(String period) {
 
 // ─── Bill Detail (parameterized by ID) ────────────────────────────────
 
-final billDetailProvider =
-    FutureProvider.family.autoDispose<IuranBill?, String>((ref, billId) {
-  final repository = ref.read(iuranRepositoryProvider);
-  return repository.fetchBillDetail(billId);
-});
+final billDetailProvider = FutureProvider.family
+    .autoDispose<IuranBill?, String>((ref, billId) {
+      final repository = ref.read(iuranRepositoryProvider);
+      return repository.fetchBillDetail(billId);
+    });
 
 /// List of all payments for a specific bill (for history and proof inspection).
-final billPaymentsProvider =
-    FutureProvider.family.autoDispose<List<BackendPayment>, String>(
-      (ref, billId) {
-    final repository = ref.read(iuranRepositoryProvider);
-    return repository.listPaymentsForBill(billId);
-  },
-);
+final billPaymentsProvider = FutureProvider.family
+    .autoDispose<List<BackendPayment>, String>((ref, billId) {
+      final repository = ref.read(iuranRepositoryProvider);
+      return repository.listPaymentsForBill(billId);
+    });
 
 // ─── Dues List ────────────────────────────────────────────────────────
 

@@ -1,10 +1,23 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/client.dart';
+import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
 import 'package:social_finance/features/warga/data/warga_repository.dart';
+
+class _MockAuthRepo extends AuthRepository {
+  _MockAuthRepo(Map<String, dynamic>? user)
+      : super(
+          authService: AuthService(ApiClient(baseUrl: 'http://test.local')),
+          apiClient: ApiClient(baseUrl: 'http://test.local'),
+        ) {
+    state = AsyncData(user);
+  }
+}
 
 class _FakeWargaRepository extends WargaRepository {
   _FakeWargaRepository() : super(client: ApiClient(baseUrl: 'http://test.local'));
@@ -40,14 +53,21 @@ void main() {
           id: 'res-1',
           name: 'Budi Santoso',
           houseNumber: 'A1',
-          isHeadOfHousehold: true,
-          relationship: 'Kepala Keluarga',
         ),
       ];
 
       final container = ProviderContainer(
         overrides: [
           wargaRepositoryProvider.overrideWithValue(fakeRepo),
+          authRepositoryProvider.overrideWith(
+            (ref) => _MockAuthRepo({
+              'id': 'test-user',
+              'email': 'test@example.com',
+              'role': AppRole.pengurus,
+              'system_role': null,
+              'jabatan': 'ketua',
+            }),
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -64,15 +84,11 @@ void main() {
           id: 'res-1',
           name: 'Budi Santoso',
           houseNumber: 'A1',
-          isHeadOfHousehold: true,
-          relationship: 'Kepala Keluarga',
         ),
         const MappedResident(
           id: 'res-2',
           name: 'Siti Aminah',
           houseNumber: 'A2',
-          isHeadOfHousehold: true,
-          relationship: 'Kepala Keluarga',
         ),
       ];
 

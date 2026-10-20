@@ -94,6 +94,23 @@ class WargaRepository {
     );
   }
 
+  /// Update a regular resident (resident-level fields only).
+  /// Use this for residents without jabatan (non-special residents).
+  Future<void> updateResident(
+    String id, {
+    required UpdateResidentRequest request,
+  }) async {
+    final body = request.toJson();
+    if (body.isEmpty) {
+      return; // Nothing to update
+    }
+
+    await client.dio.patch(
+      '/api/v1/residents/$id',
+      data: body,
+    );
+  }
+
   // ── RT (for superadmin) ─────────────────────────────────────────────
 
   Future<List<Map<String, dynamic>>> fetchRts({

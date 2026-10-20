@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -41,7 +42,20 @@ type logoutRequest struct {
 	MembershipID string `json:"membership_id"`
 }
 
-// Handler handles auth endpoints (login, refresh, logout, me).
+// UpdateProfileRequest is the body of a profile update PUT request.
+type UpdateProfileRequest struct {
+	FullName string  `json:"full_name"`
+	Phone    *string `json:"phone,omitempty"`
+	Email    *string `json:"email,omitempty"`
+}
+
+// ChangePasswordRequest is the body of a password change PUT request.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// Handler handles auth endpoints (login, refresh, logout, me, profile, password).
 type Handler struct {
 	svc *Service
 	p   *database.Pool
@@ -58,6 +72,8 @@ func (h *Handler) Register(r authRouter) {
 	r.POST("/refresh", h.handleRefresh)
 	r.POST("/logout", h.handleLogout)
 	r.GET("/me", h.handleMe)
+	r.PUT("/profile", h.handleUpdateProfile)
+	r.PUT("/password", h.handleChangePassword)
 }
 
 // Login returns an HTTP handler for the /login endpoint.
@@ -78,6 +94,16 @@ func (h *Handler) Logout() http.Handler {
 // Me returns an HTTP handler for the /me endpoint.
 func (h *Handler) Me() http.Handler {
 	return http.HandlerFunc(h.handleMe)
+}
+
+// UpdateProfile returns an HTTP handler for the /profile PUT endpoint.
+func (h *Handler) UpdateProfile() http.Handler {
+	return http.HandlerFunc(h.handleUpdateProfile)
+}
+
+// ChangePassword returns an HTTP handler for the /password PUT endpoint.
+func (h *Handler) ChangePassword() http.Handler {
+	return http.HandlerFunc(h.handleChangePassword)
 }
 
 // handleLogin processes login requests.
@@ -274,6 +300,117 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, profile)
+}
+
+// handleUpdateProfile updates the user's name, phone, and/or email.
+func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
+	ac := GetAuthContext(r)
+	if ac == nil || ac.UserID == "" {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.FullName) == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "full_name cannot be empty")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	tx, err := h.p.BeginTx(ctx)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	if err := h.svc.UpdateProfile(ctx, tx, ac.UserID, req.FullName, req.Phone, req.Email); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+
+	var profile *UserForMe
+	if ac.MembershipID != "" {
+		profile, err = h.svc.GetProfile(ctx, tx, ac.UserID, ac.MembershipID)
+	} else {
+		profile, err = h.svc.GetSystemProfile(ctx, tx, ac.UserID)
+	}
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to reload profile")
+		return
+	}
+
+	profile.EffectivePermissions, err = effectiveIuranPermissions(ctx, tx, h.p, ac)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile permissions")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to commit transaction")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, profile)
+}
+
+// handleChangePassword verifies current password and updates to new password.
+func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	ac := GetAuthContext(r)
+	if ac == nil || ac.UserID == "" {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.CurrentPassword) == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "current_password is required")
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "new_password must be at least 8 characters")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	tx, err := h.p.BeginTx(ctx)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	if err := h.svc.ChangePassword(ctx, tx, ac.UserID, req.CurrentPassword, req.NewPassword); err != nil {
+		if errors.Is(err, ErrInvalidPassword) {
+			httpx.ErrorJSON(w, http.StatusUnauthorized, "invalid_credentials", "Kata sandi saat ini tidak sesuai")
+			return
+		}
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to commit transaction")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "Password updated successfully",
+	})
 }
 
 func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, ac *AuthContext) ([]string, error) {

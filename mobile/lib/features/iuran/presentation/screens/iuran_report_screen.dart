@@ -33,9 +33,7 @@ class IuranReportScreen extends ConsumerWidget {
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Laporan Iuran'),
         ),
-        body: Center(
-          child: const CircularProgressIndicator(),
-        ),
+        body: Center(child: const CircularProgressIndicator()),
       );
     }
 
@@ -57,11 +55,7 @@ class IuranReportScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.error_outline,
-                  size: 64,
-                  color: AppColors.danger,
-                ),
+                Icon(Icons.error_outline, size: 64, color: AppColors.danger),
                 const SizedBox(height: AppSpacing.md),
                 Text(
                   errorMessage,
@@ -170,175 +164,271 @@ class IuranReportScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-            // ── Summary Cards ──
-            const SectionHeader(title: 'Ringkasan'),
-            const SizedBox(height: AppSpacing.sm),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: SummaryCard(
-                    title: 'Total Tagihan',
-                    value: formatRupiah(totalTagihan),
-                    icon: Icons.receipt_long_outlined,
-                    accentColor: AppColors.accent,
-                  ),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: SummaryCard(
-                    title: 'Total Dibayar',
-                    value: formatRupiah(totalDibayar),
-                    icon: Icons.check_circle_outline,
-                    accentColor: AppColors.success,
-                  ),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: SummaryCard(
-                    title: 'Total Tunggakan',
-                    value: formatRupiah(totalTunggakan),
-                    icon: Icons.warning_amber_rounded,
-                    accentColor: AppColors.warning,
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: AppSpacing.lg),
-
-            // ── Collection Rate ──
-            const SectionHeader(title: 'Persentase Penagihan'),
-            const SizedBox(height: AppSpacing.sm),
-            AppCard(
-              useEmphasis: true,
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              // ── Summary Cards ──
+              const SectionHeader(title: 'Ringkasan'),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Tingkat Koleksi',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        '${collectionRate.toStringAsFixed(1)}%',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
-                    child: LinearProgressIndicator(
-                      value: collectionRate / 100,
-                      minHeight: 12,
-                      borderRadius: BorderRadius.circular(AppRadius.xs),
-                      backgroundColor: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurfaceSubtle,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        AppColors.accent,
-                      ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SummaryCard(
+                      title: 'Total Tagihan',
+                      value: formatRupiah(totalTagihan),
+                      icon: Icons.receipt_long_outlined,
+                      accentColor: AppColors.accent,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Dibayar: ${formatRupiah(totalDibayar)}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.success,
-                        ),
-                      ),
-                      Text(
-                        'Belum: ${formatRupiah(totalTunggakan)}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.warning,
-                        ),
-                      ),
-                    ],
+                  SizedBox(
+                    width: double.infinity,
+                    child: SummaryCard(
+                      title: 'Total Dibayar',
+                      value: formatRupiah(totalDibayar),
+                      icon: Icons.check_circle_outline,
+                      accentColor: AppColors.success,
+                    ),
+                  ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SummaryCard(
+                      title: 'Total Tunggakan',
+                      value: formatRupiah(totalTunggakan),
+                      icon: Icons.warning_amber_rounded,
+                      accentColor: AppColors.warning,
+                    ),
                   ),
                 ],
               ),
-            ),
 
-            // ── Breakdown by Type ──
-            if (typeNames.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.lg),
-              const SectionHeader(title: 'Rincian per Jenis Iuran'),
+
+              // ── Collection Rate ──
+              const SectionHeader(title: 'Persentase Penagihan'),
               const SizedBox(height: AppSpacing.sm),
-              ...typeNames.map((typeName) {
-                final typeBills = typeGroups[typeName] ?? [];
-                if (typeBills.isEmpty) return const SizedBox.shrink();
+              AppCard(
+                useEmphasis: true,
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Tingkat Koleksi',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '${collectionRate.toStringAsFixed(1)}%',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: AppColors.accent,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
+                      child: LinearProgressIndicator(
+                        value: collectionRate / 100,
+                        minHeight: 12,
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                        backgroundColor: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurfaceSubtle,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          AppColors.accent,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Dibayar: ${formatRupiah(totalDibayar)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.success,
+                          ),
+                        ),
+                        Text(
+                          'Belum: ${formatRupiah(totalTunggakan)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: AppColors.warning,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
 
-                final typeTotal =
-                    typeBills.fold<int>(0, (s, b) => s + b.nominal);
-                final typePaid =
-                    typeBills.fold<int>(0, (s, b) => s + b.paidAmount);
-                final rate = typeTotal > 0
-                    ? (typePaid / typeTotal * 100).toStringAsFixed(0)
-                    : '0';
+              // ── Breakdown by Type ──
+              if (typeNames.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.lg),
+                const SectionHeader(title: 'Rincian per Jenis Iuran'),
+                const SizedBox(height: AppSpacing.sm),
+                ...typeNames.map((typeName) {
+                  final typeBills = typeGroups[typeName] ?? [];
+                  if (typeBills.isEmpty) return const SizedBox.shrink();
 
+                  final typeTotal = typeBills.fold<int>(
+                    0,
+                    (s, b) => s + b.nominal,
+                  );
+                  final typePaid = typeBills.fold<int>(
+                    0,
+                    (s, b) => s + b.paidAmount,
+                  );
+                  final rate = typeTotal > 0
+                      ? (typePaid / typeTotal * 100).toStringAsFixed(0)
+                      : '0';
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: AppCard(
+                      padding: const EdgeInsets.all(AppSpacing.base),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.receipt_long_outlined,
+                                size: 18,
+                                color: AppColors.accent,
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(
+                                child: Text(
+                                  typeName,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '$rate%',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  color: AppColors.accent,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Tagihan: ${formatRupiah(typeTotal)}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: isDark
+                                      ? AppColors.darkTextMuted
+                                      : AppColors.lightTextMuted,
+                                ),
+                              ),
+                              Text(
+                                'Dibayar: ${formatRupiah(typePaid)}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: AppColors.success,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              ],
+
+              const SizedBox(height: AppSpacing.lg),
+
+              // ── Recent Transactions ──
+              const SectionHeader(title: 'Transaksi Terakhir'),
+              const SizedBox(height: AppSpacing.sm),
+              ...recent.map((bill) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                   child: AppCard(
                     padding: const EdgeInsets.all(AppSpacing.base),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.receipt_long_outlined,
-                              size: 18,
-                              color: AppColors.accent,
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: Text(
-                                typeName,
-                                style: theme.textTheme.titleMedium?.copyWith(
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: _statusColorWithBackground(
+                            bill.status,
+                            isDark,
+                          ),
+                          child: Icon(
+                            bill.status == IuranStatus.lunas
+                                ? Icons.check_circle
+                                : bill.status == IuranStatus.sebagian
+                                ? Icons.star_border
+                                : Icons.circle_outlined,
+                            size: 18,
+                            color: _statusColorForIcon(bill.status, isDark),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                bill.householdName,
+                                style: theme.textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.w600,
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            Text(
-                              '$rate%',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                color: AppColors.accent,
-                                fontWeight: FontWeight.bold,
+                              const SizedBox(height: 2),
+                              Text(
+                                '${bill.iuranType} — ${bill.periode}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: isDark
+                                      ? AppColors.darkTextMuted
+                                      : AppColors.lightTextMuted,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: AppSpacing.sm),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              'Tagihan: ${formatRupiah(typeTotal)}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
+                              formatRupiah(
+                                bill.paidAmount > 0
+                                    ? bill.paidAmount
+                                    : bill.nominal,
+                              ),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: bill.status == IuranStatus.lunas
+                                    ? AppColors.success
+                                    : AppColors.warning,
                               ),
                             ),
-                            Text(
-                              'Dibayar: ${formatRupiah(typePaid)}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: AppColors.success,
-                                fontWeight: FontWeight.w600,
+                            const SizedBox(height: 2),
+                            AppBadge(
+                              label: getStatusLabel(bill.status),
+                              textColor: _statusColorForIcon(
+                                bill.status,
+                                isDark,
+                              ),
+                              backgroundColor: _statusColorWithBackground(
+                                bill.status,
+                                isDark,
                               ),
                             ),
                           ],
@@ -348,102 +438,12 @@ class IuranReportScreen extends ConsumerWidget {
                   ),
                 );
               }),
+
+              const SizedBox(height: AppSpacing.xxl),
             ],
-
-            const SizedBox(height: AppSpacing.lg),
-
-            // ── Recent Transactions ──
-            const SectionHeader(title: 'Transaksi Terakhir'),
-            const SizedBox(height: AppSpacing.sm),
-            ...recent.map((bill) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: AppCard(
-                  padding: const EdgeInsets.all(AppSpacing.base),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 18,
-                        backgroundColor: _statusColorWithBackground(
-                          bill.status,
-                          isDark,
-                        ),
-                        child: Icon(
-                          bill.status == IuranStatus.lunas
-                              ? Icons.check_circle
-                              : bill.status == IuranStatus.sebagian
-                                  ? Icons.star_border
-                                  : Icons.circle_outlined,
-                          size: 18,
-                          color: _statusColorForIcon(bill.status, isDark),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              bill.householdName,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${bill.iuranType} — ${bill.periode}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            formatRupiah(bill.paidAmount > 0
-                                ? bill.paidAmount
-                                : bill.nominal),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: bill.status == IuranStatus.lunas
-                                  ? AppColors.success
-                                  : AppColors.warning,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          AppBadge(
-                            label: getStatusLabel(bill.status),
-                            textColor: _statusColorForIcon(
-                              bill.status,
-                              isDark,
-                            ),
-                            backgroundColor: _statusColorWithBackground(
-                              bill.status,
-                              isDark,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-
-            const SizedBox(height: AppSpacing.xxl),
-          ],
+          ),
         ),
       ),
-    ),
     );
   }
 

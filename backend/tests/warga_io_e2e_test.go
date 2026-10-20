@@ -26,9 +26,9 @@ func TestWargaIO_E2E(t *testing.T) {
 	nik1 := fmt.Sprintf("317101%010d", nowNano%10000000000)
 	nik2 := fmt.Sprintf("317102%010d", (nowNano+1)%10000000000)
 
-	csvValid := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-%s,Bambang Pamungkas,OWNER,Jl. Melati E2E,Bambang Pamungkas,%s,0812111111,bambang@test.com,HEAD
-%s,Bambang Pamungkas,OWNER,Jl. Melati E2E,Tribun Pamungkas,%s,0812111112,tribun@test.com,CHILD
+	csvValid := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+%s,Bambang Pamungkas,OWNER,Jl. Melati E2E,Bambang Pamungkas,%s,0812111111,bambang@test.com
+%s,Bambang Pamungkas,OWNER,Jl. Melati E2E,Tribun Pamungkas,%s,0812111112,tribun@test.com
 `, house1, nik1, house1, nik2)
 
 	// Scenario 1: Role authorization - Warga cannot import
@@ -72,8 +72,8 @@ func TestWargaIO_E2E(t *testing.T) {
 
 	// Scenario 3: Validation Error Report on invalid CSV
 	t.Run("Pengurus preview invalid CSV returns error report", func(t *testing.T) {
-		csvInvalid := `house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-,,INVALID_STATUS,,0812,,0812,,HEAD
+		csvInvalid := `house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+,,INVALID_STATUS,,0812,,0812,
 `
 		req, _ := http.NewRequest(http.MethodPost, baseURL+"/api/v1/warga/import/preview", strings.NewReader(csvInvalid))
 		req.Header.Set("Authorization", "Bearer "+tokenPengurus)

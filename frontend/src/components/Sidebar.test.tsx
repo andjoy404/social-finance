@@ -110,19 +110,19 @@ describe('Sidebar — AndJoy visual language', () => {
     expect(screen.getByText('Warga')).toBeInTheDocument()
   })
 
-  it('renders ApartmentOutlined icon for RT route when SuperAdmin', () => {
+  it('renders Kelola RT link for SuperAdmin', () => {
     renderSidebar(mockSuperAdminUser)
-    expect(screen.getByText('RT')).toBeInTheDocument()
+    expect(screen.getByText('Kelola RT')).toBeInTheDocument()
   })
 
-  it('does not show RT route for warga', () => {
+  it('does not show SuperAdmin links for warga', () => {
     renderSidebar(mockWargaUser)
-    expect(screen.queryByText('RT')).not.toBeInTheDocument()
+    expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
   })
 
-  it('does not show RT route for pengurus', () => {
+  it('does not show SuperAdmin links for pengurus', () => {
     renderSidebar(mockPengurusUser)
-    expect(screen.queryByText('RT')).not.toBeInTheDocument()
+    expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
   })
 })
 
@@ -212,12 +212,12 @@ describe('Sidebar — navigation items', () => {
     expect(buttons.length).toBe(1) // pin toggle
   })
 
-  it('has exactly 5 nav items for SuperAdmin: Beranda, Warga, Iuran, KAS, RT', () => {
+  it('has exactly 6 nav items for SuperAdmin: Beranda, Warga, Iuran, KAS, Kelola RT, Kelola RW', () => {
     renderSidebar(mockSuperAdminUser)
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(5) // Beranda, Warga, Iuran, KAS, RT
+    expect(links.length).toBe(6) // Beranda, Warga, Iuran, KAS, Kelola RT, Kelola RW
     expect(buttons.length).toBe(1) // pin toggle
   })
 
@@ -301,7 +301,7 @@ describe('Sidebar — active route detection', () => {
     expect(wargaLink).toHaveClass('nav-item-active')
   })
 
-  it('marks /rt as active when on RT detail page for SuperAdmin', () => {
+  it('marks /rt as active for SuperAdmin', () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
       user: mockSuperAdminUser,
       isAuthenticated: true,
@@ -310,13 +310,30 @@ describe('Sidebar — active route detection', () => {
       logout: () => {},
     })
     render(
-      <MemoryRouter initialEntries={['/rt/rt-1']}>
+      <MemoryRouter initialEntries={['/rt'] }>
         <Sidebar />
       </MemoryRouter>,
     )
-    const rtLink = screen.getAllByRole('link').find(l => l.textContent?.includes('RT'))
+    const rtLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Kelola RT'))
     expect(rtLink).toHaveClass('nav-item-active')
   })
+  it('marks /rw as active for SuperAdmin', () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: mockSuperAdminUser,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    render(
+      <MemoryRouter initialEntries={['/rw']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+    const rwLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Kelola RW'))
+    expect(rwLink).toHaveClass('nav-item-active')
+  })
+
 })
 
 describe('Sidebar — layout classes', () => {

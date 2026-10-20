@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dio/dio.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
-import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
 import 'package:social_finance/features/warga/data/warga_repository.dart';
@@ -59,8 +58,6 @@ void main() {
         name: 'Test Resident',
         nik: '3201012304750001',
         houseNumber: 'A1',
-        isHeadOfHousehold: true,
-        relationship: 'Kepala Keluarga',
       );
 
       expect(resident.maskedNik, equals('320101******0001'));
@@ -72,8 +69,6 @@ void main() {
         name: 'Test Short',
         nik: '12345',
         houseNumber: 'A2',
-        isHeadOfHousehold: false,
-        relationship: 'Anak',
       );
 
       expect(resident.maskedNik, equals('***'));
@@ -85,8 +80,6 @@ void main() {
         name: 'Test Null NIK',
         nik: null,
         houseNumber: 'A3',
-        isHeadOfHousehold: false,
-        relationship: '',
       );
 
       expect(resident.maskedNik, equals('***'));
@@ -96,8 +89,6 @@ void main() {
       const resident = MappedResident(
         id: 'res-4',
         name: 'Dedi Kurniawan',
-        isHeadOfHousehold: true,
-        relationship: 'Kepala Keluarga',
         rtNumber: '03',
         rw: 16,
         rtName: 'Wisma Rukun Tunggal',
@@ -113,8 +104,6 @@ void main() {
       const residentPartial = MappedResident(
         id: 'res-5',
         name: 'Test Partial',
-        isHeadOfHousehold: false,
-        relationship: 'Anak',
         rtNumber: '03',
         rw: 16,
       );
@@ -123,8 +112,6 @@ void main() {
       const residentEmpty = MappedResident(
         id: 'res-6',
         name: 'Test Empty',
-        isHeadOfHousehold: false,
-        relationship: 'Anak',
       );
       expect(residentEmpty.formattedRtRw, isNull);
     });
@@ -140,7 +127,6 @@ void main() {
         'phone': '+6281234567890',
         'nik': '3201012304750001',
         'email': 'budi@example.com',
-        'relationship_to_head': 'HEAD',
         'is_active': true,
         'created_at': '2024-01-01T00:00:00Z',
         'updated_at': '2024-01-01T00:00:00Z',
@@ -154,7 +140,6 @@ void main() {
       expect(resident.id, equals('uuid-1'));
       expect(resident.fullName, equals('Budi Santoso'));
       expect(resident.nik, equals('3201012304750001'));
-      expect(resident.relationshipToHead, equals('HEAD'));
       expect(resident.householdId, equals('hh-uuid-1'));
       expect(resident.rtNumber, equals('03'));
       expect(resident.rw, equals(16));
@@ -170,7 +155,6 @@ void main() {
         'phone': null,
         'nik': null,
         'email': null,
-        'relationship_to_head': null,
         'is_active': true,
       };
 
@@ -179,7 +163,6 @@ void main() {
       expect(resident.nik, isNull);
       expect(resident.phone, isNull);
       expect(resident.householdId, isNull);
-      expect(resident.relationshipToHead, isNull);
     });
   });
 
@@ -217,100 +200,6 @@ void main() {
 
       expect(household.houseNumber, isNull);
       expect(household.occupancyStatus, isNull);
-    });
-  });
-
-  group('MappedResident Mapping', () {
-    test('maps HEAD relationship correctly', () {
-      const resident = BackendResident(
-        id: 'r1',
-        rtId: 'rt1',
-        householdId: 'hh1',
-        fullName: 'Budi',
-        relationshipToHead: 'HEAD',
-        isActive: true,
-      );
-      const household = BackendHousehold(
-        id: 'hh1',
-        rtId: 'rt1',
-        houseNumber: 'Blok A No. 1',
-        headName: 'Budi',
-        occupancyStatus: 'OWNER',
-        isActive: true,
-      );
-
-      final mapped = MappedResident.fromBackend(resident, household);
-
-      expect(mapped.isHeadOfHousehold, isTrue);
-      expect(mapped.relationship, equals('HEAD'));
-      expect(mapped.houseNumber, equals('Blok A No. 1'));
-      expect(mapped.occupancyStatus, equals('Pemilik'));
-    });
-
-    test('maps non-HEAD relationship correctly', () {
-      const resident = BackendResident(
-        id: 'r2',
-        rtId: 'rt1',
-        householdId: 'hh1',
-        fullName: 'Siti',
-        relationshipToHead: 'Istri',
-        isActive: true,
-      );
-      const household = BackendHousehold(
-        id: 'hh1',
-        rtId: 'rt1',
-        houseNumber: 'Blok A No. 1',
-        headName: 'Budi',
-        occupancyStatus: 'TENANT',
-        isActive: true,
-      );
-
-      final mapped = MappedResident.fromBackend(resident, household);
-
-      expect(mapped.isHeadOfHousehold, isFalse);
-      expect(mapped.relationship, equals('Istri'));
-      expect(mapped.occupancyStatus, equals('Penyewa'));
-    });
-
-    test('handles null household gracefully', () {
-      const resident = BackendResident(
-        id: 'r3',
-        rtId: 'rt1',
-        householdId: null,
-        fullName: 'Test User',
-        relationshipToHead: null,
-        isActive: true,
-      );
-
-      final mapped = MappedResident.fromBackend(resident, null);
-
-      expect(mapped.houseNumber, equals(''));
-      expect(mapped.isHeadOfHousehold, isFalse);
-      expect(mapped.relationship, equals(''));
-      expect(mapped.occupancyStatus, isNull);
-    });
-
-    test('handles TENANT occupancy status', () {
-      const resident = BackendResident(
-        id: 'r4',
-        rtId: 'rt1',
-        householdId: 'hh2',
-        fullName: 'Ahmad',
-        relationshipToHead: 'Anak',
-        isActive: true,
-      );
-      const household = BackendHousehold(
-        id: 'hh2',
-        rtId: 'rt1',
-        houseNumber: 'Blok B No. 5',
-        headName: 'Test',
-        occupancyStatus: 'TENANT',
-        isActive: true,
-      );
-
-      final mapped = MappedResident.fromBackend(resident, household);
-
-      expect(mapped.occupancyStatus, equals('Penyewa'));
     });
   });
 
@@ -354,8 +243,8 @@ void main() {
 
     test('filters by name', () {
       const residents = [
-        MappedResident(id: 'r1', name: 'Bambang Sutrisno', houseNumber: 'A1', isHeadOfHousehold: true, relationship: 'Kepala Keluarga'),
-        MappedResident(id: 'r2', name: 'Siti Aminah', houseNumber: 'A2', isHeadOfHousehold: false, relationship: 'Istri'),
+        MappedResident(id: 'r1', name: 'Bambang Sutrisno', houseNumber: 'A1'),
+        MappedResident(id: 'r2', name: 'Siti Aminah', houseNumber: 'A2'),
       ];
 
       final filtered = residents.where((r) => matches(r, 'bambang')).toList();
@@ -366,8 +255,8 @@ void main() {
 
     test('filters by NIK substring', () {
       const residents = [
-        MappedResident(id: 'r1', name: 'Bambang', nik: '3201012304750001', houseNumber: 'A1', isHeadOfHousehold: true, relationship: 'Kepala Keluarga'),
-        MappedResident(id: 'r2', name: 'Siti', nik: '3201015508780002', houseNumber: 'A2', isHeadOfHousehold: false, relationship: 'Istri'),
+        MappedResident(id: 'r1', name: 'Bambang', nik: '3201012304750001', houseNumber: 'A1'),
+        MappedResident(id: 'r2', name: 'Siti', nik: '3201015508780002', houseNumber: 'A2'),
       ];
 
       final filtered = residents.where((r) => matches(r, '0006')).toList();
@@ -377,8 +266,8 @@ void main() {
 
     test('filters by house number', () {
       const residents = [
-        MappedResident(id: 'r1', name: 'Bambang', houseNumber: 'Blok A1 No. 12', isHeadOfHousehold: true, relationship: 'Kepala Keluarga'),
-        MappedResident(id: 'r3', name: 'Dimas', houseNumber: 'Blok B2 No. 05', isHeadOfHousehold: true, relationship: 'Kepala Keluarga'),
+        MappedResident(id: 'r1', name: 'Bambang', houseNumber: 'Blok A1 No. 12'),
+        MappedResident(id: 'r3', name: 'Dimas', houseNumber: 'Blok B2 No. 05'),
       ];
 
       final filtered = residents.where((r) => matches(r, 'b2')).toList();
@@ -389,8 +278,8 @@ void main() {
 
     test('empty query returns all residents', () {
       const residents = [
-        MappedResident(id: 'r1', name: 'Bambang', houseNumber: 'A1', isHeadOfHousehold: true, relationship: 'Kepala Keluarga'),
-        MappedResident(id: 'r2', name: 'Siti', houseNumber: 'A2', isHeadOfHousehold: false, relationship: 'Istri'),
+        MappedResident(id: 'r1', name: 'Bambang', houseNumber: 'A1'),
+        MappedResident(id: 'r2', name: 'Siti', houseNumber: 'A2'),
       ];
 
       final query = ''.trim().toLowerCase();
@@ -401,7 +290,7 @@ void main() {
 
     test('no match returns empty list', () {
       const residents = [
-        MappedResident(id: 'r1', name: 'Test User', houseNumber: 'A1', isHeadOfHousehold: true, relationship: 'Kepala Keluarga'),
+        MappedResident(id: 'r1', name: 'Test User', houseNumber: 'A1'),
       ];
 
       final filtered = residents.where((r) => matches(r, 'NonExistentPerson')).toList();
@@ -437,8 +326,6 @@ void main() {
           name: 'Bambang Sutrisno',
           nik: '3201012304750001',
           houseNumber: 'Blok A1 No. 12',
-          isHeadOfHousehold: true,
-          relationship: 'Kepala Keluarga',
           phoneNumber: '081234567890',
           occupancyStatus: 'Pemilik',
           rtNumber: '03',
@@ -552,62 +439,11 @@ void main() {
     });
   });
 
-  group('Relationship Badge Color', () {
-    test('Kepala Keluarga has accent color', () {
-      const resident = MappedResident(
-        id: 'r1',
-        name: 'Bapak',
-        houseNumber: 'A1',
-        isHeadOfHousehold: true,
-        relationship: 'HEAD',
-      );
-      expect(resident.displayRelationship, equals('Kepala Keluarga'));
-      expect(resident.relationshipColor, AppColors.accent);
-    });
-
-    test('Keluarga has accent color', () {
-      const resident = MappedResident(
-        id: 'r2',
-        name: 'Ibu',
-        houseNumber: 'A1',
-        isHeadOfHousehold: false,
-        relationship: 'SPOUSE',
-      );
-      expect(resident.displayRelationship, equals('Keluarga'));
-      expect(resident.relationshipColor, AppColors.accent);
-    });
-
-    test('Kerabat has accent color', () {
-      const resident = MappedResident(
-        id: 'r3',
-        name: 'Anak',
-        houseNumber: 'A1',
-        isHeadOfHousehold: false,
-        relationship: 'CHILD',
-      );
-      expect(resident.displayRelationship, equals('Kerabat'));
-      expect(resident.relationshipColor, AppColors.accent);
-    });
-
-    test('Unknown relationship defaults to accent', () {
-      const resident = MappedResident(
-        id: 'r4',
-        name: 'Tetangga',
-        houseNumber: 'A2',
-        isHeadOfHousehold: false,
-        relationship: '',
-      );
-      expect(resident.relationshipColor, AppColors.accent);
-    });
-  });
-
   group('WargaScreen write action authorization', () {
     const testResident = MappedResident(
       id: 'res-auth-1',
       name: 'Ahmad Dahlan',
       householdId: 'hh-1',
-      isHeadOfHousehold: true,
-      relationship: 'Kepala Keluarga',
     );
 
     testWidgets('hides FAB and edit icon for read-only jabatan (keamanan)', (tester) async {

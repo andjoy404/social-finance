@@ -61,7 +61,10 @@ export function Sidebar() {
   }
 
   if (isSuperAdmin) {
-    items.push({ to: '/rt', label: 'RT', icon: <ApartmentOutlined />, id: 'rt' })
+    items.push(
+      { to: '/rt', label: 'Kelola RT', icon: <ApartmentOutlined />, id: 'rt' },
+      { to: '/rw', label: 'Kelola RW', icon: <ApartmentOutlined />, id: 'rw' },
+    )
   }
 
   return (

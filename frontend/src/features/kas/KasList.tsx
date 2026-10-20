@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { DatePicker } from 'antd'
+import dayjs from 'dayjs'
 import {
   WalletOutlined,
   PlusOutlined,
@@ -83,6 +85,7 @@ export function cleanKasDescription(desc: string): string {
 interface TableRowItem {
   id: string
   rawTx?: ApiTransaction
+  arus?: 'income' | 'expense'
   isIncome?: boolean
   tanggal: string
   keterangan: string
@@ -321,6 +324,7 @@ export function KasList() {
         t.description.toLowerCase().includes(q) ||
         (t.category_name && t.category_name.toLowerCase().includes(q)) ||
         (t.payment_no && t.payment_no.toLowerCase().includes(q)) ||
+        (t.reference_no && t.reference_no.toLowerCase().includes(q)) ||
         (t.citizen_name && t.citizen_name.toLowerCase().includes(q)) ||
         (t.due_name && t.due_name.toLowerCase().includes(q))
       )
@@ -375,12 +379,17 @@ export function KasList() {
     const displayList = [...withBalance].reverse()
 
     displayList.forEach((t) => {
-      const isIncome = t.type === 'income'
+      const arus: 'income' | 'expense' | undefined =
+        t.type === 'income' ? 'income' : t.type === 'expense' ? 'expense' : undefined
+      const isIncome = arus === 'income'
+      const isExpense = arus === 'expense'
       const rawMetode = (t.payment_method || 'CASH').toUpperCase()
       const metode = rawMetode === 'TRANSFER' ? 'Transfer' : 'Tunai'
+      const resolvedRef = t.payment_no || t.reference_no || (t.payment_id ? `PAY-${t.payment_id.slice(0, 8)}` : (t.reverses_transaction_id ? 'Reversal' : '—'))
       rows.push({
         id: t.id,
         rawTx: t,
+        arus,
         isIncome,
         tanggal: formatTanggal(t.occurred_at || t.created_at),
         keterangan: t.description,
@@ -388,14 +397,10 @@ export function KasList() {
         citizenName: t.citizen_name,
         kategori: t.category_name || '—',
         metode,
-        pengurus: (isIncome && Boolean(t.payment_id || t.payment_no || t.due_name)) ? 'Sistem' : (t.officer_name || '—'),
-        referensi: t.payment_no
-          ? t.payment_no
-          : (t.payment_id
-            ? `PAY-${t.payment_id.slice(0, 8)}`
-            : (t.reverses_transaction_id ? 'Reversal' : '—')),
+        pengurus: (isIncome && Boolean(t.payment_id || t.due_name || (t.payment_no && t.payment_no.startsWith('PAY-')))) ? 'Sistem' : (t.officer_name || '—'),
+        referensi: resolvedRef,
         pemasukan: isIncome ? `+Rp ${formatRupiah(t.amount)}` : '—',
-        pengeluaran: !isIncome ? `-Rp ${formatRupiah(t.amount)}` : '—',
+        pengeluaran: isExpense ? `-Rp ${formatRupiah(t.amount)}` : '—',
         saldo: `Rp ${formatRupiah(t.runningBalance)}`,
       })
     })
@@ -538,11 +543,11 @@ export function KasList() {
         {/* Card 5: Saldo Akhir */}
         <div
           style={{
-            background: 'rgba(59, 130, 246, 0.06)',
+            background: 'rgba(169, 112, 255, 0.06)',
             borderRadius: 'var(--sf-radius-md)',
-            border: '1px solid rgba(59, 130, 246, 0.25)',
+            border: '1px solid rgba(169, 112, 255, 0.25)',
             padding: '14px 16px',
-            boxShadow: '0 0 10px rgba(59, 130, 246, 0.06)',
+            boxShadow: '0 0 10px rgba(169, 112, 255, 0.06)',
           }}
         >
           <div style={{ fontSize: 11, color: 'var(--sf-accent)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
@@ -555,7 +560,7 @@ export function KasList() {
       </div>
 
       {/* Toolbar & Filters */}
-      <div className="sf-list-toolbar" style={{ marginTop: 6, marginBottom: 8 }}>
+      <div className="sf-list-toolbar" style={{ marginTop: 0, marginBottom: 0 }}>
         {/* Row 1: Period Navigation & Filters (left), Period Action (right) */}
         <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
           {/* Period navigation */}
@@ -721,9 +726,8 @@ export function KasList() {
           </div>
 
           {canWrite && (
-            <button className="sf-create-btn" onClick={handleCreate}>
-              <PlusOutlined style={{ marginRight: 4, fontSize: 12 }} />
-              Transaksi
+            <button className="sf-create-btn" onClick={handleCreate} aria-label="+ Tambah Transaksi">
+              <PlusOutlined style={{ marginRight: 0, fontSize: 12 }} />
             </button>
           )}
         </div>
@@ -764,22 +768,22 @@ export function KasList() {
                   <th style={{ width: 140, minWidth: 140, textAlign: 'left', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
                     KATEGORI
                   </th>
-                  <th style={{ width: 90, minWidth: 90, textAlign: 'center', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
-                    METODE
+                  <th style={{ width: 130, minWidth: 130, textAlign: 'left', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
+                    REFERENSI
                   </th>
                   <th style={{ width: 130, minWidth: 130, textAlign: 'left', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
                     PENCATAT
                   </th>
-                  <th style={{ width: 130, minWidth: 130, textAlign: 'left', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
-                    REFERENSI
+                  <th style={{ width: 90, minWidth: 90, textAlign: 'center', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
+                    METODE
                   </th>
                   <th style={{ width: 120, minWidth: 120, textAlign: 'left', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
                     ARUS
                   </th>
-                  <th style={{ width: 130, minWidth: 130, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-success)', borderBottom: '1px solid var(--sf-border)', background: 'var(--sf-success-soft)' }}>
+                  <th className="sf-kas-col-income" style={{ width: 130, minWidth: 130, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'color-mix(in srgb, #34c759 85%, var(--sf-text))', borderBottom: '1px solid var(--sf-border)', background: 'var(--sf-kas-income-header-bg)' }}>
                     PEMASUKAN (+)
                   </th>
-                  <th style={{ width: 130, minWidth: 130, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-danger)', borderBottom: '1px solid var(--sf-border)', background: 'var(--sf-danger-soft)' }}>
+                  <th className="sf-kas-col-expense" style={{ width: 130, minWidth: 130, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'color-mix(in srgb, #ff3b30 85%, var(--sf-text))', borderBottom: '1px solid var(--sf-border)', background: 'var(--sf-kas-expense-header-bg)' }}>
                     PENGELUARAN (-)
                   </th>
                   <th style={{ width: 140, minWidth: 140, textAlign: 'right', whiteSpace: 'nowrap', padding: '10px 12px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--sf-text-muted)', borderBottom: '1px solid var(--sf-border)' }}>
@@ -801,9 +805,6 @@ export function KasList() {
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, color: 'var(--sf-text-muted)' }}>
                           —
                         </td>
-                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'center', color: 'var(--sf-text-muted)' }}>
-                          —
-                        </td>
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', color: 'var(--sf-text-muted)' }}>
                           —
                         </td>
@@ -813,10 +814,13 @@ export function KasList() {
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'center', color: 'var(--sf-text-muted)' }}>
                           —
                         </td>
-                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', color: 'var(--sf-text-muted)', background: 'var(--sf-success-soft)' }}>
+                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'center', color: 'var(--sf-text-muted)' }}>
                           —
                         </td>
-                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', color: 'var(--sf-text-muted)', background: 'var(--sf-danger-soft)' }}>
+                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', color: 'var(--sf-text-muted)' }}>
+                          —
+                        </td>
+                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', color: 'var(--sf-text-muted)' }}>
                           —
                         </td>
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-text)', fontWeight: 700 }}>
@@ -853,16 +857,16 @@ export function KasList() {
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, color: 'var(--sf-text)', whiteSpace: 'nowrap' }}>
                         {r.kategori}
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        <Badge variant={r.metode === 'Transfer' ? 'violet' : 'green'}>
-                          {r.metode}
-                        </Badge>
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 12, fontFamily: 'monospace', color: 'var(--sf-text-muted)' }}>
+                        {r.referensi}
                       </td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, color: 'var(--sf-text-muted)', whiteSpace: 'nowrap' }}>
                         {r.pengurus}
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 12, fontFamily: 'monospace', color: 'var(--sf-text-muted)' }}>
-                        {r.referensi}
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <Badge variant={r.metode === 'Transfer' ? 'violet' : 'blue'}>
+                          {r.metode}
+                        </Badge>
                       </td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)' }}>
                         <Badge
@@ -872,10 +876,34 @@ export function KasList() {
                           {r.isIncome ? '↓ Masuk' : '↑ Keluar'}
                         </Badge>
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-success)', fontWeight: 600, background: 'var(--sf-success-soft)' }}>
+                      <td
+                        className={r.arus === 'income' ? 'sf-kas-cell-income' : undefined}
+                        style={{
+                          padding: '10px 12px',
+                          borderBottom: '1px solid var(--sf-border)',
+                          textAlign: 'right',
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          color: r.arus === 'income' ? 'color-mix(in srgb, #34c759 85%, var(--sf-text))' : 'var(--sf-text-muted)',
+                          fontWeight: r.arus === 'income' ? 600 : 400,
+                          background: r.arus === 'income' ? 'var(--sf-kas-income-bg)' : 'transparent',
+                        }}
+                      >
                         {r.pemasukan}
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-danger)', fontWeight: 600, background: 'var(--sf-danger-soft)' }}>
+                      <td
+                        className={r.arus === 'expense' ? 'sf-kas-cell-expense' : undefined}
+                        style={{
+                          padding: '10px 12px',
+                          borderBottom: '1px solid var(--sf-border)',
+                          textAlign: 'right',
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          color: r.arus === 'expense' ? 'color-mix(in srgb, #ff3b30 85%, var(--sf-text))' : 'var(--sf-text-muted)',
+                          fontWeight: r.arus === 'expense' ? 600 : 400,
+                          background: r.arus === 'expense' ? 'var(--sf-kas-expense-bg)' : 'transparent',
+                        }}
+                      >
                         {r.pengeluaran}
                       </td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: 'var(--sf-text)', fontWeight: 600 }}>
@@ -981,7 +1009,7 @@ export function KasList() {
                     Metode Pembayaran
                   </div>
                   <div style={{ fontSize: 14, color: 'var(--sf-text)' }}>
-                    <Badge variant={(selectedTx.payment_method || 'CASH').toUpperCase() === 'TRANSFER' ? 'violet' : 'green'}>
+                    <Badge variant={(selectedTx.payment_method || 'CASH').toUpperCase() === 'TRANSFER' ? 'violet' : 'blue'}>
                       {(selectedTx.payment_method || 'CASH').toUpperCase() === 'TRANSFER' ? 'Transfer' : 'Tunai'}
                     </Badge>
                   </div>
@@ -992,7 +1020,7 @@ export function KasList() {
                     Pencatat
                   </div>
                   <div style={{ fontSize: 14, color: 'var(--sf-text)', fontWeight: 500 }}>
-                    {selectedTx.type === 'income' && (selectedTx.payment_id || selectedTx.payment_no || selectedTx.due_name)
+                    {selectedTx.type === 'income' && (selectedTx.payment_id || selectedTx.due_name || (selectedTx.payment_no && selectedTx.payment_no.startsWith('PAY-')))
                       ? 'Sistem'
                       : (selectedTx.officer_name || '—')}
                   </div>
@@ -1003,7 +1031,7 @@ export function KasList() {
                     Referensi
                   </div>
                   <div style={{ fontSize: 13, fontFamily: 'monospace', color: 'var(--sf-text-muted)' }}>
-                    {selectedTx.payment_no || (selectedTx.payment_id ? `PAY-${selectedTx.payment_id.slice(0, 8)}` : (selectedTx.reverses_transaction_id ? 'Reversal' : '—'))}
+                    {selectedTx.payment_no || selectedTx.reference_no || (selectedTx.payment_id ? `PAY-${selectedTx.payment_id.slice(0, 8)}` : (selectedTx.reverses_transaction_id ? 'Reversal' : '—'))}
                   </div>
                 </div>
 
@@ -1296,13 +1324,16 @@ export function KasList() {
                   <label className="sf-form-label" htmlFor="edit-tanggal">
                     Tanggal <span style={{ color: 'var(--sf-danger)' }}>*</span>
                   </label>
-                  <input
+                  <DatePicker
                     id="edit-tanggal"
-                    type="date"
-                    className="sf-form-input"
-                    value={editDate}
-                    onChange={(e) => setEditDate(e.target.value)}
-                    required
+                    picker="date"
+                    value={editDate ? dayjs(editDate) : null}
+                    onChange={(date) => setEditDate(date?.format('YYYY-MM-DD') || '')}
+                    allowClear={false}
+                    placeholder="DD/MM/YYYY"
+                    format="DD/MM/YYYY"
+                    disabled={savingEdit}
+                    style={{ width: '100%' }}
                   />
                 </div>
 

@@ -9,10 +9,10 @@ import (
 // ErrInvalidPassword is returned when a password does not match the stored hash.
 var ErrInvalidPassword = fmt.Errorf("invalid password")
 
-// Password policy: minimum 12, maximum 128 characters.
+// Password policy: minimum 8, maximum 128 characters.
 // No complexity requirements -- length is the primary defense.
 const (
-	MinPasswordLength = 12
+	MinPasswordLength = 8
 	MaxPasswordLength = 128
 )
 

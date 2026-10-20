@@ -88,6 +88,22 @@ class MenuAppBarTitle extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: Image.asset(
+            'assets/images/logo.png',
+            key: const Key('app-header-logo'),
+            width: 26,
+            height: 26,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) => Icon(
+              Icons.account_balance_wallet,
+              size: 22,
+              color: AppColors.accent,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
         Text(
           title.toUpperCase(),
           style: TextStyle(

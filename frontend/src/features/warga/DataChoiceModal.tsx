@@ -45,7 +45,7 @@ export function DataChoiceModal({ open, onClose }: DataChoiceProps) {
             <div className="dc-choice-content">
               <div className="dc-choice-title">Warga</div>
               <div className="dc-choice-description">
-                Tambah anggota keluarga ke rumah tangga
+                Tambah warga baru ke rumah tangga
               </div>
             </div>
           </button>

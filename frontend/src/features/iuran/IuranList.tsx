@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   DollarOutlined,
-  PlusOutlined,
   CloseOutlined,
   DownOutlined,
   AlertOutlined,
+  PlusOutlined,
 } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
@@ -735,15 +735,15 @@ export function IuranList() {
 
           {/* Create Due and Waste Truck buttons */}
           <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            {/* "Tambah Iuran" only shown in "Kelola Iuran" tab */}
+            {/* "+ Iuran" only shown in "Kelola Iuran" tab */}
             {activeTab === 'kelola-iuran' && (
               <button
                 type="button"
-                className="sf-btn-primary"
+                className="sf-create-btn"
                 onClick={() => setShowCreateDue(true)}
+                aria-label="+ Iuran"
               >
-                <PlusOutlined style={{ marginRight: 4, fontSize: 12 }} />
-                Tambah Iuran
+                <PlusOutlined style={{ marginRight: 0, fontSize: 12 }} />
               </button>
             )}
             {/* "Truk Sampah Tiba" always visible in "List Iuran" tab */}

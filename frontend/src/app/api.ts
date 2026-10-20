@@ -10,6 +10,7 @@ export interface ApiUser {
   id: string
   full_name: string
   email: string
+  phone?: string | null
   system_role?: string
   role: string
   jabatan?: string | null
@@ -18,6 +19,8 @@ export interface ApiUser {
   rt_name?: string
   rt_rw?: number
   rt_rt?: string
+  rw_id?: string
+  rw_name?: string
 }
 
 export interface ApiRefreshResponse {
@@ -25,9 +28,34 @@ export interface ApiRefreshResponse {
   refresh_token: string
 }
 
+export interface ApiRW {
+  id: string
+  rw_number: number
+  name: string
+  address: string | null
+  head_name: string | null
+  is_active: boolean
+  rt_count?: number
+  active_rt_count?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiRWPaginated {
+  data: ApiRW[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+}
+
 export interface ApiRT {
   id: string
   name: string
+  rw_id?: string | null
+  rw_name?: string | null
   rw: number
   rt: string
   address: string | null
@@ -115,11 +143,16 @@ export function setTokenManager(
 
 let refreshPromise: Promise<void> | null = null
 
-export async function apiLogin(email: string, password: string): Promise<ApiAuthResponse> {
+export async function apiLogin(identifier: string, password: string): Promise<ApiAuthResponse> {
+  const trimmed = identifier.trim()
+  const payload: Record<string, string> = trimmed.includes('@')
+    ? { email: trimmed, password }
+    : { phone: trimmed, password }
+
   const res = await fetch(BASE + '/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(payload),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
   const data = await json<ApiAuthResponse>(res)
@@ -128,6 +161,51 @@ export async function apiLogin(email: string, password: string): Promise<ApiAuth
     throw new ApiError(body?.code ?? 'unexpected', body?.message ?? 'Login failed')
   }
   return data
+}
+
+export interface ApiUpdateProfileBody {
+  full_name: string
+  phone?: string
+  email?: string
+}
+
+export async function apiUpdateProfile(accessToken: string, body: ApiUpdateProfileBody): Promise<ApiUser> {
+  const res = await fetch(BASE + '/auth/profile', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiUser>(res)
+  if (!res.ok || !data) {
+    const errBody = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(errBody?.code ?? 'unexpected', errBody?.message ?? 'Gagal memperbarui profil')
+  }
+  return data
+}
+
+export interface ApiChangePasswordBody {
+  current_password: string
+  new_password: string
+}
+
+export async function apiChangePassword(accessToken: string, body: ApiChangePasswordBody): Promise<void> {
+  const res = await fetch(BASE + '/auth/password', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const errBody = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(errBody?.code ?? 'unexpected', errBody?.message ?? 'Gagal mengubah kata sandi')
+  }
 }
 
 export async function apiLogout(accessToken: string): Promise<void> {
@@ -180,7 +258,18 @@ async function authenticatedApiRequest(
   url: string,
   opts: RequestInit,
 ): Promise<Response> {
-  let currentRes = await fetch(url, opts)
+  const method = (opts.method || 'GET').toUpperCase()
+  const isGet = method === 'GET'
+  const headers: Record<string, string> = {
+    ...(opts.headers as Record<string, string> || {}),
+    ...(isGet ? { 'Cache-Control': 'no-store', Pragma: 'no-cache', Expires: '0' } : {}),
+  }
+  const fetchOpts: RequestInit = {
+    ...opts,
+    ...(isGet ? { cache: 'no-store' } : {}),
+    headers,
+  }
+  let currentRes = await fetch(url, fetchOpts)
   let attempts = 0
 
   while (currentRes.status === 401 && attempts < 1) {
@@ -205,10 +294,10 @@ async function authenticatedApiRequest(
       throw new ApiError('auth_expired', 'Session expired')
     }
     const retryHeaders: Record<string, string> = {
-      ...(opts.headers as Record<string, string> || {}),
+      ...headers,
     }
     retryHeaders['Authorization'] = `Bearer ${token}`
-    const retryOpts: RequestInit = { ...opts, headers: retryHeaders as HeadersInit }
+    const retryOpts: RequestInit = { ...fetchOpts, headers: retryHeaders as HeadersInit }
     currentRes = await fetch(url, retryOpts)
   }
 
@@ -241,12 +330,13 @@ export async function apiMe(token: string): Promise<ApiUser> {
 
 export async function apiListRTs(
   token: string,
-  params: { page?: number; page_size?: number; is_active?: boolean; search?: string },
+  params: { page?: number; page_size?: number; is_active?: boolean; search?: string; rw_id?: string },
 ): Promise<ApiRTPaginated> {
   const q = new URLSearchParams()
   if (params.page != null) q.set('page', String(params.page))
   if (params.page_size != null) q.set('page_size', String(params.page_size))
   if (params.search != null) q.set('search', params.search)
+  if (params.rw_id != null && params.rw_id !== '') q.set('rw_id', params.rw_id)
   if (!('is_active' in params)) q.set('is_active', 'all')
   else if (params.is_active) q.set('is_active', 'true')
   else q.set('is_active', 'false')
@@ -258,6 +348,158 @@ export async function apiListRTs(
   const data = await json<ApiRTPaginated>(res)
   if (!data) throw new ApiError('unexpected', 'Response data missing')
   return data
+}
+
+export interface ApiCreateRWBody {
+  rw_number: number
+  name?: string
+  address?: string | null
+  head_name?: string | null
+}
+
+export interface ApiUpdateRWBody {
+  rw_number?: number
+  name?: string
+  address?: string | null
+  head_name?: string | null
+  is_active?: boolean
+}
+
+export async function apiListRWs(
+  token: string,
+  params?: { page?: number; page_size?: number; is_active?: boolean; search?: string },
+): Promise<ApiRWPaginated> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  if (params?.search != null) q.set('search', params.search)
+  if (!params || !('is_active' in params) || params.is_active === undefined) q.set('is_active', 'all')
+  else if (params.is_active) q.set('is_active', 'true')
+  else q.set('is_active', 'false')
+  const res = await authenticatedApiRequest(BASE + '/rws?' + q.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiRWPaginated>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetRW(token: string, id: string): Promise<ApiRW> {
+  const res = await authenticatedApiRequest(BASE + '/rws/' + id, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiRW>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateRW(token: string, body: ApiCreateRWBody): Promise<ApiRW> {
+  const res = await authenticatedApiRequest(BASE + '/rws', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiRW>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiUpdateRW(token: string, id: string, body: ApiUpdateRWBody): Promise<ApiRW> {
+  const res = await authenticatedApiRequest(BASE + '/rws/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiRW>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiDeactivateRW(token: string, id: string): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + '/rws/' + id + '/deactivate', {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (res.status !== 204 && !res.ok) {
+    const body = await json<ApiError>(res).catch(() => null)
+    if (body?.code) throw new ApiError(body.code, body.message)
+    throw new ApiError('unexpected', 'Unexpected response')
+  }
+}
+
+export interface ApiRTMembership {
+  membership_id: string
+  user_id: string
+  full_name: string
+  email?: string | null
+  phone?: string | null
+  role: string
+  jabatan?: string | null
+  is_active: boolean
+}
+
+export async function apiListRTMemberships(token: string, rtId: string): Promise<ApiRTMembership[]> {
+  const res = await authenticatedApiRequest(BASE + `/rts/${encodeURIComponent(rtId)}/memberships`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } })
+  const body = await json<{ data: ApiRTMembership[] }>(res)
+  if (!body || !Array.isArray(body.data)) throw new ApiError('unexpected', 'Response data missing')
+  return body.data
+}
+
+export async function apiSetRTJabatan(token: string, rtId: string, userId: string, jabatan: string): Promise<ApiRTMembership> {
+  const res = await authenticatedApiRequest(BASE + `/rts/${encodeURIComponent(rtId)}/memberships/${encodeURIComponent(userId)}/jabatan`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ jabatan }),
+  })
+  const body = await json<ApiRTMembership>(res)
+  if (!body) throw new ApiError('unexpected', 'Response data missing')
+  return body
+}
+
+export async function apiRemoveRTJabatan(token: string, rtId: string, userId: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/rts/${encodeURIComponent(rtId)}/memberships/${encodeURIComponent(userId)}/jabatan`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export interface ApiRWMembership {
+  membership_id: string
+  user_id: string
+  full_name: string
+  email?: string | null
+  phone?: string | null
+  role: string
+  jabatan?: string | null
+  rt_id?: string | null
+  rt_name?: string | null
+  is_active: boolean
+}
+
+export async function apiListRWMemberships(token: string, rwId: string): Promise<ApiRWMembership[]> {
+  const res = await authenticatedApiRequest(BASE + `/rws/${encodeURIComponent(rwId)}/memberships`, { method: 'GET', headers: { Authorization: `Bearer ${token}` } })
+  const body = await json<{ data: ApiRWMembership[] }>(res)
+  if (!body || !Array.isArray(body.data)) throw new ApiError('unexpected', 'Response data missing')
+  return body.data
+}
+
+export async function apiSetRWJabatan(token: string, rwId: string, userId: string, rtId: string, jabatan: string): Promise<ApiRWMembership> {
+  const res = await authenticatedApiRequest(BASE + `/rws/${encodeURIComponent(rwId)}/memberships/${encodeURIComponent(userId)}/jabatan`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ jabatan, rt_id: rtId }),
+  })
+  const body = await json<ApiRWMembership>(res)
+  if (!body) throw new ApiError('unexpected', 'Response data missing')
+  return body
+}
+
+export async function apiRemoveRWJabatan(token: string, rwId: string, userId: string): Promise<void> {
+  await authenticatedApiRequest(BASE + `/rws/${encodeURIComponent(rwId)}/memberships/${encodeURIComponent(userId)}/jabatan`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+  })
 }
 
 export async function apiGetRT(token: string, id: string): Promise<ApiRT> {
@@ -273,6 +515,7 @@ export async function apiGetRT(token: string, id: string): Promise<ApiRT> {
 
 export interface ApiCreateRTBody {
   name: string
+  rw_id?: string | null
   rw: number
   rt: string
   address?: string | null
@@ -281,6 +524,7 @@ export interface ApiCreateRTBody {
 
 export interface ApiUpdateRTBody {
   name?: string
+  rw_id?: string | null
   rw?: number
   rt?: string
   address?: string | null
@@ -383,6 +627,7 @@ export interface ApiCreateHouseholdBody {
   start_date?: string
   rt_id?: string
   is_active?: boolean
+  password?: string
 }
 
 export interface ApiUpdateHouseholdBody {
@@ -395,6 +640,7 @@ export interface ApiUpdateHouseholdBody {
   occupancy_status?: 'OWNER' | 'TENANT'
   start_date?: string
   is_active?: boolean
+  password?: string
 }
 
 export interface ApiMoveHouseholdBody {
@@ -498,7 +744,6 @@ export interface ApiResident {
   nik?: string | null
   phone: string | null
   email?: string | null
-  relationship_to_head: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -518,8 +763,8 @@ export interface ApiCreateResidentBody {
   nik: string
   phone?: string | null
   email?: string | null
-  relationship_to_head?: string | null
   start_date?: string
+  password?: string
 }
 
 export interface ApiUpdateResidentBody {
@@ -527,14 +772,13 @@ export interface ApiUpdateResidentBody {
   nik?: string
   phone?: string | null
   email?: string | null
-  relationship_to_head?: string | null
   is_active?: boolean
+  password?: string
 }
 
 export interface ApiMoveResidentBody {
   destination_household_id: string
   start_date: string
-  relationship_to_head?: string | null
 }
 
 export interface ApiListResidentsParams {
@@ -543,6 +787,7 @@ export interface ApiListResidentsParams {
   is_active?: boolean
   search?: string
   household_id?: string
+  signal?: AbortSignal
 }
 
 export async function listResidents(token: string, params: ApiListResidentsParams): Promise<ApiPaginated<ApiResident>> {
@@ -555,7 +800,7 @@ export async function listResidents(token: string, params: ApiListResidentsParam
   const res = await authenticatedApiRequest(BASE + '/residents?' + q.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
-    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    signal: params.signal ?? (typeof AbortSignal !== 'undefined' ? AbortSignal.timeout(TIMEOUT_MS) : undefined),
   })
   const data = await json<ApiPaginated<ApiResident>>(res)
   if (!data) throw new ApiError('unexpected', 'Response data missing')
@@ -1209,6 +1454,7 @@ export interface ApiTransaction {
   updated_at: string
   category_name?: string | null
   payment_no?: string | null
+  reference_no?: string | null
   payment_method?: 'CASH' | 'TRANSFER' | string | null
   house_number?: string | null
 }
@@ -1384,12 +1630,20 @@ export interface ApiDashboardChartPoint {
   expense: number
 }
 
+export interface ApiDashboardPaymentMethodBreakdown {
+  cash_amount: string
+  transfer_amount: string
+  cash_count: number
+  transfer_count: number
+}
+
 export interface ApiDashboardSummary {
   balance: string
   monthly_income: string
   monthly_expense: string
   net_movement: string
   dues_progress: ApiDashboardDuesProgress
+  payment_method_breakdown?: ApiDashboardPaymentMethodBreakdown
   chart: ApiDashboardChartPoint[]
   recent_transactions: ApiTransaction[]
 }
@@ -1425,7 +1679,6 @@ export interface ApiWargaImportRowData {
   nik: string
   phone: string
   email: string
-  relationship_to_head: string
 }
 
 export interface ApiWargaImportPreviewResponse {

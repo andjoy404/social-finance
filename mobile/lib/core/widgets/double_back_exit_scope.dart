@@ -60,8 +60,13 @@ void showExitAppSnackBar(BuildContext context) {
 /// 3. Back press after > 2 seconds: treated as first back press again (re-shows SnackBar).
 class DoubleBackExitScope extends StatefulWidget {
   final Widget child;
+  final bool allowPop;
 
-  const DoubleBackExitScope({super.key, required this.child});
+  const DoubleBackExitScope({
+    super.key,
+    required this.child,
+    this.allowPop = false,
+  });
 
   @override
   State<DoubleBackExitScope> createState() => _DoubleBackExitScopeState();
@@ -73,7 +78,7 @@ class _DoubleBackExitScopeState extends State<DoubleBackExitScope> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false,
+      canPop: widget.allowPop,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         final now = DateTime.now();

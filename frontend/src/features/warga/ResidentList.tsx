@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type KeyboardEvent } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type KeyboardEvent } from 'react'
 import { useAuth } from '@/app/AuthContext'
 import {
   listResidents,
@@ -15,9 +15,10 @@ import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Pagination } from '@/components/Pagination'
-import { UserOutlined, CloseOutlined, DownOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons'
+import { UserOutlined, CloseOutlined, DownOutlined, UploadOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons'
 import { DataChoiceModal } from './DataChoiceModal'
 import { WargaImportModal } from './WargaImportModal'
+import { formatPhoneDisplay } from '@/styles/format'
 
 type FilterType = 'semua' | 'status' | 'occupancy'
 
@@ -178,7 +179,54 @@ export function ResidentList() {
   const [occupancyOpen, setOccupancyOpen] = useState(false)
   const [searchParams] = useSearchParams()
 
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
+  const occupancyDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!statusOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusOpen(false)
+      }
+    }
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setStatusOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [statusOpen])
+
+  useEffect(() => {
+    if (!occupancyOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (occupancyDropdownRef.current && !occupancyDropdownRef.current.contains(e.target as Node)) {
+        setOccupancyOpen(false)
+      }
+    }
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setOccupancyOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [occupancyOpen])
+
+  // AbortController to prevent stale GET responses from overwriting newer data
+  const abortRef = useRef<AbortController | null>(null)
+
   const fetchResidents = useCallback(async (p: number, size: number) => {
+    // Abort any in-flight request before starting a new one
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     const pair = getSessionPair()
     if (!pair?.accessToken) {
       setError(new ApiError('auth_expired', 'Sesi telah berakhir. Silakan masuk kembali.'))
@@ -189,9 +237,10 @@ export function ResidentList() {
     setError(null)
 
     try {
-      const params: Record<string, string | number | boolean | undefined> = {
+      const params: import('@/app/api').ApiListResidentsParams = {
         page: p,
         page_size: size,
+        signal: controller.signal,
       }
 
       if (filterType === 'status' && statusValue === 'aktif') params.is_active = true
@@ -199,12 +248,19 @@ export function ResidentList() {
 
       if (search.trim()) params.search = search.trim()
 
-      const resp = await listResidents(pair.accessToken, params as import('@/app/api').ApiListResidentsParams)
+      const resp = await listResidents(pair.accessToken, params)
 
-      setResidentList(resp.data)
-      setTotalPages(resp.pagination.total_pages)
-      setTotal(resp.pagination.total)
+      // Only update state if this request is still the latest
+      if (!controller.signal.aborted) {
+        setResidentList(resp.data)
+        setTotalPages(resp.pagination.total_pages)
+        setTotal(resp.pagination.total)
+      }
     } catch (err) {
+      // Ignore AbortError — it means a newer request replaced this one
+      if ((err instanceof DOMException || err instanceof Error) && err.name === 'AbortError') {
+        return
+      }
       if (err instanceof ApiError && err.code === 'auth_expired') {
         clearSessionPair()
         window.location.href = '/login'
@@ -214,7 +270,9 @@ export function ResidentList() {
         setError(new ApiError('unexpected', 'Gagal memuat data warga.'))
       }
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) {
+        setLoading(false)
+      }
     }
   }, [filterType, statusValue, search])
 
@@ -230,6 +288,14 @@ export function ResidentList() {
     url.searchParams.delete('refresh')
     window.history.replaceState({}, '', url.pathname + url.search)
   }, [refresh, fetchResidents, page, pageSize])
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      void fetchResidents(page, pageSize)
+    }
+    window.addEventListener('warga:refresh', handleRefresh)
+    return () => window.removeEventListener('warga:refresh', handleRefresh)
+  }, [fetchResidents, page, pageSize])
 
   const handleFilter = (filter: FilterType) => {
     setFilterType(filter)
@@ -318,7 +384,7 @@ export function ResidentList() {
 
   return (
     <>
-      {/* PageHeader — separate floating surface */}
+      {/* PageHeader */}
       <div className="sf-page-header-surface">
         <div className="sf-page-header-left">
           <span className="sf-page-header-icon">
@@ -371,7 +437,7 @@ export function ResidentList() {
                         </button>
                       </span>
                     ) : (
-                      <div className="sf-status-dropdown">
+                      <div className="sf-status-dropdown" ref={statusDropdownRef}>
                         <button
                           type="button"
                           className="sf-status-selector-trigger"
@@ -418,7 +484,7 @@ export function ResidentList() {
                         </button>
                       </span>
                     ) : (
-                      <div className="sf-status-dropdown">
+                      <div className="sf-status-dropdown" ref={occupancyDropdownRef}>
                         <button
                           type="button"
                           className="sf-status-selector-trigger"
@@ -492,8 +558,8 @@ export function ResidentList() {
             )}
 
             {canWrite && (
-              <button className="sf-create-btn" onClick={() => setChoiceOpen(true)}>
-                + Tambah
+              <button className="sf-create-btn" onClick={() => setChoiceOpen(true)} aria-label="+ Warga">
+                <PlusOutlined style={{ marginRight: 0, fontSize: 12 }} />
               </button>
             )}
           </div>
@@ -656,7 +722,7 @@ function ResidentRow({ resident, showNik, onDetail }: ResidentRowProps) {
 
       {/* 6. TELEPON */}
       <td className="col-phone" style={colStyles.phone}>
-        {formatNull(resident.phone ?? null)}
+        {formatPhoneDisplay(resident.phone)}
       </td>
 
       {/* 7. EMAIL */}

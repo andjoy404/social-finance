@@ -1,6 +1,7 @@
 // ResidentDetailFields — renders the same form-field layout as Ubah / Create
 // but all inputs are disabled/read-only. No role/relationship info displayed.
 import type { ApiResident } from '@/app/api'
+import { formatPhoneDisplay } from '@/styles/format'
 import {
   UserOutlined,
   IdcardOutlined,
@@ -85,7 +86,7 @@ export function ResidentDetailFields({
             id="rd-phone"
             className="sf-form-input"
             type="text"
-            value={resident.phone ?? ''}
+            value={resident.phone ? formatPhoneDisplay(resident.phone) : ''}
             readOnly
             disabled
             aria-readonly
@@ -111,37 +112,6 @@ export function ResidentDetailFields({
           style={readOnlyStyle}
         />
       </div>
-
-      {/* Hubungan dengan KK */}
-      {resident.relationship_to_head && (
-        <div className="sf-form-field">
-          <label className="sf-form-label" htmlFor="rd-relationship">
-            Hubungan dengan KK
-          </label>
-          <input
-            id="rd-relationship"
-            className="sf-form-input"
-            type="text"
-            value={
-              resident.relationship_to_head === 'HEAD'
-                ? 'Kepala Keluarga'
-                : resident.relationship_to_head === 'SPOUSE'
-                ? 'Suami / Istri'
-                : resident.relationship_to_head === 'CHILD'
-                ? 'Anak'
-                : resident.relationship_to_head === 'PARENT'
-                ? 'Orang Tua'
-                : resident.relationship_to_head === 'OTHER'
-                ? 'Lainnya'
-                : resident.relationship_to_head
-            }
-            readOnly
-            disabled
-            aria-readonly
-            style={readOnlyStyle}
-          />
-        </div>
-      )}
 
       {/* Tanggal Mulai */}
       <div className="sf-form-field">

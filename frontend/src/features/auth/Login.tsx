@@ -29,7 +29,14 @@ export function Login() {
   const { login, isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const reducedMotion = usePrefersReducedMotion()
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem('sf_remember_identifier') || ''
+    } catch {
+      return ''
+    }
+  })
+  const [rememberMe, setRememberMe] = useState(true)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
@@ -43,19 +50,29 @@ export function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email || !password) {
-      setError('Email dan kata sandi harus diisi.')
+      setError('Email / nomor HP dan kata sandi harus diisi.')
       return
     }
     setLoading(true)
     setError('')
     try {
+      if (rememberMe) {
+        try {
+          localStorage.setItem('sf_remember_identifier', email.trim())
+        } catch {}
+      } else {
+        try {
+          localStorage.removeItem('sf_remember_identifier')
+        } catch {}
+      }
+
       await login(email, password)
       navigate('/', { replace: true })
     } catch (err) {
       if (err instanceof ApiError) {
         switch (err.code) {
           case 'invalid_credentials':
-            setError('Email atau kata sandi salah.')
+            setError('Email, nomor HP, atau kata sandi salah.')
             break
           case 'not_authorized':
             setError('Akun tidak memiliki akses aktif.')
@@ -120,21 +137,22 @@ export function Login() {
             </div>
           )}
 
-          {/* Email field */}
+          {/* Identifier field */}
           <div className="login-field">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="email">Email atau Nomor HP</label>
             <div className="login-input-wrapper">
               <span className="login-input-icon" aria-hidden="true">
                 <MailOutlined />
               </span>
               <input
                 id="email"
-                type="email"
+                name="identifier"
+                type="text"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Masukkan email"
+                placeholder="Masukkan email atau 081298918220"
                 required
-                autoComplete="email"
+                autoComplete="username"
                 autoFocus={noFields}
                 disabled={loading}
                 className="login-input"
@@ -170,6 +188,20 @@ export function Login() {
                 {showPassword ? <EyeInvisibleOutlined /> : <EyeOutlined />}
               </button>
             </div>
+          </div>
+
+          {/* Remember me */}
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--sf-text)' }}>
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={loading}
+                style={{ accentColor: 'var(--sf-accent)', width: 16, height: 16, cursor: 'pointer' }}
+              />
+              Ingat saya
+            </label>
           </div>
 
           {/* Submit */}

@@ -1,10 +1,14 @@
 class AuthUser {
   final String id;
   final String email;
+  final String? phone;
   final String name;
   final String role;
   final String? rtId;
   final String? rtCode;
+  final String? rwId;
+  final String? rwCode;
+  final String? rwName;
   final String? systemRole;
   final String? jabatan;
   final List<String> effectivePermissions;
@@ -13,10 +17,14 @@ class AuthUser {
   const AuthUser({
     required this.id,
     required this.email,
+    this.phone,
     required this.name,
     required this.role,
     this.rtId,
     this.rtCode,
+    this.rwId,
+    this.rwCode,
+    this.rwName,
     this.systemRole,
     this.jabatan,
     this.effectivePermissions = const [],
@@ -25,11 +33,37 @@ class AuthUser {
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     final rawRt = json['rt'];
-    final rtCode =
+    final rtName = json['rt_name'] as String?;
+    String? rtCode =
         (json['rt_rt'] ?? (rawRt is Map ? rawRt['rt'] : null)) as String?;
+    if ((rtCode == null || rtCode.trim().isEmpty) &&
+        rtName != null &&
+        rtName.trim().isNotEmpty) {
+      final digits = RegExp(r'\d+').firstMatch(rtName)?.group(0);
+      if (digits != null) {
+        rtCode = digits.padLeft(3, '0');
+      }
+    }
     final rtId =
         json['rt_id'] as String? ??
         (rawRt is Map ? rawRt['id'] as String? : null);
+    final rwId = json['rw_id'] as String?;
+    final rwName = json['rw_name'] as String?;
+    final rawRtRw = json['rt_rw'] ?? (rawRt is Map ? rawRt['rw'] : null);
+    String? rwCode;
+    if (rawRtRw is num) {
+      rwCode = rawRtRw.toInt().toString().padLeft(3, '0');
+    } else if (rawRtRw is String && rawRtRw.trim().isNotEmpty) {
+      final parsed = int.tryParse(rawRtRw.trim());
+      rwCode = parsed != null
+          ? parsed.toString().padLeft(3, '0')
+          : rawRtRw.trim();
+    } else if (rwName != null && rwName.trim().isNotEmpty) {
+      final digits = RegExp(r'\d+').firstMatch(rwName)?.group(0);
+      if (digits != null) {
+        rwCode = digits.padLeft(3, '0');
+      }
+    }
     final rawPermissions = json['effective_permissions'];
     final effectivePermissionsAvailable =
         rawPermissions is List &&
@@ -40,10 +74,14 @@ class AuthUser {
     return AuthUser(
       id: json['id'] as String? ?? '',
       email: json['email'] as String? ?? '',
+      phone: json['phone'] as String?,
       name: (json['name'] ?? json['full_name']) as String? ?? '',
       role: json['role'] as String? ?? '',
       rtId: rtId,
       rtCode: rtCode,
+      rwId: rwId,
+      rwCode: rwCode,
+      rwName: rwName,
       systemRole: json['system_role'] as String?,
       jabatan: json['jabatan'] as String?,
       effectivePermissions: effectivePermissions,
@@ -54,10 +92,14 @@ class AuthUser {
   Map<String, dynamic> toJson() => {
     'id': id,
     'email': email,
+    if (phone != null) 'phone': phone,
     'name': name,
     'role': role,
     if (rtId != null) 'rt_id': rtId,
     if (rtCode != null) 'rt_rt': rtCode,
+    if (rwId != null) 'rw_id': rwId,
+    if (rwCode != null) 'rt_rw': int.tryParse(rwCode!) ?? rwCode,
+    if (rwName != null) 'rw_name': rwName,
     if (systemRole != null) 'system_role': systemRole,
     if (jabatan != null) 'jabatan': jabatan,
     'effective_permissions': effectivePermissions,

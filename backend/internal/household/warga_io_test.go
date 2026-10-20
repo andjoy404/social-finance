@@ -39,10 +39,10 @@ func setupWargaIORouter(pool *database.Pool) http.Handler {
 
 func TestParseWargaCSVValidation(t *testing.T) {
 	t.Run("Valid CSV parsing with OWNER and TENANT", func(t *testing.T) {
-		csvContent := `house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-A1,Budi,Pemilik,Jl. Merdeka 1,Budi,3171010101010001,08111,budi@example.com,HEAD
-A1,Budi,OWNER,Jl. Merdeka 1,Ani,3171010101010002,08112,ani@example.com,SPOUSE
-B2,Citra,Kontrak,Jl. Merdeka 2,Citra,3171010101010003,08222,citra@example.com,HEAD
+		csvContent := `house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+A1,Budi,Pemilik,Jl. Merdeka 1,Budi,3171010101010001,08111,budi@example.com
+A1,Budi,OWNER,Jl. Merdeka 1,Ani,3171010101010002,08112,ani@example.com
+B2,Citra,Kontrak,Jl. Merdeka 2,Citra,3171010101010003,08222,citra@example.com
 `
 		rows, rowErrors, err := ParseWargaCSV(strings.NewReader(csvContent))
 		if err != nil {
@@ -82,8 +82,8 @@ A1,Budi,OWNER
 	})
 
 	t.Run("Invalid occupancy status and missing required fields", func(t *testing.T) {
-		csvContent := `house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-,,INVALID,Jl. Merdeka 1,,,08111,,HEAD
+		csvContent := `house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+,,INVALID,Jl. Merdeka 1,,,08111,
 `
 		rows, rowErrors, err := ParseWargaCSV(strings.NewReader(csvContent))
 		if err != nil {
@@ -98,9 +98,9 @@ A1,Budi,OWNER
 	})
 
 	t.Run("Internal conflicting household house assignment", func(t *testing.T) {
-		csvContent := `house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-A1,Budi,OWNER,Jl. Merdeka 1,Budi,3171010101010001,08111,budi@example.com,HEAD
-A1,Citra,OWNER,Jl. Merdeka 1,Ani,3171010101010002,08112,ani@example.com,SPOUSE
+		csvContent := `house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+A1,Budi,OWNER,Jl. Merdeka 1,Budi,3171010101010001,08111,budi@example.com
+A1,Citra,OWNER,Jl. Merdeka 1,Ani,3171010101010002,08112,ani@example.com
 `
 		_, rowErrors, err := ParseWargaCSV(strings.NewReader(csvContent))
 		if err != nil {
@@ -133,10 +133,10 @@ func TestWargaImportPreviewAndCommitFlow(t *testing.T) {
 	house1 := fmt.Sprintf("H-%d-A", nowNano%10000)
 	house2 := fmt.Sprintf("H-%d-B", nowNano%10000)
 
-	csvValid := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-%s,Budi Santoso,OWNER,Jl. Melati No. 1,Budi Santoso,3171010000000001,0811000001,budi@test.com,HEAD
-%s,Budi Santoso,OWNER,Jl. Melati No. 1,Siti Rahayu,3171010000000002,0811000002,siti@test.com,SPOUSE
-%s,Ahmad Dahlan,TENANT,Jl. Mawar No. 2,Ahmad Dahlan,3171010000000003,0822000001,ahmad@test.com,HEAD
+	csvValid := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+%s,Budi Santoso,OWNER,Jl. Melati No. 1,Budi Santoso,3171010000000001,0811000001,budi@test.com
+%s,Budi Santoso,OWNER,Jl. Melati No. 1,Siti Rahayu,3171010000000002,0811000002,siti@test.com
+%s,Ahmad Dahlan,TENANT,Jl. Mawar No. 2,Ahmad Dahlan,3171010000000003,0822000001,ahmad@test.com
 `, house1, house1, house2)
 
 	// 1. Authorization: Warga cannot preview or commit
@@ -216,8 +216,8 @@ func TestWargaImportPreviewAndCommitFlow(t *testing.T) {
 
 	// 5. Duplicate occupied house conflict detection on next import
 	t.Run("Detects conflict when house is occupied by another household", func(t *testing.T) {
-		csvConflict := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-%s,New Head,OWNER,Jl. Melati No. 1,New Resident,3171010000000009,08999999,new@test.com,HEAD
+		csvConflict := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+%s,New Head,OWNER,Jl. Melati No. 1,New Resident,3171010000000009,08999999,new@test.com
 `, house1)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/warga/import/preview", strings.NewReader(csvConflict))
@@ -257,8 +257,8 @@ func TestWargaImportMultipartForm(t *testing.T) {
 	tokenPengurus := makeTenantToken(t, "user-p-mp", "mid-p-mp", rtID, auth.RolePengurus)
 
 	nowNano := time.Now().UnixNano()
-	csvData := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-H-MP-%d,Doni,OWNER,Jl. Melati,Doni,3171010000000010,0812,doni@test.com,HEAD
+	csvData := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+H-MP-%d,Doni,OWNER,Jl. Melati,Doni,3171010000000010,0812,doni@test.com
 `, nowNano%10000)
 
 	body := &bytes.Buffer{}
@@ -296,13 +296,13 @@ func TestWargaExportTenantIsolation(t *testing.T) {
 
 	// Seed resident in RT A
 	nowNano := time.Now().UnixNano()
-	csvA := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-H-A-%d,Warga RT A,OWNER,Jl. A,Warga RT A,3171010000000021,0811,wargaa@test.com,HEAD
+	csvA := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+H-A-%d,Warga RT A,OWNER,Jl. A,Warga RT A,3171010000000021,0811,wargaa@test.com
 `, nowNano%10000)
 
 	// Seed resident in RT B
-	csvB := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,relationship_to_head
-H-B-%d,Warga RT B,OWNER,Jl. B,Warga RT B,3171010000000022,0822,wargab@test.com,HEAD
+	csvB := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
+H-B-%d,Warga RT B,OWNER,Jl. B,Warga RT B,3171010000000022,0822,wargab@test.com
 `, nowNano%10000)
 
 	rowsA, _, _ := ParseWargaCSV(strings.NewReader(csvA))

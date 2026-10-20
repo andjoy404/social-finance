@@ -259,10 +259,6 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Tambah Warga'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () => _confirmCancel(),
-          ),
         ),
         body: Form(
           key: _formKey,

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,15 +12,16 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
-import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/core/widgets/summary_card.dart';
 import '../../data/mock_dashboard_data.dart';
+import 'package:go_router/go_router.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/kas/data/kas_models.dart';
 import 'package:social_finance/features/kas/data/kas_repository.dart';
+import 'package:social_finance/features/kas/presentation/screens/kas_screen.dart';
 import '../widgets/financial_summary_chart.dart';
-import '../widgets/transaction_row.dart';
 
 /// Standard gap between equivalent adjacent dashboard panels.
 const _panelGap = AppSpacing.md; // 12
@@ -37,7 +39,9 @@ const _titleGap = AppSpacing.sm; // 8
 /// horizontal offset — only the scroll view controls that.
 
 class DashboardScreen extends ConsumerStatefulWidget {
-  const DashboardScreen({super.key});
+  final Future<void> Function()? onRefreshOverride;
+
+  const DashboardScreen({super.key, this.onRefreshOverride});
 
   @override
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
@@ -46,6 +50,8 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   DashboardSummary? _apiSummary;
   DateTime _activeDate = DateTime.now();
+  bool _isAllPeriods = false;
+  bool _isRefreshing = false;
 
   bool get _isCurrentMonth {
     final now = DateTime.now();
@@ -54,22 +60,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   String _formatMonthYear(DateTime dt) {
     const months = [
-      '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+      '',
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
     ];
     return '${months[dt.month]} ${dt.year}';
   }
 
   String _formatMonthYearShort(DateTime dt) {
     const months = [
-      '', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
     ];
     return '${months[dt.month]} ${dt.year}';
   }
 
   void _prevMonth() {
     setState(() {
+      _isAllPeriods = false;
       _activeDate = DateTime(_activeDate.year, _activeDate.month - 1);
     });
     _fetchDashboard();
@@ -77,7 +106,33 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   void _nextMonth() {
     setState(() {
+      _isAllPeriods = false;
       _activeDate = DateTime(_activeDate.year, _activeDate.month + 1);
+    });
+    _fetchDashboard();
+  }
+
+  Future<void> _pickMonth() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _activeDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      initialDatePickerMode: DatePickerMode.year,
+      helpText: 'PILIH PERIODE BULAN',
+    );
+    if (picked != null) {
+      setState(() {
+        _isAllPeriods = false;
+        _activeDate = DateTime(picked.year, picked.month, 1);
+      });
+      _fetchDashboard();
+    }
+  }
+
+  void _toggleAllPeriods() {
+    setState(() {
+      _isAllPeriods = !_isAllPeriods;
     });
     _fetchDashboard();
   }
@@ -94,8 +149,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     try {
       final api = ref.read(kasApiClientProvider);
-      final periodStr = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
-      final json = await api.getDashboardSummary(periodStr);
+      final periodParam = _isAllPeriods
+          ? 'all'
+          : '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+      final json = await api.getDashboardSummary(periodParam);
       if (mounted) {
         setState(() {
           _apiSummary = DashboardSummary.fromJson(json);
@@ -106,16 +163,34 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
+  Future<void> _handleRefresh() async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
+    try {
+      ref.invalidate(dashboardSummaryProvider);
+      ref.invalidate(recentKasTransactionsProvider);
+      ref.invalidate(recentTransactionsProvider);
+      if (widget.onRefreshOverride != null) {
+        await widget.onRefreshOverride!();
+      } else {
+        await _fetchDashboard();
+      }
+    } finally {
+      _isRefreshing = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final authState = ref.watch(authRepositoryProvider);
     final defaultSummary = ref.watch(dashboardSummaryProvider);
     final DashboardSummary summary = _apiSummary ?? defaultSummary;
-    final defaultTransactions = ref.watch(recentTransactionsProvider);
-    final List<Transaction> transactions = (_apiSummary != null && _apiSummary!.recentTransactions.isNotEmpty)
-        ? _apiSummary!.recentTransactions
-        : defaultTransactions;
+    final defaultKasTransactions = ref.watch(recentKasTransactionsProvider);
+    final List<KasTransaction> kasTransactions =
+        (_apiSummary != null && _apiSummary!.recentKasTransactions.isNotEmpty)
+        ? _apiSummary!.recentKasTransactions
+        : defaultKasTransactions;
 
     final user = authState?.valueOrNull;
     final userName = user?['name'] ?? 'Pengguna';
@@ -125,9 +200,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return DoubleBackExitScope(
-      child: Scaffold(
+    return Scaffold(
         appBar: AppBar(
+          automaticallyImplyLeading: false,
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Beranda'),
           actions: [
@@ -139,200 +214,482 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(width: 8),
           ],
         ),
-        body: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            AppSpacing.base,
-            AppSpacing.base,
-            AppSpacing.base,
-            DashboardMedia.bottomPadding(context),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Header ──
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Selamat datang,',
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                            const Spacer(),
-                            AppBadge(
-                              label: appRoleDisplayName(roleUser),
-                              isNeonStyle: isDark,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(userName, style: theme.textTheme.headlineMedium),
-                        Text(
-                          'RT $rt / RW $rw',
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              // ── Month Filter Bar ──
-              const SizedBox(height: _panelGap),
-              Container(
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-                  borderRadius: BorderRadius.circular(AppRadius.base),
-                  border: Border.all(
-                    color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                  ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
-                child: Row(
+        body: RefreshIndicator(
+          key: const Key('dashboard-refresh-indicator'),
+          onRefresh: _handleRefresh,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              DashboardMedia.bottomPadding(context),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Header ──
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left, size: 20),
-                      onPressed: _prevMonth,
-                      tooltip: 'Bulan Sebelumnya',
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          _formatMonthYear(_activeDate),
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.accent,
-                          ),
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right, size: 20),
-                      onPressed: _nextMonth,
-                      tooltip: 'Bulan Berikutnya',
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── Saldo Kas ──
-              const SizedBox(height: _panelGap),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.darkSurface
-                      : AppColors.lightSurface,
-                  border: Border.all(
-                    color: isDark
-                        ? AppColors.darkBorder.withValues(alpha: 0.5)
-                        : AppColors.lightBorder,
-                    width: 1.5,
-                  ),
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: AppColors.accent,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(width: 20),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Icon(
-                                Icons.account_balance_wallet_rounded,
-                                size: 16,
-                                color: AppColors.accent,
-                              ),
-                              const SizedBox(width: 8),
                               Text(
-                                'Saldo Kas',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: AppColors.textMutedColor(context),
-                                ),
+                                'Selamat datang,',
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                              const Spacer(),
+                              AppBadge(
+                                label: appRoleDisplayName(roleUser),
+                                isNeonStyle: isDark,
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 4),
+                          Text(userName, style: theme.textTheme.headlineMedium),
                           Text(
-                            RupiahFormatter.format(summary.saldoKas),
-                            style: theme.textTheme.headlineLarge?.copyWith(
-                              color: isDark
-                                  ? AppColors.darkTextPrimary
-                                  : AppColors.lightTextPrimary,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            'RT $rt / RW $rw',
+                            style: theme.textTheme.bodySmall,
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
-              ),
 
-              // ── Pemasukan / Pengeluaran ──
-              const SizedBox(height: _panelGap),
-              Row(
-                children: [
-                  Expanded(
-                    child: SummaryCard(
-                      title: _isCurrentMonth ? 'Pemasukan Bulan Ini' : 'Pemasukan (${_formatMonthYearShort(_activeDate)})',
-                      value: RupiahFormatter.format(summary.pemasukanBulanIni),
-                      icon: Icons.arrow_downward,
-                      accentColor: AppColors.income,
+                // ── Month Filter Bar ──
+                const SizedBox(height: _panelGap),
+                Container(
+                  decoration: BoxDecoration(
+                    color: theme.scaffoldBackgroundColor,
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(
+                      color: isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: SummaryCard(
-                      title: _isCurrentMonth ? 'Pengeluaran Bulan Ini' : 'Pengeluaran (${_formatMonthYearShort(_activeDate)})',
-                      value: RupiahFormatter.format(
-                        summary.pengeluaranBulanIni,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.xs,
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.chevron_left),
+                        onPressed: _isAllPeriods ? null : _prevMonth,
+                        tooltip: 'Bulan Sebelumnya',
+                        visualDensity: VisualDensity.compact,
                       ),
-                      icon: Icons.arrow_upward,
-                      accentColor: AppColors.expense,
+                      Expanded(
+                        child: InkWell(
+                          onTap: _isAllPeriods ? null : _pickMonth,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 4,
+                              horizontal: 8,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  _isAllPeriods
+                                      ? 'Semua Periode'
+                                      : _formatMonthYear(_activeDate),
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: _isAllPeriods
+                                        ? theme.colorScheme.onSurfaceVariant
+                                        : AppColors.accent,
+                                  ),
+                                ),
+                                if (!_isAllPeriods) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(
+                                    Icons.arrow_drop_down,
+                                    size: 20,
+                                    color: AppColors.accent,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.chevron_right),
+                        onPressed: _isAllPeriods ? null : _nextMonth,
+                        tooltip: 'Bulan Berikutnya',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      const SizedBox(width: 4),
+                      ChoiceChip(
+                        label: Text(
+                          _isAllPeriods ? 'Per Bulan' : 'Semua',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        selected: _isAllPeriods,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (val) {
+                          _toggleAllPeriods();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Saldo Kas ──
+                const SizedBox(height: _panelGap),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.darkSurface
+                        : AppColors.lightSurface,
+                    border: Border.all(
+                      color: isDark
+                          ? AppColors.darkBorder.withValues(alpha: 0.5)
+                          : AppColors.lightBorder,
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: AppColors.accent,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(width: 20),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.account_balance_wallet_rounded,
+                                  size: 16,
+                                  color: AppColors.accent,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Saldo Kas',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: AppColors.textMutedColor(context),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              RupiahFormatter.format(summary.saldoKas),
+                              style: theme.textTheme.headlineLarge?.copyWith(
+                                color: isDark
+                                    ? AppColors.darkTextPrimary
+                                    : AppColors.lightTextPrimary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Pemasukan / Pengeluaran ──
+                const SizedBox(height: _panelGap),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SummaryCard(
+                        title: _isCurrentMonth
+                            ? 'Pemasukan Bulan Ini'
+                            : 'Pemasukan (${_formatMonthYearShort(_activeDate)})',
+                        value: RupiahFormatter.format(
+                          summary.pemasukanBulanIni,
+                        ),
+                        icon: Icons.arrow_downward,
+                        accentColor: AppColors.income,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: SummaryCard(
+                        title: _isCurrentMonth
+                            ? 'Pengeluaran Bulan Ini'
+                            : 'Pengeluaran (${_formatMonthYearShort(_activeDate)})',
+                        value: RupiahFormatter.format(
+                          summary.pengeluaranBulanIni,
+                        ),
+                        icon: Icons.arrow_upward,
+                        accentColor: AppColors.expense,
+                      ),
+                    ),
+                  ],
+                ),
+
+                // ── Ringkasan Keuangan ──
+                const SizedBox(height: _panelGap),
+                FinancialSummaryChart(summary: summary, theme: theme),
+
+                // ── Metode Pembayaran (Donut Chart: Transfer vs Tunai) ──
+                const SizedBox(height: _sectionGap),
+                _buildPaymentMethodDonutSection(
+                  summary.paymentMethodBreakdown,
+                  theme,
+                ),
+
+                // ── Iuran Bulan Ini ──
+                const SizedBox(height: _sectionGap),
+                _buildDuesSection(summary.duesProgress, theme),
+
+                // ── Transaksi Terbaru ──
+                const SizedBox(height: _sectionGap),
+                const SectionHeader(title: 'Transaksi Terbaru'),
+                const SizedBox(height: _titleGap),
+                if (kasTransactions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: Text('Belum ada transaksi.')),
+                  )
+                else
+                  ...kasTransactions.map(
+                    (tx) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: KasTransactionCard(
+                        transaction: tx,
+                        isDark: isDark,
+                        onTap: () => context.push('/home/kas/${tx.id}'),
+                      ),
                     ),
                   ),
-                ],
-              ),
-
-              // ── Ringkasan Keuangan ──
-              const SizedBox(height: _panelGap),
-              FinancialSummaryChart(summary: summary, theme: theme),
-
-              // ── Iuran Bulan Ini ──
-              const SizedBox(height: _sectionGap),
-              _buildDuesSection(summary.duesProgress, theme),
-
-              // ── Transaksi Terbaru ──
-              const SizedBox(height: _sectionGap),
-              const SectionHeader(title: 'Transaksi Terbaru'),
-              const SizedBox(height: _titleGap),
-              ...transactions.map(
-                (tx) => TransactionRow(transaction: tx, theme: theme),
-              ),
-              const SizedBox(height: AppSpacing.base),
-            ],
+                const SizedBox(height: AppSpacing.base),
+              ],
+            ),
           ),
         ),
+    );
+  }
+
+  Widget _buildPaymentMethodDonutSection(
+    PaymentMethodBreakdown breakdown,
+    ThemeData theme,
+  ) {
+    final isDark = theme.brightness == Brightness.dark;
+    final hasData = breakdown.totalAmount > 0 || breakdown.totalCount > 0;
+    final transferVal = breakdown.transferAmount > 0
+        ? breakdown.transferAmount.toDouble()
+        : (breakdown.transferCount > 0
+              ? breakdown.transferCount.toDouble()
+              : 0.0);
+    final cashVal = breakdown.cashAmount > 0
+        ? breakdown.cashAmount.toDouble()
+        : (breakdown.cashCount > 0 ? breakdown.cashCount.toDouble() : 0.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'Metode Pembayaran'),
+        const SizedBox(height: _titleGap),
+        AppCard(
+          key: const Key('dashboard-payment-method-donut-card'),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: !hasData
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.donut_large_outlined,
+                            size: 32,
+                            color: AppColors.textMutedColor(context),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Belum ada transaksi Tunai atau Transfer pada periode ini.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppColors.textMutedColor(context),
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : Row(
+                    children: [
+                      SizedBox(
+                        width: 112,
+                        height: 112,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            PieChart(
+                              PieChartData(
+                                sectionsSpace: 2,
+                                centerSpaceRadius: 34,
+                                sections: [
+                                  if (transferVal > 0)
+                                    PieChartSectionData(
+                                      color: AppColors.accent,
+                                      value: transferVal,
+                                      radius: 16,
+                                      showTitle: false,
+                                    ),
+                                  if (cashVal > 0)
+                                    PieChartSectionData(
+                                      color: AppColors.info,
+                                      value: cashVal,
+                                      radius: 16,
+                                      showTitle: false,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Total',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontSize: 10,
+                                    color: AppColors.textMutedColor(context),
+                                  ),
+                                ),
+                                Text(
+                                  '${breakdown.totalCount} Tx',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildPaymentMethodBreakdownItem(
+                              theme: theme,
+                              isDark: isDark,
+                              label: 'Transfer',
+                              color: AppColors.accent,
+                              amount: breakdown.transferAmount,
+                              percentage: breakdown.transferPercentage,
+                              count: breakdown.transferCount,
+                            ),
+                            const SizedBox(height: 10),
+                            _buildPaymentMethodBreakdownItem(
+                              theme: theme,
+                              isDark: isDark,
+                              label: 'Tunai',
+                              color: AppColors.info,
+                              amount: breakdown.cashAmount,
+                              percentage: breakdown.cashPercentage,
+                              count: breakdown.cashCount,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaymentMethodBreakdownItem({
+    required ThemeData theme,
+    required bool isDark,
+    required String label,
+    required Color color,
+    required int amount,
+    required int percentage,
+    required int count,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.10 : 0.06),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(
+          color: color.withValues(alpha: isDark ? 0.30 : 0.22),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                '$percentage%',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  RupiahFormatter.format(amount),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '$count tx',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 10.5,
+                  color: AppColors.textMutedColor(context),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -342,7 +699,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionHeader(title: _isCurrentMonth ? 'Iuran Bulan Ini' : 'Iuran (${_formatMonthYearShort(_activeDate)})'),
+        SectionHeader(
+          title: _isCurrentMonth
+              ? 'Iuran Bulan Ini'
+              : 'Iuran (${_formatMonthYearShort(_activeDate)})',
+        ),
         const SizedBox(height: _titleGap),
         AppCard(
           child: Padding(

@@ -287,7 +287,7 @@ export function WargaImportModal({
                   <strong>Kolom Wajib:</strong> <code>house_number</code>, <code>head_name</code>, <code>occupancy_status</code> (OWNER/TENANT), <code>resident_name</code>
                 </li>
                 <li>
-                  <strong>Kolom Opsional:</strong> <code>address</code>, <code>nik</code> (16 digit), <code>phone</code>, <code>email</code>, <code>relationship_to_head</code>
+                  <strong>Kolom Opsional:</strong> <code>address</code>, <code>nik</code> (16 digit), <code>phone</code>, <code>email</code>
                 </li>
                 <li>
                   Beberapa baris dengan <code>house_number</code> yang sama akan dikelompokkan ke dalam satu Rumah Tangga.
@@ -503,26 +503,22 @@ export function WargaImportModal({
                       <thead>
                         <tr>
                           <th style={{ width: 80 }}>No. Rumah</th>
-                          <th>Kepala Keluarga</th>
+                          <th>Nama</th>
                           <th>Status</th>
-                          <th>Nama Warga</th>
                           <th>NIK</th>
-                          <th>Hubungan</th>
                         </tr>
                       </thead>
                       <tbody>
                         {previewResult.preview_data.slice(0, 10).map((row, idx) => (
                           <tr key={idx}>
                             <td style={{ fontFamily: 'monospace' }}>{row.house_number}</td>
-                            <td>{row.head_name}</td>
+                            <td>{row.resident_name}</td>
                             <td>
                               <Badge variant={row.occupancy_status === 'OWNER' ? 'violet' : 'blue'}>
                                 {row.occupancy_status === 'OWNER' ? 'Pemilik' : 'Penyewa'}
                               </Badge>
                             </td>
-                            <td style={{ fontWeight: 600 }}>{row.resident_name}</td>
                             <td style={{ fontFamily: 'monospace' }}>{row.nik || '\u2014'}</td>
-                            <td>{row.relationship_to_head || 'Anggota'}</td>
                           </tr>
                         ))}
                       </tbody>

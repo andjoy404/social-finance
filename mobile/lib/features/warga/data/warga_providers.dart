@@ -17,7 +17,13 @@ final wargaListProvider =
 class WargaListNotifier extends AutoDisposeAsyncNotifier<List<MappedResident>> {
   @override
   Future<List<MappedResident>> build() async {
-    ref.watch(authRepositoryProvider);
+    // Depend on the current auth state so this provider is recreated/refetched
+    // when the authenticated user changes (e.g. warga -> super_admin).
+    final authState = ref.watch(authRepositoryProvider);
+    final user = authState?.valueOrNull;
+    if (user == null) {
+      return [];
+    }
     return _fetch();
   }
 

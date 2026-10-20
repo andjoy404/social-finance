@@ -321,4 +321,57 @@ void main() {
       await tester.pumpAndSettle();
     });
   });
+
+  group('IuranPaymentScreen — Reguler Full Nominal Lock (D5)', () {
+    testWidgets(
+      'disables Nominal Pembayaran field and pre-fills full amount when bill is Reguler Full',
+      (tester) async {
+        final regularFullBill = IuranBill(
+          id: _kBillId,
+          householdName: 'Bpk. Ahmad',
+          iuranType: 'IPL',
+          periode: 'Oktober 2026',
+          nominal: 85000,
+          paidAmount: 0,
+          status: IuranStatus.belumBayar,
+          isVoluntary: false,
+          requiresFullPayment: true,
+        );
+        await _pumpPage(tester, bill: regularFullBill);
+
+        final nominalField = tester.widget<TextField>(
+          find.byType(TextField).at(0),
+        );
+        expect(nominalField.enabled, isFalse);
+        expect(nominalField.readOnly, isTrue);
+        expect(nominalField.controller?.text, '85.000');
+        expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'keeps Nominal Pembayaran field editable when bill is Reguler Partial',
+      (tester) async {
+        final regularPartialBill = IuranBill(
+          id: _kBillId,
+          householdName: 'Bpk. Ahmad',
+          iuranType: 'Iuran Keamanan',
+          periode: 'Oktober 2026',
+          nominal: 50000,
+          paidAmount: 0,
+          status: IuranStatus.belumBayar,
+          isVoluntary: false,
+          requiresFullPayment: false,
+        );
+        await _pumpPage(tester, bill: regularPartialBill);
+
+        final nominalField = tester.widget<TextField>(
+          find.byType(TextField).at(0),
+        );
+        expect(nominalField.enabled, isTrue);
+        expect(nominalField.readOnly, isFalse);
+        expect(find.byIcon(Icons.lock_outline), findsNothing);
+      },
+    );
+  });
 }

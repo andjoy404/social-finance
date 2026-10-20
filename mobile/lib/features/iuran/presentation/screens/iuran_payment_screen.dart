@@ -27,8 +27,7 @@ class IuranPaymentScreen extends ConsumerStatefulWidget {
   const IuranPaymentScreen({super.key, required this.billId});
 
   @override
-  ConsumerState<IuranPaymentScreen> createState() =>
-      _IuranPaymentScreenState();
+  ConsumerState<IuranPaymentScreen> createState() => _IuranPaymentScreenState();
 }
 
 class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
@@ -102,9 +101,22 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
     });
 
     try {
-      final amount = parseRupiahInput(_nominalCtrl.text);
-      if (amount == null) {
-        if (mounted) setState(() => _error = 'Nominal pembayaran harus berupa angka yang valid.');
+      final billState = ref.read(billDetailProvider(widget.billId));
+      final bill = switch (billState) {
+        AsyncData(:final value) => value,
+        _ => null,
+      };
+      final isRegularFull =
+          bill != null && !bill.isVoluntary && bill.requiresFullPayment;
+      final amount = isRegularFull
+          ? (bill.paymentCapacity > 0 ? bill.paymentCapacity : bill.nominal)
+          : parseRupiahInput(_nominalCtrl.text);
+      if (amount == null || amount <= 0) {
+        if (mounted) {
+          setState(
+            () => _error = 'Nominal pembayaran harus berupa angka yang valid.',
+          );
+        }
         return;
       }
       final repo = ref.read(iuranRepositoryProvider);
@@ -134,7 +146,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 : proofErr.toString();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Pembayaran tersimpan, namun bukti gagal diunggah: $msg'),
+                content: Text(
+                  'Pembayaran tersimpan, namun bukti gagal diunggah: $msg',
+                ),
                 backgroundColor: AppColors.warning,
               ),
             );
@@ -192,8 +206,10 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
           }
           if (bill.requiresFullPayment && amount != capacity && capacity > 0) {
             if (mounted) {
-              setState(() => _error =
-                  'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(capacity)}).');
+              setState(
+                () => _error =
+                    'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(capacity)}).',
+              );
             }
             return false;
           }
@@ -248,8 +264,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                     side: BorderSide(color: AppColors.danger),
                     backgroundColor:
                         Theme.of(dialogContext).brightness == Brightness.dark
-                            ? AppColors.darkDangerSoft
-                            : AppColors.danger.withValues(alpha: 0.20),
+                        ? AppColors.darkDangerSoft
+                        : AppColors.danger.withValues(alpha: 0.20),
                     foregroundColor: AppColors.danger,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),
@@ -275,25 +291,51 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     // Listen to bill detail once to pre-fill nominal with remaining balance if empty
-    ref.listen<AsyncValue<IuranBill?>>(billDetailProvider(widget.billId), (prev, next) {
-      if (!_nominalPrefilled && next is AsyncData<IuranBill?> && next.value != null) {
+    ref.listen<AsyncValue<IuranBill?>>(billDetailProvider(widget.billId), (
+      prev,
+      next,
+    ) {
+      if (!_nominalPrefilled &&
+          next is AsyncData<IuranBill?> &&
+          next.value != null) {
         if (_nominalCtrl.text.isEmpty && next.value!.paymentCapacity > 0) {
           _nominalPrefilled = true;
-          _nominalCtrl.text = RupiahInputFormatter.formatForInput(next.value!.paymentCapacity);
+          _nominalCtrl.text = RupiahInputFormatter.formatForInput(
+            next.value!.paymentCapacity,
+          );
         }
       }
     });
 
     // Watch bill detail from API
     final billState = ref.watch(billDetailProvider(widget.billId));
-    if (!_nominalPrefilled &&
-        billState is AsyncData<IuranBill?> &&
-        billState.value != null &&
-        _nominalCtrl.text.isEmpty &&
-        billState.value!.paymentCapacity > 0) {
-      _nominalPrefilled = true;
-      _nominalCtrl.text =
-          RupiahInputFormatter.formatForInput(billState.value!.paymentCapacity);
+    final currentBill = switch (billState) {
+      AsyncData(:final value) => value,
+      _ => null,
+    };
+    final isRegularFull =
+        currentBill != null &&
+        !currentBill.isVoluntary &&
+        currentBill.requiresFullPayment;
+
+    if (currentBill != null) {
+      final targetAmount = currentBill.paymentCapacity > 0
+          ? currentBill.paymentCapacity
+          : currentBill.nominal;
+      if (isRegularFull && targetAmount > 0) {
+        final formattedFull = RupiahInputFormatter.formatForInput(targetAmount);
+        if (_nominalCtrl.text != formattedFull) {
+          _nominalPrefilled = true;
+          _nominalCtrl.text = formattedFull;
+        }
+      } else if (!_nominalPrefilled &&
+          _nominalCtrl.text.isEmpty &&
+          currentBill.paymentCapacity > 0) {
+        _nominalPrefilled = true;
+        _nominalCtrl.text = RupiahInputFormatter.formatForInput(
+          currentBill.paymentCapacity,
+        );
+      }
     }
 
     return PopScope(
@@ -307,10 +349,6 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Pembayaran Iuran'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: _saving ? null : () => _confirmCancel(),
-          ),
         ),
         body: Form(
           key: _formKey,
@@ -344,43 +382,43 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
               // ── Bill Summary ──
               switch (billState) {
                 AsyncData(:final value) when value != null => _buildBillSummary(
-                    theme,
-                    isDark,
-                    value,
-                  ),
+                  theme,
+                  isDark,
+                  value,
+                ),
                 AsyncData() => Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: EmptyState(
-                        icon: Icons.receipt_long_outlined,
-                        title: 'Tagihan Tidak Ditemukan',
-                        description: 'Detail tagihan tidak tersedia.',
-                        actionText: 'Kembali',
-                        onAction: () => context.pop(),
-                      ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: EmptyState(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'Tagihan Tidak Ditemukan',
+                      description: 'Detail tagihan tidak tersedia.',
+                      actionText: 'Kembali',
+                      onAction: () => context.pop(),
                     ),
                   ),
+                ),
                 AsyncError() => Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Gagal Memuat Data Tagihan',
-                            style: theme.textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          ElevatedButton.icon(
-                            onPressed: () => ref
-                                .refresh(billDetailProvider(widget.billId)),
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Coba Lagi'),
-                          ),
-                        ],
-                      ),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Gagal Memuat Data Tagihan',
+                          style: theme.textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        ElevatedButton.icon(
+                          onPressed: () =>
+                              ref.refresh(billDetailProvider(widget.billId)),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Coba Lagi'),
+                        ),
+                      ],
                     ),
                   ),
+                ),
                 _ => const Center(child: CircularProgressIndicator()),
               },
 
@@ -403,16 +441,13 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                         context: context,
                         initialDate: DateTime.now(),
                         firstDate: DateTime(2020),
-                        lastDate: DateTime.now().add(
-                          const Duration(days: 365),
-                        ),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
                       );
                       if (picked != null && mounted) {
                         setState(() {
-                          _tanggalCtrl.text = picked
-                              .toLocal()
-                              .toString()
-                              .split(' ')[0];
+                          _tanggalCtrl.text = picked.toLocal().toString().split(
+                            ' ',
+                          )[0];
                         });
                       }
                     },
@@ -420,8 +455,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       padding: const EdgeInsets.all(AppSpacing.md),
                       decoration: BoxDecoration(
                         border: Border.all(color: AppColors.lightBorder),
-                        borderRadius:
-                            BorderRadius.circular(AppRadius.base),
+                        borderRadius: BorderRadius.circular(AppRadius.base),
                         color: isDark
                             ? AppColors.darkSurface
                             : AppColors.lightSurface,
@@ -470,12 +504,18 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       ButtonSegment(
                         value: PaymentMethod.cash,
                         label: const Text('Tunai'),
-                        icon: const Icon(Icons.payments_outlined),
+                        icon: const Icon(
+                          Icons.payments_outlined,
+                          color: AppColors.info,
+                        ),
                       ),
                       ButtonSegment(
                         value: PaymentMethod.transfer,
                         label: const Text('Transfer'),
-                        icon: const Icon(Icons.account_balance_outlined),
+                        icon: const Icon(
+                          Icons.account_balance_outlined,
+                          color: AppColors.accent,
+                        ),
                       ),
                     ],
                     selected: {_selectedMethod ?? PaymentMethod.cash},
@@ -497,6 +537,11 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 controller: _nominalCtrl,
                 label: 'Nominal Pembayaran',
                 hintText: 'Masukkan nominal',
+                readOnly: isRegularFull,
+                enabled: !isRegularFull,
+                suffixIcon: isRegularFull
+                    ? const Icon(Icons.lock_outline, size: 18)
+                    : null,
                 keyboardType: TextInputType.number,
                 inputFormatters: [RupiahInputFormatter()],
                 validator: (value) {
@@ -507,11 +552,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   if (amount == null || amount <= 0) {
                     return 'Nominal harus berupa angka.';
                   }
-                  final state = ref.read(
-                    billDetailProvider(widget.billId),
-                  );
-                  if (state is AsyncData<IuranBill?> &&
-                      state.value != null) {
+                  final state = ref.read(billDetailProvider(widget.billId));
+                  if (state is AsyncData<IuranBill?> && state.value != null) {
                     final bill = state.value!;
                     if (!bill.isVoluntary) {
                       if (amount > bill.paymentCapacity &&
@@ -549,7 +591,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
               Text(
                 'Unggah foto resi atau bukti transfer (JPG, PNG, WebP maks 5MB)',
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                  color: isDark
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
@@ -557,7 +601,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 Container(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkSurface : AppColors.lightSurfaceSubtle,
+                    color: isDark
+                        ? AppColors.darkSurface
+                        : AppColors.lightSurfaceSubtle,
                     borderRadius: BorderRadius.circular(AppRadius.base),
                     border: Border.all(
                       color: AppColors.accent.withValues(alpha: 0.3),
@@ -591,14 +637,19 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                             Text(
                               '${(_proofBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB',
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                                color: isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
                               ),
                             ),
                           ],
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: AppColors.danger,
+                        ),
                         onPressed: _removeProof,
                         tooltip: 'Hapus Bukti',
                       ),
@@ -611,7 +662,10 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () => _pickImage(ImageSource.gallery),
-                        icon: const Icon(Icons.photo_library_outlined, size: 18),
+                        icon: const Icon(
+                          Icons.photo_library_outlined,
+                          size: 18,
+                        ),
                         label: const Text('Galeri'),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.accent,
@@ -683,8 +737,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                                   ),
                                 )
                               : const Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.center,
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(Icons.payment, size: 18),
                                     SizedBox(width: 6),
@@ -711,8 +764,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                         height: 48,
                         child: OutlinedButton(
                           key: const Key('btn_cancel'),
-                          onPressed:
-                              _saving ? null : () => _confirmCancel(),
+                          onPressed: _saving ? null : () => _confirmCancel(),
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(color: AppColors.danger),
                             foregroundColor: AppColors.danger,
@@ -744,11 +796,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
     );
   }
 
-  Widget _buildBillSummary(
-    ThemeData theme,
-    bool isDark,
-    IuranBill bill,
-  ) {
+  Widget _buildBillSummary(ThemeData theme, bool isDark, IuranBill bill) {
     return AppCard(
       useEmphasis: true,
       padding: const EdgeInsets.all(AppSpacing.base),
@@ -764,11 +812,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
-              Icon(
-                Icons.home_outlined,
-                size: 18,
-                color: AppColors.accent,
-              ),
+              Icon(Icons.home_outlined, size: 18, color: AppColors.accent),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
@@ -861,7 +905,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 ),
               ),
               Text(
-                bill.isVoluntary ? 'Sukarela' : formatRupiah(bill.remainingAmount),
+                bill.isVoluntary
+                    ? 'Sukarela'
+                    : formatRupiah(bill.remainingAmount),
                 style: theme.textTheme.titleLarge?.copyWith(
                   color: bill.isVoluntary ? AppColors.info : AppColors.accent,
                   fontWeight: FontWeight.bold,

@@ -36,8 +36,6 @@ MappedResident _sampleResident() => const MappedResident(
       name: 'Budi Santoso',
       nik: '3201234567890001',
       houseNumber: '01',
-      isHeadOfHousehold: true,
-      relationship: 'Kepala Keluarga',
     );
 
 const _sampleHousehold = BackendHousehold(

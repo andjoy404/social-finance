@@ -38,6 +38,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   LoginMethod _loginMethod = LoginMethod.email;
   bool _obscurePassword = true;
   bool _rememberMe = true;
+  bool _updatingRememberMe = false;
+  StoredLoginCredentials? _restoredLoginCredentials;
   String _error = '';
 
   @override
@@ -45,35 +47,84 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.initState();
     // Load last remembered login details from preferences
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final prefs = ref.read(preferencesStorageProvider);
-      final lastUrl = await prefs.getLastApiUrl();
-      final lastEmail = await prefs.getLastEmail();
-      final lastPhone = await prefs.getLastPhone();
-      final lastMethod = await prefs.getLastLoginMethod();
-      final rememberMe = await prefs.getRememberMe();
-      if (mounted) {
-        setState(() {
-          _rememberMe = rememberMe;
-          if (lastMethod == 'phone') {
-            _loginMethod = LoginMethod.phone;
-          } else if (lastMethod == 'email') {
-            _loginMethod = LoginMethod.email;
-          }
-          if (lastEmail != null && lastEmail.isNotEmpty) {
-            _emailController.text = lastEmail;
-          }
-          if (lastPhone != null && lastPhone.isNotEmpty) {
-            _phoneController.text = lastPhone;
-          }
-          if (lastUrl != null && lastUrl.isNotEmpty) {
-            _serverUrlController.text = lastUrl;
-            final urlErr = UrlUtils.validateUrl(lastUrl);
-            if (urlErr != null) {
-              _error =
-                  'URL server tersimpan tidak valid: $urlErr Silakan perbaiki.';
+      try {
+        final prefs = ref.read(preferencesStorageProvider);
+        final lastUrl = await prefs.getLastApiUrl();
+        final lastEmail = await prefs.getLastEmail();
+        final lastPhone = await prefs.getLastPhone();
+        final lastMethod = await prefs.getLastLoginMethod();
+        final rememberMe = await prefs.getRememberMe();
+        if (mounted) {
+          setState(() => _rememberMe = rememberMe);
+        }
+        StoredLoginCredentials? storedCredentials;
+        if (rememberMe) {
+          storedCredentials = await ref
+              .read(secureAuthStorageProvider)
+              .getLoginCredentials();
+        } else {
+          await ref.read(secureAuthStorageProvider).clearLoginCredentials();
+        }
+
+        final rememberedServerUrl = lastUrl ?? storedCredentials?.serverUrl;
+        final storedServerMatches =
+            storedCredentials != null &&
+            rememberedServerUrl != null &&
+            UrlUtils.normalizeUrl(storedCredentials.serverUrl) ==
+                UrlUtils.normalizeUrl(rememberedServerUrl);
+        if (storedCredentials != null && !storedServerMatches) {
+          await ref.read(secureAuthStorageProvider).clearLoginCredentials();
+        }
+
+        if (mounted) {
+          setState(() {
+            _rememberMe = rememberMe;
+            if (storedCredentials != null && storedServerMatches) {
+              final method = storedCredentials.loginMethod;
+              _restoredLoginCredentials = storedCredentials;
+              _loginMethod = method == 'phone'
+                  ? LoginMethod.phone
+                  : LoginMethod.email;
+              if (method == 'phone') {
+                _phoneController.text =
+                    PhoneUtils.formatDisplay(storedCredentials.identifier);
+              } else {
+                _emailController.text = storedCredentials.identifier;
+              }
+              _passwordController.text = storedCredentials.password;
+            } else {
+              if (lastMethod == 'phone') {
+                _loginMethod = LoginMethod.phone;
+              } else if (lastMethod == 'email') {
+                _loginMethod = LoginMethod.email;
+              }
+              if (lastEmail != null && lastEmail.isNotEmpty) {
+                _emailController.text = lastEmail;
+              }
+              if (lastPhone != null && lastPhone.isNotEmpty) {
+                _phoneController.text = PhoneUtils.formatDisplay(lastPhone);
+              }
             }
-          }
-        });
+            final startupUrl = storedServerMatches
+                ? rememberedServerUrl
+                : lastUrl;
+            if (startupUrl != null && startupUrl.isNotEmpty) {
+              _serverUrlController.text = startupUrl;
+              final urlErr = UrlUtils.validateUrl(startupUrl);
+              if (urlErr != null) {
+                _error =
+                    'URL server tersimpan tidak valid: $urlErr Silakan perbaiki.';
+              }
+            }
+          });
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _error =
+                'Kredensial tersimpan tidak dapat diakses dengan aman. Silakan masukkan kembali.';
+          });
+        }
       }
     });
   }
@@ -89,6 +140,93 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _passwordController.dispose();
     _passwordFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _setRememberMe(bool value) async {
+    if (_updatingRememberMe || value == _rememberMe) return;
+    setState(() {
+      _updatingRememberMe = true;
+      _error = '';
+    });
+    try {
+      final storage = ref.read(secureAuthStorageProvider);
+      final prefs = ref.read(preferencesStorageProvider);
+      if (!value) {
+        await storage.clearLoginCredentials();
+      }
+      await prefs.setRememberMe(value);
+      if (!value) {
+        _passwordController.clear();
+        _restoredLoginCredentials = null;
+      }
+      if (mounted) {
+        setState(() {
+          _rememberMe = value;
+          _updatingRememberMe = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _updatingRememberMe = false;
+          _error =
+              'Pengaturan Ingat Saya tidak dapat disimpan dengan aman. Coba lagi.';
+        });
+      }
+    }
+  }
+
+  Future<void> _invalidateRestoredCredentials() async {
+    final credentials = _restoredLoginCredentials;
+    if (credentials == null) return;
+    _passwordController.clear();
+    if (mounted) {
+      setState(() => _restoredLoginCredentials = null);
+    }
+    try {
+      await ref.read(secureAuthStorageProvider).clearLoginCredentials();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error =
+              'Kredensial tersimpan tidak dapat dihapus dengan aman. Silakan coba lagi.';
+        });
+      }
+    }
+  }
+
+  Future<void> _handleServerUrlChanged(String value) async {
+    if (_passwordController.text.isNotEmpty) {
+      _passwordController.clear();
+    }
+    final credentials = _restoredLoginCredentials;
+    if (credentials != null &&
+        UrlUtils.normalizeUrl(value) !=
+            UrlUtils.normalizeUrl(credentials.serverUrl)) {
+      await _invalidateRestoredCredentials();
+    }
+  }
+
+  Future<void> _handleIdentifierChanged(String value) async {
+    if (_passwordController.text.isNotEmpty) {
+      _passwordController.clear();
+    }
+    final credentials = _restoredLoginCredentials;
+    if (credentials == null) return;
+    final isMatchingMethod =
+        (credentials.loginMethod == 'email' &&
+            _loginMethod == LoginMethod.email) ||
+        (credentials.loginMethod == 'phone' &&
+            _loginMethod == LoginMethod.phone);
+    final normalizedValue = credentials.loginMethod == 'phone'
+        ? PhoneUtils.normalizePhone(value)
+        : value.trim().toLowerCase();
+    final normalizedIdentifier = credentials.loginMethod == 'phone'
+        ? PhoneUtils.normalizePhone(credentials.identifier)
+        : credentials.identifier.trim().toLowerCase();
+    if (!isMatchingMethod || normalizedValue != normalizedIdentifier) {
+      await _invalidateRestoredCredentials();
+    }
   }
 
   void _handleLogin() {
@@ -321,6 +459,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               hintText: 'https://api.socialfinance.com',
               keyboardType: TextInputType.url,
               textInputAction: TextInputAction.next,
+              onChanged: _handleServerUrlChanged,
               onFieldSubmitted: (_) {
                 if (_loginMethod == LoginMethod.email) {
                   FocusScope.of(context).requestFocus(_emailFocus);
@@ -347,6 +486,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 hintText: 'Masukkan email',
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
+                onChanged: _handleIdentifierChanged,
                 onFieldSubmitted: (_) {
                   FocusScope.of(context).requestFocus(_passwordFocus);
                 },
@@ -362,6 +502,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 hintText: '081200000001',
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
+                onChanged: _handleIdentifierChanged,
                 onFieldSubmitted: (_) {
                   FocusScope.of(context).requestFocus(_passwordFocus);
                 },
@@ -420,6 +561,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           _loginMethod = LoginMethod.email;
                           _error = '';
                         });
+                        _passwordController.clear();
+                        _invalidateRestoredCredentials();
                       }
                     },
               child: Container(
@@ -462,6 +605,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           _loginMethod = LoginMethod.phone;
                           _error = '';
                         });
+                        _passwordController.clear();
+                        _invalidateRestoredCredentials();
                       }
                     },
               child: Container(
@@ -499,13 +644,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Widget _buildRememberMeRow(bool isLoading) {
+    final disabled = isLoading || _updatingRememberMe;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: isLoading
-          ? null
-          : () {
-              setState(() => _rememberMe = !_rememberMe);
-            },
+      onTap: disabled ? null : () => _setRememberMe(!_rememberMe),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -520,11 +662,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(4),
               ),
-              onChanged: isLoading
-                  ? null
-                  : (val) {
-                      setState(() => _rememberMe = val ?? true);
-                    },
+              onChanged: disabled ? null : (val) => _setRememberMe(val ?? true),
             ),
           ),
           const SizedBox(width: 8),
@@ -551,6 +689,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     Widget? suffixIcon,
     bool autoFocus = false,
     bool enabled = true,
+    void Function(String)? onChanged,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -573,6 +712,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             keyboardType: keyboardType,
             textInputAction: textInputAction,
             onSubmitted: onFieldSubmitted,
+            onChanged: onChanged,
             autofocus: autoFocus,
             enabled: enabled,
             style: const TextStyle(

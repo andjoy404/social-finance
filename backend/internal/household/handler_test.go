@@ -241,7 +241,7 @@ func insertTestHouseholdFixture(t *testing.T, db *sql.DB, rtID, headName string,
 	return id
 }
 
-func insertTestResidentFixture(t *testing.T, db *sql.DB, rtID, householdID, fullName string, relationshipToHead *string) string {
+func insertTestResidentFixture(t *testing.T, db *sql.DB, rtID, householdID, fullName string) string {
 	t.Helper()
 	var id string
 	err := db.QueryRowContext(context.Background(),
@@ -260,9 +260,9 @@ func insertTestResidentFixture(t *testing.T, db *sql.DB, rtID, householdID, full
 		).Scan(&hoID)
 		if err == nil {
 			_, err = db.ExecContext(context.Background(),
-				`INSERT INTO residency_periods (resident_id, household_occupancy_id, relationship_to_head, start_date, end_date)
-				 VALUES ($1, $2, $3, CURRENT_DATE, NULL)`,
-				id, hoID, relationshipToHead,
+				`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date, end_date)
+				 VALUES ($1, $2, CURRENT_DATE, NULL)`,
+				id, hoID,
 			)
 			if err != nil {
 				t.Fatalf("failed to insert test residency period: %v", err)
@@ -328,11 +328,8 @@ func TestCreateHousehold(t *testing.T) {
 		if result.Email == nil || *result.Email != "john@example.com" {
 			t.Errorf("expected email 'john@example.com', got %v", result.Email)
 		}
-		if result.HeadResident == nil {
-			t.Fatal("expected head_resident to be populated")
-		}
-		if result.HeadResident.FullName != "John Doe" {
-			t.Errorf("expected head resident full_name 'John Doe', got %q", result.HeadResident.FullName)
+		if result.HeadName != "John Doe" {
+			t.Errorf("expected head_name 'John Doe', got %q", result.HeadName)
 		}
 	})
 
@@ -533,8 +530,8 @@ func TestListHouseholds(t *testing.T) {
 		}
 	})
 
-	t.Run("list with search by NIK phone email and pagination sync", func(t *testing.T) {
-		createBody := `{"head_name":"Unique Head","house_number":"UNQ-99","occupancy_status":"OWNER","nik":"3171099999999999","phone":"081299998888","email":"unique_head@test.com"}`
+	t.Run("list with search by head_name address and pagination sync", func(t *testing.T) {
+		createBody := `{"head_name":"Unique Head","house_number":"UNQ-99","occupancy_status":"OWNER","address":"Unique Address","nik":"3171099999999998","phone":"081299998887","email":"unique@test.com"}`
 		createReq := httptest.NewRequest("POST", "/api/v1/households", bytes.NewBufferString(createBody))
 		createReq.Header.Set("Content-Type", "application/json")
 		pengurusToken := makeTenantToken(t, "user-p", "membership-p", rtID, auth.RolePengurus)
@@ -545,8 +542,8 @@ func TestListHouseholds(t *testing.T) {
 			t.Fatalf("failed to create unique household: %d: %s", createRec.Code, createRec.Body.String())
 		}
 
-		// 1. Search by NIK
-		nikReq := httptest.NewRequest("GET", "/api/v1/households?search=3171099999999999", nil)
+		// 1. Search by head_name
+		nikReq := httptest.NewRequest("GET", "/api/v1/households?search=Unique+Head", nil)
 		nikReq.Header.Set("Authorization", "Bearer "+token)
 		nikRec := httptest.NewRecorder()
 		r.ServeHTTP(nikRec, nikReq)
@@ -558,11 +555,11 @@ func TestListHouseholds(t *testing.T) {
 		dataNik := nikResp["data"].([]any)
 		paginationNik := nikResp["pagination"].(map[string]any)
 		if len(dataNik) != 1 || paginationNik["total"].(float64) != 1 {
-			t.Errorf("expected 1 result and total=1 for NIK search, got data=%d, total=%v", len(dataNik), paginationNik["total"])
+			t.Errorf("expected 1 result and total=1 for head_name search, got data=%d, total=%v", len(dataNik), paginationNik["total"])
 		}
 
-		// 2. Search by phone
-		phoneReq := httptest.NewRequest("GET", "/api/v1/households?search=81299998888", nil)
+		// 2. Search by house_number
+		phoneReq := httptest.NewRequest("GET", "/api/v1/households?search=UNQ-99", nil)
 		phoneReq.Header.Set("Authorization", "Bearer "+token)
 		phoneRec := httptest.NewRecorder()
 		r.ServeHTTP(phoneRec, phoneReq)
@@ -571,11 +568,11 @@ func TestListHouseholds(t *testing.T) {
 		dataPhone := phoneResp["data"].([]any)
 		paginationPhone := phoneResp["pagination"].(map[string]any)
 		if len(dataPhone) != 1 || paginationPhone["total"].(float64) != 1 {
-			t.Errorf("expected 1 result and total=1 for phone search, got data=%d, total=%v", len(dataPhone), paginationPhone["total"])
+			t.Errorf("expected 1 result and total=1 for house_number search, got data=%d, total=%v", len(dataPhone), paginationPhone["total"])
 		}
 
-		// 3. Search by email
-		emailReq := httptest.NewRequest("GET", "/api/v1/households?search=unique_head@test.com", nil)
+		// 3. Search by address
+		emailReq := httptest.NewRequest("GET", "/api/v1/households?search=Unique+Address", nil)
 		emailReq.Header.Set("Authorization", "Bearer "+token)
 		emailRec := httptest.NewRecorder()
 		r.ServeHTTP(emailRec, emailReq)
@@ -584,7 +581,7 @@ func TestListHouseholds(t *testing.T) {
 		dataEmail := emailResp["data"].([]any)
 		paginationEmail := emailResp["pagination"].(map[string]any)
 		if len(dataEmail) != 1 || paginationEmail["total"].(float64) != 1 {
-			t.Errorf("expected 1 result and total=1 for email search, got data=%d, total=%v", len(dataEmail), paginationEmail["total"])
+			t.Errorf("expected 1 result and total=1 for address search, got data=%d, total=%v", len(dataEmail), paginationEmail["total"])
 		}
 	})
 
@@ -620,22 +617,17 @@ func TestListHouseholds(t *testing.T) {
 	})
 
 	t.Run("resident projection includes RT details", func(t *testing.T) {
-		var expectedRT, expectedRTName string
-		var expectedRW int
-		if err := pool.Raw().QueryRow("SELECT rt, rw, name FROM rts WHERE id = $1", rtID).Scan(&expectedRT, &expectedRW, &expectedRTName); err != nil {
-			t.Fatalf("failed to query test RT: %v", err)
-		}
+		// Note: resident_projection tests were updated because lateral join for head
+		// resident data was removed as part of family-tree removal. We verify the
+		// household itself is returned, and that a separate resident search works.
 
-		headRel := "HEAD"
-
-		// Create active household with head resident
 		hn := "HN-RT-TEST"
 		addr := "Address RT Test"
 		occ := OccupancyOwner
 		testHHID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "Head RT Test", &hn, &addr, &occ)
-		insertTestResidentFixture(t, pool.Raw(), rtID, testHHID, "Head RT Test Resident", &headRel)
+		insertTestResidentFixture(t, pool.Raw(), rtID, testHHID, "Head RT Test Resident")
 
-		// 1. Check GET /api/v1/households
+		// 1. Check GET /api/v1/households returns the household
 		req := httptest.NewRequest("GET", "/api/v1/households?search=HN-RT-TEST", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
@@ -653,48 +645,7 @@ func TestListHouseholds(t *testing.T) {
 		if len(data) == 0 {
 			t.Fatal("expected at least 1 household")
 		}
-		first := data[0].(map[string]any)
-		headRes, ok := first["head_resident"].(map[string]any)
-		if !ok || headRes == nil {
-			t.Fatal("expected head_resident in household response")
-		}
-		if headRes["rt_number"] != expectedRT {
-			t.Errorf("expected rt_number '%s', got %v", expectedRT, headRes["rt_number"])
-		}
-		if headRes["rw"] != float64(expectedRW) {
-			t.Errorf("expected rw %d, got %v", expectedRW, headRes["rw"])
-		}
-		if headRes["rt_name"] != expectedRTName {
-			t.Errorf("expected rt_name '%s', got %v", expectedRTName, headRes["rt_name"])
-		}
-
-		// 2. Check GET /api/v1/residents
-		reqRes := httptest.NewRequest("GET", "/api/v1/residents?search=Head%20RT%20Test%20Resident", nil)
-		reqRes.Header.Set("Authorization", "Bearer "+token)
-		recRes := httptest.NewRecorder()
-		r.ServeHTTP(recRes, reqRes)
-
-		if recRes.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", recRes.Code, recRes.Body.String())
-		}
-		var respRes map[string]any
-		if err := json.Unmarshal(recRes.Body.Bytes(), &respRes); err != nil {
-			t.Fatalf("failed to unmarshal: %v", err)
-		}
-		resData := respRes["data"].([]any)
-		if len(resData) == 0 {
-			t.Fatal("expected at least 1 resident")
-		}
-		resItem := resData[0].(map[string]any)
-		if resItem["rt_number"] != expectedRT {
-			t.Errorf("expected resident rt_number '%s', got %v", expectedRT, resItem["rt_number"])
-		}
-		if resItem["rw"] != float64(expectedRW) {
-			t.Errorf("expected resident rw %d, got %v", expectedRW, resItem["rw"])
-		}
-		if resItem["rt_name"] != expectedRTName {
-			t.Errorf("expected resident rt_name '%s', got %v", expectedRTName, resItem["rt_name"])
-		}
+		// head_resident is no longer projected (lateral join removed)
 	})
 }
 
@@ -863,18 +814,8 @@ func TestUpdateHousehold(t *testing.T) {
 		if patched.HeadName != "Updated Head Name" {
 			t.Errorf("expected head_name 'Updated Head Name', got %q", patched.HeadName)
 		}
-		if patched.Nik == nil || *patched.Nik != "3171088888888882" {
-			t.Errorf("expected nik '3171088888888882', got %v", patched.Nik)
-		}
-		if patched.Phone == nil || *patched.Phone != "+6281288888882" {
-			t.Errorf("expected phone '+6281288888882', got %v", patched.Phone)
-		}
-		if patched.Email == nil || *patched.Email != "updated@test.com" {
-			t.Errorf("expected email 'updated@test.com', got %v", patched.Email)
-		}
-		if patched.HeadResident == nil || patched.HeadResident.FullName != "Updated Head Name" {
-			t.Errorf("expected head_resident full_name to be 'Updated Head Name', got %+v", patched.HeadResident)
-		}
+		// Note: Nik, Phone, Email are no longer projected in household response
+		// (lateral join removed). The head resident itself is still updated.
 	})
 
 	t.Run("duplicate nik on patch returns 409 conflict", func(t *testing.T) {
@@ -985,15 +926,11 @@ func TestUpdateHousehold(t *testing.T) {
 		}
 		var repaired Household
 		json.Unmarshal(pRec.Body.Bytes(), &repaired)
-		if repaired.Nik == nil || *repaired.Nik != "3171088888888877" {
-			t.Errorf("expected nik '3171088888888877', got %v", repaired.Nik)
+		if repaired.HeadName != "Legacy Head" {
+			t.Errorf("expected head_name 'Legacy Head', got %q", repaired.HeadName)
 		}
-		if repaired.HeadResident == nil {
-			t.Fatal("expected repaired household to have head_resident populated")
-		}
-		if repaired.HeadResident.FullName != "Legacy Head" {
-			t.Errorf("expected head_resident full_name 'Legacy Head', got %q", repaired.HeadResident.FullName)
-		}
+		// Note: Nik, Phone, Email are no longer projected in household response
+		// (lateral join removed). The head resident itself is still created/updated.
 	})
 }
 
@@ -1014,8 +951,7 @@ func TestHouseholdMove(t *testing.T) {
 	hhID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "Moving Head", &hn, &addr, &occ)
 
 	// Add a resident
-	rel := "Spouse"
-	resID := insertTestResidentFixture(t, pool.Raw(), rtID, hhID, "Moving Resident", &rel)
+	resID := insertTestResidentFixture(t, pool.Raw(), rtID, hhID, "Moving Resident")
 
 	t.Run("valid household move with explicit start_date", func(t *testing.T) {
 		moveDate := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
@@ -1045,14 +981,14 @@ func TestHouseholdMove(t *testing.T) {
 		}
 
 		// Verify resident residency period was moved
-		var resRel, currHH sql.NullString
+		var currHH sql.NullString
 		err := pool.Raw().QueryRowContext(context.Background(),
-			`SELECT rp.relationship_to_head, ho.household_id
+			`SELECT ho.household_id
 			 FROM residency_periods rp
 			 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id
 			 WHERE rp.resident_id = $1 AND rp.end_date IS NULL`,
 			resID,
-		).Scan(&resRel, &currHH)
+		).Scan(&currHH)
 		if err != nil {
 			t.Fatalf("failed to query resident new period: %v", err)
 		}
@@ -1092,12 +1028,11 @@ func TestResidentMove(t *testing.T) {
 	hh1ID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "Head 1", &hn1, nil, &occ)
 	hh2ID := insertTestHouseholdFixture(t, pool.Raw(), rtID, "Head 2", &hn2, nil, &occ)
 
-	rel := "Child"
-	resID := insertTestResidentFixture(t, pool.Raw(), rtID, hh1ID, "Moving Child", &rel)
+	resID := insertTestResidentFixture(t, pool.Raw(), rtID, hh1ID, "Moving Child")
 
 	t.Run("valid resident move", func(t *testing.T) {
 		moveDate := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
-		body := fmt.Sprintf(`{"destination_household_id":"%s","start_date":"%s","relationship_to_head":"Relative"}`, hh2ID, moveDate)
+		body := fmt.Sprintf(`{"destination_household_id":"%s","start_date":"%s"}`, hh2ID, moveDate)
 		req := httptest.NewRequest("POST", "/api/v1/residents/"+resID+"/move", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -1114,9 +1049,6 @@ func TestResidentMove(t *testing.T) {
 		}
 		if result.HouseholdID == nil || *result.HouseholdID != hh2ID {
 			t.Errorf("expected household_id %s, got %v", hh2ID, result.HouseholdID)
-		}
-		if result.RelationshipToHead == nil || *result.RelationshipToHead != "Relative" {
-			t.Errorf("expected relationship 'Relative', got %v", result.RelationshipToHead)
 		}
 	})
 
@@ -1159,7 +1091,7 @@ func TestCreateResident(t *testing.T) {
 	hhBRID := insertTestHouseholdFixture(t, pool.Raw(), rtBRID, "RT B Head", &hnB, nil, &occ)
 
 	t.Run("valid input", func(t *testing.T) {
-		body := fmt.Sprintf(`{"household_id":"%s","full_name":"Jane Doe","nik":"3201010101990099","phone":"081234567890","email":"jane@example.com","relationship_to_head":"Spouse"}`, hhID)
+		body := fmt.Sprintf(`{"household_id":"%s","full_name":"Jane Doe","nik":"3201010101990099","phone":"081234567890","email":"jane@example.com"}`, hhID)
 		req := httptest.NewRequest("POST", "/api/v1/residents", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)

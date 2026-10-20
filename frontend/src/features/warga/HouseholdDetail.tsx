@@ -12,6 +12,7 @@ import {
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { AppCard } from '@/components/AppCard'
 import { Badge } from '@/components/Badge'
+import { formatPhoneDisplay } from '@/styles/format'
 
 function occupancyLabel(status: ApiHousehold['occupancy_status']): string {
   switch (status) {
@@ -431,7 +432,7 @@ export function HouseholdDetail() {
                 fontSize: '13px',
                 color: 'var(--text-primary)',
               }}>
-                {formatNull(household.phone ?? household.head_resident?.phone ?? null)}
+                {formatPhoneDisplay(household.phone ?? household.head_resident?.phone ?? null)}
               </div>
             </div>
             <div>

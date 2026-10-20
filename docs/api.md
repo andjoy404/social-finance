@@ -298,8 +298,46 @@ permissions authoritative for backend operations.
 
 ---
 
-## 5.6 RT Management (SUPER_ADMIN)
+## 5.6 RW & RT Management (SUPER_ADMIN)
 
+### RW Management
+```
+GET    /api/v1/rws
+POST   /api/v1/rws
+GET    /api/v1/rws/{id}
+PATCH  /api/v1/rws/{id}
+PATCH  /api/v1/rws/{id}/deactivate
+```
+
+Authentication: **Required (Bearer token)**
+Authorization: `GET /api/v1/rws` and `GET /api/v1/rws/{id}` are accessible to authenticated users (with SUPER_ADMIN seeing all RWs and tenant users seeing their RW); write operations (`POST`, `PATCH`, `deactivate`) require **SUPER_ADMIN**.
+
+Request body (CREATE RW):
+```json
+{
+  "rw_number": 16,
+  "name": "RW 016",
+  "head_name": "Hendra Wijaya",
+  "address": "Sekretariat RW 016"
+}
+```
+
+Response (RW Object):
+```json
+{
+  "id": "e4ecf485-c707-41e1-b753-f164a4a3bef2",
+  "rw_number": 16,
+  "name": "RW 016",
+  "head_name": "Hendra Wijaya",
+  "address": "Sekretariat RW 016",
+  "rt_count": 5,
+  "is_active": true,
+  "created_at": "2026-09-16T00:00:00Z",
+  "updated_at": "2026-09-16T00:00:00Z"
+}
+```
+
+### RT Management
 ```
 GET    /api/v1/rts
 POST   /api/v1/rts
@@ -309,23 +347,26 @@ PATCH  /api/v1/rts/{id}/deactivate
 ```
 
 Authentication: **SUPER_ADMIN** (system-level)
-Authorization: SUPER_ADMIN role required. RT CRUD is a global operation — not tenant-scoped.
+Authorization: SUPER_ADMIN role required. RT CRUD is a global operation — not tenant-scoped. `GET /api/v1/rts` supports optional query parameters `page`, `per_page`, `is_active`, and `rw_id`.
 
 Request body (CREATE):
 ```json
 {
   "name": "RT 05 / RW 03",
+  "rw_id": "e4ecf485-c707-41e1-b753-f164a4a3bef2",
   "rw": 3,
   "rt": "002",
   "address": "Jalan Mawar No. 1",
   "head_name": "Budi Santoso"
 }
 ```
+If `rw_id` is provided, the server resolves the RW entity and synchronizes `rw` (`rw_number`). If `rw` is provided without `rw_id`, the server links to the matching active RW entity (or auto-provisions it if not yet present).
 
 Request body (UPDATE):
 ```json
 {
   "name": "RT 05 / RW 03 — Updated",
+  "rw_id": "e4ecf485-c707-41e1-b753-f164a4a3bef2",
   "head_name": "Andi Wijaya"
 }
 ```
@@ -336,6 +377,8 @@ Response:
 ```json
 {
   "id": "04ecf485-c707-41e1-b753-f164a4a3bef2",
+  "rw_id": "e4ecf485-c707-41e1-b753-f164a4a3bef2",
+  "rw_name": "RW 003",
   "name": "RT 05 / RW 03",
   "rw": 3,
   "rt": "002",
@@ -547,7 +590,6 @@ Response (200 OK): the resident object:
   "phone": "+6281234567890",
   "nik": "3201234567890001",
   "email": "ahmad@example.com",
-  "relationship_to_head": "HEAD",
   "is_active": true,
   "created_at": "2026-09-16T10:00:00Z",
   "updated_at": "2026-09-16T10:00:00Z",
@@ -571,8 +613,7 @@ Request:
 {
   "household_id": "550e8400-e29b-41d4-a716-446655440000",
   "full_name": "Siti Aminah",
-  "phone": "+6281234567891",
-  "relationship_to_head": "spouse"
+  "phone": "+6281234567891"
 }
 ```
 
@@ -596,7 +637,6 @@ Request body: partial update, any combination of:
 {
   "full_name": "Siti Aminah",
   "phone": "+6281234567891",
-  "relationship_to_head": "spouse",
   "is_active": true
 }
 ```
@@ -712,13 +752,14 @@ Optional query parameters. No implicit sorting unless specified.
 
 ### 9.5 Transactions & Ledger
 
-- `GET /api/v1/transactions`: Query immutable ledger entries (Bendahara, Pengurus, Warga). Supports query parameters: `category_id`, `type`, `status`, `period` (`YYYY-MM`), `start_date`, `end_date`, `page`, `per_page`. Results are ordered by `occurred_at DESC, created_at DESC`.
-- `POST /api/v1/transactions`: Create manual ledger transaction (Bendahara, Pengurus). Supports `Idempotency-Key` header.
+- `GET /api/v1/transactions`: Query immutable ledger entries (Bendahara, Pengurus, Warga). Supports query parameters: `category_id`, `type`, `status`, `period` (`YYYY-MM`), `start_date`, `end_date`, `page`, `per_page`. Results are ordered by `occurred_at DESC, created_at DESC`. Each transaction includes `reference_no` and `payment_no` (for manual KAS transactions, the server auto-generates `KAS-YYYYMMDD-XXXXX`; for Iuran payments, `PAY-YYYYMMDD-XXXXX`).
+- `POST /api/v1/transactions`: Create manual ledger transaction (Bendahara, Pengurus). Supports `Idempotency-Key` header. Automatically generates a unique `reference_no` (`KAS-YYYYMMDD-XXXXX`) persisted in the database and returned in the response.
 - `POST /api/v1/transactions/{id}/reverse`: Create compensating reversal transaction (Bendahara, Pengurus).
 - `GET /api/v1/reports/balance`: Calculate real-time balance from posted transactions (Bendahara, Pengurus, Warga).
   - Without parameters: returns cumulative net balance (`total_income`, `total_expense`, `net_balance`, `transaction_count`).
   - With `period=YYYY-MM` or (`start_date` and `end_date`): returns period balance sheet (`opening_balance`, `total_income`, `total_expense`, `net_movement`, `closing_balance`, `transaction_count`). Calculations use `Asia/Jakarta` timezone and `[start, end_exclusive)` interval on `posted` transactions.
 - `PUT /api/v1/reports/balance/opening/{period}`: Set or correct opening balance for a period in `period_opening_balances` (Bendahara, Pengurus). Request body requires `opening_balance` and `reason`. Logs audit trail with before/after values and marks source as `manual`.
+- `GET /api/v1/dashboard/summary`: Aggregated financial dashboard summary (Bendahara, Pengurus, Warga, SuperAdmin). Supports `period=YYYY-MM` or `period=all` (cumulative all-time metrics). Returns `period`, `rt_number`, `rw_number`, `total_balance`, `period_income`, `period_expense`, `dues_progress`, `payment_method_breakdown` (`cash_amount`, `transfer_amount`, `cash_count`, `transfer_count`), `monthly_chart`, and `recent_transactions` (including `payment_no`/`reference_no`).
 
 ---
 
@@ -728,7 +769,7 @@ Optional query parameters. No implicit sorting unless specified.
 - `GET /api/v1/warga/export` (Pengurus, Bendahara)
   - Exports tenant-scoped current resident and household projection to CSV.
   - Response: `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="warga_export.csv"`.
-  - Columns: `house_number,kk_number,head_name,occupancy_status,address,household_phone,resident_name,resident_phone,relationship_to_head`.
+  - Columns: `house_number,kk_number,head_name,occupancy_status,address,household_phone,resident_name,resident_phone`.
 
 ### 10.2 Warga Import Preview
 - `POST /api/v1/warga/import/preview` (Pengurus)

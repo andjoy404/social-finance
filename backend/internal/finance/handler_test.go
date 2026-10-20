@@ -147,8 +147,8 @@ func setupTestOccupancyWithResident(t *testing.T, pool *database.Pool, rtID, pho
 	}
 
 	_, err = db.ExecContext(ctx,
-		`INSERT INTO residency_periods (resident_id, household_occupancy_id, relationship_to_head, start_date)
-		 VALUES ($1, $2, 'HEAD', CURRENT_DATE)`,
+		`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date)
+		 VALUES ($1, $2, CURRENT_DATE)`,
 		resID, occID,
 	)
 	if err != nil {

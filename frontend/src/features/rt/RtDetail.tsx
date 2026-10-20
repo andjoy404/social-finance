@@ -342,7 +342,7 @@ export function RtDetail() {
                 color: 'var(--text-primary)',
                 fontWeight: 500,
               }}>
-                {rt.rw}
+                {rt.rw_name || `RW ${String(rt.rw).padStart(3, '0')}`}
               </div>
             </div>
             <div>

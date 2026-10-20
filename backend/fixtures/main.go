@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/alexedwards/argon2id"
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"social-finance/internal/fixturecleanup"
+	"social-finance/internal/fixtureguard"
 )
 
 const (
@@ -23,7 +27,20 @@ const (
 	fixturePasswordSA     = "E2E_SUPER_ADMIN_PASSWORD"
 )
 
-// FixtureSetup creates isolated E2E test data for Checkpoint C.
+func requireDisposableTestTarget(name string, confirmed bool) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if !confirmed {
+		return fmt.Errorf("unsafe fixture target %q: explicit fixture opt-in is required", name)
+	}
+	if name == "" || name == "social_finance" || name == "social_finance_test" {
+		return fmt.Errorf("unsafe fixture target %q: persistent or default database is not disposable", name)
+	}
+	if !strings.Contains(name, "test") && !strings.Contains(name, "fixture") && !strings.Contains(name, "disposable") {
+		return fmt.Errorf("unsafe fixture target %q: database name must identify an isolated test/fixture database", name)
+	}
+	return nil
+}
+
 // Usage: docker compose run --rm backend go run ./fixtures/
 func main() {
 	host := os.Getenv("DB_HOST")
@@ -46,8 +63,9 @@ func main() {
 	if name == "" {
 		name = "social_finance_test"
 	}
-	if name == "social_finance" {
-		log.Fatal("HARD SAFETY GUARD BLOCKED: cannot seed fixtures into development database 'social_finance'!")
+	confirmed := strings.EqualFold(strings.TrimSpace(os.Getenv("FIXTURE_TARGET_CONFIRMED")), "true")
+	if err := requireDisposableTestTarget(name, confirmed); err != nil {
+		log.Fatal("HARD SAFETY GUARD BLOCKED:", err)
 	}
 	sslmode := os.Getenv("DB_SSLMODE")
 	if sslmode == "" {
@@ -66,6 +84,27 @@ func main() {
 		log.Fatal("ping:", err)
 	}
 
+	var currentDB, currentUser string
+	if err := db.QueryRow("SELECT current_database(), current_user").Scan(&currentDB, &currentUser); err != nil {
+		log.Fatal("probe database identity:", err)
+	}
+
+	guardCfg := fixtureguard.FixtureTargetConfig{
+		AllowFixture:   confirmed,
+		ExpectedDBName: os.Getenv("FIXTURE_EXPECTED_DB"),
+		ExpectedDBUser: os.Getenv("FIXTURE_EXPECTED_USER"),
+		ExpectedMarker: os.Getenv("FIXTURE_EXPECTED_MARKER"),
+	}
+	observed := fixtureguard.ObservedDBIdentity{
+		Database:      currentDB,
+		User:          currentUser,
+		MarkerPresent: false,
+		MarkerValue:   "",
+	}
+	if err := fixtureguard.ValidateFixtureTarget(guardCfg, observed); err != nil {
+		log.Fatal("HARD SAFETY GUARD BLOCKED:", err)
+	}
+
 	pw := os.Getenv(fixturePassword)
 	if pw == "" {
 		pw = "TestUser123!"
@@ -77,20 +116,42 @@ func main() {
 
 	ctx := context.Background()
 
-	_, err = db.ExecContext(ctx,
-		`DELETE FROM user_rt_memberships WHERE rt_id IN (SELECT id FROM rts WHERE name LIKE 'E2E%%')`)
+	plan := fixturecleanup.DefaultFixtureCleanupPlan()
+	if err := plan.Validate(); err != nil {
+		log.Fatal("cleanup plan:", err)
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
+		log.Fatal("begin cleanup transaction:", err)
+	}
+	rollback := func(cause error) {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Printf("cleanup rollback failed: %v (original error: %v)", rbErr, cause)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM user_rt_memberships WHERE rt_id IN (SELECT id FROM rts WHERE name = ANY($1))`,
+		plan.RTNames); err != nil {
+		rollback(err)
 		log.Fatal("cleanup memberships:", err)
 	}
-	_, err = db.ExecContext(ctx,
-		`DELETE FROM users WHERE email IN ($1, $2, $3, $4, $5)`, fixtureEmailA, fixtureEmailPengurusA, fixtureEmailB, fixtureEmailC, fixtureEmailSA)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM users WHERE email = ANY($1)`,
+		plan.UserEmails); err != nil {
+		rollback(err)
 		log.Fatal("cleanup users:", err)
 	}
-	_, err = db.ExecContext(ctx,
-		`DELETE FROM rts WHERE name LIKE 'E2E %'`)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM rts WHERE name = ANY($1)`,
+		plan.RTNames); err != nil {
+		rollback(err)
 		log.Fatal("cleanup rts:", err)
+	}
+	if err := tx.Commit(); err != nil {
+		rollback(err)
+		log.Fatal("commit cleanup transaction:", err)
 	}
 
 	_, err = db.ExecContext(ctx,

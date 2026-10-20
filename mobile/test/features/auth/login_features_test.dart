@@ -33,6 +33,18 @@ class MockAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+class _FailingLoginCredentialStorage extends InMemorySecureAuthStorage {
+  @override
+  Future<void> saveLoginCredentials({
+    required String identifier,
+    required String loginMethod,
+    required String password,
+    required String serverUrl,
+  }) async {
+    throw StateError('secure storage unavailable');
+  }
+}
+
 ResponseBody _jsonResponse(dynamic data, int statusCode) {
   return ResponseBody.fromString(
     jsonEncode(data),
@@ -385,6 +397,11 @@ void main() {
         expect(stored, isNotNull);
         expect(stored!.accessToken, equals('saved-acc-tok'));
         expect(stored.serverUrl, equals('https://api.urena0216.id'));
+        final rememberedLogin = await secureStorage.getLoginCredentials();
+        expect(rememberedLogin?.identifier, equals('restored@local.com'));
+        expect(rememberedLogin?.loginMethod, equals('email'));
+        expect(rememberedLogin?.password, equals('secret'));
+        expect(rememberedLogin?.serverUrl, equals('https://api.urena0216.id'));
 
         // Create new fresh repository instance (simulating app restart)
         final newClient = ApiClient(baseUrl: 'https://api.urena0216.id');
@@ -452,6 +469,7 @@ void main() {
         // Secure storage must be empty!
         final stored = await secureStorage.getSession();
         expect(stored, isNull);
+        expect(await secureStorage.getLoginCredentials(), isNull);
 
         // Simulating restart
         final newRepo = AuthRepository(
@@ -496,6 +514,59 @@ void main() {
         expect(didRestore, isFalse);
         expect(await secureStorage.getSession(), isNull);
         expect(client.token, isNull);
+      },
+    );
+
+    test(
+      'Secure credential storage failure does not leave an active session',
+      () async {
+        final client = ApiClient(baseUrl: 'https://api.urena0216.id');
+        client.dio.httpClientAdapter = MockAdapter((options) async {
+          if (options.path.contains('/auth/login')) {
+            return _jsonResponse({
+              'access_token': 'temporary-token',
+              'refresh_token': 'temporary-refresh',
+              'token_type': 'Bearer',
+              'expires_in': 900,
+              'user': {
+                'id': 'u-secure-storage-error',
+                'email': 'safe@example.com',
+                'name': 'Safe User',
+                'role': 'warga',
+              },
+            }, 200);
+          }
+          if (options.path.contains('/auth/me')) {
+            return _jsonResponse({
+              'id': 'u-secure-storage-error',
+              'email': 'safe@example.com',
+              'name': 'Safe User',
+              'role': 'warga',
+            }, 200);
+          }
+          return _jsonResponse({}, 200);
+        });
+        final secureStorage = _FailingLoginCredentialStorage();
+        final repo = AuthRepository(
+          authService: AuthService(client),
+          apiClient: client,
+          preferencesStorage: InMemoryPreferencesStorage(),
+          secureAuthStorage: secureStorage,
+        );
+
+        await repo.login(
+          'safe@example.com',
+          'never-log-this',
+          serverUrl: 'https://api.urena0216.id',
+        );
+
+        expect(repo.state, isA<AsyncError>());
+        expect(client.token, isNull);
+        expect(await secureStorage.hasSession(), isFalse);
+        expect(
+          (repo.state!.error as dynamic).message,
+          contains('tidak dapat disimpan dengan aman'),
+        );
       },
     );
   });
@@ -918,159 +989,351 @@ void main() {
     );
   });
 
-  group('7. Login Retention & Security (Email, Phone, Logout, Password Protection)', () {
-    testWidgets('Restores last email and sets Email tab active on startup', (tester) async {
-      final prefStorage = InMemoryPreferencesStorage(
-        initialUrl: 'https://api.socialfinance.com',
-        initialEmail: 'warga01@test.com',
-        initialLoginMethod: 'email',
-      );
-      final secureStorage = InMemorySecureAuthStorage();
-      final client = ApiClient(baseUrl: 'https://api.socialfinance.com');
-      final repo = AuthRepository(
-        authService: AuthService(client),
-        apiClient: client,
-        preferencesStorage: prefStorage,
-        secureAuthStorage: secureStorage,
-      );
+  group(
+    '7. Login Retention & Security (Email, Phone, Logout, Password Protection)',
+    () {
+      testWidgets('Restores last email and sets Email tab active on startup', (
+        tester,
+      ) async {
+        final prefStorage = InMemoryPreferencesStorage(
+          initialUrl: 'https://api.socialfinance.com',
+          initialEmail: 'warga01@test.com',
+          initialLoginMethod: 'email',
+        );
+        final secureStorage = InMemorySecureAuthStorage(
+          initialLoginCredentials: const StoredLoginCredentials(
+            identifier: 'warga01@test.com',
+            loginMethod: 'email',
+            password: 'remembered-password',
+            serverUrl: 'https://api.socialfinance.com',
+          ),
+        );
+        final client = ApiClient(baseUrl: 'https://api.socialfinance.com');
+        final repo = AuthRepository(
+          authService: AuthService(client),
+          apiClient: client,
+          preferencesStorage: prefStorage,
+          secureAuthStorage: secureStorage,
+        );
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            preferencesStorageProvider.overrideWithValue(prefStorage),
-            secureAuthStorageProvider.overrideWithValue(secureStorage),
-            authRepositoryProvider.overrideWith((ref) => repo),
-          ],
-          child: const MaterialApp(home: LoginScreen()),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              preferencesStorageProvider.overrideWithValue(prefStorage),
+              secureAuthStorageProvider.overrideWithValue(secureStorage),
+              authRepositoryProvider.overrideWith((ref) => repo),
+            ],
+            child: const MaterialApp(home: LoginScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      final emailField = tester.widget<TextField>(find.byType(TextField).at(1));
-      expect(emailField.controller?.text, equals('warga01@test.com'));
+        final emailField = tester.widget<TextField>(
+          find.byType(TextField).at(1),
+        );
+        expect(emailField.controller?.text, equals('warga01@test.com'));
 
-      final passField = tester.widget<TextField>(find.byType(TextField).at(2));
-      expect(passField.controller?.text, isEmpty); // Password must NEVER be auto-filled
-    });
-
-    testWidgets('Restores last phone and sets Nomor HP tab active on startup', (tester) async {
-      final prefStorage = InMemoryPreferencesStorage(
-        initialUrl: 'https://api.socialfinance.com',
-        initialPhone: '081200000001',
-        initialLoginMethod: 'phone',
-      );
-      final secureStorage = InMemorySecureAuthStorage();
-      final client = ApiClient(baseUrl: 'https://api.socialfinance.com');
-      final repo = AuthRepository(
-        authService: AuthService(client),
-        apiClient: client,
-        preferencesStorage: prefStorage,
-        secureAuthStorage: secureStorage,
-      );
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            preferencesStorageProvider.overrideWithValue(prefStorage),
-            secureAuthStorageProvider.overrideWithValue(secureStorage),
-            authRepositoryProvider.overrideWith((ref) => repo),
-          ],
-          child: const MaterialApp(home: LoginScreen()),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      final phoneField = tester.widget<TextField>(find.byType(TextField).at(1));
-      expect(phoneField.controller?.text, equals('081200000001'));
-
-      final passField = tester.widget<TextField>(find.byType(TextField).at(2));
-      expect(passField.controller?.text, isEmpty); // Password must NEVER be auto-filled
-    });
-
-    test('Logout clears session tokens but preserves non-secret preferences', () async {
-      final prefStorage = InMemoryPreferencesStorage(
-        initialUrl: 'https://api.socialfinance.com',
-        initialEmail: 'user@example.com',
-        initialPhone: '081200000001',
-        initialLoginMethod: 'email',
-      );
-      final secureStorage = InMemorySecureAuthStorage(
-        initialSession: const StoredSession(
-          accessToken: 'active-token-123',
-          refreshToken: 'refresh-token-456',
-          serverUrl: 'https://api.socialfinance.com',
-          userData: {'name': 'Warga'},
-        ),
-      );
-      final client = ApiClient(baseUrl: 'https://api.socialfinance.com');
-      client.setToken('active-token-123');
-      client.dio.httpClientAdapter = MockAdapter((options) async {
-        if (options.path == '/api/v1/auth/logout') {
-          return _jsonResponse({}, 200);
-        }
-        return _jsonResponse({}, 404);
+        final passField = tester.widget<TextField>(
+          find.byType(TextField).at(2),
+        );
+        expect(passField.controller?.text, equals('remembered-password'));
       });
 
-      final repo = AuthRepository(
-        authService: AuthService(client),
-        apiClient: client,
-        preferencesStorage: prefStorage,
-        secureAuthStorage: secureStorage,
+      testWidgets(
+        'Restores last phone and sets Nomor HP tab active on startup',
+        (tester) async {
+          final prefStorage = InMemoryPreferencesStorage(
+            initialUrl: 'https://api.socialfinance.com',
+            initialPhone: '081200000001',
+            initialLoginMethod: 'phone',
+          );
+          final secureStorage = InMemorySecureAuthStorage(
+            initialLoginCredentials: const StoredLoginCredentials(
+              identifier: '081200000001',
+              loginMethod: 'phone',
+              password: 'remembered-password',
+              serverUrl: 'https://api.socialfinance.com',
+            ),
+          );
+          final client = ApiClient(baseUrl: 'https://api.socialfinance.com');
+          final repo = AuthRepository(
+            authService: AuthService(client),
+            apiClient: client,
+            preferencesStorage: prefStorage,
+            secureAuthStorage: secureStorage,
+          );
+
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                preferencesStorageProvider.overrideWithValue(prefStorage),
+                secureAuthStorageProvider.overrideWithValue(secureStorage),
+                authRepositoryProvider.overrideWith((ref) => repo),
+              ],
+              child: const MaterialApp(home: LoginScreen()),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          final phoneField = tester.widget<TextField>(
+            find.byType(TextField).at(1),
+          );
+          expect(phoneField.controller?.text, equals('081200000001'));
+
+          final passField = tester.widget<TextField>(
+            find.byType(TextField).at(2),
+          );
+          expect(passField.controller?.text, equals('remembered-password'));
+        },
       );
 
-      // Verify tokens exist prior to logout
-      expect(client.token, equals('active-token-123'));
-      expect(await secureStorage.hasSession(), isTrue);
+      testWidgets('Disabling Remember Me removes secure password prefill', (
+        tester,
+      ) async {
+        final prefStorage = InMemoryPreferencesStorage(
+          initialUrl: 'https://api.socialfinance.com',
+        );
+        final secureStorage = InMemorySecureAuthStorage(
+          initialLoginCredentials: const StoredLoginCredentials(
+            identifier: 'user@example.com',
+            loginMethod: 'email',
+            password: 'remembered-password',
+            serverUrl: 'https://api.socialfinance.com',
+          ),
+        );
+        final client = ApiClient();
+        final repo = AuthRepository(
+          authService: AuthService(client),
+          apiClient: client,
+          preferencesStorage: prefStorage,
+          secureAuthStorage: secureStorage,
+        );
 
-      await repo.logout();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              preferencesStorageProvider.overrideWithValue(prefStorage),
+              secureAuthStorageProvider.overrideWithValue(secureStorage),
+              authRepositoryProvider.overrideWith((ref) => repo),
+            ],
+            child: const MaterialApp(home: LoginScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(Checkbox));
+        await tester.pumpAndSettle();
 
-      // Session tokens in memory and secure storage are purged
-      expect(client.token, isNull);
-      expect(await secureStorage.hasSession(), isFalse);
-      expect(repo.state, isNull);
-
-      // Non-secret preferences are retained
-      expect(await prefStorage.getLastApiUrl(), equals('https://api.socialfinance.com'));
-      expect(await prefStorage.getLastEmail(), equals('user@example.com'));
-      expect(await prefStorage.getLastPhone(), equals('081200000001'));
-      expect(await prefStorage.getLastLoginMethod(), equals('email'));
-    });
-
-    test('logout invokes onBeforeLogout while client token is still valid', () async {
-      final prefStorage = InMemoryPreferencesStorage();
-      final secureStorage = InMemorySecureAuthStorage(
-        initialSession: StoredSession(
-          accessToken: 'active-token-123',
-          refreshToken: 'refresh-token-456',
-          serverUrl: 'https://api.socialfinance.com',
-          userData: {'name': 'Warga'},
-        ),
-      );
-      final client = ApiClient(baseUrl: 'https://api.socialfinance.com');
-      client.setToken('active-token-123');
-      client.dio.httpClientAdapter = MockAdapter((options) async {
-        if (options.path == '/api/v1/auth/logout') {
-          return _jsonResponse({}, 200);
-        }
-        return _jsonResponse({}, 404);
+        expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+        expect(
+          tester
+              .widget<TextField>(find.byType(TextField).at(2))
+              .controller
+              ?.text,
+          isEmpty,
+        );
+        expect(await secureStorage.getLoginCredentials(), isNull);
+        expect(await prefStorage.getRememberMe(), isFalse);
       });
 
-      final repo = AuthRepository(
-        authService: AuthService(client),
-        apiClient: client,
-        preferencesStorage: prefStorage,
-        secureAuthStorage: secureStorage,
+      testWidgets('Changing account clears the remembered password', (
+        tester,
+      ) async {
+        final prefStorage = InMemoryPreferencesStorage(
+          initialUrl: 'https://api.socialfinance.com',
+        );
+        final secureStorage = InMemorySecureAuthStorage(
+          initialLoginCredentials: const StoredLoginCredentials(
+            identifier: 'user@example.com',
+            loginMethod: 'email',
+            password: 'remembered-password',
+            serverUrl: 'https://api.socialfinance.com',
+          ),
+        );
+        final client = ApiClient();
+        final repo = AuthRepository(
+          authService: AuthService(client),
+          apiClient: client,
+          preferencesStorage: prefStorage,
+          secureAuthStorage: secureStorage,
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              preferencesStorageProvider.overrideWithValue(prefStorage),
+              secureAuthStorageProvider.overrideWithValue(secureStorage),
+              authRepositoryProvider.overrideWith((ref) => repo),
+            ],
+            child: const MaterialApp(home: LoginScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byType(TextField).at(1),
+          'another-user@example.com',
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          tester
+              .widget<TextField>(find.byType(TextField).at(2))
+              .controller
+              ?.text,
+          isEmpty,
+        );
+        expect(await secureStorage.getLoginCredentials(), isNull);
+      });
+
+      testWidgets('Remembered password is cleared when server does not match', (
+        tester,
+      ) async {
+        final prefStorage = InMemoryPreferencesStorage(
+          initialUrl: 'https://new-server.example',
+          initialEmail: 'user@example.com',
+          initialLoginMethod: 'email',
+        );
+        final secureStorage = InMemorySecureAuthStorage(
+          initialLoginCredentials: const StoredLoginCredentials(
+            identifier: 'user@example.com',
+            loginMethod: 'email',
+            password: 'remembered-password',
+            serverUrl: 'https://old-server.example',
+          ),
+        );
+        final client = ApiClient();
+        final repo = AuthRepository(
+          authService: AuthService(client),
+          apiClient: client,
+          preferencesStorage: prefStorage,
+          secureAuthStorage: secureStorage,
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              preferencesStorageProvider.overrideWithValue(prefStorage),
+              secureAuthStorageProvider.overrideWithValue(secureStorage),
+              authRepositoryProvider.overrideWith((ref) => repo),
+            ],
+            child: const MaterialApp(home: LoginScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          tester
+              .widget<TextField>(find.byType(TextField).at(2))
+              .controller
+              ?.text,
+          isEmpty,
+        );
+        expect(await secureStorage.getLoginCredentials(), isNull);
+      });
+
+      test(
+        'Logout clears session tokens but preserves non-secret preferences',
+        () async {
+          final prefStorage = InMemoryPreferencesStorage(
+            initialUrl: 'https://api.socialfinance.com',
+            initialEmail: 'user@example.com',
+            initialPhone: '081200000001',
+            initialLoginMethod: 'email',
+          );
+          final secureStorage = InMemorySecureAuthStorage(
+            initialSession: const StoredSession(
+              accessToken: 'active-token-123',
+              refreshToken: 'refresh-token-456',
+              serverUrl: 'https://api.socialfinance.com',
+              userData: {'name': 'Warga'},
+            ),
+            initialLoginCredentials: const StoredLoginCredentials(
+              identifier: 'user@example.com',
+              loginMethod: 'email',
+              password: 'remembered-password',
+              serverUrl: 'https://api.socialfinance.com',
+            ),
+          );
+          final client = ApiClient(baseUrl: 'https://api.socialfinance.com');
+          client.setToken('active-token-123');
+          client.dio.httpClientAdapter = MockAdapter((options) async {
+            if (options.path == '/api/v1/auth/logout') {
+              return _jsonResponse({}, 200);
+            }
+            return _jsonResponse({}, 404);
+          });
+
+          final repo = AuthRepository(
+            authService: AuthService(client),
+            apiClient: client,
+            preferencesStorage: prefStorage,
+            secureAuthStorage: secureStorage,
+          );
+
+          // Verify tokens exist prior to logout
+          expect(client.token, equals('active-token-123'));
+          expect(await secureStorage.hasSession(), isTrue);
+
+          await repo.logout();
+
+          // Session tokens in memory and secure storage are purged
+          expect(client.token, isNull);
+          expect(await secureStorage.hasSession(), isFalse);
+          expect(
+            (await secureStorage.getLoginCredentials())?.password,
+            equals('remembered-password'),
+          );
+          expect(repo.state, isNull);
+
+          // Non-secret preferences are retained
+          expect(
+            await prefStorage.getLastApiUrl(),
+            equals('https://api.socialfinance.com'),
+          );
+          expect(await prefStorage.getLastEmail(), equals('user@example.com'));
+          expect(await prefStorage.getLastPhone(), equals('081200000001'));
+          expect(await prefStorage.getLastLoginMethod(), equals('email'));
+        },
       );
 
-      String? capturedTokenDuringBeforeLogout;
-      repo.onBeforeLogout = () async {
-        capturedTokenDuringBeforeLogout = client.token;
-      };
+      test(
+        'logout invokes onBeforeLogout while client token is still valid',
+        () async {
+          final prefStorage = InMemoryPreferencesStorage();
+          final secureStorage = InMemorySecureAuthStorage(
+            initialSession: StoredSession(
+              accessToken: 'active-token-123',
+              refreshToken: 'refresh-token-456',
+              serverUrl: 'https://api.socialfinance.com',
+              userData: {'name': 'Warga'},
+            ),
+          );
+          final client = ApiClient(baseUrl: 'https://api.socialfinance.com');
+          client.setToken('active-token-123');
+          client.dio.httpClientAdapter = MockAdapter((options) async {
+            if (options.path == '/api/v1/auth/logout') {
+              return _jsonResponse({}, 200);
+            }
+            return _jsonResponse({}, 404);
+          });
 
-      await repo.logout();
+          final repo = AuthRepository(
+            authService: AuthService(client),
+            apiClient: client,
+            preferencesStorage: prefStorage,
+            secureAuthStorage: secureStorage,
+          );
 
-      expect(capturedTokenDuringBeforeLogout, equals('active-token-123'));
-      expect(client.token, isNull);
-    });
-  });
+          String? capturedTokenDuringBeforeLogout;
+          repo.onBeforeLogout = () async {
+            capturedTokenDuringBeforeLogout = client.token;
+          };
+
+          await repo.logout();
+
+          expect(capturedTokenDuringBeforeLogout, equals('active-token-123'));
+          expect(client.token, isNull);
+        },
+      );
+    },
+  );
 }

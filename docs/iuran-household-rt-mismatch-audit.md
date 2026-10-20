@@ -215,17 +215,7 @@ SELECT h.id, h.rt_id, h.head_name, h.is_active, ...
 FROM households h
 LEFT JOIN household_occupancies ho ON ho.household_id = h.id AND ho.end_date IS NULL
 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
-LEFT JOIN LATERAL (
-    SELECT r.id, r.rt_id, r.full_name, ...,
-           res_rt.rt, res_rt.rw, res_rt.name AS rt_name
-    FROM residency_periods rp
-    JOIN residents r ON r.id = rp.resident_id
-    LEFT JOIN rts res_rt ON r.rt_id = res_rt.id
-    WHERE rp.household_occupancy_id = ho.id AND rp.end_date IS NULL
-      AND (rp.relationship_to_head = 'HEAD' OR ...)
-    ORDER BY rp.created_at ASC LIMIT 1
-) r ON true
-```
+Note: The lateral join with `relationship_to_head` filter was removed in migration 030 as part of the family-tree removal. The current household list query no longer joins resident data.
 
 **Filter:** `WHERE h.rt_id = $1` (HouseholdList, line 397)
 **RT berasal dari:** `households.rt_id`

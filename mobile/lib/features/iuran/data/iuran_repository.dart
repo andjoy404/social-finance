@@ -48,6 +48,7 @@ class IuranRepository {
     int? amount,
     DuePeriodType? periodType,
     PaymentRule? paymentRule,
+    bool? isVoluntary,
     bool? isActive,
   }) async {
     return apiClient.updateDue(
@@ -56,6 +57,7 @@ class IuranRepository {
       amount: amount != null ? '$amount.00' : null,
       periodType: periodType,
       paymentRule: paymentRule,
+      isVoluntary: isVoluntary,
       isActive: isActive,
     );
   }
@@ -83,6 +85,7 @@ class IuranRepository {
     String? status,
     String? period,
     String? householdOccupancyId,
+    bool myBills = false,
     int page = 1,
     int pageSize = 20,
   }) async {
@@ -91,6 +94,7 @@ class IuranRepository {
       status: status,
       period: period,
       householdOccupancyId: householdOccupancyId,
+      myBills: myBills,
       page: page,
       pageSize: pageSize,
     );
@@ -98,16 +102,29 @@ class IuranRepository {
     // DEBUG: log API response counts per household
     final backendHouseholds = <String, int>{};
     for (final bill in billResponse.data) {
-      backendHouseholds.update(bill.headName ?? '—', (c) => c + 1, ifAbsent: () => 1);
+      backendHouseholds.update(
+        bill.headName ?? '—',
+        (c) => c + 1,
+        ifAbsent: () => 1,
+      );
     }
-    debugPrint('[IuranDebug] fetchBills page=$page — total=${billResponse.data.length}, pagination=${billResponse.pagination.totalPages} pages');
-    debugPrint('[IuranDebug]   Backend households: ${backendHouseholds.entries.map((e) => '${e.key}=${e.value}').join(', ')}');
+    debugPrint(
+      '[IuranDebug] fetchBills page=$page — total=${billResponse.data.length}, pagination=${billResponse.pagination.totalPages} pages',
+    );
+    debugPrint(
+      '[IuranDebug]   Backend households: ${backendHouseholds.entries.map((e) => '${e.key}=${e.value}').join(', ')}',
+    );
 
     final uiBills = <IuranBill>[];
     for (final bill in billResponse.data) {
       PaginatedResponse<BackendPayment> payments = const PaginatedResponse(
         data: [],
-        pagination: PaginationInfo(page: 1, pageSize: 20, total: 0, totalPages: 0),
+        pagination: PaginationInfo(
+          page: 1,
+          pageSize: 20,
+          total: 0,
+          totalPages: 0,
+        ),
       );
       try {
         payments = await apiClient.listPayments(billId: bill.id);
@@ -125,7 +142,7 @@ class IuranRepository {
           .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
 
       final nominalVal = moneyToDisplayRupiah(bill.amount);
-      final isVol = bill.isVoluntary || nominalVal == 0;
+      final isVol = bill.isVoluntary;
       uiBills.add(
         IuranBill(
           id: bill.id,
@@ -136,7 +153,7 @@ class IuranRepository {
           paidAmount: approvedTotal,
           pendingAmount: pendingTotal,
           rejectedAmount: rejectedTotal,
-          status: _mapBillStatus(bill.status, isVoluntary: isVol, nominal: nominalVal),
+          status: _mapBillStatus(bill.status, isVoluntary: isVol),
           isVoluntary: isVol,
           requiresFullPayment: bill.status == BillStatus.unpaid,
           dueId: bill.dueId,
@@ -158,6 +175,7 @@ class IuranRepository {
   Future<List<IuranBill>> fetchAllBills({
     String? search,
     String? status,
+    bool myBills = false,
   }) async {
     final allBills = <IuranBill>[];
     int currentPage = 1;
@@ -166,6 +184,7 @@ class IuranRepository {
     do {
       final response = await fetchBills(
         status: status,
+        myBills: myBills,
         page: currentPage,
         pageSize: 100,
       );
@@ -203,7 +222,7 @@ class IuranRepository {
         .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
 
     final nominalVal = moneyToDisplayRupiah(bill.amount);
-    final isVol = bill.isVoluntary || nominalVal == 0;
+    final isVol = bill.isVoluntary;
     return IuranBill(
       id: bill.id,
       householdName: bill.headName ?? '—',
@@ -213,7 +232,7 @@ class IuranRepository {
       paidAmount: approvedTotal,
       pendingAmount: pendingTotal,
       rejectedAmount: rejectedTotal,
-      status: _mapBillStatus(bill.status, isVoluntary: isVol, nominal: nominalVal),
+      status: _mapBillStatus(bill.status, isVoluntary: isVol),
       isVoluntary: isVol,
       requiresFullPayment: bill.status == BillStatus.unpaid,
       dueId: bill.dueId,
@@ -395,8 +414,8 @@ class IuranRepository {
 
   // ─── Helpers ────────────────────────────────────────────────────────
 
-  IuranStatus _mapBillStatus(BillStatus status, {bool isVoluntary = false, int nominal = 0}) {
-    if (isVoluntary || nominal == 0) {
+  IuranStatus _mapBillStatus(BillStatus status, {bool isVoluntary = false}) {
+    if (isVoluntary) {
       return IuranStatus.sukarela;
     }
     switch (status) {

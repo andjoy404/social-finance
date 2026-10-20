@@ -19,11 +19,28 @@
 
 ### 2.1 Global Tables (SUPER_ADMIN Scope)
 
+#### `rws` — RW Organizations
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | RW identifier |
+| `rw_number` | `int` | NOT NULL, CHECK `rw_number > 0` | RW number |
+| `name` | `text` | NOT NULL | RW display name (e.g., "RW 016") |
+| `head_name` | `text` | NULL | RW head (Ketua RW) name |
+| `address` | `text` | NULL | RW secretariat/area address |
+| `is_active` | `boolean` | NOT NULL, default `true` | Soft delete flag |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Indexes:
+- `uniq_rws_active` — UNIQUE `(rw_number) WHERE is_active = true` — enforces unique `rw_number` among active RWs.
+
 #### `rts` — RT Organizations
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | `uuid` | PK, default `gen_random_uuid()` | Tenant identifier |
+| `rw_id` | `uuid` | NULL, FK → `rws.id` ON DELETE RESTRICT | Parent RW organization reference |
 | `name` | `text` | NOT NULL | RT name (e.g., "RT 05 / RW 03") |
 | `rw` | `int` | NOT NULL | RW number |
 | `rt` | `text` | NOT NULL | RT number |
@@ -35,6 +52,7 @@
 
 Indexes:
 - `uniq_rts_active` — UNIQUE `(rw, rt) WHERE is_active = true` — enforces unique `(rw, rt)` among active RTs only. Inactive historical records do not block reuse.
+- `idx_rts_rw_id` — Index on `(rw_id)` for RW-to-RT lookups and filtering.
 
 ---
 
@@ -152,7 +170,6 @@ Indexes:
 | `household_id` | `uuid` | NOT NULL, FK → `households.id` | Household membership |
 | `full_name` | `text` | NOT NULL | |
 | `phone` | `text` | NULL | |
-| `relationship_to_head` | `text` | NULL | e.g. "self", "spouse", "child" |
 | `is_active` | `boolean` | NOT NULL, default `true` | Soft delete flag |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
@@ -168,7 +185,7 @@ Indexes:
 
 - `physical_houses` — Physical structures (`rt_id`, `house_number`, `address`, `is_active`)
 - `household_occupancies` — Temporal occupancy periods (`household_id`, `physical_house_id`, `occupancy_status`, `start_date`, `end_date`)
-- `residency_periods` — Resident-to-occupancy temporal links (`resident_id`, `household_occupancy_id`, `relationship_to_head`, `start_date`, `end_date`)
+- `residency_periods` — Resident-to-occupancy temporal links (`resident_id`, `household_occupancy_id`, `start_date`, `end_date`)
 
 ---
 
@@ -272,6 +289,9 @@ Exactly one of `bill_id` or `due_id` must be non-NULL. A due-targeted payment is
 | `status` | `text` | NOT NULL, default `'posted'`, CHECK IN (`draft`, `posted`, `cancelled`) | Immutability status |
 | `reverses_transaction_id` | `uuid` | NULL, FK → `transactions.id` ON DELETE RESTRICT | Reversal link |
 | `payment_id` | `uuid` | NULL, FK → `payments.id` ON DELETE RESTRICT | Payment link |
+| `reference_no` | `text` | NULL, UNIQUE | System-generated transaction reference number (e.g. `KAS-YYYYMMDD-XXXXX`) |
+| `payment_method` | `text` | NULL, CHECK IN (`CASH`, `TRANSFER`) | Payment method (`CASH` or `TRANSFER`) |
+| `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Officer who recorded the manual transaction |
 | `description` | `text` | NOT NULL | Audit ledger note |
 | `occurred_at` | `timestamptz` | NOT NULL, default `now()` | Event date |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
@@ -283,6 +303,7 @@ Indexes:
 - Index on `(status)`
 - Index on `(reverses_transaction_id)`
 - Index on `(payment_id)`
+- UNIQUE `(reference_no)` (`transactions_reference_no_unique`)
 
 ### 4.6 `idempotency_keys` & `audit_logs`
 
@@ -323,6 +344,8 @@ Indexes & Constraints:
 | 009 | `009_finance.up.sql` | Creates financial categories, dues, bills, payments, transactions ledger | false |
 | 020 | `020_payments_donations.up.sql` | Allows exactly one payment target (`bill_id` or voluntary `due_id`) and records payment submitter | false |
 | 024 | `024_period_opening_balances.up.sql` | Creates `period_opening_balances` table for monthly balance and audit trail | false |
+| 026 | `026_enrich_transactions_creator_and_household_updates.up.sql` | Adds `created_by` to `transactions` and allows editing household metadata | false |
+| 027 | `027_rw_domain_and_transaction_reference.up.sql` | Creates `rws` domain table, adds `rts.rw_id` foreign key, and adds `transactions.reference_no` for auto-generated KAS transaction references | false |
 
 Migration execution: `docker compose run --rm migrate up`
 

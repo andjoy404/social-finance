@@ -303,6 +303,7 @@ type Transaction struct {
 
 	CategoryName  *string `json:"category_name,omitempty"`
 	PaymentNo     *string `json:"payment_no,omitempty"`
+	ReferenceNo   *string `json:"reference_no,omitempty"`
 	PaymentMethod *string `json:"payment_method,omitempty"`
 	CreatedBy     *string `json:"created_by,omitempty"`
 	OfficerName   *string `json:"officer_name,omitempty"`
@@ -329,14 +330,22 @@ type UpdateTransactionInput struct {
 	PaymentMethod *string          `json:"payment_method,omitempty"`
 }
 
+type DashboardPaymentMethodBreakdown struct {
+	CashAmount     string `json:"cash_amount"`
+	TransferAmount string `json:"transfer_amount"`
+	CashCount      int    `json:"cash_count"`
+	TransferCount  int    `json:"transfer_count"`
+}
+
 type DashboardSummary struct {
-	Balance            string                `json:"balance"`
-	MonthlyIncome      string                `json:"monthly_income"`
-	MonthlyExpense     string                `json:"monthly_expense"`
-	NetMovement        string                `json:"net_movement"`
-	DuesProgress       DashboardDuesProgress `json:"dues_progress"`
-	Chart              []DashboardChartPoint `json:"chart"`
-	RecentTransactions []*Transaction        `json:"recent_transactions"`
+	Balance                string                          `json:"balance"`
+	MonthlyIncome          string                          `json:"monthly_income"`
+	MonthlyExpense         string                          `json:"monthly_expense"`
+	NetMovement            string                          `json:"net_movement"`
+	DuesProgress           DashboardDuesProgress           `json:"dues_progress"`
+	PaymentMethodBreakdown DashboardPaymentMethodBreakdown `json:"payment_method_breakdown"`
+	Chart                  []DashboardChartPoint           `json:"chart"`
+	RecentTransactions     []*Transaction                  `json:"recent_transactions"`
 }
 
 type DashboardDuesProgress struct {
@@ -346,10 +355,12 @@ type DashboardDuesProgress struct {
 }
 
 type DashboardChartPoint struct {
-	Month   string `json:"month"`
-	Period  string `json:"period"`
-	Income  int64  `json:"income"`
-	Expense int64  `json:"expense"`
+	Month        string `json:"month"`
+	Period       string `json:"period"`
+	Income       int64  `json:"income"`
+	Expense      int64  `json:"expense"`
+	IncomeCount  int    `json:"income_count"`
+	ExpenseCount int    `json:"expense_count"`
 }
 
 type ReverseTransactionInput struct {
