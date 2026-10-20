@@ -506,6 +506,94 @@ describe('W4.2C — Authorization write action visibility', () => {
     expect(screen.getByText(/Unggah spreadsheet Excel/i)).toBeInTheDocument()
   })
 
+  it('Ketua RT non-super-admin: preview button enabled after valid .xlsx file selected (targetRtId defaults to user RT)', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        systemRole: null,
+        role: 'warga',
+        jabatan: 'ketua',
+        rt: { id: 'rt-ketua-1', name: 'RT Ketua' },
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    // Open import modal (Ketua RT has import access via jabatan=ketua)
+    const importBtn = screen.getByRole('button', { name: /Import Warga/i })
+    fireEvent.click(importBtn)
+    expect(screen.getByText('Import Data Warga')).toBeInTheDocument()
+
+    // Before file selected: preview button disabled (no file)
+    const previewBtn = screen.getByRole('button', { name: /Pratinjau Data/i })
+    expect(previewBtn).toBeDisabled()
+
+    // Select a valid .xlsx file
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    // After file selected: preview button enabled because importRtId defaults
+    // to the Ketua RT's own RT (rt-ketua-1) — no explicit RT selection needed.
+    expect(previewBtn).not.toBeDisabled()
+  })
+
+  it('Super Admin without RT selected: Import Warga button disabled', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        systemRole: 'super_admin',
+        role: 'super_admin',
+        jabatan: null,
+        rt: null,
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    mockFetch((input) => {
+      if (typeof input === 'string' && input.includes('/api/v1/rts')) {
+        return mockSuccessResponse({ data: [], pagination: { page: 1, page_size: 100, total: 0, total_pages: 0 } })
+      }
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+
+    // Super Admin must explicitly select an RT — import button disabled until then
+    const importBtn = screen.getByRole('button', { name: /Import Warga/i })
+    expect(importBtn).toBeInTheDocument()
+    expect(importBtn).toBeDisabled()
+  })
+
   it('shows Import Warga button for legacy role pengurus', async () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
       user: {
