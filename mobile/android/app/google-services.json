@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "751187536578",
-    "project_id": "social-finance-andjoy",
-    "storage_bucket": "social-finance-andjoy.firebasestorage.app"
+    "project_number": "446778161181",
+    "project_id": "social-finance-urena",
+    "storage_bucket": "social-finance-urena.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:751187536578:android:68d1c910b1afc1bb70695b",
+        "mobilesdk_app_id": "1:446778161181:android:bf2eea1ac00512279caef4",
         "android_client_info": {
           "package_name": "com.example.social_finance"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBoXipV8H1ga9SDpz4HS0E_G80vwDkz8MU"
+          "current_key": "AIzaSyBEdrxeLHvpWS7LkGpXD5DZ8cujSOjT3WQ"
         }
       ],
       "services": {

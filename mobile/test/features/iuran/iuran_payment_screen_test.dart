@@ -373,5 +373,198 @@ void main() {
         expect(find.byIcon(Icons.lock_outline), findsNothing);
       },
     );
+
+    testWidgets(
+      'keeps Nominal Pembayaran field editable when bill is Sukarela Full',
+      (tester) async {
+        final sukarelaFullBill = IuranBill(
+          id: _kBillId,
+          householdName: 'Bpk. Ahmad',
+          iuranType: 'Donasi Bencana',
+          periode: 'Oktober 2026',
+          nominal: 0,
+          paidAmount: 0,
+          status: IuranStatus.sukarela,
+          isVoluntary: true,
+          requiresFullPayment: true,
+        );
+        await _pumpPage(tester, bill: sukarelaFullBill);
+
+        final nominalField = tester.widget<TextField>(
+          find.byType(TextField).at(0),
+        );
+        expect(nominalField.enabled, isTrue);
+        expect(nominalField.readOnly, isFalse);
+        expect(find.byIcon(Icons.lock_outline), findsNothing);
+
+        await tester.enterText(find.byType(TextField).at(0), '100000');
+        await tester.pumpAndSettle();
+        final updatedField = tester.widget<TextField>(
+          find.byType(TextField).at(0),
+        );
+        expect(updatedField.controller?.text, '100.000');
+      },
+    );
+
+    testWidgets(
+      'keeps Nominal Pembayaran field editable when bill is Sukarela Partial',
+      (tester) async {
+        final sukarelaPartialBill = IuranBill(
+          id: _kBillId,
+          householdName: 'Bpk. Ahmad',
+          iuranType: 'Infaq Masjid',
+          periode: 'Oktober 2026',
+          nominal: 0,
+          paidAmount: 0,
+          status: IuranStatus.sukarela,
+          isVoluntary: true,
+          requiresFullPayment: false,
+        );
+        await _pumpPage(tester, bill: sukarelaPartialBill);
+
+        final nominalField = tester.widget<TextField>(
+          find.byType(TextField).at(0),
+        );
+        expect(nominalField.enabled, isTrue);
+        expect(nominalField.readOnly, isFalse);
+        expect(find.byIcon(Icons.lock_outline), findsNothing);
+
+        await tester.enterText(find.byType(TextField).at(0), '75000');
+        await tester.pumpAndSettle();
+        final updatedField = tester.widget<TextField>(
+          find.byType(TextField).at(0),
+        );
+        expect(updatedField.controller?.text, '75.000');
+      },
+    );
+
+    testWidgets(
+      'persists typed Sukarela nominal across rebuilds (e.g. method switch)',
+      (tester) async {
+        final sukarelaBill = IuranBill(
+          id: _kBillId,
+          householdName: 'Bpk. Ahmad',
+          iuranType: 'Donasi Kebersihan',
+          periode: 'Oktober 2026',
+          nominal: 0,
+          paidAmount: 0,
+          status: IuranStatus.sukarela,
+          isVoluntary: true,
+          requiresFullPayment: false,
+        );
+        await _pumpPage(tester, bill: sukarelaBill);
+
+        // Enter voluntary nominal
+        await tester.enterText(find.byType(TextField).at(0), '125000');
+        await tester.pumpAndSettle();
+
+        var nominalField = tester.widget<TextField>(
+          find.byType(TextField).at(0),
+        );
+        expect(nominalField.controller?.text, '125.000');
+
+        // Trigger rebuild by switching payment method to Transfer
+        await tester.tap(find.text('Transfer'));
+        await tester.pumpAndSettle();
+
+        // Nominal should NOT be overwritten or reset
+        nominalField = tester.widget<TextField>(find.byType(TextField).at(0));
+        expect(nominalField.controller?.text, '125.000');
+      },
+    );
+
+    testWidgets(
+      'submits voluntary payment with custom nominal successfully',
+      (tester) async {
+        final sukarelaBill = IuranBill(
+          id: _kBillId,
+          householdName: 'Bpk. Ahmad',
+          iuranType: 'Sumbangan Sosial',
+          periode: 'Oktober 2026',
+          nominal: 0,
+          paidAmount: 0,
+          status: IuranStatus.sukarela,
+          isVoluntary: true,
+          requiresFullPayment: false,
+        );
+        await _pumpPage(tester, bill: sukarelaBill);
+
+        await tester.enterText(find.byType(TextField).at(0), '250000');
+        await tester.pumpAndSettle();
+
+        await _scrollToVisible(tester, find.text('Bayar', skipOffstage: false));
+        await tester.tap(find.text('Bayar', skipOffstage: false));
+        await tester.pump();
+
+        expect(find.text('Nominal harus diisi.'), findsNothing);
+        expect(find.text('Nominal melebihi sisa tagihan.'), findsNothing);
+        expect(find.textContaining('Iuran ini mewajibkan'), findsNothing);
+        await tester.pumpAndSettle();
+      },
+    );
+  });
+
+  group('IuranBill — Business Rules for Amount Locking Matrix', () {
+    test('Reguler + Penuh -> isAmountLocked is true', () {
+      const bill = IuranBill(
+        id: '1',
+        householdName: 'A',
+        iuranType: 'IPL',
+        periode: '2026-10',
+        nominal: 50000,
+        isVoluntary: false,
+        requiresFullPayment: true,
+      );
+      expect(bill.isRegularDues, isTrue);
+      expect(bill.isFullPayment, isTrue);
+      expect(bill.isAmountLocked, isTrue);
+    });
+
+    test('Reguler + Parsial -> isAmountLocked is false', () {
+      const bill = IuranBill(
+        id: '2',
+        householdName: 'B',
+        iuranType: 'Keamanan',
+        periode: '2026-10',
+        nominal: 50000,
+        isVoluntary: false,
+        requiresFullPayment: false,
+      );
+      expect(bill.isRegularDues, isTrue);
+      expect(bill.isFullPayment, isFalse);
+      expect(bill.isAmountLocked, isFalse);
+    });
+
+    test('Sukarela + Penuh -> isAmountLocked is false', () {
+      const bill = IuranBill(
+        id: '3',
+        householdName: 'C',
+        iuranType: 'Donasi',
+        periode: '2026-10',
+        nominal: 0,
+        isVoluntary: true,
+        requiresFullPayment: true,
+      );
+      expect(bill.isRegularDues, isFalse);
+      expect(bill.isVoluntaryDues, isTrue);
+      expect(bill.isFullPayment, isTrue);
+      expect(bill.isAmountLocked, isFalse);
+    });
+
+    test('Sukarela + Parsial -> isAmountLocked is false', () {
+      const bill = IuranBill(
+        id: '4',
+        householdName: 'D',
+        iuranType: 'Infaq',
+        periode: '2026-10',
+        nominal: 0,
+        isVoluntary: true,
+        requiresFullPayment: false,
+      );
+      expect(bill.isRegularDues, isFalse);
+      expect(bill.isVoluntaryDues, isTrue);
+      expect(bill.isFullPayment, isFalse);
+      expect(bill.isAmountLocked, isFalse);
+    });
   });
 }
