@@ -90,6 +90,25 @@ export function toJakartaIso8601(dateStr: string): string {
 }
 
 /**
+ * Get the Jakarta calendar date string ("YYYY-MM-DD") for the current Jakarta wall-clock time.
+ *
+ * This avoids the pitfall of `new Date().toISOString().split('T')[0]`, which parses
+ * as UTC midnight and can shift the date when the browser runs in a timezone
+ * behind UTC (e.g. browsers in Asia/Jakarta at night).
+ *
+ * @returns Jakarta calendar date in "YYYY-MM-DD" format (e.g. "2026-10-22")
+ *
+ * @example
+ * // Current Jakarta wall-clock time is 22 Oct 2026 02:00 WIB
+ * getJakartaDateString() // "2026-10-22"
+ */
+export function getJakartaDateString(): string {
+  const { year, month, day } = getJakartaTimeParts()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${String(year).padStart(4, '0')}-${pad(month)}-${pad(day)}`
+}
+
+/**
  * Parse an ISO 8601 timestamp (with or without offset) into epoch milliseconds.
  *
  * This is used for sorting: all timestamps are compared as instant values,

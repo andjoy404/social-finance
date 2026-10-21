@@ -6,12 +6,17 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { useAuth } from '@/app/AuthContext'
 import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import { apiCreateTransaction, getSessionPair } from '@/app/api'
-import { toJakartaIso8601 } from '@/utils/jakartaTime'
+import { toJakartaIso8601, getJakartaDateString } from '@/utils/jakartaTime'
+import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
 import {
+  ArrowUpOutlined,
   ArrowDownOutlined,
   CalendarOutlined,
   WalletOutlined,
   BankOutlined,
+  FileImageOutlined,
+  UploadOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 
 interface FormState {
@@ -19,13 +24,15 @@ interface FormState {
   nominal: string
   keterangan: string
   paymentMethod: 'CASH' | 'TRANSFER'
+  jenis: 'masuk' | 'keluar'
 }
 
 const emptyForm: FormState = {
-  tanggal: new Date().toISOString().split('T')[0],
+  tanggal: getJakartaDateString(),
   nominal: '',
   keterangan: '',
   paymentMethod: 'CASH',
+  jenis: 'keluar',
 }
 
 export function KasExpense() {
@@ -62,9 +69,53 @@ export function KasExpense() {
   const [saving, setSaving] = useState(false)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
 
+  // Bukti bayar (opsional, tidak dikirim ke backend karena contract API transaksi tidak mendukung file)
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
+
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
     if (validationErrors.length > 0) setValidationErrors([])
+  }
+
+  const handleJenisChange = (jenis: 'masuk' | 'keluar') => {
+    setForm((prev) => ({ ...prev, jenis }))
+    if (jenis === 'masuk') {
+      navigate('/kas/baru')
+    }
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setValidationErrors(['Format file bukti harus berupa gambar (JPG, PNG, atau WebP).'])
+      e.target.value = ''
+      return
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setValidationErrors(['Ukuran file bukti tidak boleh melebihi 5 MB.'])
+      e.target.value = ''
+      return
+    }
+
+    if (proofPreviewUrl) {
+      URL.revokeObjectURL(proofPreviewUrl)
+    }
+
+    setProofFile(file)
+    setProofPreviewUrl(URL.createObjectURL(file))
+    setValidationErrors([])
+  }
+
+  const handleRemoveFile = () => {
+    if (proofPreviewUrl) {
+      URL.revokeObjectURL(proofPreviewUrl)
+    }
+    setProofFile(null)
+    setProofPreviewUrl(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -75,8 +126,11 @@ export function KasExpense() {
     if (!form.tanggal) errs.push('Tanggal harus diisi.')
     if (!form.nominal) {
       errs.push('Nominal harus diisi.')
-    } else if (isNaN(Number(form.nominal)) || Number(form.nominal) <= 0) {
-      errs.push('Nominal harus berupa angka lebih dari 0.')
+    } else {
+      const nominalNum = parseMoney(form.nominal)
+      if (isNaN(nominalNum) || nominalNum <= 0) {
+        errs.push('Nominal harus berupa angka lebih dari 0.')
+      }
     }
     if (!form.keterangan.trim()) errs.push('Keterangan harus diisi.')
     if (errs.length > 0) {
@@ -88,8 +142,8 @@ export function KasExpense() {
     try {
       const token = getSessionPair()?.accessToken ?? ''
       await apiCreateTransaction(token, {
-        amount: form.nominal,
-        type: 'expense',
+        amount: String(parseMoney(form.nominal)),
+        type: form.jenis === 'masuk' ? 'income' : 'expense',
         description: form.keterangan.trim(),
         occurred_at: toJakartaIso8601(form.tanggal),
         payment_method: form.paymentMethod,
@@ -102,21 +156,23 @@ export function KasExpense() {
     }
   }
 
+  const isJenisKeluar = form.jenis === 'keluar'
+
   return (
     <Modal open onClose={handleClose} width={560}>
       <ModalHeader
-        title="Tambah Kas Keluar"
-        subtitle="Catat pengeluaran kas RT"
+        title={isJenisKeluar ? 'Tambah Kas Keluar' : 'Tambah Kas Masuk'}
+        subtitle={isJenisKeluar ? 'Catat pengeluaran kas RT' : 'Catat pemasukan kas RT'}
         onClose={handleClose}
       />
       <form onSubmit={handleSubmit}>
         <ModalBody>
-          {/* Type Toggle Tabs */}
+          {/* Type Toggle */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
             <button
               type="button"
-              className="sf-btn sf-btn-outline"
-              onClick={() => navigate('/kas/baru')}
+              className="sf-btn"
+              onClick={() => handleJenisChange('masuk')}
               style={{
                 flex: 1,
                 height: 38,
@@ -124,15 +180,24 @@ export function KasExpense() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 13,
+                gap: 6,
+                background: isJenisKeluar ? 'var(--sf-surface)' : 'rgba(115, 191, 105, 0.16)',
+                color: isJenisKeluar ? 'var(--sf-text-muted)' : 'var(--sf-success)',
+                border: isJenisKeluar ? '1px solid var(--sf-border)' : '1px solid rgba(115, 191, 105, 0.6)',
+                boxShadow: !isJenisKeluar ? '0 0 8px rgba(115, 191, 105, 0.15)' : 'none',
                 fontWeight: 600,
+                fontSize: 13,
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
               }}
             >
+              <ArrowUpOutlined style={{ fontSize: 12, color: 'inherit' }} />
               Pemasukan
             </button>
             <button
               type="button"
               className="sf-btn"
+              onClick={() => handleJenisChange('keluar')}
               style={{
                 flex: 1,
                 height: 38,
@@ -140,14 +205,22 @@ export function KasExpense() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: 'rgba(242, 73, 92, 0.16)',
-                border: '1px solid rgba(242, 73, 92, 0.6)',
-                color: 'var(--sf-danger)',
+                gap: 6,
+                background: isJenisKeluar
+                  ? 'rgba(242, 73, 92, 0.16)'
+                  : 'var(--sf-surface)',
+                color: isJenisKeluar ? 'var(--sf-danger)' : 'var(--sf-text-muted)',
+                border: isJenisKeluar
+                  ? '1px solid rgba(242, 73, 92, 0.6)'
+                  : '1px solid var(--sf-border)',
+                boxShadow: isJenisKeluar ? '0 0 8px rgba(242, 73, 92, 0.15)' : 'none',
                 fontWeight: 600,
                 fontSize: 13,
-                cursor: 'default',
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
               }}
             >
+              <ArrowDownOutlined style={{ fontSize: 12, color: 'inherit' }} />
               Pengeluaran
             </button>
           </div>
@@ -241,10 +314,15 @@ export function KasExpense() {
             <input
               id="ke-nominal"
               className="sf-form-input"
-              type="number"
-              value={form.nominal}
-              onChange={(e) => handleChange('nominal', e.target.value)}
-              placeholder="Contoh: 150000"
+              type="text"
+              inputMode="numeric"
+              value={form.nominal ? formatRibuan(form.nominal) : ''}
+              onChange={(e) => {
+                const rawDigits = e.target.value.replace(/\D/g, '')
+                handleChange('nominal', rawDigits)
+                setValidationErrors([])
+              }}
+              placeholder="Contoh: 150.000"
               required
               min="1"
             />
@@ -261,10 +339,122 @@ export function KasExpense() {
               rows={3}
               value={form.keterangan}
               onChange={(e) => handleChange('keterangan', e.target.value)}
-              placeholder="Deskripsi transaksi kas keluar"
+              placeholder="Deskripsi transaksi kas"
               required
               style={{ resize: 'vertical' }}
             />
+          </div>
+
+          {/* Bukti Bayar (Opsional) */}
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="ke-proof">
+              <FileImageOutlined style={{ marginRight: 4 }} />
+              Bukti Bayar
+            </label>
+
+            {!proofFile ? (
+              <div>
+                <label
+                  htmlFor="ke-proof"
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '16px',
+                    border: '1.5px dashed var(--sf-border, var(--border-color))',
+                    borderRadius: 'var(--sf-radius-sm, 6px)',
+                    background: 'var(--sf-surface)',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    color: 'var(--sf-text-muted)',
+                    transition: 'border-color 150ms ease, background 150ms ease',
+                  }}
+                >
+                  <UploadOutlined style={{ fontSize: '20px', color: 'var(--sf-accent)' }} />
+                  <span style={{ fontWeight: 500, color: 'var(--sf-text)' }}>
+                    Pilih Berkas Bukti Bayar
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--sf-text-muted)' }}>
+                    Format JPG, PNG, atau WebP (Maks. 5 MB)
+                  </span>
+                </label>
+                <input
+                  id="ke-proof"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleFileChange}
+                  disabled={saving}
+                  style={{ display: 'none' }}
+                  data-testid="kas-proof-file-input"
+                />
+                <p style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 6, marginLeft: 2 }}>
+                  Bukti bayar bersifat opsional dan tidak disimpan ke sistem transaksi.
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px 14px',
+                  border: '1px solid var(--sf-border, var(--border-color))',
+                  borderRadius: 'var(--sf-radius-sm, 6px)',
+                  background: 'var(--sf-surface)',
+                }}
+              >
+                {proofPreviewUrl && (
+                  <img
+                    src={proofPreviewUrl}
+                    alt="Preview Bukti"
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      objectFit: 'cover',
+                      borderRadius: '4px',
+                      border: '1px solid var(--sf-border, var(--border-color))',
+                    }}
+                  />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      color: 'var(--sf-text)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {proofFile.name}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--sf-text-muted)' }}>
+                    {(proofFile.size / 1024).toFixed(1)} KB
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveFile}
+                  disabled={saving}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--sf-danger)',
+                    cursor: 'pointer',
+                    padding: '6px',
+                    fontSize: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  title="Hapus file"
+                >
+                  <DeleteOutlined />
+                </button>
+              </div>
+            )}
           </div>
         </ModalBody>
         <ModalFooter>
@@ -309,4 +499,3 @@ export function KasExpense() {
     </Modal>
   )
 }
-
