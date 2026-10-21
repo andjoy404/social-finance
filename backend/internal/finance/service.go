@@ -409,6 +409,22 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		}
 	}
 
+	// ── FIFO enforcement (non-voluntary iuran only) ──────────────────
+	// Tagihan tertua yang masih memiliki saldo harus dibayar terlebih dahulu.
+	// Voluntary (is_voluntary=true) bills are not subject to FIFO.
+	if !isVoluntary {
+		oldestBillID, err := GetOldestUnpaidBillID(ctx, tx, bill.HouseholdOccupancyID, bill.DueID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, errors.New("semua tagihan untuk iuran ini sudah lunas")
+			}
+			return nil, fmt.Errorf("check FIFO queue: %w", err)
+		}
+		if oldestBillID != bill.ID {
+			return nil, errors.New("tagihan sebelumnya belum lunas — pembayaran harus mengikuti urutan FIFO")
+		}
+	}
+
 	// Compute approved total BEFORE branching — both APPROVED and PENDING need it
 	approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
 	if err != nil {
@@ -616,6 +632,13 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	action := strings.ToLower(strings.TrimSpace(in.Action))
 	if action != "approve" && action != "reject" {
 		return nil, errors.New("action must be 'approve' or 'reject'")
+	}
+
+	// Self-approval prevention: the user who submitted the payment
+	// cannot verify (approve or reject) it. This enforces segregation
+	// of duties regardless of role or jabatan.
+	if payment.SubmittedBy != nil && *payment.SubmittedBy == verifierID {
+		return nil, errors.New("cannot verify your own payment")
 	}
 
 	if action == "reject" {
@@ -1274,6 +1297,44 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 			billCents:     billCents,
 			approvedCents: approvedCents,
 			pendingCents:  pendingCents,
+		}
+	}
+
+	// ── 2b. FIFO enforcement (non-voluntary iuran only) ─────────────────
+	// Group bills by (occID, dueID).  For each group enforce FIFO: the
+	// earliest-period bill in the allocation must be the oldest unpaid
+	// bill for that household/due combination.
+	type occDueKey struct {
+		occID string
+		dueID string
+	}
+	occDueBills := make(map[occDueKey][]*billInfo)
+	for _, info := range infos {
+		k := occDueKey{occID: info.bill.HouseholdOccupancyID, dueID: info.bill.DueID}
+		occDueBills[k] = append(occDueBills[k], info)
+	}
+	for k, bills := range occDueBills {
+		if len(bills) == 0 {
+			continue
+		}
+		// Sort by period ASC (deterministic — map iteration is not)
+		sort.Slice(bills, func(i, j int) bool {
+			return bills[i].bill.Period < bills[j].bill.Period
+		})
+		// bills[0] is now the earliest-period bill in this group
+		first := bills[0]
+		if first.due.IsVoluntary {
+			continue
+		}
+		oldestID, err := GetOldestUnpaidBillID(ctx, tx, k.occID, k.dueID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, errors.New("semua tagihan untuk iuran ini sudah lunas")
+			}
+			return nil, fmt.Errorf("check FIFO queue: %w", err)
+		}
+		if oldestID != first.bill.ID {
+			return nil, errors.New("tagihan sebelumnya belum lunas — pembayaran harus mengikuti urutan FIFO")
 		}
 	}
 

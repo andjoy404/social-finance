@@ -568,6 +568,46 @@ func GetApprovedPaymentCount(ctx context.Context, tx *sql.Tx, billID string) (in
 	return count, nil
 }
 
+// GetOldestUnpaidBillID returns the ID of the oldest unpaid bill for a given
+// household occupancy and due_id, ordered by bill period ASC.
+// A bill is considered unpaid when status != 'cancelled' and
+// (bill amount - approved payments) > 0.
+// Returns ErrNotFound when all bills for this (occID, due_id) are paid or cancelled.
+func GetOldestUnpaidBillID(ctx context.Context, tx *sql.Tx, occID, dueID string) (string, error) {
+	var billID string
+	row := tx.QueryRowContext(ctx,
+		`SELECT b.id FROM bills b
+		 WHERE b.household_occupancy_id = $1 AND b.due_id = $2
+		   AND b.status != 'cancelled'
+		   AND (
+			   SELECT COALESCE(SUM(v.amount), 0)
+			   FROM (
+					SELECT p.amount
+					FROM payments p
+					WHERE p.bill_id = b.id AND p.status = 'APPROVED'
+					  AND NOT EXISTS (
+						SELECT 1 FROM payment_allocations pa
+						WHERE pa.payment_id = p.id AND pa.bill_id = b.id
+					  )
+					UNION ALL
+					SELECT pa.amount
+					FROM payment_allocations pa
+					JOIN payments p ON p.id = pa.payment_id
+					WHERE pa.bill_id = b.id AND p.status = 'APPROVED'
+			   ) v
+		   ) < b.amount
+		 ORDER BY b.period ASC LIMIT 1`,
+		occID, dueID,
+	)
+	if err := row.Scan(&billID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("scan oldest unpaid bill: %w", err)
+	}
+	return billID, nil
+}
+
 // GetPendingPaymentTotal returns the total pending payment amount for a bill.
 // A payment targets a bill either directly via payments.bill_id OR through
 // payment_allocations (multi-period payments).
