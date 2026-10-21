@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/app_colors.dart';
+import '../widgets/logo_preview_dialog.dart';
 import '../../features/auth/data/mock_auth_repository.dart';
 import '../../features/warga/data/api_warga_models.dart';
 import '../../features/warga/data/warga_providers.dart';
@@ -53,29 +54,30 @@ class MenuAppBarTitle extends ConsumerWidget {
     final effectiveRt = (rt != null && rt!.isNotEmpty)
         ? rt!
         : ((userRt != null && userRt.isNotEmpty)
-            ? userRt
-            : (firstResident?.rtNumber != null && firstResident!.rtNumber!.isNotEmpty
-                ? firstResident.rtNumber!
-                : '001'));
+              ? userRt
+              : (firstResident?.rtNumber != null &&
+                        firstResident!.rtNumber!.isNotEmpty
+                    ? firstResident.rtNumber!
+                    : '001'));
 
     final effectiveRw = (rw != null && rw!.isNotEmpty)
         ? rw!
         : ((userRw != null && userRw.isNotEmpty)
-            ? userRw
-            : (firstResident?.rw != null
-                ? '${firstResident!.rw}'
-                : '002'));
+              ? userRw
+              : (firstResident?.rw != null ? '${firstResident!.rw}' : '002'));
 
     final effectiveLocation = (location != null && location!.isNotEmpty)
         ? location!
         : (user?['rt_address'] as String? ??
-            user?['alamat'] as String? ??
-            user?['rt_name'] as String? ??
-            (firstResident?.address != null && firstResident!.address!.isNotEmpty
-                ? firstResident.address!
-                : (firstResident?.rtName != null && firstResident!.rtName!.isNotEmpty
-                    ? firstResident.rtName!
-                    : 'Wisma Rukun Tunggal')));
+              user?['alamat'] as String? ??
+              user?['rt_name'] as String? ??
+              (firstResident?.address != null &&
+                      firstResident!.address!.isNotEmpty
+                  ? firstResident.address!
+                  : (firstResident?.rtName != null &&
+                            firstResident!.rtName!.isNotEmpty
+                        ? firstResident.rtName!
+                        : 'Wisma Rukun Tunggal')));
 
     final rtText = effectiveRt.isNotEmpty ? 'RT $effectiveRt' : 'RT';
     final rwText = effectiveRw.isNotEmpty ? 'RW $effectiveRw' : '';
@@ -88,18 +90,22 @@ class MenuAppBarTitle extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        ClipRRect(
+        InkWell(
+          onTap: () => showLogoPreview(context),
           borderRadius: BorderRadius.circular(6),
-          child: Image.asset(
-            'assets/images/logo.png',
-            key: const Key('app-header-logo'),
-            width: 26,
-            height: 26,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) => Icon(
-              Icons.account_balance_wallet,
-              size: 22,
-              color: AppColors.accent,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Image.asset(
+              'assets/images/logo.png',
+              key: const Key('app-header-logo'),
+              width: 26,
+              height: 26,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => Icon(
+                Icons.account_balance_wallet,
+                size: 22,
+                color: AppColors.accent,
+              ),
             ),
           ),
         ),
@@ -150,7 +156,9 @@ class MenuAppBarTitle extends ConsumerWidget {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.normal,
-                  color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                  color: isDark
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
                   height: 1.2,
                 ),
               ),

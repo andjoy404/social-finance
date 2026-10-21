@@ -10,6 +10,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
+import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/core/models/role.dart';
@@ -519,7 +520,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
     );
     final canWrite = _hasKasWriteAccess(ref);
 
-    return Scaffold(
+    return DoubleBackExitScope(
+      child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
           centerTitle: false,
@@ -926,8 +928,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 String cleanKasDescription(String desc) {

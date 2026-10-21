@@ -17,8 +17,7 @@ type Repository interface {
 	UnregisterDevice(ctx context.Context, userID, token string) error
 	DeactivateToken(ctx context.Context, token string) error
 	GetTokensForUser(ctx context.Context, userID string) ([]string, error)
-	GetTokensForRTAndRole(ctx context.Context, rtID, role string) ([]string, error)
-	GetTokensForRTAndJabatan(ctx context.Context, rtID, jabatan string) ([]string, error)
+	GetTokensForPaymentVerifiers(ctx context.Context, rtID string) ([]string, error)
 	GetTokensForRT(ctx context.Context, rtID string) ([]string, error)
 	GetRecipientUserIDsForBill(ctx context.Context, rtID, billID string) ([]string, error)
 	CheckAndRecordDedup(ctx context.Context, rtID, userID, eventType, dedupKey, title, body string, payload map[string]string) (bool, error)
@@ -122,47 +121,54 @@ func (r *pgRepository) GetTokensForUser(ctx context.Context, userID string) ([]s
 	return tokens, rows.Err()
 }
 
-func (r *pgRepository) GetTokensForRTAndRole(ctx context.Context, rtID, role string) ([]string, error) {
+// GetTokensForPaymentVerifiers returns active device tokens of every active
+// user in the RT who is authorized to verify payments via
+// POST /api/v1/payments/{id}/verify (cmd/api/main.go):
+//
+//   - RequirePermission("finance.approve"): members holding a jabatan are
+//     evaluated against position_permissions (e.g. ketua with role=warga,
+//     bendahara with role=pengurus); members without a jabatan pass through.
+//   - RequireAccess(roles=[bendahara, pengurus], jabatans=[ketua, bendahara]):
+//     tenant role OR jabatan must match.
+//
+// The notification recipient set therefore mirrors the actual authorization
+// policy instead of a hard-coded role/job-title allowlist, and includes cases
+// such as role=pengurus + jabatan=bendahara (finance.approve via
+// position_permissions) that the previous role='bendahara'/jabatan='ketua'
+// allowlist missed. Inactive users, inactive memberships, and inactive
+// devices are excluded; DISTINCT prevents duplicate tokens when a member
+// matches multiple conditions.
+func (r *pgRepository) GetTokensForPaymentVerifiers(ctx context.Context, rtID string) ([]string, error) {
 	query := `
 		SELECT DISTINCT ud.fcm_token
 		FROM user_devices ud
 		JOIN user_rt_memberships urm ON urm.user_id = ud.user_id
+		JOIN users u ON u.id = ud.user_id
 		WHERE urm.rt_id = $1
-		  AND urm.role = $2
 		  AND ud.is_active = true
-		  AND urm.is_active = true;
+		  AND urm.is_active = true
+		  AND u.is_active = true
+		  AND (
+		      -- Jabatan-based verifier: the membership position grants
+		      -- finance.approve via position_permissions (e.g. ketua,
+		      -- bendahara regardless of tenant role).
+		      (urm.jabatan IS NOT NULL AND EXISTS (
+		          SELECT 1
+		          FROM position_permissions pp
+		          JOIN permission_types pt ON pt.id = pp.permission_id
+		          WHERE pp.position = urm.jabatan
+		            AND pt.code = 'finance.approve'
+		      ))
+		      -- Role-based verifier without jabatan: RequirePermission passes
+		      -- members that hold no jabatan, and RequireAccess allows the
+		      -- bendahara and pengurus tenant roles.
+		      OR (
+		          (urm.jabatan IS NULL OR btrim(urm.jabatan) = '')
+		          AND urm.role IN ('bendahara', 'pengurus')
+		      )
+		  );
 	`
-	rows, err := r.pool.Raw().QueryContext(ctx, query, rtID, role)
-	if err != nil {
-		if isTableMissingErr(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tokens []string
-	for rows.Next() {
-		var tok string
-		if err := rows.Scan(&tok); err != nil {
-			return nil, err
-		}
-		tokens = append(tokens, tok)
-	}
-	return tokens, rows.Err()
-}
-
-func (r *pgRepository) GetTokensForRTAndJabatan(ctx context.Context, rtID, jabatan string) ([]string, error) {
-	query := `
-		SELECT DISTINCT ud.fcm_token
-		FROM user_devices ud
-		JOIN user_rt_memberships urm ON urm.user_id = ud.user_id
-		WHERE urm.rt_id = $1
-		  AND urm.jabatan = $2
-		  AND ud.is_active = true
-		  AND urm.is_active = true;
-	`
-	rows, err := r.pool.Raw().QueryContext(ctx, query, rtID, jabatan)
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rtID)
 	if err != nil {
 		if isTableMissingErr(err) {
 			return nil, nil
@@ -211,6 +217,13 @@ func (r *pgRepository) GetTokensForRT(ctx context.Context, rtID string) ([]strin
 	return tokens, rows.Err()
 }
 
+// GetRecipientUserIDsForBill returns the users living in the household the
+// bill is addressed to. Eligibility follows the residency model only:
+// open residency period, active resident, active user. Membership roles are
+// intentionally NOT considered, so residents who also hold management roles
+// (pengurus, bendahara, ...) keep receiving notifications about their own
+// household's bills. DISTINCT prevents duplicates when a person matches
+// multiple recipient conditions.
 func (r *pgRepository) GetRecipientUserIDsForBill(ctx context.Context, rtID, billID string) ([]string, error) {
 	query := `
 		SELECT DISTINCT u.id
@@ -277,4 +290,3 @@ func (r *pgRepository) CheckAndRecordDedup(
 	}
 	return true, nil
 }
-

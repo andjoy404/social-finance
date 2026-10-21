@@ -422,7 +422,7 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     mockCurrentUser = wargaUser
   })
 
-  it('WARGA user does not see List Iuran or Kelola Iuran tabs', async () => {
+  it('WARGA user does not see Iuran Warga or Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -441,7 +441,7 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     })
 
     // WARGA tabs should NOT be visible
-    expect(screen.queryByRole('button', { name: 'List Iuran' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
   })
 
@@ -465,10 +465,10 @@ describe('IuranList - Role-Based Tab Restriction', () => {
 
     // WARGA cannot see any tab buttons even with URL param
     expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'List Iuran' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
   })
 
-  it('Bendahara user sees both List Iuran and Kelola Iuran tabs', async () => {
+  it('Bendahara user sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -495,11 +495,66 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Iuran Saya' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('Pengurus (ketua) user sees both List Iuran and Kelola Iuran tabs', async () => {
+  it('defaults to Iuran Saya (personal bills) for managers and orders tabs correctly', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    // Personal scope is the default landing page, even for managers.
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalledWith(
+        'test-token',
+        expect.objectContaining({ my_bills: true })
+      )
+    })
+
+    const saya = screen.getByRole('button', { name: 'Iuran Saya' })
+    const warga = screen.getByRole('button', { name: 'Iuran Warga' })
+    const kelola = screen.getByRole('button', { name: 'Kelola Iuran' })
+
+    expect(saya.compareDocumentPosition(warga) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(warga.compareDocumentPosition(kelola) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps the ?tab=list-iuran deep link working for Iuran Warga', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran?tab=list-iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    const calls = (api.apiListBills as any).mock.calls
+    const lastParams = calls[calls.length - 1]?.[1]
+    expect(lastParams?.my_bills).not.toBe(true)
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
+  })
+
+  it('Pengurus (ketua) user sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -517,11 +572,11 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('Super-admin user sees both List Iuran and Kelola Iuran tabs', async () => {
+  it('Super-admin user sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -539,11 +594,11 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('Ketua RT with role=warga and jabatan=ketua sees both List Iuran and Kelola Iuran tabs', async () => {
+  it('Ketua RT with role=warga and jabatan=ketua sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -569,11 +624,11 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('Bendahara RT with role=bendahara and jabatan=null sees both List Iuran and Kelola Iuran tabs', async () => {
+  it('Bendahara RT with role=bendahara and jabatan=null sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -599,11 +654,11 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('User with effectivePermissions containing finance.read sees both List Iuran and Kelola Iuran tabs', async () => {
+  it('User with effectivePermissions containing finance.read sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -630,7 +685,7 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 })

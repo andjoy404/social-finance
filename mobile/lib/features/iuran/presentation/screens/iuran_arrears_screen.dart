@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import 'iuran_screen.dart';
 
-/// User-scoped Tagihan tab using the shared Iuran list presentation.
+/// User-scoped "Iuran Saya" tab using the shared Iuran list presentation.
 class IuranArrearsScreen extends StatelessWidget {
   const IuranArrearsScreen({super.key});
 

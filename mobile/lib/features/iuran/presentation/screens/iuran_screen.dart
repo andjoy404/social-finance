@@ -7,6 +7,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
+import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 
@@ -78,13 +79,14 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
     final user = ref.watch(authRepositoryProvider)?.valueOrNull;
     final canManage = canManageIuran(user);
 
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        centerTitle: false,
-        title: const MenuAppBarTitle(title: 'Iuran'),
+    return DoubleBackExitScope(
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Iuran'),
         bottom: canManage
-            ? IuranTabBar(selectedIndex: widget.myBills ? 1 : 0)
+            ? IuranTabBar(selectedIndex: widget.myBills ? 0 : 1)
             : null,
       ),
       body: RefreshIndicator(
@@ -309,8 +311,9 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Future<void> _refreshBills() {
     return widget.myBills

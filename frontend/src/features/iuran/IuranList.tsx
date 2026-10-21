@@ -88,13 +88,16 @@ export function IuranList() {
   // Auth context (must be before any code that uses `user`)
   const { user } = useAuth()
 
-  // Tab state: 'list-iuran' = tagihan RT, 'tagihan' = tagihan pribadi pengurus, 'kelola-iuran' = konfigurasi iuran
+  // Tab state: 'tagihan' = "Iuran Saya" (personal bills), 'list-iuran' = "Iuran Warga" (all RT bills),
+  // 'kelola-iuran' = "Kelola Iuran" (dues configuration)
   type ActiveTab = 'list-iuran' | 'tagihan' | 'kelola-iuran'
   const initialTab = (() => {
     const raw = searchParams.get('tab')
     if (raw === 'kelola-iuran') return 'kelola-iuran' as const
-    if (raw === 'tagihan') return 'tagihan' as const
-    return 'list-iuran' as const
+    if (raw === 'list-iuran') return 'list-iuran' as const
+    // Default landing page is "Iuran Saya" (personal bills), including for managers.
+    // Legacy links using ?tab=tagihan continue to resolve to this same default.
+    return 'tagihan' as const
   })()
 
   // ═══════════════════════════════════════════════════
@@ -130,7 +133,7 @@ export function IuranList() {
   // Force default tab for users without Iuran access
   const effectiveInitialTab: ActiveTab = hasIuranAccess
     ? initialTab
-    : 'list-iuran'
+    : 'tagihan'
   const [activeTab, setActiveTab] = useState<ActiveTab>(effectiveInitialTab)
 
   // Dues data for "Kelola Iuran" tab
@@ -190,7 +193,8 @@ export function IuranList() {
   useEffect(() => {
     const params = new URLSearchParams()
     if (activeTab === 'kelola-iuran') params.set('tab', 'kelola-iuran')
-    else if (activeTab === 'tagihan') params.set('tab', 'tagihan')
+    else if (activeTab === 'list-iuran') params.set('tab', 'list-iuran')
+    // "Iuran Saya" is the default tab, so it needs no explicit URL parameter.
     if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim())
     if (filterType !== 'semua') params.set('filter', filterType)
     if (statusValue) params.set('status', statusValue)
@@ -871,7 +875,7 @@ export function IuranList() {
                 <PlusOutlined style={{ marginRight: 0, fontSize: 12 }} />
               </button>
             )}
-            {/* "Truk Sampah Tiba" always visible in "List Iuran" tab */}
+            {/* "Truk Sampah Tiba" always visible in "Iuran Warga" tab */}
             {activeTab === 'list-iuran' && canTriggerWasteTruck && (
               <button
                 type="button"
@@ -887,28 +891,9 @@ export function IuranList() {
           </div>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tab Navigation: Iuran Saya → Iuran Warga → Kelola Iuran */}
         {hasIuranAccess && (
           <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '16px' }}>
-            <button
-              type="button"
-              onClick={() => { setActiveTab('list-iuran'); setPage(1); }}
-              style={{
-                padding: '10px 20px',
-                fontSize: '14px',
-                fontWeight: activeTab === 'list-iuran' ? 600 : 400,
-                color: activeTab === 'list-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-                borderBottom: activeTab === 'list-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-                background: 'none',
-                borderLeft: 'none',
-                borderRight: 'none',
-                borderTop: 'none',
-                cursor: 'pointer',
-                transition: 'all 150ms ease',
-              }}
-            >
-              List Iuran
-            </button>
             <button
               type="button"
               onClick={() => { setActiveTab('tagihan'); setPage(1); }}
@@ -926,7 +911,26 @@ export function IuranList() {
                 transition: 'all 150ms ease',
               }}
             >
-              Tagihan
+              Iuran Saya
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveTab('list-iuran'); setPage(1); }}
+              style={{
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: activeTab === 'list-iuran' ? 600 : 400,
+                color: activeTab === 'list-iuran' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                borderBottom: activeTab === 'list-iuran' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                background: 'none',
+                borderLeft: 'none',
+                borderRight: 'none',
+                borderTop: 'none',
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
+              }}
+            >
+              Iuran Warga
             </button>
             <button
               type="button"
