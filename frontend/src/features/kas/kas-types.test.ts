@@ -190,3 +190,85 @@ describe('Balance consistency — saldo matches cumulative computation', () => {
     }
   })
 })
+
+describe('KasList global chronological sorting — IN and OUT mixed', () => {
+  // Simulates the sort logic from KasList.tsx tableRows:
+  // sort ascending by occurred_at, then reverse for display (newest first)
+  function sortTransactions(txs: { id: string; occurred_at: string; created_at: string; type: string }[]) {
+    return [...txs].sort((a, b) => {
+      const dateA = new Date(a.occurred_at || a.created_at).getTime()
+      const dateB = new Date(b.occurred_at || b.created_at).getTime()
+      if (dateA !== dateB) return dateA - dateB
+      return (a.id || '').localeCompare(b.id || '')
+    }).reverse()
+  }
+
+  it('sorts all transactions newest-first by occurred_at', () => {
+    const txs = [
+      { id: 't1', occurred_at: '2026-10-01T10:00:00Z', created_at: '2026-10-01T10:00:00Z', type: 'income' },
+      { id: 't3', occurred_at: '2026-10-03T10:00:00Z', created_at: '2026-10-03T10:00:00Z', type: 'expense' },
+      { id: 't2', occurred_at: '2026-10-02T10:00:00Z', created_at: '2026-10-02T10:00:00Z', type: 'income' },
+    ]
+    const sorted = sortTransactions(txs)
+    expect(sorted[0].id).toBe('t3')
+    expect(sorted[1].id).toBe('t2')
+    expect(sorted[2].id).toBe('t1')
+  })
+
+  it('OUT newer appears above IN older (global chronological, no type grouping)', () => {
+    const txs = [
+      { id: 'in-old', occurred_at: '2026-10-01T10:00:00Z', created_at: '2026-10-01T10:00:00Z', type: 'income' },
+      { id: 'out-new', occurred_at: '2026-10-03T10:00:00Z', created_at: '2026-10-03T10:00:00Z', type: 'expense' },
+    ]
+    const sorted = sortTransactions(txs)
+    // OUT at 15:30 on day 3 should be above IN at 10:00 on day 1
+    expect(sorted[0].id).toBe('out-new')
+    expect(sorted[1].id).toBe('in-old')
+  })
+
+  it('IN newer appears above OUT older (global chronological, no type grouping)', () => {
+    const txs = [
+      { id: 'out-old', occurred_at: '2026-10-01T10:00:00Z', created_at: '2026-10-01T10:00:00Z', type: 'expense' },
+      { id: 'in-new', occurred_at: '2026-10-03T10:00:00Z', created_at: '2026-10-03T10:00:00Z', type: 'income' },
+    ]
+    const sorted = sortTransactions(txs)
+    expect(sorted[0].id).toBe('in-new')
+    expect(sorted[1].id).toBe('out-old')
+  })
+
+  it('IN and OUT are mixed in single chronological order', () => {
+    const txs = [
+      { id: 'out-1', occurred_at: '2026-10-01T15:30:00Z', created_at: '2026-10-01T15:30:00Z', type: 'expense' },
+      { id: 'in-2', occurred_at: '2026-10-01T15:15:00Z', created_at: '2026-10-01T15:15:00Z', type: 'income' },
+      { id: 'out-3', occurred_at: '2026-10-01T14:50:00Z', created_at: '2026-10-01T14:50:00Z', type: 'expense' },
+      { id: 'in-4', occurred_at: '2026-10-01T14:20:00Z', created_at: '2026-10-01T14:20:00Z', type: 'income' },
+    ]
+    const sorted = sortTransactions(txs)
+    expect(sorted.map((t) => t.id)).toEqual(['out-1', 'in-2', 'out-3', 'in-4'])
+  })
+
+  it('equal timestamps use deterministic tie-breaker by id (no type priority)', () => {
+    const txs = [
+      { id: 'zzz-income', occurred_at: '2026-10-01T10:00:00Z', created_at: '2026-10-01T10:00:00Z', type: 'income' },
+      { id: 'aaa-expense', occurred_at: '2026-10-01T10:00:00Z', created_at: '2026-10-01T10:00:00Z', type: 'expense' },
+    ]
+    const sorted = sortTransactions(txs)
+    // Same timestamp — tie-breaker by id DESC (matches newest-first theme),
+    // not by type. Result is deterministic regardless of IN/OUT.
+    expect(sorted.map((t) => t.id)).toEqual(['zzz-income', 'aaa-expense'])
+  })
+
+  it('KAS_TRANSACTIONS mock data is globally sorted by date descending', () => {
+    const dates = KAS_TRANSACTIONS.map((t) => new Date(t.tanggal).getTime())
+    for (let i = 1; i < dates.length; i++) {
+      expect(dates[i]).toBeLessThanOrEqual(dates[i - 1])
+    }
+  })
+
+  it('KAS_TRANSACTIONS mock data mixes IN and OUT (not grouped by type)', () => {
+    const types = KAS_TRANSACTIONS.map((t) => t.jenis)
+    // Should not have all income first then all expense
+    const hasMixedTypes = types.some((t, i) => i > 0 && t !== types[i - 1])
+    expect(hasMixedTypes).toBe(true)
+  })
+})

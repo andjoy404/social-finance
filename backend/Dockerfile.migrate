@@ -1,4 +1,6 @@
-FROM golang:1.23-bookworm
+FROM golang:1.25-bookworm
+
+ENV TZ=Asia/Jakarta
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates postgresql-client && rm -rf /var/lib/apt/lists/*
 

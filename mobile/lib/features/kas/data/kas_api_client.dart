@@ -103,10 +103,7 @@ class KasApiClient {
       body['payment_method'] = paymentMethod;
     }
     if (occurredAt != null) {
-      final y = occurredAt.year.toString().padLeft(4, '0');
-      final m = occurredAt.month.toString().padLeft(2, '0');
-      final d = occurredAt.day.toString().padLeft(2, '0');
-      body['occurred_at'] = '$y-$m-$d';
+      body['occurred_at'] = occurredAt.toIso8601String();
     }
 
     final response = await dio.post(
@@ -147,10 +144,7 @@ class KasApiClient {
       body['payment_method'] = paymentMethod;
     }
     if (occurredAt != null) {
-      final y = occurredAt.year.toString().padLeft(4, '0');
-      final m = occurredAt.month.toString().padLeft(2, '0');
-      final d = occurredAt.day.toString().padLeft(2, '0');
-      body['occurred_at'] = '$y-$m-$d';
+      body['occurred_at'] = occurredAt.toIso8601String();
     }
 
     final response = await dio.put(

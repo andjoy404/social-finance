@@ -1,4 +1,6 @@
-FROM golang:1.23-bookworm AS build
+FROM golang:1.25-bookworm AS build
+
+ENV TZ=Asia/Jakarta
 
 WORKDIR /app
 
