@@ -19,18 +19,16 @@ import (
 type inMemoryRepo struct {
 	mu           sync.Mutex
 	devices      map[string]map[string]bool // userID -> token -> isActive
-	roles        map[string]map[string][]string // rtID -> role -> []userIDs
-	jabatans     map[string]map[string][]string // rtID -> jabatan -> []userIDs
-	rtUsers      map[string][]string // rtID -> []userIDs
-	billUsers    map[string][]string // billID -> []userIDs
-	dedupRecords map[string]bool // dedupKey:userID -> exists
+	verifiers    map[string][]string        // rtID -> []userIDs authorized to verify payments
+	rtUsers      map[string][]string        // rtID -> []userIDs
+	billUsers    map[string][]string        // billID -> []userIDs
+	dedupRecords map[string]bool            // dedupKey:userID -> exists
 }
 
 func newInMemoryRepo() *inMemoryRepo {
 	return &inMemoryRepo{
 		devices:      make(map[string]map[string]bool),
-		roles:        make(map[string]map[string][]string),
-		jabatans:     make(map[string]map[string][]string),
+		verifiers:    make(map[string][]string),
 		rtUsers:      make(map[string][]string),
 		billUsers:    make(map[string][]string),
 		dedupRecords: make(map[string]bool),
@@ -81,39 +79,24 @@ func (r *inMemoryRepo) GetTokensForUser(ctx context.Context, userID string) ([]s
 	return tokens, nil
 }
 
-func (r *inMemoryRepo) GetTokensForRTAndRole(ctx context.Context, rtID, role string) ([]string, error) {
+// GetTokensForPaymentVerifiers mirrors the real repository contract: returns
+// active-device tokens of active verifier users registered for the RT.
+// The SQL-level policy (position_permissions / role evaluation, RT scoping,
+// active filters, DISTINCT) is covered by DB-backed repository tests.
+func (r *inMemoryRepo) GetTokensForPaymentVerifiers(ctx context.Context, rtID string) ([]string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var tokens []string
-	if roleMap, ok := r.roles[rtID]; ok {
-		if userIDs, ok := roleMap[role]; ok {
-			for _, uid := range userIDs {
-				if userDevs, ok := r.devices[uid]; ok {
-					for tok, active := range userDevs {
-						if active {
-							tokens = append(tokens, tok)
-						}
-					}
-				}
-			}
+	seen := make(map[string]bool)
+	for _, uid := range r.verifiers[rtID] {
+		if seen[uid] {
+			continue
 		}
-	}
-	return tokens, nil
-}
-
-func (r *inMemoryRepo) GetTokensForRTAndJabatan(ctx context.Context, rtID, jabatan string) ([]string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var tokens []string
-	if jabatanMap, ok := r.jabatans[rtID]; ok {
-		if userIDs, ok := jabatanMap[jabatan]; ok {
-			for _, uid := range userIDs {
-				if userDevs, ok := r.devices[uid]; ok {
-					for tok, active := range userDevs {
-						if active {
-							tokens = append(tokens, tok)
-						}
-					}
+		seen[uid] = true
+		if userDevs, ok := r.devices[uid]; ok {
+			for tok, active := range userDevs {
+				if active {
+					tokens = append(tokens, tok)
 				}
 			}
 		}
@@ -206,20 +189,16 @@ func TestPaymentSubmissionNotificationTargeting(t *testing.T) {
 	bendaharaUser := "user-bendahara-1"
 	bendaharaToken := "tok-bendahara-1"
 
-	// Setup bendahara device and RT role
+	// Setup bendahara device and RT verifier registration
 	_ = repo.RegisterDevice(ctx, bendaharaUser, bendaharaToken, "android", nil)
-	repo.roles[rtID] = map[string][]string{
-		"bendahara": {bendaharaUser},
-	}
+	repo.verifiers[rtID] = []string{bendaharaUser}
 
 	// Another RT bendahara that must NOT receive notification
 	otherRT := "rt-02"
 	otherBendahara := "user-bendahara-other"
 	otherToken := "tok-bendahara-other"
 	_ = repo.RegisterDevice(ctx, otherBendahara, otherToken, "android", nil)
-	repo.roles[otherRT] = map[string][]string{
-		"bendahara": {otherBendahara},
-	}
+	repo.verifiers[otherRT] = []string{otherBendahara}
 
 	// Dispatch notification
 	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-100", "pay-200")
@@ -624,9 +603,9 @@ func TestSelfTestNoBroadcastAndZeroDevices(t *testing.T) {
 	}
 }
 
-// Regression tests for Ketua RT notification fix (jabatan-based query)
+// Regression tests for payment-submission notification recipient selection.
 
-func TestPaymentSubmitted_BendaharaReceivesNotification(t *testing.T) {
+func TestPaymentSubmitted_BendaharaRoleReceivesNotification(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
@@ -637,9 +616,7 @@ func TestPaymentSubmitted_BendaharaReceivesNotification(t *testing.T) {
 	bendaharaToken := "tok-bendahara-1"
 
 	_ = repo.RegisterDevice(ctx, bendaharaUser, bendaharaToken, "android", nil)
-	repo.roles[rtID] = map[string][]string{
-		"bendahara": {bendaharaUser},
-	}
+	repo.verifiers[rtID] = []string{bendaharaUser}
 
 	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-reguler-1", "pay-100")
 	time.Sleep(100 * time.Millisecond)
@@ -667,14 +644,9 @@ func TestPaymentSubmitted_KetuaRTReceivesNotification(t *testing.T) {
 	ketuaUser := "user-ketua-1"
 	ketuaToken := "tok-ketua-1"
 
-	// Setup: ketua has role='pengurus' + jabatan='ketua'
+	// Setup: ketua has role='pengurus' + jabatan='ketua' → finance.approve
 	_ = repo.RegisterDevice(ctx, ketuaUser, ketuaToken, "android", nil)
-	repo.roles[rtID] = map[string][]string{
-		"pengurus": {ketuaUser},
-	}
-	repo.jabatans[rtID] = map[string][]string{
-		"ketua": {ketuaUser},
-	}
+	repo.verifiers[rtID] = []string{ketuaUser}
 
 	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-reguler-2", "pay-200")
 	time.Sleep(100 * time.Millisecond)
@@ -685,6 +657,82 @@ func TestPaymentSubmitted_KetuaRTReceivesNotification(t *testing.T) {
 	}
 	if msgs[0].Token != ketuaToken {
 		t.Errorf("expected ketua token %s, got %s", ketuaToken, msgs[0].Token)
+	}
+}
+
+// TestPaymentSubmitted_PengurusWithBendaharaJabatanReceives covers the
+// reported regression: a user with role=pengurus, jabatan=bendahara, and
+// finance.approve permission is an authorized payment verifier but was
+// missed by the previous role='bendahara'/jabatan='ketua' allowlist.
+func TestPaymentSubmitted_PengurusWithBendaharaJabatanReceives(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	officerUser := "user-pengurus-bendahara"
+	officerToken := "tok-pengurus-bendahara"
+
+	_ = repo.RegisterDevice(ctx, officerUser, officerToken, "android", nil)
+	// Resolved by GetTokensForPaymentVerifiers: role=pengurus + jabatan=bendahara
+	// has finance.approve via position_permissions.
+	repo.verifiers[rtID] = []string{officerUser}
+
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-reguler-jb", "pay-jb-1")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Token != officerToken {
+		t.Errorf("expected officer token %s, got %s", officerToken, msgs[0].Token)
+	}
+	if msgs[0].Data["type"] != notification.EventPaymentSubmitted {
+		t.Errorf("expected type %s, got %s", notification.EventPaymentSubmitted, msgs[0].Data["type"])
+	}
+}
+
+// TestPaymentSubmitted_NoDuplicateWhenMatchingMultipleConditions verifies
+// that a verifier listed once per matching condition still receives exactly
+// one notification.
+func TestPaymentSubmitted_NoDuplicateWhenMatchingMultipleConditions(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	officerUser := "user-officer-multi"
+	officerToken := "tok-officer-multi"
+
+	_ = repo.RegisterDevice(ctx, officerUser, officerToken, "android", nil)
+	// Same person listed twice (e.g. matched by role condition and jabatan
+	// condition) plus a second verifier.
+	otherVerifier := "user-verifier-2"
+	otherToken := "tok-verifier-2"
+	_ = repo.RegisterDevice(ctx, otherVerifier, otherToken, "android", nil)
+	repo.verifiers[rtID] = []string{officerUser, officerUser, otherVerifier}
+
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-dup-cond", "pay-dup-cond-1")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	tokenCounts := make(map[string]int)
+	for _, m := range msgs {
+		tokenCounts[m.Token]++
+	}
+	if tokenCounts[officerToken] != 1 {
+		t.Errorf("expected exactly 1 message for officer token, got %d", tokenCounts[officerToken])
+	}
+	if tokenCounts[otherToken] != 1 {
+		t.Errorf("expected exactly 1 message for other verifier token, got %d", tokenCounts[otherToken])
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages total, got %d", len(msgs))
 	}
 }
 
@@ -704,13 +752,7 @@ func TestPaymentSubmitted_BendaharaAndKetuaBothReceive(t *testing.T) {
 	_ = repo.RegisterDevice(ctx, bendaharaUser, bendaharaToken, "android", nil)
 	_ = repo.RegisterDevice(ctx, ketuaUser, ketuaToken, "android", nil)
 
-	repo.roles[rtID] = map[string][]string{
-		"bendahara": {bendaharaUser},
-		"pengurus":  {ketuaUser},
-	}
-	repo.jabatans[rtID] = map[string][]string{
-		"ketua": {ketuaUser},
-	}
+	repo.verifiers[rtID] = []string{bendaharaUser, ketuaUser}
 
 	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-reguler-3", "pay-300")
 	time.Sleep(100 * time.Millisecond)
@@ -765,19 +807,8 @@ func TestPaymentSubmitted_RTIsolation(t *testing.T) {
 	_ = repo.RegisterDevice(ctx, ketuaUser, ketuaToken, "android", nil)
 	_ = repo.RegisterDevice(ctx, otherKetuaUser, otherKetuaToken, "android", nil)
 
-	repo.roles[targetRT] = map[string][]string{
-		"bendahara": {bendaharaUser},
-		"pengurus":  {ketuaUser},
-	}
-	repo.jabatans[targetRT] = map[string][]string{
-		"ketua": {ketuaUser},
-	}
-	repo.roles[otherRT] = map[string][]string{
-		"pengurus": {otherKetuaUser},
-	}
-	repo.jabatans[otherRT] = map[string][]string{
-		"ketua": {otherKetuaUser},
-	}
+	repo.verifiers[targetRT] = []string{bendaharaUser, ketuaUser}
+	repo.verifiers[otherRT] = []string{otherKetuaUser}
 
 	svc.NotifyPaymentSubmitted(ctx, targetRT, "bill-isolation-1", "pay-400")
 	time.Sleep(100 * time.Millisecond)
@@ -794,7 +825,7 @@ func TestPaymentSubmitted_RTIsolation(t *testing.T) {
 	}
 }
 
-func TestPaymentSubmitted_InactiveExcluded(t *testing.T) {
+func TestPaymentSubmitted_InactiveDeviceExcluded(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
@@ -807,9 +838,7 @@ func TestPaymentSubmitted_InactiveExcluded(t *testing.T) {
 
 	// Register device with inactive status
 	_ = repo.RegisterDevice(ctx, bendaharaUser, inactiveDeviceToken, "android", nil)
-	repo.roles[rtID] = map[string][]string{
-		"bendahara": {bendaharaUser},
-	}
+	repo.verifiers[rtID] = []string{bendaharaUser}
 
 	// Mark device as inactive (simulating is_active=false in user_devices)
 	if userDevs, ok := repo.devices[bendaharaUser]; ok {
@@ -837,12 +866,7 @@ func TestPaymentSubmitted_DedupEventStillWorks(t *testing.T) {
 	ketuaToken := "tok-ketua-1"
 
 	_ = repo.RegisterDevice(ctx, ketuaUser, ketuaToken, "android", nil)
-	repo.roles[rtID] = map[string][]string{
-		"pengurus": {ketuaUser},
-	}
-	repo.jabatans[rtID] = map[string][]string{
-		"ketua": {ketuaUser},
-	}
+	repo.verifiers[rtID] = []string{ketuaUser}
 
 	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-dedup-1", "pay-dedup-1")
 	time.Sleep(100 * time.Millisecond)
@@ -859,5 +883,176 @@ func TestPaymentSubmitted_DedupEventStillWorks(t *testing.T) {
 	msgs2 := provider.GetMessages()
 	if len(msgs2) != 1 {
 		t.Fatalf("expected dedup to prevent duplicate, got %d total messages", len(msgs2))
+	}
+}
+
+// TestPaymentSubmitted_OfficerSubmitterStillReceivesAsVerifier verifies that a
+// management officer who submits their own household's payment is NOT excluded
+// from the payment-submission notification: they remain an authorized verifier
+// of their RT and must still be told a payment awaits verification.
+func TestPaymentSubmitted_OfficerSubmitterStillReceivesAsVerifier(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	officerUser := "user-officer-submit-own"
+	officerToken := "tok-officer-submit-own"
+
+	_ = repo.RegisterDevice(ctx, officerUser, officerToken, "android", nil)
+	// Officer is an authorized verifier (e.g. role=pengurus, jabatan=bendahara).
+	repo.verifiers[rtID] = []string{officerUser}
+
+	// Officer submits a payment for their own household bill.
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-officer-own", "pay-officer-own-1")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message for officer submitter, got %d", len(msgs))
+	}
+	if msgs[0].Token != officerToken {
+		t.Errorf("expected officer token %s, got %s", officerToken, msgs[0].Token)
+	}
+	if msgs[0].Data["type"] != notification.EventPaymentSubmitted {
+		t.Errorf("expected type %s, got %s", notification.EventPaymentSubmitted, msgs[0].Data["type"])
+	}
+}
+
+// TestPaymentVerified_OfficerSubmitterReceivesResultNotification verifies that
+// a management officer who submitted their own payment still receives the
+// verification-result notification addressed to the submitter.
+func TestPaymentVerified_OfficerSubmitterReceivesResultNotification(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	officerUser := "user-officer-verified"
+	officerToken := "tok-officer-verified"
+
+	_ = repo.RegisterDevice(ctx, officerUser, officerToken, "android", nil)
+
+	// A different authorized verifier approves the officer's own payment.
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-officer-verified", "pay-officer-verified-1", officerUser, "APPROVED", "")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 result message for officer submitter, got %d", len(msgs))
+	}
+	if msgs[0].Token != officerToken {
+		t.Errorf("expected officer token %s, got %s", officerToken, msgs[0].Token)
+	}
+	if msgs[0].Data["type"] != notification.EventPaymentVerified {
+		t.Errorf("expected type %s, got %s", notification.EventPaymentVerified, msgs[0].Data["type"])
+	}
+	if msgs[0].Data["status"] != "APPROVED" {
+		t.Errorf("expected status APPROVED, got %s", msgs[0].Data["status"])
+	}
+}
+
+// TestBillCreated_PengurusResidentReceivesResidentNotification verifies that a
+// resident who also holds a management role (pengurus) is not excluded from
+// resident-addressed bill notifications for their own household.
+func TestBillCreated_PengurusResidentReceivesResidentNotification(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	billID := "bill-pengurus-resident"
+
+	ordinaryResident := "user-warga-ordinary"
+	ordinaryToken := "tok-warga-ordinary"
+	pengurusResident := "user-pengurus-resident"
+	pengurusToken := "tok-pengurus-resident"
+
+	_ = repo.RegisterDevice(ctx, ordinaryResident, ordinaryToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, pengurusResident, pengurusToken, "android", nil)
+	// Both users are residents of the billed household. The pengurus resident
+	// must receive the notification alongside the ordinary resident.
+	repo.billUsers[billID] = []string{ordinaryResident, pengurusResident}
+
+	svc.NotifyBillCreated(ctx, rtID, billID, nil)
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	tokenSet := make(map[string]int)
+	for _, m := range msgs {
+		tokenSet[m.Token]++
+	}
+	if tokenSet[ordinaryToken] != 1 {
+		t.Errorf("expected ordinary resident token exactly once, got %d", tokenSet[ordinaryToken])
+	}
+	if tokenSet[pengurusToken] != 1 {
+		t.Errorf("expected pengurus resident token exactly once, got %d", tokenSet[pengurusToken])
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+}
+
+// TestBillCreated_DuplicateRecipientListSendsOnce verifies that a person who
+// appears multiple times in the recipient list (multiple matching recipient
+// conditions) receives exactly one notification.
+func TestBillCreated_DuplicateRecipientListSendsOnce(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	billID := "bill-dup-recipient"
+
+	residentUser := "user-dup-recipient"
+	residentToken := "tok-dup-recipient"
+
+	_ = repo.RegisterDevice(ctx, residentUser, residentToken, "android", nil)
+	repo.billUsers[billID] = []string{residentUser, residentUser}
+
+	svc.NotifyBillCreated(ctx, rtID, billID, nil)
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected exactly 1 message for duplicated recipient, got %d", len(msgs))
+	}
+	if msgs[0].Token != residentToken {
+		t.Errorf("expected token %s, got %s", residentToken, msgs[0].Token)
+	}
+}
+
+// TestBillCreated_ExplicitDuplicateRecipientsSendOnce verifies deduplication
+// of explicitly supplied recipient lists (nil falls back to the repository
+// query; explicit lists must be deduplicated identically).
+func TestBillCreated_ExplicitDuplicateRecipientsSendOnce(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	billID := "bill-explicit-dup"
+
+	residentUser := "user-explicit-dup"
+	residentToken := "tok-explicit-dup"
+
+	_ = repo.RegisterDevice(ctx, residentUser, residentToken, "android", nil)
+
+	svc.NotifyBillCreated(ctx, rtID, billID, []string{residentUser, " ", residentUser})
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected exactly 1 message for duplicated explicit recipient, got %d", len(msgs))
+	}
+	if msgs[0].Token != residentToken {
+		t.Errorf("expected token %s, got %s", residentToken, msgs[0].Token)
 	}
 }

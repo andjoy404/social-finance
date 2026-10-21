@@ -81,7 +81,11 @@ class _AppState extends ConsumerState<App> {
             billId != 'detail' &&
             billId != 'tunggakan' &&
             billId != 'laporan' &&
-            billId != 'form') {
+            billId != 'form' &&
+            billId != 'tagihan' &&
+            billId != 'warga' &&
+            billId != 'list' &&
+            billId != 'kelola') {
           final query = uri.hasQuery ? '?${uri.query}' : '';
           return '/home/iuran/detail/$billId$query';
         }
@@ -360,7 +364,8 @@ class _AppState extends ConsumerState<App> {
             final billId = state.pathParameters['billId'];
             if (billId == null || billId.isEmpty) return '/home/iuran';
             if (billId == 'tunggakan') return '/home/iuran/tunggakan';
-            if (billId == 'tagihan') return '/home/iuran/tagihan';
+            if (billId == 'tagihan') return '/home/iuran';
+            if (billId == 'warga') return '/home/iuran/warga';
             if (billId == 'kelola') return '/home/iuran/kelola';
             if (billId == 'list') return '/home/iuran/list';
             if (billId == 'laporan') return '/home/iuran/laporan';
@@ -392,17 +397,22 @@ class _AppState extends ConsumerState<App> {
                 GoRoute(
                   path: 'iuran',
                   name: 'iuran',
-                  builder: (context, state) => const IuranScreen(),
+                  builder: (context, state) => const IuranArrearsScreen(),
                   routes: [
                     GoRoute(
                       path: 'list',
                       name: 'iuran_list',
-                      redirect: (context, state) => '/home/iuran',
+                      redirect: (context, state) => '/home/iuran/warga',
+                    ),
+                    GoRoute(
+                      path: 'warga',
+                      name: 'iuran_warga',
+                      builder: (context, state) => const IuranScreen(),
                     ),
                     GoRoute(
                       path: 'tagihan',
                       name: 'iuran_tagihan',
-                      builder: (context, state) => const IuranArrearsScreen(),
+                      redirect: (context, state) => '/home/iuran',
                     ),
                     GoRoute(
                       path: 'kelola',
@@ -434,7 +444,7 @@ class _AppState extends ConsumerState<App> {
                     GoRoute(
                       path: 'tunggakan',
                       name: 'iuran_arrears',
-                      redirect: (context, state) => '/home/iuran/tagihan',
+                      redirect: (context, state) => '/home/iuran',
                     ),
                     GoRoute(
                       path: 'laporan',

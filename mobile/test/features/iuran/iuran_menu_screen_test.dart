@@ -14,8 +14,21 @@ import 'package:social_finance/features/iuran/presentation/screens/iuran_managem
 import 'package:social_finance/features/iuran/presentation/screens/iuran_menu_screen.dart';
 
 class _TestBillsNotifier extends BillsNotifier {
+  _TestBillsNotifier([this._bills = const []]);
+
+  final List<IuranBill> _bills;
+
   @override
-  Future<List<IuranBill>> build() async => [];
+  Future<List<IuranBill>> build() async => _bills;
+}
+
+class _TestMyBillsNotifier extends BillsNotifier {
+  _TestMyBillsNotifier([this._bills = const []]);
+
+  final List<IuranBill> _bills;
+
+  @override
+  Future<List<IuranBill>> build() async => _bills;
 }
 
 class _TestDuesNotifier extends DuesNotifier {
@@ -45,7 +58,11 @@ class _TestDuesNotifier extends DuesNotifier {
   ];
 }
 
-Widget _menuApp(Map<String, dynamic>? user) {
+Widget _menuApp(
+  Map<String, dynamic>? user, {
+  List<IuranBill> myBills = const [],
+  List<IuranBill> bills = const [],
+}) {
   final router = GoRouter(
     initialLocation: '/home/iuran',
     routes: [
@@ -53,6 +70,12 @@ Widget _menuApp(Map<String, dynamic>? user) {
         path: '/home/iuran',
         builder: (context, state) => const IuranMenuScreen(),
         routes: [
+          GoRoute(
+            path: 'warga',
+            builder: (context, state) => const IuranNavigationShell(
+              child: Scaffold(body: Text('Iuran Warga destination')),
+            ),
+          ),
           GoRoute(
             path: 'list',
             builder: (context, state) => const IuranNavigationShell(
@@ -90,7 +113,8 @@ Widget _menuApp(Map<String, dynamic>? user) {
         repo.state = AsyncData<Map<String, dynamic>?>(user);
         return repo;
       }),
-      billsProvider.overrideWith(() => _TestBillsNotifier()),
+      billsProvider.overrideWith(() => _TestBillsNotifier(bills)),
+      myBillsProvider.overrideWith(() => _TestMyBillsNotifier(myBills)),
       duesProvider.overrideWith(() => _TestDuesNotifier()),
     ],
     child: MaterialApp.router(routerConfig: router),
@@ -112,41 +136,72 @@ void main() {
     // Warga directly sees bills list
     expect(find.text('Belum Ada Tagihan'), findsOneWidget);
     // Warga does not see any tabs
-    expect(find.text('List Iuran'), findsNothing);
-    expect(find.text('Tagihan'), findsNothing);
+    expect(find.text('Iuran Saya'), findsNothing);
+    expect(find.text('Iuran Warga'), findsNothing);
     expect(find.text('Kelola Iuran'), findsNothing);
     // D1: No + Buat Tagihan button on IuranScreen
     expect(find.text('Buat Tagihan'), findsNothing);
   });
 
-  testWidgets('authorized bendahara/pengurus sees tabs below Iuran title and no Buat Tagihan button (D1)', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _menuApp({
-        'role': AppRole.bendahara,
-        'effective_permissions': [
-          'finance.read',
-          'finance.create',
-          'finance.update',
-          'finance.approve',
-        ],
-      }),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'authorized bendahara/pengurus sees Iuran Saya, Iuran Warga, Kelola Iuran in order and lands on Iuran Saya (D1)',
+    (tester) async {
+      final ownBill = IuranBill(
+        id: 'own-bill',
+        householdName: 'Tagihan Pribadi',
+        iuranType: 'IPL',
+        periode: 'Oktober 2026',
+        nominal: 50000,
+      );
+      final residentBill = IuranBill(
+        id: 'resident-bill',
+        householdName: 'Tagihan Warga Lain',
+        iuranType: 'IPL',
+        periode: 'Oktober 2026',
+        nominal: 50000,
+      );
 
-    // Directly shows Iuran title and tabs
-    expect(find.text('List Iuran'), findsOneWidget);
-    expect(find.text('Tagihan'), findsOneWidget);
-    expect(find.text('Kelola Iuran'), findsOneWidget);
-    // D1: + Buat Tagihan FAB must not exist on main Iuran screen
-    expect(find.text('Buat Tagihan'), findsNothing);
+      await tester.pumpWidget(
+        _menuApp(
+          {
+            'role': AppRole.bendahara,
+            'effective_permissions': [
+              'finance.read',
+              'finance.create',
+              'finance.update',
+              'finance.approve',
+            ],
+          },
+          myBills: [ownBill],
+          bills: [residentBill],
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // Tapping Tagihan navigates to Tagihan destination
-    await tester.tap(find.text('Tagihan'));
-    await tester.pumpAndSettle();
-    expect(find.text('Tagihan destination'), findsOneWidget);
-  });
+      // Directly shows Iuran title and tabs in the required order
+      expect(find.text('Iuran Saya'), findsOneWidget);
+      expect(find.text('Iuran Warga'), findsOneWidget);
+      expect(find.text('Kelola Iuran'), findsOneWidget);
+
+      final sayaX = tester.getTopLeft(find.text('Iuran Saya')).dx;
+      final wargaX = tester.getTopLeft(find.text('Iuran Warga')).dx;
+      final kelolaX = tester.getTopLeft(find.text('Kelola Iuran')).dx;
+      expect(sayaX, lessThan(wargaX));
+      expect(wargaX, lessThan(kelolaX));
+
+      // Default landing page is Iuran Saya: only the personal bill is listed
+      expect(find.text('Tagihan Pribadi'), findsOneWidget);
+      expect(find.text('Tagihan Warga Lain'), findsNothing);
+
+      // D1: + Buat Tagihan FAB must not exist on main Iuran screen
+      expect(find.text('Buat Tagihan'), findsNothing);
+
+      // Tapping Iuran Warga navigates to the resident-wide list
+      await tester.tap(find.text('Iuran Warga'));
+      await tester.pumpAndSettle();
+      expect(find.text('Iuran Warga destination'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'Kelola Iuran renders + Buat Iuran pill button (A4), no Switch (D2), KAS-style filters (D3), and List Iuran badges (D4)',

@@ -17,6 +17,7 @@ import (
 
 	chi "github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	"social-finance/internal/storage"
@@ -43,6 +44,20 @@ func getEnv(key, fallback string) string {
 
 func signingSecret() {
 	auth.SigningSecret = []byte(testSigningKey)
+}
+
+// deleteUnpaidBillsForDue removes all unpaid/partial bills for a given
+// (occID, dueID) from the database.  Used to give a test a clean FIFO queue.
+func deleteUnpaidBillsForDue(t *testing.T, pool *database.Pool, occID, dueID string) {
+	t.Helper()
+	_, err := pool.Raw().ExecContext(context.Background(),
+		`DELETE FROM bills WHERE household_occupancy_id = $1 AND due_id = $2
+		 AND status IN ('unpaid','partial')`,
+		occID, dueID,
+	)
+	if err != nil {
+		t.Fatalf("delete unpaid bills for cleanup: %v", err)
+	}
 }
 
 func makeToken(t *testing.T, claims auth.TokenClaims) string {
@@ -805,21 +820,25 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		dueID = d.ID
 	}
 
-	// Generate Bills
-	{
-		body := fmt.Sprintf(`{"due_id":"%s","period":"2026-10","due_date":"2026-10-25"}`, dueID)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/bills/generate", bytes.NewBufferString(body))
-		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusCreated {
-			t.Fatalf("generate bills: %d: %s", rec.Code, rec.Body.String())
-		}
+	// Prune any leftover unpaid bill from a prior run so the subtest bill
+	// becomes the oldest in its (occID, dueID) FIFO queue.
+	_, err := pool.Raw().ExecContext(context.Background(),
+		`DELETE FROM bills WHERE rt_id = $1 AND status IN ('unpaid','partial')`, rtID)
+	require.NoError(t, err)
+
+	// Helper: cancel unpaid/partial bills for a specific (occID, dueID) queue.
+	// Uses UPDATE status='cancelled' instead of DELETE to avoid FK violations
+	// from payments/payment_allocations referencing the bill. Cancelled bills
+	// are excluded by GetOldestUnpaidBillID (status != 'cancelled').
+	pruneOccDue := func(occID, dueID string) {
+		_, err := pool.Raw().ExecContext(context.Background(),
+			`UPDATE bills SET status = 'cancelled'
+			 WHERE household_occupancy_id = $1 AND due_id = $2
+			   AND status IN ('unpaid','partial')`, occID, dueID)
+		require.NoError(t, err)
 	}
 
 	t.Run("Staff creates payment for full bill amount -> PAID", func(t *testing.T) {
-		// Generate bills for a new period
 		body := fmt.Sprintf(`{"due_id":"%s","period":"2026-10-full","due_date":"2026-10-25"}`, dueID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/bills/generate", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenPengurus)
@@ -915,6 +934,8 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		if b.Status != BillStatusPartial {
 			t.Errorf("expected bill status PARTIAL, got %s", b.Status)
 		}
+		// Cleanup: prune PARTIAL bill so later subtests don't hit FIFO on this queue.
+		pruneOccDue(occID, dueID)
 	})
 
 	t.Run("Overpayment rejected - staff", func(t *testing.T) {
@@ -962,6 +983,8 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		if b.Status != BillStatusUnpaid {
 			t.Errorf("expected bill status UNPAID after overpayment rejection, got %s", b.Status)
 		}
+		// Cleanup: UNPAID bill blocks later subtests via FIFO.
+		pruneOccDue(occID, dueID)
 	})
 
 	t.Run("Overpayment rejected - warga submission", func(t *testing.T) {
@@ -1101,6 +1124,8 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		if b.Status != BillStatusPartial {
 			t.Errorf("expected bill status PARTIAL after overpayment rejection, got %s", b.Status)
 		}
+		// Cleanup: PARTIAL bill blocks later subtests via FIFO.
+		pruneOccDue(occID, dueID)
 	})
 
 	t.Run("PENDING payment not counted in approved_total", func(t *testing.T) {
@@ -1209,6 +1234,9 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		if b2.Status != BillStatusPartial {
 			t.Errorf("expected PARTIAL after approve, got %s", b2.Status)
 		}
+
+		// Cleanup: leave no PARTIAL bill blocking FIFO queue for later subtests
+		pruneOccDue(occID, dueID)
 	})
 
 	t.Run("Multiple partial payments summing to exact bill amount", func(t *testing.T) {
@@ -1337,6 +1365,9 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("second warga submit: expected 400, got %d: %s", rec.Code, rec.Body.String())
 		}
+
+		// Cleanup: PENDING bill blocks FIFO queue for later subtests
+		pruneOccDue(occID, dueID)
 	})
 
 	t.Run("Reject PENDING payment", func(t *testing.T) {
@@ -1402,6 +1433,9 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		if b.Status != BillStatusUnpaid {
 			t.Errorf("expected UNPAID after reject, got %s", b.Status)
 		}
+
+		// Cleanup: reject leaves bill UNPAID, must prune to avoid FIFO blocking later subtests
+		pruneOccDue(occID, dueID)
 	})
 
 	t.Run("Approve pending payment -> bill status updated correctly", func(t *testing.T) {
@@ -1740,6 +1774,15 @@ func TestBillCancellationGuard(t *testing.T) {
 		json.Unmarshal(bRec.Body.Bytes(), &b)
 		if b.Status != BillStatusPartial {
 			t.Errorf("expected bill to remain PARTIAL, got %s", b.Status)
+		}
+
+		// Cleanup: PARTIAL bill blocks FIFO queue for later subtests
+		_, err := pool.Raw().ExecContext(context.Background(),
+			`UPDATE bills SET status = 'cancelled' WHERE id = $1 AND status IN ('unpaid','partial')`,
+			partialBillID,
+		)
+		if err != nil {
+			t.Fatalf("cleanup partial bill: %v", err)
 		}
 	})
 

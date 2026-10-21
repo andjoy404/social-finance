@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/iuran/data/iuran_access.dart';
-import 'iuran_screen.dart';
+import 'iuran_arrears_screen.dart';
 
 class IuranMenuScreen extends ConsumerWidget {
   const IuranMenuScreen({super.key});
@@ -39,7 +39,8 @@ class IuranMenuScreen extends ConsumerWidget {
     final canManage = canManageIuran(user);
 
     if (canRead || canManage) {
-      return const IuranScreen();
+      // Default landing page for the Iuran menu is the user's own bills.
+      return const IuranArrearsScreen();
     }
 
     return const Scaffold(

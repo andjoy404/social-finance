@@ -66,7 +66,7 @@ func (s *service) NotifyBillCreated(ctx context.Context, rtID, billID string, re
 
 		var targets []string
 		if len(recipientUserIDs) > 0 {
-			targets = recipientUserIDs
+			targets = dedupeUserIDs(recipientUserIDs)
 		} else {
 			var err error
 			targets, err = s.repo.GetRecipientUserIDsForBill(bgCtx, rtID, billID)
@@ -74,6 +74,7 @@ func (s *service) NotifyBillCreated(ctx context.Context, rtID, billID string, re
 				slog.Error("failed to find recipients for bill notification", "bill_id", billID, "error", err)
 				return
 			}
+			targets = dedupeUserIDs(targets)
 		}
 
 		title := "Tagihan Iuran Baru"
@@ -107,7 +108,14 @@ func (s *service) NotifyBillCreated(ctx context.Context, rtID, billID string, re
 	}()
 }
 
-// NotifyPaymentSubmitted notifies authorized verification staff (Bendahara) in the affected RT.
+// NotifyPaymentSubmitted notifies every active user in the affected RT who is
+// authorized to verify payments (POST /api/v1/payments/{id}/verify), resolved
+// from the actual authorization policy: members whose jabatan grants
+// finance.approve via position_permissions, plus members without jabatan
+// holding the bendahara/pengurus tenant role. The payment submitter is never
+// excluded here — a management officer paying their own household's bill must
+// still be notified as an authorized verifier (self-approval remains blocked
+// at verification time by the finance service guard).
 func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paymentID string) {
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -126,30 +134,13 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 
 		dedupKey := fmt.Sprintf("payment_submitted:%s", paymentID)
 
-		tokens, err := s.repo.GetTokensForRTAndRole(bgCtx, rtID, "bendahara")
+		// Verifier tokens are already DISTINCT per token, so a member matching
+		// multiple recipient conditions (e.g. role=pengurus + jabatan=bendahara)
+		// never receives duplicates.
+		tokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
 		if err != nil {
-			slog.Error("failed to get bendahara tokens for payment submission", "rt_id", rtID, "error", err)
+			slog.Error("failed to get payment verifier tokens for payment submission", "rt_id", rtID, "error", err)
 			return
-		}
-
-		// Also notify Ketua RT — position has full finance permissions (create/update/approve).
-		ketuaTokens, err := s.repo.GetTokensForRTAndJabatan(bgCtx, rtID, "ketua")
-		if err != nil {
-			slog.Error("failed to get ketua tokens for payment submission", "rt_id", rtID, "error", err)
-			return
-		}
-
-		// Merge tokens (dedup by unique token).
-		tokenSet := make(map[string]struct{}, len(tokens)+len(ketuaTokens))
-		for _, t := range tokens {
-			tokenSet[t] = struct{}{}
-		}
-		for _, t := range ketuaTokens {
-			tokenSet[t] = struct{}{}
-		}
-		merged := make([]string, 0, len(tokenSet))
-		for t := range tokenSet {
-			merged = append(merged, t)
 		}
 
 		// Also check deduplication for the RT event log
@@ -161,11 +152,13 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 			return // duplicate event
 		}
 
-		s.sendPushToTokens(bgCtx, merged, title, body, payload.ToMap())
+		s.sendPushToTokens(bgCtx, tokens, title, body, payload.ToMap())
 	}()
 }
 
-// NotifyPaymentVerified notifies strictly the resident who submitted the payment.
+// NotifyPaymentVerified notifies strictly the resident who submitted the payment,
+// regardless of whether the submitter also holds a management role — an officer
+// paying their own household's bill still receives the verification result.
 // Officer notes are NEVER included.
 func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string) {
 	if submitterUserID == "" {
@@ -287,6 +280,26 @@ func (s *service) SendSelfTest(ctx context.Context, userID string) (int, error) 
 	return len(tokens), nil
 }
 
+// dedupeUserIDs trims, drops empty entries, and removes duplicates while
+// preserving order, ensuring one person never receives the same notification
+// twice when they match multiple recipient conditions.
+func dedupeUserIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 func (s *service) sendPushToTokens(ctx context.Context, tokens []string, title, body string, payload map[string]string) {
 	var wg sync.WaitGroup
 	for _, tok := range tokens {
@@ -321,4 +334,3 @@ func isInvalidTokenError(err error) bool {
 		strings.Contains(lower, "invalid device token") ||
 		strings.Contains(lower, "invalid registration token")
 }
-

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/utils/phone_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
@@ -53,7 +53,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final isDark = theme.brightness == Brightness.dark;
 
-    return Scaffold(
+    return DoubleBackExitScope(
+      child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
           centerTitle: false,
@@ -169,8 +170,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ],
           ),
         ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildProfileSection(
     ThemeData theme,

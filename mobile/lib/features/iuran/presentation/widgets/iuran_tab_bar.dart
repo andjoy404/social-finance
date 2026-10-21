@@ -5,7 +5,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 
 /// Segmented tab bar placed directly below the "Iuran" AppBar title for Pengurus/Bendahara.
 class IuranTabBar extends StatelessWidget implements PreferredSizeWidget {
-  final int selectedIndex; // 0: List Iuran, 1: Tagihan, 2: Kelola Iuran
+  final int selectedIndex; // 0: Iuran Saya, 1: Iuran Warga, 2: Kelola Iuran
 
   const IuranTabBar({super.key, required this.selectedIndex});
 
@@ -23,8 +23,8 @@ class IuranTabBar extends StatelessWidget implements PreferredSizeWidget {
         child: Row(
           children: [
             _IuranRouteChip(
-              label: 'List Iuran',
-              icon: Icons.receipt_long_outlined,
+              label: 'Iuran Saya',
+              icon: Icons.pending_actions_outlined,
               selected: selectedIndex == 0,
               onTap: () {
                 if (selectedIndex != 0) context.go('/home/iuran');
@@ -32,11 +32,11 @@ class IuranTabBar extends StatelessWidget implements PreferredSizeWidget {
             ),
             const SizedBox(width: AppSpacing.xs),
             _IuranRouteChip(
-              label: 'Tagihan',
-              icon: Icons.pending_actions_outlined,
+              label: 'Iuran Warga',
+              icon: Icons.receipt_long_outlined,
               selected: selectedIndex == 1,
               onTap: () {
-                if (selectedIndex != 1) context.go('/home/iuran/tagihan');
+                if (selectedIndex != 1) context.go('/home/iuran/warga');
               },
             ),
             const SizedBox(width: AppSpacing.xs),
