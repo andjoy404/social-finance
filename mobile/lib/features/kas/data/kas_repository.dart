@@ -75,6 +75,21 @@ class KasRepository {
       currentPage++;
     } while (currentPage <= totalPages);
 
+    // Sort newest-first by transaction date (occurred_at), with deterministic
+    // tie-breaker by created_at for transactions sharing the same timestamp.
+    // Backend already sorts by ORDER BY occurred_at DESC, created_at DESC;
+    // this client-side sort ensures correct newest-first order regardless of
+    // backend behavior and across paginated results.
+    // createdAt is preferred over id (UUID) as tie-breaker because id is random
+    // and does not reflect creation order.
+    allTransactions.sort((a, b) {
+      final dateCompare = b.tanggal.compareTo(a.tanggal);
+      if (dateCompare != 0) return dateCompare;
+      final aCreated = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bCreated = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bCreated.compareTo(aCreated);
+    });
+
     return allTransactions;
   }
 
@@ -151,6 +166,9 @@ class KasRepository {
       officerName: bt.officerName,
       houseNumber: bt.houseNumber,
       paymentMethod: bt.paymentMethod,
+      createdAt: bt.createdAt != null
+          ? DateTime.tryParse(bt.createdAt!)
+          : null,
       nominal: bt.amount,
       saldo: '0', // Balance is computed server-side, not per-transaction
     );

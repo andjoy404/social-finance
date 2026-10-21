@@ -18,6 +18,7 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/features/kas/data/kas_api_models.dart';
 import 'package:social_finance/features/kas/data/kas_models.dart';
+import 'package:social_finance/features/kas/data/jakarta_time.dart';
 import 'package:social_finance/features/kas/data/kas_repository.dart';
 
 /// Generates a v4-style random UUID for idempotency keys.
@@ -141,8 +142,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       }
 
       final repository = ref.read(kasRepositoryProvider);
-      final occurredAt =
-          DateTime.tryParse(_tanggalCtrl.text.trim()) ?? DateTime.now();
+      final occurredAt = toJakartaUtc(_tanggalCtrl.text.trim());
 
       final desc = _keteranganCtrl.text.trim();
 

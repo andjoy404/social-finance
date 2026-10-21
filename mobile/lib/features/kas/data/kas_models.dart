@@ -47,6 +47,7 @@ class KasTransaction {
   final String? officerName;
   final String? houseNumber;
   final String? paymentMethod;
+  final DateTime? createdAt; // backend created_at, used as deterministic tie-breaker
   final String nominal;
   final String saldo;
 
@@ -62,6 +63,7 @@ class KasTransaction {
     this.officerName,
     this.houseNumber,
     this.paymentMethod,
+    this.createdAt,
     required this.nominal,
     required this.saldo,
   });

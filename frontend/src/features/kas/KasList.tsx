@@ -359,7 +359,11 @@ export function KasList() {
     const chronological = [...txs].sort((a, b) => {
       const dateA = new Date(a.occurred_at || a.created_at).getTime()
       const dateB = new Date(b.occurred_at || b.created_at).getTime()
-      return dateA - dateB
+      if (dateA !== dateB) return dateA - dateB
+      // Deterministic tie-breaker by created_at — not by type (income/expense)
+      // and not by random UUID id. Ensures IN and OUT with the same timestamp
+      // have a stable order based on creation time.
+      return (a.created_at || '').localeCompare(b.created_at || '')
     })
 
     let currentBalance = Math.round(openingNum * 100)

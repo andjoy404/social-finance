@@ -6,6 +6,7 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { useAuth } from '@/app/AuthContext'
 import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import { apiCreateTransaction, getSessionPair } from '@/app/api'
+import { toJakartaIso8601 } from '@/utils/jakartaTime'
 import {
   ArrowUpOutlined,
   CalendarOutlined,
@@ -90,7 +91,7 @@ export function KasIncome() {
         amount: form.nominal,
         type: 'income',
         description: form.keterangan.trim(),
-        occurred_at: form.tanggal,
+        occurred_at: toJakartaIso8601(form.tanggal),
         payment_method: form.paymentMethod,
       })
 

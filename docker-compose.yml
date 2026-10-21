@@ -34,6 +34,7 @@ services:
       - FCM_CREDENTIALS_FILE=/run/secrets/fcm-service-account.json
       - FCM_PROJECT_ID=${FCM_PROJECT_ID:-social-finance-andjoy}
       - FCM_CREDENTIALS=${FCM_CREDENTIALS:-}
+      - TZ=Asia/Jakarta
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,6 +84,7 @@ services:
       - FCM_CREDENTIALS_FILE=/run/secrets/fcm-service-account.json
       - FCM_PROJECT_ID=${FCM_PROJECT_ID:-social-finance-andjoy}
       - FCM_CREDENTIALS=${FCM_CREDENTIALS:-}
+      - TZ=Asia/Jakarta
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,9 +98,10 @@ services:
     image: postgres:16-alpine
     container_name: social-finance-postgres
     environment:
-      POSTGRES_DB: ${DB_NAME:-social_finance}
-      POSTGRES_USER: ${DB_USER:-social_finance}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-social_finance_dev_password}
+      - POSTGRES_DB=${DB_NAME:-social_finance}
+      - POSTGRES_USER=${DB_USER:-social_finance}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-social_finance_dev_password}
+      - TZ=Asia/Jakarta
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/scripts/init-test-db.sh:/docker-entrypoint-initdb.d/01-init-test-db.sh:ro
@@ -123,6 +126,7 @@ services:
       - RUSTFS_ROOT_PASSWORD=${RUSTFS_SECRET_KEY:-rustfsadmin123}
       - MINIO_ROOT_USER=${RUSTFS_ACCESS_KEY:-rustfsadmin}
       - MINIO_ROOT_PASSWORD=${RUSTFS_SECRET_KEY:-rustfsadmin123}
+      - TZ=Asia/Jakarta
     volumes:
       - rustfs_data:/data
     healthcheck:
@@ -155,6 +159,7 @@ services:
       - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin123}
       - RUSTFS_BUCKET=${RUSTFS_BUCKET:-social-finance-payment-proofs}
       - RUSTFS_USE_SSL=${RUSTFS_USE_SSL:-false}
+      - TZ=Asia/Jakarta
     command: ["/tmp/build/api", "--init-storage"]
     depends_on:
       rustfs:
@@ -173,6 +178,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-social_finance_dev_password}
       - DB_NAME=${DB_NAME:-social_finance}
       - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - TZ=Asia/Jakarta
     command: ["up"]
     depends_on:
       postgres:
@@ -199,6 +205,7 @@ services:
       - DB_USER=${DB_USER:-social_finance}
       - DB_PASSWORD=${DB_PASSWORD:-social_finance_dev_password}
       - DB_SSLMODE=${DB_SSLMODE:-prefer}
+      - TZ=Asia/Jakarta
     command: ["/tmp/build/api", "--seed-dev"]
     depends_on:
       migrate:
@@ -212,6 +219,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: social-finance-frontend
+    environment:
+      - TZ=Asia/Jakarta
     ports:
       - "8081:80"
     depends_on:

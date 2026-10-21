@@ -21,6 +21,7 @@ class BackendTransaction {
   final String? paymentNo;
   final String description;
   final String? occurredAt; // ISO 8601 timestamptz
+  final String? createdAt; // ISO 8601 timestamptz
   final String? categoryName;
   final String? officerName;
   final String? dueName;
@@ -40,6 +41,7 @@ class BackendTransaction {
     this.paymentNo,
     required this.description,
     this.occurredAt,
+    this.createdAt,
     this.categoryName,
     this.officerName,
     this.dueName,
@@ -61,6 +63,7 @@ class BackendTransaction {
       paymentNo: (json['payment_no'] ?? json['reference_no']) as String?,
       description: json['description'] as String? ?? '',
       occurredAt: json['occurred_at'] as String?,
+      createdAt: json['created_at'] as String?,
       categoryName: json['category_name'] as String?,
       officerName: json['officer_name'] as String?,
       dueName: json['due_name'] as String?,
