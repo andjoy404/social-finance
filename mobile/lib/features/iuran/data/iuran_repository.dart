@@ -83,6 +83,7 @@ class IuranRepository {
     String? search,
     String? dueId,
     String? status,
+    String? paymentStatus,
     String? period,
     String? householdOccupancyId,
     bool myBills = false,
@@ -92,6 +93,7 @@ class IuranRepository {
     final billResponse = await apiClient.listBills(
       dueId: dueId,
       status: status,
+      paymentStatus: paymentStatus,
       period: period,
       householdOccupancyId: householdOccupancyId,
       myBills: myBills,
@@ -131,12 +133,18 @@ class IuranRepository {
       } catch (e) {
         debugPrint('[IuranDebug] listPayments failed for bill=${bill.id}: $e');
       }
-      final approvedTotal = payments.data
+      int approvedTotal = payments.data
           .where((p) => p.status == PaymentStatus.approved)
           .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
-      final pendingTotal = payments.data
+      if (approvedTotal == 0 && bill.paidAmount != null) {
+        approvedTotal = moneyToDisplayRupiah(bill.paidAmount!);
+      }
+      int pendingTotal = payments.data
           .where((p) => p.status == PaymentStatus.pending)
           .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
+      if (pendingTotal == 0 && bill.pendingAmount != null) {
+        pendingTotal = moneyToDisplayRupiah(bill.pendingAmount!);
+      }
       final rejectedTotal = payments.data
           .where((p) => p.status == PaymentStatus.rejected)
           .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
@@ -175,6 +183,7 @@ class IuranRepository {
   Future<List<IuranBill>> fetchAllBills({
     String? search,
     String? status,
+    String? paymentStatus,
     bool myBills = false,
   }) async {
     final allBills = <IuranBill>[];
@@ -184,6 +193,7 @@ class IuranRepository {
     do {
       final response = await fetchBills(
         status: status,
+        paymentStatus: paymentStatus,
         myBills: myBills,
         page: currentPage,
         pageSize: 100,
@@ -211,12 +221,18 @@ class IuranRepository {
   Future<IuranBill?> fetchBillDetail(String billId) async {
     final bill = await apiClient.getBill(billId);
     final payments = await apiClient.listPayments(billId: bill.id);
-    final approvedTotal = payments.data
+    int approvedTotal = payments.data
         .where((p) => p.status == PaymentStatus.approved)
         .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
-    final pendingTotal = payments.data
+    if (approvedTotal == 0 && bill.paidAmount != null) {
+      approvedTotal = moneyToDisplayRupiah(bill.paidAmount!);
+    }
+    int pendingTotal = payments.data
         .where((p) => p.status == PaymentStatus.pending)
         .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
+    if (pendingTotal == 0 && bill.pendingAmount != null) {
+      pendingTotal = moneyToDisplayRupiah(bill.pendingAmount!);
+    }
     final rejectedTotal = payments.data
         .where((p) => p.status == PaymentStatus.rejected)
         .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));

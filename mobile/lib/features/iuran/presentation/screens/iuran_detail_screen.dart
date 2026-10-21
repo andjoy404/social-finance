@@ -318,41 +318,6 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
               ),
             ),
 
-            // ── Verification section (if user can verify) ────────────────
-            Builder(
-              builder: (context) {
-                final canVerify = ref.read(canVerifyPaymentProvider);
-                if (!canVerify) return const SizedBox.shrink();
-
-                // Subscribe to pending payments (bill-level filter for this bill)
-                final pendingPayments = ref.watch(
-                  pendingPaymentsProvider(true),
-                );
-
-                if (pendingPayments.value == null ||
-                    pendingPayments.value!.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-
-                // Filter to only pending payments for this bill
-                final allPending = pendingPayments.value!;
-                final billPending = allPending
-                    .where((p) => p.billId == bill.id)
-                    .toList();
-
-                if (billPending.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-
-                return _buildVerificationSection(
-                  context,
-                  theme,
-                  isDark,
-                  billPending,
-                );
-              },
-            ),
-
             const SizedBox(height: AppSpacing.lg),
             SectionHeader(title: 'Riwayat Pembayaran'),
             const SizedBox(height: AppSpacing.sm),
@@ -538,144 +503,71 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
 
   // ── UI Helpers ──
 
-  Widget _buildVerificationSection(
-    BuildContext context,
-    ThemeData theme,
-    bool isDark,
-    List<BackendPayment> payments,
-  ) {
-    final accentSoft = AppColors.accentSoftColor(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(title: 'Menunggu Verifikasi (${payments.length})'),
-        const SizedBox(height: AppSpacing.sm),
-        AppCard(
-          padding: const EdgeInsets.all(AppSpacing.base),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: payments.map((payment) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: accentSoft,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Center(
-                            child: Text(
-                              '⏳',
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Rp ${_formatAmount(payment.amount)}',
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.warning,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '${_formatDate(payment.paidAt)} · ${_formatMethod(payment.method)}',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: AppColors.lightTextMuted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (payment.proofPath != null &&
-                            payment.proofPath!.isNotEmpty) ...[
-                          const SizedBox(width: AppSpacing.sm),
-                          PaymentProofThumbnail(
-                            paymentId: payment.id,
-                            size: 44,
-                            label:
-                                'Bukti Pembayaran Rp ${_formatAmount(payment.amount)}',
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        _buildVerifyButton(
-                          context,
-                          'Setujui',
-                          true,
-                          payment.id,
-                          theme,
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        _buildVerifyButton(
-                          context,
-                          'Tolak',
-                          false,
-                          payment.id,
-                          theme,
-                        ),
-                      ],
-                    ),
-                  ],
+  Widget _buildNeonVerifyButton({
+    required BuildContext context,
+    required String label,
+    required IconData icon,
+    required Color neonColor,
+    required Color softBg,
+    required VoidCallback onPressed,
+    EdgeInsetsGeometry? padding,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      decoration: BoxDecoration(
+        color: softBg,
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: neonColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: neonColor.withValues(alpha: isDark ? 0.35 : 0.22),
+            blurRadius: 8,
+            spreadRadius: 1,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          child: Padding(
+            padding: padding ??
+                const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: 12,
                 ),
-              );
-            }).toList(),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 18, color: neonColor),
+                const SizedBox(width: AppSpacing.xs),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: neonColor,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildVerifyButton(
+  Future<void> _approvePayment(
     BuildContext context,
-    String label,
-    bool approve,
-    String paymentId,
-    ThemeData theme,
-  ) {
-    return ElevatedButton.icon(
-      onPressed: () {
-        if (approve) {
-          _approvePayment(context, paymentId);
-        } else {
-          _showRejectDialog(context, paymentId);
-        }
-      },
-      icon: Icon(
-        approve ? Icons.check : Icons.close,
-        size: 16,
-        color: Colors.white,
-      ),
-      label: Text(label),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: approve ? AppColors.success : AppColors.warning,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-      ),
-    );
-  }
-
-  Future<void> _approvePayment(BuildContext context, String paymentId) async {
+    String paymentId, {
+    VoidCallback? onSuccess,
+  }) async {
     final notesController = TextEditingController();
     showDialog(
       context: context,
@@ -704,57 +596,91 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
               ],
             ),
           ),
+          actionsPadding: const EdgeInsets.fromLTRB(
+            AppSpacing.base,
+            0,
+            AppSpacing.base,
+            AppSpacing.base,
+          ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Batal'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final notes = notesController.text.trim();
-                Navigator.pop(dialogContext);
+            Row(
+              children: [
+                Expanded(
+                  child: _buildNeonVerifyButton(
+                    context: dialogContext,
+                    label: 'Setuju',
+                    icon: Icons.check_circle_outline,
+                    neonColor: AppColors.success,
+                    softBg: Theme.of(dialogContext).brightness == Brightness.dark
+                        ? AppColors.darkSuccessSoft
+                        : AppColors.lightSuccessSoft,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: 12,
+                    ),
+                    onPressed: () async {
+                      final notes = notesController.text.trim();
+                      Navigator.pop(dialogContext);
 
-                final snackBar = SnackBar(
-                  content: const Text('Memverifikasi pembayaran...'),
-                  duration: const Duration(seconds: 1),
-                );
-                ScaffoldMessenger.of(context).showSnackBar(snackBar);
+                      final snackBar = SnackBar(
+                        content: const Text('Memverifikasi pembayaran...'),
+                        duration: const Duration(seconds: 1),
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(snackBar);
 
-                try {
-                  final repository = ref.read(iuranRepositoryProvider);
-                  await repository.verifyPayment(
-                    paymentId,
-                    action: 'approve',
-                    officerNotes: notes.isNotEmpty ? notes : null,
-                  );
+                      try {
+                        final repository = ref.read(iuranRepositoryProvider);
+                        await repository.verifyPayment(
+                          paymentId,
+                          action: 'approve',
+                          officerNotes: notes.isNotEmpty ? notes : null,
+                        );
 
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Pembayaran berhasil diverifikasi'),
-                        backgroundColor: AppColors.success,
-                      ),
-                    );
-                    ref.invalidate(billDetailProvider(widget.billId));
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Gagal memverifikasi: $e'),
-                        backgroundColor: AppColors.warning,
-                      ),
-                    );
-                  }
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Setujui'),
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Pembayaran berhasil diverifikasi'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                          ref.invalidate(billDetailProvider(widget.billId));
+                          ref.invalidate(billPaymentsProvider(widget.billId));
+                          ref.invalidate(pendingPaymentsProvider);
+                          onSuccess?.call();
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Gagal memverifikasi: $e'),
+                              backgroundColor: AppColors.warning,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: _buildNeonVerifyButton(
+                    context: dialogContext,
+                    label: 'Batal',
+                    icon: Icons.cancel_outlined,
+                    neonColor: AppColors.danger,
+                    softBg: Theme.of(dialogContext).brightness == Brightness.dark
+                        ? AppColors.darkDangerSoft
+                        : AppColors.lightDangerSoft,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: 12,
+                    ),
+                    onPressed: () => Navigator.pop(dialogContext),
+                  ),
+                ),
+              ],
             ),
           ],
         );
@@ -762,7 +688,11 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     );
   }
 
-  void _showRejectDialog(BuildContext context, String paymentId) {
+  void _showRejectDialog(
+    BuildContext context,
+    String paymentId, {
+    VoidCallback? onSuccess,
+  }) {
     final reasonController = TextEditingController();
     final notesController = TextEditingController();
     showDialog(
@@ -847,6 +777,9 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                       ),
                     );
                     ref.invalidate(billDetailProvider(widget.billId));
+                    ref.invalidate(billPaymentsProvider(widget.billId));
+                    ref.invalidate(pendingPaymentsProvider);
+                    onSuccess?.call();
                   }
                 } catch (e) {
                   if (context.mounted) {
@@ -1190,6 +1123,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
   // ── Payment detail dialog ──
 
   void _showPaymentDetailDialog(BuildContext context, BackendPayment payment) {
+    final canVerify = ref.read(canVerifyPaymentProvider);
     showDialog(
       context: context,
       builder: (dialogCtx) {
@@ -1483,6 +1417,76 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                         ],
                       ),
                     ),
+                  ),
+                ],
+
+                // Action buttons (Terima & Tolak) in neon style for authorized staff on pending payment
+                if (payment.status == PaymentStatus.pending && canVerify) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  const Divider(height: 24),
+                  LayoutBuilder(
+                    builder: (layoutCtx, constraints) {
+                      final isNarrow = constraints.maxWidth < 280;
+                      final terimaBtn = _buildNeonVerifyButton(
+                        context: dialogCtx,
+                        label: 'Terima',
+                        icon: Icons.check_circle_outline,
+                        neonColor: AppColors.success,
+                        softBg: dialogIsDark
+                            ? AppColors.darkSuccessSoft
+                            : AppColors.lightSuccessSoft,
+                        onPressed: () {
+                          _approvePayment(
+                            context,
+                            payment.id,
+                            onSuccess: () {
+                              if (Navigator.of(dialogCtx).canPop()) {
+                                Navigator.of(dialogCtx).pop();
+                              }
+                            },
+                          );
+                        },
+                      );
+                      final tolakBtn = _buildNeonVerifyButton(
+                        context: dialogCtx,
+                        label: 'Tolak',
+                        icon: Icons.cancel_outlined,
+                        neonColor: AppColors.danger,
+                        softBg: dialogIsDark
+                            ? AppColors.darkDangerSoft
+                            : AppColors.lightDangerSoft,
+                        onPressed: () {
+                          _showRejectDialog(
+                            context,
+                            payment.id,
+                            onSuccess: () {
+                              if (Navigator.of(dialogCtx).canPop()) {
+                                Navigator.of(dialogCtx).pop();
+                              }
+                            },
+                          );
+                        },
+                      );
+
+                      if (isNarrow) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            terimaBtn,
+                            const SizedBox(height: AppSpacing.sm),
+                            tolakBtn,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          Expanded(child: terimaBtn),
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(child: tolakBtn),
+                        ],
+                      );
+                    },
                   ),
                 ],
               ],

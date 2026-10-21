@@ -18,6 +18,7 @@ type Repository interface {
 	DeactivateToken(ctx context.Context, token string) error
 	GetTokensForUser(ctx context.Context, userID string) ([]string, error)
 	GetTokensForRTAndRole(ctx context.Context, rtID, role string) ([]string, error)
+	GetTokensForRTAndJabatan(ctx context.Context, rtID, jabatan string) ([]string, error)
 	GetTokensForRT(ctx context.Context, rtID string) ([]string, error)
 	GetRecipientUserIDsForBill(ctx context.Context, rtID, billID string) ([]string, error)
 	CheckAndRecordDedup(ctx context.Context, rtID, userID, eventType, dedupKey, title, body string, payload map[string]string) (bool, error)
@@ -132,6 +133,36 @@ func (r *pgRepository) GetTokensForRTAndRole(ctx context.Context, rtID, role str
 		  AND urm.is_active = true;
 	`
 	rows, err := r.pool.Raw().QueryContext(ctx, query, rtID, role)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []string
+	for rows.Next() {
+		var tok string
+		if err := rows.Scan(&tok); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, tok)
+	}
+	return tokens, rows.Err()
+}
+
+func (r *pgRepository) GetTokensForRTAndJabatan(ctx context.Context, rtID, jabatan string) ([]string, error) {
+	query := `
+		SELECT DISTINCT ud.fcm_token
+		FROM user_devices ud
+		JOIN user_rt_memberships urm ON urm.user_id = ud.user_id
+		WHERE urm.rt_id = $1
+		  AND urm.jabatan = $2
+		  AND ud.is_active = true
+		  AND urm.is_active = true;
+	`
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rtID, jabatan)
 	if err != nil {
 		if isTableMissingErr(err) {
 			return nil, nil

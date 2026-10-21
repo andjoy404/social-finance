@@ -29,7 +29,15 @@ import { IuranPayment } from './IuranPayment'
 import type { IuranBill, IuranStatus } from './iuranTypes'
 import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiTriggerWasteTruckArrival, type ApiBill, type ApiDue, getSessionPair } from '@/app/api'
 
-type FilterType = 'semua' | 'status' | 'periode' | 'jenis'
+type FilterType = 'semua' | 'status' | 'pembayaran' | 'periode' | 'jenis'
+
+export type PaymentFilterStatus = 'pending' | 'approved' | 'rejected'
+
+export const PAYMENT_STATUS_OPTIONS: { value: PaymentFilterStatus; label: string }[] = [
+  { value: 'pending', label: 'Menunggu Verifikasi' },
+  { value: 'approved', label: 'Disetujui' },
+  { value: 'rejected', label: 'Ditolak' },
+]
 
 const STATUS_OPTIONS: { value: IuranStatus; label: string }[] = [
   { value: 'belum_bayar', label: 'Belum Bayar' },
@@ -42,6 +50,7 @@ const STATUS_OPTIONS: { value: IuranStatus; label: string }[] = [
 const statusFilterOptions: { value: FilterType; label: string }[] = [
   { value: 'semua', label: 'Semua' },
   { value: 'status', label: 'Status' },
+  { value: 'pembayaran', label: 'Status Pembayaran' },
   { value: 'periode', label: 'Periode' },
   { value: 'jenis', label: 'Jenis Iuran' },
 ]
@@ -96,14 +105,19 @@ export function IuranList() {
     systemRole?: string | null
     role?: string
     jabatan?: string | null
+    effectivePermissions?: string[]
   }): boolean {
     if (u.systemRole === 'super_admin') return true
+    if (Array.isArray(u.effectivePermissions) && u.effectivePermissions.includes('finance.read')) {
+      return true
+    }
     if (typeof u.jabatan === 'string' && u.jabatan.length > 0) {
       const accessJabatans = new Set(['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'])
       return accessJabatans.has(u.jabatan)
     }
     switch (u.role) {
       case 'pengurus':
+      case 'bendahara':
       case 'super_admin':
         return true
       default:
@@ -136,6 +150,7 @@ export function IuranList() {
   const initialSearch = searchParams.get('q') || searchParams.get('search') || ''
   const initialFilter = (searchParams.get('filter') as FilterType) ?? 'semua'
   const initialStatus = (searchParams.get('status') as IuranStatus) || null
+  const initialPembayaran = (searchParams.get('pembayaran') as PaymentFilterStatus) || null
   const initialPeriode = searchParams.get('periode') ?? ''
   const initialJenis = searchParams.get('jenis') ?? ''
   const initialPage = parseInt(searchParams.get('page') || '1', 10) || 1
@@ -145,15 +160,18 @@ export function IuranList() {
   const [search, setSearch] = useState(initialSearch)
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch)
   const [statusValue, setStatusValue] = useState<IuranStatus | null>(initialStatus)
+  const [pembayaranValue, setPembayaranValue] = useState<PaymentFilterStatus | null>(initialPembayaran)
   const [periodeValue, setPeriodeValue] = useState<string>(initialPeriode)
   const [jenisValue, setJenisValue] = useState<string>(initialJenis)
 
   // Dropdown menu visibility state
   const [statusOpen, setStatusOpen] = useState(false)
+  const [pembayaranOpen, setPembayaranOpen] = useState(false)
   const [periodeOpen, setPeriodeOpen] = useState(false)
   const [jenisOpen, setJenisOpen] = useState(false)
 
   const statusDropdownRef = useRef<HTMLDivElement>(null)
+  const pembayaranDropdownRef = useRef<HTMLDivElement>(null)
   const periodeDropdownRef = useRef<HTMLDivElement>(null)
   const jenisDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -176,13 +194,14 @@ export function IuranList() {
     if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim())
     if (filterType !== 'semua') params.set('filter', filterType)
     if (statusValue) params.set('status', statusValue)
+    if (pembayaranValue) params.set('pembayaran', pembayaranValue)
     if (periodeValue) params.set('periode', periodeValue)
     if (jenisValue) params.set('jenis', jenisValue)
     if (page > 1) params.set('page', String(page))
     if (pageSize) params.set('page_size', String(pageSize))
 
     setSearchParams(params, { replace: true })
-  }, [searchParams, debouncedSearch, filterType, statusValue, periodeValue, jenisValue, page, pageSize, activeTab, setSearchParams])
+  }, [searchParams, debouncedSearch, filterType, statusValue, pembayaranValue, periodeValue, jenisValue, page, pageSize, activeTab, setSearchParams])
 
   // Close all dropdown menus when clicking outside
   useEffect(() => {
@@ -190,6 +209,9 @@ export function IuranList() {
       const target = event.target as Node
       if (statusDropdownRef.current && !statusDropdownRef.current.contains(target)) {
         setStatusOpen(false)
+      }
+      if (pembayaranDropdownRef.current && !pembayaranDropdownRef.current.contains(target)) {
+        setPembayaranOpen(false)
       }
       if (periodeDropdownRef.current && !periodeDropdownRef.current.contains(target)) {
         setPeriodeOpen(false)
@@ -206,7 +228,14 @@ export function IuranList() {
   const [wasteTruckStatus, setWasteTruckStatus] = useState<string | null>(null)
   const [wasteTruckLoading, setWasteTruckLoading] = useState(false)
 
-  const canTriggerWasteTruck = user?.role === 'pengurus' || user?.systemRole === 'super_admin'
+  const canTriggerWasteTruck =
+    user?.role === 'pengurus' ||
+    user?.role === 'bendahara' ||
+    user?.systemRole === 'super_admin' ||
+    user?.jabatan === 'ketua' ||
+    user?.jabatan === 'bendahara' ||
+    user?.jabatan === 'sekretaris' ||
+    user?.jabatan === 'wakil_ketua'
 
   const handleWasteTruckArrival = async () => {
     const token = getSessionPair()?.accessToken
@@ -235,6 +264,8 @@ export function IuranList() {
     const householdName = b.head_name ?? b.house_number ?? 'Unknown'
     const rt = b.rt_code ? b.rt_code.replace(/^RT\s*/i, '') : '—'
     const nominal = parseMoney(b.amount)
+    const paidAmount = b.paid_amount ? parseMoney(b.paid_amount) : 0
+    const pendingAmount = b.pending_amount ? parseMoney(b.pending_amount) : 0
     const isVoluntary = Boolean(b.is_voluntary || nominal === 0)
     const status: IuranStatus = (isVoluntary && nominal === 0)
       ? 'sukarela'
@@ -249,8 +280,8 @@ export function IuranList() {
       iuranType,
       periode: b.period,
       nominal,
-      paidAmount: 0,
-      pendingAmount: 0,
+      paidAmount,
+      pendingAmount,
       status,
       isVoluntary,
       dueId: b.due_id,
@@ -283,6 +314,7 @@ export function IuranList() {
         page_size: pageSize,
         search: debouncedSearch.trim() || undefined,
         status: apiStatus,
+        payment_status: pembayaranValue || undefined,
         period: periodeValue || undefined,
         due_name: jenisValue || undefined,
         my_bills: activeTab === 'tagihan' ? true : undefined,
@@ -313,7 +345,7 @@ export function IuranList() {
         setLoading(false)
       }
     }
-  }, [page, pageSize, debouncedSearch, statusValue, periodeValue, jenisValue, activeTab, mapBill])
+  }, [page, pageSize, debouncedSearch, statusValue, pembayaranValue, periodeValue, jenisValue, activeTab, mapBill])
 
   useEffect(() => {
     void loadData()
@@ -458,6 +490,7 @@ export function IuranList() {
     setPage(1)
     if (filter === 'semua') {
       setStatusValue(null)
+      setPembayaranValue(null)
       setPeriodeValue('')
       setJenisValue('')
     }
@@ -490,6 +523,11 @@ export function IuranList() {
     setPage(1)
   }
 
+  const handlePembayaranSelect = (val: PaymentFilterStatus) => {
+    setPembayaranValue(val)
+    setPage(1)
+  }
+
   const handlePeriodeSelect = (val: string) => {
     setPeriodeValue(val)
     setPage(1)
@@ -501,6 +539,9 @@ export function IuranList() {
   }
 
   const statusLabel: string | null = statusValue ? getStatusLabel(statusValue) : null
+  const pembayaranLabel: string | null = pembayaranValue
+    ? PAYMENT_STATUS_OPTIONS.find((o) => o.value === pembayaranValue)?.label ?? null
+    : null
   const periodeLabel: string | null = periodeValue ? formatPeriodeLabel(periodeValue) : null
   const jenisLabel: string | null = jenisValue
     ? IURAN_TYPE_OPTIONS.find((o) => o.value === jenisValue)?.label ?? null
@@ -655,6 +696,61 @@ export function IuranList() {
                                 type="button"
                                 className={`sf-status-dropdown-item ${statusValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
                                 onClick={() => { handleStatusSelect(opt.value); setStatusOpen(false) }}
+                                role="button"
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : filterType === 'pembayaran' ? (
+                  <div className="sf-status-selector">
+                    {pembayaranLabel ? (
+                      <span
+                        className="sf-status-badge sf-status-badge__active"
+                        style={{
+                          color:
+                            pembayaranValue === 'pending'
+                              ? '#ff9830'
+                              : pembayaranValue === 'approved'
+                              ? '#73bf69'
+                              : '#f2495c',
+                        }}
+                      >
+                        {pembayaranLabel}
+                        <button
+                          type="button"
+                          className="sf-status-badge-clear"
+                          onClick={() => { setPembayaranValue(null); setPage(1); }}
+                          aria-label="Hapus filter pembayaran"
+                          title="Hapus filter pembayaran"
+                        >
+                          <CloseOutlined style={{ fontSize: 10 }} />
+                        </button>
+                      </span>
+                    ) : (
+                      <div className="sf-status-dropdown" ref={pembayaranDropdownRef}>
+                        <button
+                          type="button"
+                          className="sf-status-selector-trigger"
+                          onClick={(e) => { e.stopPropagation(); setPembayaranOpen(!pembayaranOpen) }}
+                          aria-haspopup="listbox"
+                          aria-expanded={pembayaranOpen}
+                        >
+                          Pilih Status Pembayaran
+                          <DownOutlined style={{ fontSize: 9, color: 'var(--sf-text-muted)' }} />
+                        </button>
+                        {pembayaranOpen && (
+                          <div className="sf-status-dropdown-menu" role="listbox">
+                            {PAYMENT_STATUS_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                className={`sf-status-dropdown-item ${pembayaranValue === opt.value ? 'sf-status-dropdown-item-active' : ''}`}
+                                onClick={() => { handlePembayaranSelect(opt.value); setPembayaranOpen(false) }}
                                 role="button"
                               >
                                 {opt.label}
@@ -1076,7 +1172,7 @@ export function IuranList() {
                   <thead>
                     <tr>
                       <th style={colStyles.no}>No</th>
-                      <th style={colStyles.name}>WARGA/KK</th>
+                      <th style={colStyles.name}>NAMA WARGA</th>
                       <th style={colStyles.rt}>RT</th>
                       <th style={colStyles.type}>JENIS IURAN</th>
                       <th style={colStyles.periode}>PERIODE</th>

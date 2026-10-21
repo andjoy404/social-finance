@@ -25,6 +25,7 @@ class _RecordingIuranRepository extends IuranRepository {
   Future<List<IuranBill>> fetchAllBills({
     String? search,
     String? status,
+    String? paymentStatus,
     bool myBills = false,
   }) async {
     scopes.add(myBills);

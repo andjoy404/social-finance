@@ -17,6 +17,7 @@ export interface AuthUser {
   systemRole: string | null
   role: string
   jabatan: string | null
+  effectivePermissions?: string[]
   rt: { id: string; name: string } | null
   rtCode?: string | null
   rtId?: string | null
@@ -42,6 +43,7 @@ function mapUser(raw: ApiUser): AuthUser {
     systemRole: raw.system_role ?? null,
     role: raw.role,
     jabatan: raw.jabatan ?? null,
+    effectivePermissions: raw.effective_permissions ?? [],
     rt: raw.rt ?? (raw.rt_id ? { id: raw.rt_id, name: raw.rt_name ?? '' } : null),
     rtCode,
     rtId,

@@ -542,6 +542,97 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
+
+  it('Ketua RT with role=warga and jabatan=ketua sees both List Iuran and Kelola Iuran tabs', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = {
+      id: 'user-ketua-warga',
+      name: 'Ketua Warga',
+      email: 'ketua.warga@test.com',
+      systemRole: null,
+      role: 'warga',
+      jabatan: 'ketua',
+      rt: { id: 'rt-1', name: 'RT 01' },
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+  })
+
+  it('Bendahara RT with role=bendahara and jabatan=null sees both List Iuran and Kelola Iuran tabs', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = {
+      id: 'user-bendahara-pure',
+      name: 'Bendahara Pure',
+      email: 'bendahara.pure@test.com',
+      systemRole: null,
+      role: 'bendahara',
+      jabatan: null,
+      rt: { id: 'rt-1', name: 'RT 01' },
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+  })
+
+  it('User with effectivePermissions containing finance.read sees both List Iuran and Kelola Iuran tabs', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+
+    mockCurrentUser = {
+      id: 'user-perm',
+      name: 'User With Perm',
+      email: 'perm@test.com',
+      systemRole: null,
+      role: 'warga',
+      jabatan: null,
+      effectivePermissions: ['finance.read'],
+      rt: { id: 'rt-1', name: 'RT 01' },
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+
+    expect(screen.getByRole('button', { name: 'List Iuran' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+  })
 })
 
 // ─── EMPTY VS ERROR STATE TESTS ──────────────────────────────────────────

@@ -13,6 +13,22 @@ bool canManageIuran(Map<String, dynamic>? user) {
       _hasPermission(user, 'finance.approve');
 }
 
+bool canVerifyPayment(Map<String, dynamic>? user) {
+  if (user == null) return false;
+  if (user['system_role'] == 'super_admin') return true;
+
+  final role = _roleValue(user['role']);
+  final jabatan = user['jabatan'] as String?;
+  final isRoleAuthorized = role == 'bendahara' ||
+      role == 'pengurus' ||
+      jabatan == 'ketua' ||
+      jabatan == 'bendahara';
+
+  if (!isRoleAuthorized) return false;
+
+  return _hasPermission(user, 'finance.approve');
+}
+
 bool canAccessIuranPath(String path, Map<String, dynamic>? user) {
   if (!path.startsWith('/home/iuran/')) return true;
   final isManagePath =

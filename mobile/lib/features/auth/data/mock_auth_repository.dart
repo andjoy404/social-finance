@@ -392,6 +392,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       'role': mapStringToAppRole(user.role, systemRoleStr: user.systemRole),
       'system_role': user.systemRole,
       'jabatan': user.jabatan,
+      'house_number': user.houseNumber,
       'effective_permissions': user.effectivePermissions,
       'profile_status': user.effectivePermissionsAvailable
           ? _profileReady

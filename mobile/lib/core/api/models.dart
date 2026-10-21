@@ -11,6 +11,7 @@ class AuthUser {
   final String? rwName;
   final String? systemRole;
   final String? jabatan;
+  final String? houseNumber;
   final List<String> effectivePermissions;
   final bool effectivePermissionsAvailable;
 
@@ -27,6 +28,7 @@ class AuthUser {
     this.rwName,
     this.systemRole,
     this.jabatan,
+    this.houseNumber,
     this.effectivePermissions = const [],
     this.effectivePermissionsAvailable = false,
   });
@@ -84,6 +86,7 @@ class AuthUser {
       rwName: rwName,
       systemRole: json['system_role'] as String?,
       jabatan: json['jabatan'] as String?,
+      houseNumber: (json['house_number'] ?? json['houseNumber']) as String?,
       effectivePermissions: effectivePermissions,
       effectivePermissionsAvailable: effectivePermissionsAvailable,
     );
@@ -102,6 +105,7 @@ class AuthUser {
     if (rwName != null) 'rw_name': rwName,
     if (systemRole != null) 'system_role': systemRole,
     if (jabatan != null) 'jabatan': jabatan,
+    if (houseNumber != null) 'house_number': houseNumber,
     'effective_permissions': effectivePermissions,
   };
 }

@@ -46,6 +46,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final rawPhone = user?['phone'] as String?;
     final phoneDisplay = PhoneUtils.formatDisplay(rawPhone);
     final emailDisplay = (user?['email'] as String?) ?? '-';
+    final rawHouseNumber = (user?['house_number'] as String?)?.trim();
+    final houseNumberDisplay = (rawHouseNumber != null && rawHouseNumber.isNotEmpty)
+        ? rawHouseNumber
+        : '-';
 
     final isDark = theme.brightness == Brightness.dark;
 
@@ -93,6 +97,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   icon: Icons.home,
                   title: 'RT / RW',
                   subtitle: 'RT $rt / RW $rw',
+                ),
+                _ProfileItemData(
+                  icon: Icons.location_on_outlined,
+                  title: 'Nomor Rumah',
+                  subtitle: houseNumberDisplay,
                 ),
                 _ProfileItemData(
                   icon: Icons.phone_android,

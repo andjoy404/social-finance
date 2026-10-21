@@ -318,9 +318,11 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 	return &b, nil
 }
 
-func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period, search, dueName *string, offset, limit int) ([]*Bill, error) {
+func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, paymentStatus, period, search, dueName *string, offset, limit int) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
-	                 d.name as due_name, ph.house_number, h.head_name, d.is_voluntary
+	                 d.name as due_name, ph.house_number, h.head_name, d.is_voluntary,
+	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'APPROVED'), 0)::text as paid_amount,
+	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING'), 0)::text as pending_amount
 	          FROM bills b
 	          JOIN dues d ON b.due_id = d.id
 	          JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
@@ -345,6 +347,11 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 	if status != nil && *status != "" {
 		query += fmt.Sprintf(" AND b.status = $%d", pos)
 		args = append(args, *status)
+		pos++
+	}
+	if paymentStatus != nil && *paymentStatus != "" {
+		query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM payments p WHERE p.bill_id = b.id AND p.rt_id = b.rt_id AND p.status = $%d)", pos)
+		args = append(args, *paymentStatus)
 		pos++
 	}
 	if period != nil && *period != "" {
@@ -376,9 +383,9 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 	for rows.Next() {
 		var b Bill
 		var dueDate time.Time
-		var dueName, houseNum, headName sql.NullString
+		var dueName, houseNum, headName, paidAmt, pendingAmt sql.NullString
 		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
-			&dueName, &houseNum, &headName, &b.IsVoluntary); err != nil {
+			&dueName, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}
 		b.DueDate = dueDate.Format("2006-01-02")
@@ -391,12 +398,18 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		if headName.Valid {
 			b.HeadName = &headName.String
 		}
+		if paidAmt.Valid {
+			b.PaidAmount = &paidAmt.String
+		}
+		if pendingAmt.Valid {
+			b.PendingAmount = &pendingAmt.String
+		}
 		list = append(list, &b)
 	}
 	return list, nil
 }
 
-func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, period, search, dueName *string) (int, error) {
+func BillCount(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, paymentStatus, period, search, dueName *string) (int, error) {
 	query := `SELECT COUNT(*) FROM bills b
 JOIN dues d ON b.due_id = d.id
 JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
@@ -419,6 +432,11 @@ WHERE b.rt_id = $1`
 	if status != nil && *status != "" {
 		query += fmt.Sprintf(" AND b.status = $%d", pos)
 		args = append(args, *status)
+		pos++
+	}
+	if paymentStatus != nil && *paymentStatus != "" {
+		query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM payments p WHERE p.bill_id = b.id AND p.rt_id = b.rt_id AND p.status = $%d)", pos)
+		args = append(args, *paymentStatus)
 		pos++
 	}
 	if period != nil && *period != "" {
@@ -1474,9 +1492,11 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 	return &b, nil
 }
 
-func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period, search, dueName *string, offset, limit int) ([]*Bill, error) {
+func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, paymentStatus, period, search, dueName *string, offset, limit int) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
-	                 d.name as due_name, ph.house_number, h.head_name
+	                 d.name as due_name, ph.house_number, h.head_name, d.is_voluntary,
+	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'APPROVED'), 0)::text as paid_amount,
+	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING'), 0)::text as pending_amount
 	          FROM bills b
 	          JOIN dues d ON b.due_id = d.id
 	          JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
@@ -1501,6 +1521,11 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pe
 	if status != nil && *status != "" {
 		whereParts = append(whereParts, fmt.Sprintf("b.status = $%d", pos))
 		args = append(args, *status)
+		pos++
+	}
+	if paymentStatus != nil && *paymentStatus != "" {
+		whereParts = append(whereParts, fmt.Sprintf("EXISTS (SELECT 1 FROM payments p WHERE p.bill_id = b.id AND p.rt_id = b.rt_id AND p.status = $%d)", pos))
+		args = append(args, *paymentStatus)
 		pos++
 	}
 	if period != nil && *period != "" {
@@ -1536,9 +1561,9 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pe
 	for rows.Next() {
 		var b Bill
 		var dueDate time.Time
-		var dueName, houseNum, headName sql.NullString
+		var dueName, houseNum, headName, paidAmt, pendingAmt sql.NullString
 		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
-			&dueName, &houseNum, &headName); err != nil {
+			&dueName, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}
 		b.DueDate = dueDate.Format("2006-01-02")
@@ -1551,12 +1576,18 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pe
 		if headName.Valid {
 			b.HeadName = &headName.String
 		}
+		if paidAmt.Valid {
+			b.PaidAmount = &paidAmt.String
+		}
+		if pendingAmt.Valid {
+			b.PendingAmount = &pendingAmt.String
+		}
 		list = append(list, &b)
 	}
 	return list, nil
 }
 
-func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, period, search, dueName *string) (int, error) {
+func BillCountAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, paymentStatus, period, search, dueName *string) (int, error) {
 	query := `SELECT COUNT(*) FROM bills b
 JOIN dues d ON b.due_id = d.id
 JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
@@ -1579,6 +1610,11 @@ WHERE 1=1`
 	if status != nil && *status != "" {
 		query += fmt.Sprintf(" AND b.status = $%d", pos)
 		args = append(args, *status)
+		pos++
+	}
+	if paymentStatus != nil && *paymentStatus != "" {
+		query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM payments p WHERE p.bill_id = b.id AND p.rt_id = b.rt_id AND p.status = $%d)", pos)
+		args = append(args, *paymentStatus)
 		pos++
 	}
 	if period != nil && *period != "" {

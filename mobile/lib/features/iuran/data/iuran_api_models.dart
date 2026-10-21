@@ -192,6 +192,8 @@ class BackendBill {
   final String? houseNumber;
   final String? headName;
   final bool isVoluntary;
+  final String? paidAmount;
+  final String? pendingAmount;
 
   const BackendBill({
     required this.id,
@@ -208,6 +210,8 @@ class BackendBill {
     this.houseNumber,
     this.headName,
     this.isVoluntary = false,
+    this.paidAmount,
+    this.pendingAmount,
   });
 
   factory BackendBill.fromJson(Map<String, dynamic> json) {
@@ -226,6 +230,8 @@ class BackendBill {
       houseNumber: json['house_number'] as String?,
       headName: json['head_name'] as String?,
       isVoluntary: json['is_voluntary'] as bool? ?? false,
+      paidAmount: json['paid_amount'] as String?,
+      pendingAmount: json['pending_amount'] as String?,
     );
   }
 }

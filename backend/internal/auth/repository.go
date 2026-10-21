@@ -470,6 +470,7 @@ type UserForMe struct {
 	Fullname             string   `json:"full_name"`
 	Email                string   `json:"email"` // NOT NULL after migration
 	Phone                *string  `json:"phone,omitempty"`
+	HouseNumber          *string  `json:"house_number,omitempty"`
 	TenantRole           Role     `json:"role"`
 	SystemRole           string   `json:"system_role,omitempty"` // "super_admin" if present
 	Jabatan              *string  `json:"jabatan"`               // RT organizational position, null if not assigned
@@ -486,11 +487,29 @@ type UserForMe struct {
 func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*UserForMe, error) {
 	query := `
 		SELECT u.id, u.full_name, u.email, u.phone, u.system_role, urm.role,
-			urm.jabatan, rt.id, rt.name, rt.rw, rt.rt, rt.rw_id, w.name AS rw_name
+			urm.jabatan, rt.id, rt.name, rt.rw, rt.rt, rt.rw_id, w.name AS rw_name,
+			h.house_number
 		FROM users u
 		JOIN user_rt_memberships urm ON urm.id = $2
 		JOIN rts rt ON rt.id = urm.rt_id
 		LEFT JOIN rws w ON w.id = rt.rw_id
+		LEFT JOIN LATERAL (
+			SELECT ph.house_number
+			FROM residents r
+			JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+			JOIN household_occupancies ho ON ho.id = rp.household_occupancy_id AND ho.end_date IS NULL
+			JOIN physical_houses ph ON ph.id = ho.physical_house_id
+			WHERE (
+				r.user_id = u.id
+				OR (u.email IS NOT NULL AND u.email != '' AND lower(trim(r.email)) = lower(trim(u.email)))
+				OR (u.phone IS NOT NULL AND u.phone != '' AND (
+					r.phone = u.phone
+					OR regexp_replace(r.phone, '^(\+62|62|0)', '') = regexp_replace(u.phone, '^(\+62|62|0)', '')
+				))
+			) AND r.rt_id = rt.id AND r.is_active = true
+			ORDER BY CASE WHEN r.user_id = u.id THEN 0 ELSE 1 END, ho.created_at DESC
+			LIMIT 1
+		) h ON true
 		WHERE u.id = $1 AND u.is_active = true
 		AND urm.is_active = true AND rt.is_active = true
 		LIMIT 1
@@ -499,10 +518,11 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	var sysRole sql.NullString
 	var jabatanStr sql.NullString
 	var roleStr string
+	var houseNum sql.NullString
 	err := tx.QueryRowContext(ctx, query, userID, membershipID).Scan(
 		&u.ID, &u.Fullname, &u.Email, &u.Phone, &sysRole,
 		&roleStr, &jabatanStr, &u.RTID, &u.RTName, &u.RT_rw, &u.RT_rt,
-		&u.RWID, &u.RWName,
+		&u.RWID, &u.RWName, &houseNum,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -517,6 +537,10 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	if jabatanStr.Valid {
 		j := jabatanStr.String
 		u.Jabatan = &j
+	}
+	if houseNum.Valid && strings.TrimSpace(houseNum.String) != "" {
+		hn := strings.TrimSpace(houseNum.String)
+		u.HouseNumber = &hn
 	}
 	return &u, nil
 }

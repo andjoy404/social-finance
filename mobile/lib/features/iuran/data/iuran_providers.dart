@@ -9,39 +9,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/features/iuran/data/iuran_access.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
 /// Check whether the current user can verify payments.
-/// Returns true for pengurus, bendahara, and super_admin.
 ///
-/// The role value from [authRepositoryProvider] is always [AppRole]
-/// (mapped via [mapStringToAppRole] in [AuthRepository]), but we
-/// defensively handle the raw-string case too for cached/replay states.
+/// Uses [canVerifyPayment] which verifies role/jabatan authorization
+/// (super_admin, bendahara, pengurus, or jabatan ketua/bendahara)
+/// and strictly requires the `finance.approve` permission.
 final canVerifyPaymentProvider = Provider<bool>((ref) {
-  final role = ref.read(authRepositoryProvider);
-  final roleValue = role?.valueOrNull?['role'];
-  if (roleValue == null) return false;
-
-  // Primary path: roleValue is AppRole enum (normal runtime)
-  if (roleValue is AppRole) {
-    return switch (roleValue) {
-      AppRole.pengurus || AppRole.bendahara || AppRole.superAdmin => true,
-      _ => false,
-    };
-  }
-
-  // Fallback: raw string from cached state or unexpected serialization
-  if (roleValue is String) {
-    return roleValue == 'pengurus' ||
-        roleValue == 'bendahara' ||
-        roleValue == 'super_admin';
-  }
-
-  return false;
+  final user = ref.watch(authRepositoryProvider)?.valueOrNull;
+  return canVerifyPayment(user);
 });
 
 // ─── Filter/Search State ──────────────────────────────────────────────
@@ -74,6 +55,9 @@ final iuranSelectedPeriodeProvider = StateProvider<String>((ref) => '');
 
 /// Selected status filter (enum name: 'belumBayar', 'sebagian', 'lunas').
 final iuranSelectedStatusProvider = StateProvider<String>((ref) => '');
+
+/// Selected payment status filter ('', 'pending', 'approved', 'rejected').
+final iuranSelectedPaymentStatusProvider = StateProvider<String>((ref) => '');
 
 // ─── Pending Payments (for verification) ────────────────────────────
 
@@ -161,6 +145,7 @@ final filteredBillsProvider = Provider<List<IuranBill>>((ref) {
     query: ref.watch(iuranSearchQueryProvider),
     periode: ref.watch(iuranSelectedPeriodeProvider),
     status: ref.watch(iuranSelectedStatusProvider),
+    paymentStatus: ref.watch(iuranSelectedPaymentStatusProvider),
   );
 });
 
@@ -172,6 +157,7 @@ final filteredMyBillsProvider = Provider<List<IuranBill>>((ref) {
     query: ref.watch(iuranSearchQueryProvider),
     periode: ref.watch(iuranSelectedPeriodeProvider),
     status: ref.watch(iuranSelectedStatusProvider),
+    paymentStatus: ref.watch(iuranSelectedPaymentStatusProvider),
   );
 });
 
@@ -180,6 +166,7 @@ List<IuranBill> _filterBills(
   required String query,
   required String periode,
   required String status,
+  String paymentStatus = '',
 }) {
   final normalizedQuery = query.trim().toLowerCase();
 
@@ -197,7 +184,13 @@ List<IuranBill> _filterBills(
         b.iuranType.toLowerCase().contains(normalizedQuery);
     final periodeMatch = periode.isEmpty || b.periode == periode;
     final statusMatch = status.isEmpty || b.status.name == status;
-    return searchMatch && periodeMatch && statusMatch;
+    final paymentStatusMatch = switch (paymentStatus.toLowerCase()) {
+      'pending' => b.pendingAmount > 0,
+      'approved' => b.paidAmount > 0,
+      'rejected' => b.rejectedAmount > 0,
+      _ => true,
+    };
+    return searchMatch && periodeMatch && statusMatch && paymentStatusMatch;
   }).toList();
 
   debugPrint(

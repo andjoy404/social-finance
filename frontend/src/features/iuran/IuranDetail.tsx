@@ -35,6 +35,19 @@ import {
   apiVerifyPayment,
   getSessionPair,
 } from '@/app/api'
+import { useAuth, type AuthUser } from '@/app/AuthContext'
+
+export function canApprovePayment(user: AuthUser | null): boolean {
+  if (!user) return false
+  if (user.systemRole === 'super_admin') return true
+  if (user.effectivePermissions?.includes('finance.approve')) return true
+  const role = user.role?.toLowerCase()
+  if (role === 'super_admin') return true
+  const jabatan = user.jabatan?.toLowerCase()
+  if (jabatan === 'ketua' || jabatan === 'bendahara') return true
+  if (role === 'bendahara') return true
+  return false
+}
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
@@ -373,24 +386,33 @@ function ProofPreviewModal({
 
 function PaymentHistoryItem({
   payment,
+  canApprove = true,
   onVerify,
   onViewProof,
   onTap,
 }: {
   payment: IuranPaymentRecord
+  canApprove?: boolean
   onVerify?: () => void
   onViewProof?: (paymentId: string) => void
   onTap?: () => void
 }) {
   const isApproved = payment.status === 'APPROVED'
   const isPending = payment.status === 'PENDING'
+  const allowVerify = isPending && canApprove
   return (
     <div
-      role={onTap ? 'button' : undefined}
-      tabIndex={onTap ? 0 : undefined}
-      onKeyDown={onTap ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap() } } : undefined}
+      role={onTap || allowVerify ? 'button' : undefined}
+      tabIndex={onTap || allowVerify ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          if (allowVerify) onVerify?.()
+          else onTap?.()
+        }
+      }}
       onClick={() => {
-        if (isPending) onVerify?.()
+        if (allowVerify) onVerify?.()
         else onTap?.()
       }}
       style={{
@@ -409,12 +431,12 @@ function PaymentHistoryItem({
           : isPending
             ? 'var(--sf-warning-soft)'
             : 'transparent',
-        cursor: isPending ? 'pointer' : (onTap ? 'pointer' : 'default'),
+        cursor: allowVerify || onTap ? 'pointer' : 'default',
         outline: 'none',
         transition: 'background 150ms ease',
       }}
       onMouseEnter={(e) => {
-        if (onTap || isPending) {
+        if (onTap || allowVerify) {
           (e.currentTarget as HTMLDivElement).style.background = isApproved
             ? 'var(--sf-success-soft)'
             : isPending
@@ -490,7 +512,7 @@ function PaymentHistoryItem({
             {payment.catatan}
           </span>
         )}
-        {isPending && (
+        {allowVerify && (
           <span style={{
             fontSize: '10px',
             color: 'var(--sf-warning)',
@@ -514,12 +536,14 @@ function PaymentHistoryItem({
 function DetailContent({
   bill,
   remaining,
+  canApprove = true,
   onPendingVerify,
   onViewProof,
   onPaymentDetail,
 }: {
   bill: IuranBill
   remaining: number
+  canApprove?: boolean
   onPendingVerify?: (payment: IuranPaymentRecord) => void
   onViewProof?: (paymentId: string) => void
   onPaymentDetail?: (payment: IuranPaymentRecord) => void
@@ -682,6 +706,7 @@ function DetailContent({
               <PaymentHistoryItem
                 key={payment.id}
                 payment={payment}
+                canApprove={canApprove}
                 onVerify={() => onPendingVerify?.(payment)}
                 onViewProof={onViewProof}
                 onTap={() => onPaymentDetail?.(payment)}
@@ -1024,6 +1049,9 @@ export function IuranDetail({
   const handleClose = onCloseProp ?? (() => navigate('/iuran'))
   const onPayment = onPaymentProp ?? (() => { navigate(`/iuran/${effectiveId}/pembayaran`) })
 
+  const { user } = useAuth()
+  const canApprove = canApprovePayment(user)
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [bill, setBill] = useState<IuranBill | null>(null)
@@ -1286,6 +1314,7 @@ export function IuranDetail({
                 <DetailContent
                   bill={bill}
                   remaining={remaining}
+                  canApprove={canApprove}
                   onPendingVerify={(payment) => setVerifyingPayment(payment)}
                   onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
                   onPaymentDetail={(payment) => setSelectedPaymentDetail(payment)}
@@ -1351,6 +1380,7 @@ export function IuranDetail({
             verifyingId={verifyingId}
             officerNotes={officerNotes}
             rejectError={rejectError}
+            canApprove={canApprove}
             onClose={() => setVerifyingPayment(null)}
             onNotesChange={setOfficerNotes}
             onPreviewProof={(paymentId) => setPreviewingProofId(paymentId)}
@@ -1477,6 +1507,7 @@ export function IuranDetail({
           <DetailContent
             bill={bill}
             remaining={remaining}
+            canApprove={canApprove}
             onPendingVerify={(payment) => setVerifyingPayment(payment)}
             onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
             onPaymentDetail={(payment) => setSelectedPaymentDetail(payment)}
@@ -1489,6 +1520,7 @@ export function IuranDetail({
               verifyingId={verifyingId}
               officerNotes={officerNotes}
               rejectError={rejectError}
+              canApprove={canApprove}
               onClose={() => setVerifyingPayment(null)}
               onNotesChange={setOfficerNotes}
               onPreviewProof={(paymentId) => setPreviewingProofId(paymentId)}
@@ -1524,6 +1556,7 @@ function VerificationDialog({
   verifyingId,
   officerNotes,
   rejectError,
+  canApprove = true,
   onClose,
   onNotesChange,
   onPreviewProof,
@@ -1534,6 +1567,7 @@ function VerificationDialog({
   verifyingId: string | null
   officerNotes: string
   rejectError: string
+  canApprove?: boolean
   onClose: () => void
   onNotesChange: (notes: string) => void
   onPreviewProof: (paymentId: string) => void
@@ -1718,43 +1752,45 @@ function VerificationDialog({
           </div>
 
           {/* Officer notes */}
-          <div style={{ marginBottom: '16px' }}>
-            <label
-              style={{
-                fontSize: '12px',
-                color: 'var(--sf-text-muted)',
-                marginBottom: '6px',
-                display: 'block',
-              }}
-            >
-              Catatan petugas (wajib untuk Tolak, opsional untuk Terima)
-            </label>
-            <textarea
-              value={officerNotes}
-              onChange={(e) => onNotesChange(e.target.value)}
-              placeholder="Catatan verifikasi atau persetujuan..."
-              rows={2}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                fontSize: '12px',
-                color: 'var(--sf-text)',
-                background: 'var(--sf-surface-subtle)',
-                border: '1px solid var(--sf-border)',
-                borderRadius: 'var(--sf-radius-sm)',
-                resize: 'vertical',
-                fontFamily: 'inherit',
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = 'var(--sf-accent)'
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = 'var(--sf-border)'
-              }}
-            />
-          </div>
+          {canApprove && (
+            <div style={{ marginBottom: '16px' }}>
+              <label
+                style={{
+                  fontSize: '12px',
+                  color: 'var(--sf-text-muted)',
+                  marginBottom: '6px',
+                  display: 'block',
+                }}
+              >
+                Catatan petugas (wajib untuk Tolak, opsional untuk Terima)
+              </label>
+              <textarea
+                value={officerNotes}
+                onChange={(e) => onNotesChange(e.target.value)}
+                placeholder="Catatan verifikasi atau persetujuan..."
+                rows={2}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  fontSize: '12px',
+                  color: 'var(--sf-text)',
+                  background: 'var(--sf-surface-subtle)',
+                  border: '1px solid var(--sf-border)',
+                  borderRadius: 'var(--sf-radius-sm)',
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = 'var(--sf-accent)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = 'var(--sf-border)'
+                }}
+              />
+            </div>
+          )}
 
           {/* Reject error */}
           {rejectError && (
@@ -1800,66 +1836,68 @@ function VerificationDialog({
               cursor: 'pointer',
             }}
           >
-            Batal
+            {canApprove ? 'Batal' : 'Tutup'}
           </button>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={() => onReject(verifyingPayment.id)}
-              disabled={verifyingId === verifyingPayment.id}
-              style={{
-                padding: '8px 16px',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: 'var(--sf-danger)',
-                background: 'var(--sf-danger-soft)',
-                border: '1px solid rgba(242,73,92,0.3)',
-                borderRadius: 'var(--sf-radius-sm)',
-                cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                transition: 'background 200ms, border-color 200ms',
-              }}
-            >
-              {verifyingId === verifyingPayment.id ? (
-                'Memproses...'
-              ) : (
-                <>
-                  <CloseCircleOutlined style={{ fontSize: 12 }} />
-                  Tolak
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => onApprove(verifyingPayment.id)}
-              disabled={verifyingId === verifyingPayment.id}
-              style={{
-                padding: '8px 16px',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: 'var(--sf-success)',
-                background: 'var(--sf-success-soft)',
-                border: '1px solid rgba(46,204,113,0.3)',
-                borderRadius: 'var(--sf-radius-sm)',
-                cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                transition: 'background 200ms, border-color 200ms',
-              }}
-            >
-              {verifyingId === verifyingPayment.id ? (
-                'Memproses...'
-              ) : (
-                <>
-                  <CheckCircleOutlined style={{ fontSize: 12 }} />
-                  Terima
-                </>
-              )}
-            </button>
-          </div>
+          {canApprove && (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => onReject(verifyingPayment.id)}
+                disabled={verifyingId === verifyingPayment.id}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--sf-danger)',
+                  background: 'var(--sf-danger-soft)',
+                  border: '1px solid rgba(242,73,92,0.3)',
+                  borderRadius: 'var(--sf-radius-sm)',
+                  cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'background 200ms, border-color 200ms',
+                }}
+              >
+                {verifyingId === verifyingPayment.id ? (
+                  'Memproses...'
+                ) : (
+                  <>
+                    <CloseCircleOutlined style={{ fontSize: 12 }} />
+                    Tolak
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => onApprove(verifyingPayment.id)}
+                disabled={verifyingId === verifyingPayment.id}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: 'var(--sf-success)',
+                  background: 'var(--sf-success-soft)',
+                  border: '1px solid rgba(46,204,113,0.3)',
+                  borderRadius: 'var(--sf-radius-sm)',
+                  cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'background 200ms, border-color 200ms',
+                }}
+              >
+                {verifyingId === verifyingPayment.id ? (
+                  'Memproses...'
+                ) : (
+                  <>
+                    <CheckCircleOutlined style={{ fontSize: 12 }} />
+                    Terima
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -128,10 +128,12 @@ type Bill struct {
 	UpdatedAt            time.Time  `json:"updated_at"`
 
 	// Enriched fields from JOIN queries
-	DueName      *string `json:"due_name,omitempty"`
-	HouseNumber  *string `json:"house_number,omitempty"`
-	HeadName     *string `json:"head_name,omitempty"`
-	IsVoluntary  bool    `json:"is_voluntary"`
+	DueName       *string `json:"due_name,omitempty"`
+	HouseNumber   *string `json:"house_number,omitempty"`
+	HeadName      *string `json:"head_name,omitempty"`
+	IsVoluntary   bool    `json:"is_voluntary"`
+	PaidAmount    *string `json:"paid_amount,omitempty"`
+	PendingAmount *string `json:"pending_amount,omitempty"`
 }
 
 type CreateBillInput struct {

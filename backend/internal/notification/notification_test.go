@@ -20,6 +20,7 @@ type inMemoryRepo struct {
 	mu           sync.Mutex
 	devices      map[string]map[string]bool // userID -> token -> isActive
 	roles        map[string]map[string][]string // rtID -> role -> []userIDs
+	jabatans     map[string]map[string][]string // rtID -> jabatan -> []userIDs
 	rtUsers      map[string][]string // rtID -> []userIDs
 	billUsers    map[string][]string // billID -> []userIDs
 	dedupRecords map[string]bool // dedupKey:userID -> exists
@@ -29,6 +30,7 @@ func newInMemoryRepo() *inMemoryRepo {
 	return &inMemoryRepo{
 		devices:      make(map[string]map[string]bool),
 		roles:        make(map[string]map[string][]string),
+		jabatans:     make(map[string]map[string][]string),
 		rtUsers:      make(map[string][]string),
 		billUsers:    make(map[string][]string),
 		dedupRecords: make(map[string]bool),
@@ -85,6 +87,26 @@ func (r *inMemoryRepo) GetTokensForRTAndRole(ctx context.Context, rtID, role str
 	var tokens []string
 	if roleMap, ok := r.roles[rtID]; ok {
 		if userIDs, ok := roleMap[role]; ok {
+			for _, uid := range userIDs {
+				if userDevs, ok := r.devices[uid]; ok {
+					for tok, active := range userDevs {
+						if active {
+							tokens = append(tokens, tok)
+						}
+					}
+				}
+			}
+		}
+	}
+	return tokens, nil
+}
+
+func (r *inMemoryRepo) GetTokensForRTAndJabatan(ctx context.Context, rtID, jabatan string) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var tokens []string
+	if jabatanMap, ok := r.jabatans[rtID]; ok {
+		if userIDs, ok := jabatanMap[jabatan]; ok {
 			for _, uid := range userIDs {
 				if userDevs, ok := r.devices[uid]; ok {
 					for tok, active := range userDevs {
@@ -599,5 +621,243 @@ func TestSelfTestNoBroadcastAndZeroDevices(t *testing.T) {
 	msgs := provider.GetMessages()
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages dispatched, got %d", len(msgs))
+	}
+}
+
+// Regression tests for Ketua RT notification fix (jabatan-based query)
+
+func TestPaymentSubmitted_BendaharaReceivesNotification(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	bendaharaUser := "user-bendahara-1"
+	bendaharaToken := "tok-bendahara-1"
+
+	_ = repo.RegisterDevice(ctx, bendaharaUser, bendaharaToken, "android", nil)
+	repo.roles[rtID] = map[string][]string{
+		"bendahara": {bendaharaUser},
+	}
+
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-reguler-1", "pay-100")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Token != bendaharaToken {
+		t.Errorf("expected bendahara token %s, got %s", bendaharaToken, msgs[0].Token)
+	}
+	if msgs[0].Data["type"] != notification.EventPaymentSubmitted {
+		t.Errorf("expected type %s, got %s", notification.EventPaymentSubmitted, msgs[0].Data["type"])
+	}
+}
+
+func TestPaymentSubmitted_KetuaRTReceivesNotification(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	ketuaUser := "user-ketua-1"
+	ketuaToken := "tok-ketua-1"
+
+	// Setup: ketua has role='pengurus' + jabatan='ketua'
+	_ = repo.RegisterDevice(ctx, ketuaUser, ketuaToken, "android", nil)
+	repo.roles[rtID] = map[string][]string{
+		"pengurus": {ketuaUser},
+	}
+	repo.jabatans[rtID] = map[string][]string{
+		"ketua": {ketuaUser},
+	}
+
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-reguler-2", "pay-200")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Token != ketuaToken {
+		t.Errorf("expected ketua token %s, got %s", ketuaToken, msgs[0].Token)
+	}
+}
+
+func TestPaymentSubmitted_BendaharaAndKetuaBothReceive(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	bendaharaUser := "user-bendahara-1"
+	bendaharaToken := "tok-bendahara-1"
+	ketuaUser := "user-ketua-1"
+	ketuaToken := "tok-ketua-1"
+
+	_ = repo.RegisterDevice(ctx, bendaharaUser, bendaharaToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, ketuaUser, ketuaToken, "android", nil)
+
+	repo.roles[rtID] = map[string][]string{
+		"bendahara": {bendaharaUser},
+		"pengurus":  {ketuaUser},
+	}
+	repo.jabatans[rtID] = map[string][]string{
+		"ketua": {ketuaUser},
+	}
+
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-reguler-3", "pay-300")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+
+	tokenSet := make(map[string]bool)
+	for _, m := range msgs {
+		tokenSet[m.Token] = true
+	}
+	if !tokenSet[bendaharaToken] {
+		t.Errorf("expected bendahara token %s in messages", bendaharaToken)
+	}
+	if !tokenSet[ketuaToken] {
+		t.Errorf("expected ketua token %s in messages", ketuaToken)
+	}
+
+	// Verify dedup: same token should only appear once even if user has both memberships
+	tokenCounts := make(map[string]int)
+	for _, m := range msgs {
+		tokenCounts[m.Token]++
+	}
+	for tok, count := range tokenCounts {
+		if count > 1 {
+			t.Errorf("token %s sent %d times (expected 1)", tok, count)
+		}
+	}
+}
+
+func TestPaymentSubmitted_RTIsolation(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	targetRT := "rt-01"
+	otherRT := "rt-02"
+
+	bendaharaUser := "user-bendahara-1"
+	bendaharaToken := "tok-bendahara-1"
+	ketuaUser := "user-ketua-1"
+	ketuaToken := "tok-ketua-1"
+
+	// Other RT ketua that must NOT receive notification
+	otherKetuaUser := "user-other-ketua"
+	otherKetuaToken := "tok-other-ketua"
+
+	_ = repo.RegisterDevice(ctx, bendaharaUser, bendaharaToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, ketuaUser, ketuaToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, otherKetuaUser, otherKetuaToken, "android", nil)
+
+	repo.roles[targetRT] = map[string][]string{
+		"bendahara": {bendaharaUser},
+		"pengurus":  {ketuaUser},
+	}
+	repo.jabatans[targetRT] = map[string][]string{
+		"ketua": {ketuaUser},
+	}
+	repo.roles[otherRT] = map[string][]string{
+		"pengurus": {otherKetuaUser},
+	}
+	repo.jabatans[otherRT] = map[string][]string{
+		"ketua": {otherKetuaUser},
+	}
+
+	svc.NotifyPaymentSubmitted(ctx, targetRT, "bill-isolation-1", "pay-400")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+
+	for _, m := range msgs {
+		if m.Token == otherKetuaToken {
+			t.Errorf("other RT ketua token %s should NOT receive notification", otherKetuaToken)
+		}
+	}
+}
+
+func TestPaymentSubmitted_InactiveExcluded(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	bendaharaUser := "user-bendahara-1"
+	inactiveDeviceToken := "tok-inactive-device"
+
+	// Register device with inactive status
+	_ = repo.RegisterDevice(ctx, bendaharaUser, inactiveDeviceToken, "android", nil)
+	repo.roles[rtID] = map[string][]string{
+		"bendahara": {bendaharaUser},
+	}
+
+	// Mark device as inactive (simulating is_active=false in user_devices)
+	if userDevs, ok := repo.devices[bendaharaUser]; ok {
+		userDevs[inactiveDeviceToken] = false
+	}
+
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-inactive-1", "pay-500")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 messages (inactive device excluded), got %d", len(msgs))
+	}
+}
+
+func TestPaymentSubmitted_DedupEventStillWorks(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	ketuaUser := "user-ketua-1"
+	ketuaToken := "tok-ketua-1"
+
+	_ = repo.RegisterDevice(ctx, ketuaUser, ketuaToken, "android", nil)
+	repo.roles[rtID] = map[string][]string{
+		"pengurus": {ketuaUser},
+	}
+	repo.jabatans[rtID] = map[string][]string{
+		"ketua": {ketuaUser},
+	}
+
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-dedup-1", "pay-dedup-1")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs1 := provider.GetMessages()
+	if len(msgs1) != 1 {
+		t.Fatalf("expected 1 message on first dispatch, got %d", len(msgs1))
+	}
+
+	// Duplicate dispatch should be deduplicated
+	svc.NotifyPaymentSubmitted(ctx, rtID, "bill-dedup-1", "pay-dedup-1")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs2 := provider.GetMessages()
+	if len(msgs2) != 1 {
+		t.Fatalf("expected dedup to prevent duplicate, got %d total messages", len(msgs2))
 	}
 }

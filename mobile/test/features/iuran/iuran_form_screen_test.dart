@@ -81,6 +81,7 @@ class FakeIuranRepository extends IuranRepository {
   Future<List<IuranBill>> fetchAllBills({
     String? search,
     String? status,
+    String? paymentStatus,
     bool myBills = false,
   }) async {
     calls.add('refreshBills');
