@@ -72,6 +72,7 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
         : ref.watch(filteredBillsProvider);
     final periode = ref.watch(iuranSelectedPeriodeProvider);
     final status = ref.watch(iuranSelectedStatusProvider);
+    final paymentStatus = ref.watch(iuranSelectedPaymentStatusProvider);
     debugPrint('[IuranDebug] UI build: filtered.length=${filtered.length}');
 
     final user = ref.watch(authRepositoryProvider)?.valueOrNull;
@@ -141,41 +142,67 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
               child: Row(
                 children: [
-                  // Periode chip
-                  _buildFilterChip(
-                    label: periode.isEmpty ? 'Periode' : periode,
-                    selected: periode.isNotEmpty,
-                    onTap: () => _showPeriodeDialog(context),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  // Status chip
-                  _buildFilterChip(
-                    label: status.isEmpty
-                        ? 'Status'
-                        : getStatusLabel(parseStatus(status)),
-                    selected: status.isNotEmpty,
-                    onTap: () => _showStatusDialog(context),
-                  ),
-                  if (periode.isNotEmpty || status.isNotEmpty) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    GestureDetector(
-                      onTap: () {
-                        ref.read(iuranSelectedPeriodeProvider.notifier).state =
-                            '';
-                        ref.read(iuranSelectedStatusProvider.notifier).state =
-                            '';
-                        setState(() {});
-                      },
-                      child: Icon(
-                        Icons.close,
-                        size: 16,
-                        color: isDark
-                            ? AppColors.darkTextMuted
-                            : AppColors.lightTextMuted,
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          // Periode chip
+                          _buildFilterChip(
+                            label: periode.isEmpty ? 'Periode' : periode,
+                            selected: periode.isNotEmpty,
+                            onTap: () => _showPeriodeDialog(context),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          // Status chip
+                          _buildFilterChip(
+                            label: status.isEmpty
+                                ? 'Status'
+                                : getStatusLabel(parseStatus(status)),
+                            selected: status.isNotEmpty,
+                            onTap: () => _showStatusDialog(context),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          // Pembayaran chip
+                          _buildFilterChip(
+                            label: _getPaymentStatusFilterLabel(paymentStatus),
+                            selected: paymentStatus.isNotEmpty,
+                            onTap: () => _showPaymentStatusDialog(context),
+                          ),
+                          if (periode.isNotEmpty ||
+                              status.isNotEmpty ||
+                              paymentStatus.isNotEmpty) ...[
+                            const SizedBox(width: AppSpacing.sm),
+                            GestureDetector(
+                              onTap: () {
+                                ref
+                                    .read(iuranSelectedPeriodeProvider.notifier)
+                                    .state = '';
+                                ref
+                                    .read(iuranSelectedStatusProvider.notifier)
+                                    .state = '';
+                                ref
+                                    .read(
+                                      iuranSelectedPaymentStatusProvider
+                                          .notifier,
+                                    )
+                                    .state = '';
+                                setState(() {});
+                              },
+                              child: Icon(
+                                Icons.close,
+                                size: 16,
+                                color: isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                  ],
-                  const Spacer(),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
                   // Count label — right-aligned
                   Text(
                     '${filtered.length} Iuran',
@@ -219,7 +246,8 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                                 (billsState.valueOrNull?.isNotEmpty ?? false) &&
                                 (_searchController.text.trim().isNotEmpty ||
                                     periode.isNotEmpty ||
-                                    status.isNotEmpty)
+                                    status.isNotEmpty ||
+                                    paymentStatus.isNotEmpty)
                                 ? EmptyState(
                                     icon: Icons.receipt_long_outlined,
                                     title: 'Tagihan Tidak Ditemukan',
@@ -238,6 +266,13 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
                                       ref
                                               .read(
                                                 iuranSelectedStatusProvider
+                                                    .notifier,
+                                              )
+                                              .state =
+                                          '';
+                                      ref
+                                              .read(
+                                                iuranSelectedPaymentStatusProvider
                                                     .notifier,
                                               )
                                               .state =
@@ -460,6 +495,136 @@ class _IuranScreenState extends ConsumerState<IuranScreen> {
     );
   }
 
+  String _getPaymentStatusFilterLabel(String status) {
+    return switch (status.toLowerCase()) {
+      'pending' => 'Menunggu Verifikasi',
+      'approved' => 'Disetujui',
+      'rejected' => 'Ditolak',
+      _ => 'Pembayaran',
+    };
+  }
+
+  void _showPaymentStatusDialog(BuildContext context) {
+    final paymentStatus = ref.read(iuranSelectedPaymentStatusProvider);
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          title: const Text('Status Pembayaran'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: const Text('Semua'),
+                  leading: Radio<String>(
+                    value: '',
+                    groupValue: paymentStatus,
+                    onChanged: (value) {
+                      ref
+                              .read(
+                                iuranSelectedPaymentStatusProvider.notifier,
+                              )
+                              .state =
+                          value ?? '';
+                      Navigator.of(dialogCtx).pop();
+                    },
+                  ),
+                  onTap: () {
+                    ref
+                            .read(
+                              iuranSelectedPaymentStatusProvider.notifier,
+                            )
+                            .state =
+                        '';
+                    Navigator.of(dialogCtx).pop();
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  title: const Text('Menunggu Verifikasi'),
+                  leading: Radio<String>(
+                    value: 'pending',
+                    groupValue: paymentStatus,
+                    onChanged: (value) {
+                      ref
+                              .read(
+                                iuranSelectedPaymentStatusProvider.notifier,
+                              )
+                              .state =
+                          value ?? '';
+                      Navigator.of(dialogCtx).pop();
+                    },
+                  ),
+                  onTap: () {
+                    ref
+                            .read(
+                              iuranSelectedPaymentStatusProvider.notifier,
+                            )
+                            .state =
+                        'pending';
+                    Navigator.of(dialogCtx).pop();
+                  },
+                ),
+                ListTile(
+                  title: const Text('Disetujui'),
+                  leading: Radio<String>(
+                    value: 'approved',
+                    groupValue: paymentStatus,
+                    onChanged: (value) {
+                      ref
+                              .read(
+                                iuranSelectedPaymentStatusProvider.notifier,
+                              )
+                              .state =
+                          value ?? '';
+                      Navigator.of(dialogCtx).pop();
+                    },
+                  ),
+                  onTap: () {
+                    ref
+                            .read(
+                              iuranSelectedPaymentStatusProvider.notifier,
+                            )
+                            .state =
+                        'approved';
+                    Navigator.of(dialogCtx).pop();
+                  },
+                ),
+                ListTile(
+                  title: const Text('Ditolak'),
+                  leading: Radio<String>(
+                    value: 'rejected',
+                    groupValue: paymentStatus,
+                    onChanged: (value) {
+                      ref
+                              .read(
+                                iuranSelectedPaymentStatusProvider.notifier,
+                              )
+                              .state =
+                          value ?? '';
+                      Navigator.of(dialogCtx).pop();
+                    },
+                  ),
+                  onTap: () {
+                    ref
+                            .read(
+                              iuranSelectedPaymentStatusProvider.notifier,
+                            )
+                            .state =
+                        'rejected';
+                    Navigator.of(dialogCtx).pop();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// Extract unique periods from the current bills list.
   List<String> _uniquePeriodes() {
     final billsState = widget.myBills
@@ -588,9 +753,18 @@ class _IuranCard extends StatelessWidget {
                             ),
                             textAlign: TextAlign.right,
                           ),
+                        if (bill.pendingAmount > 0)
+                          Text(
+                            'Tertunda ${formatRupiah(bill.pendingAmount)}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppColors.warning,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textAlign: TextAlign.right,
+                          ),
                         if (bill.isInArrears)
                           Text(
-                            'Sisa: ${formatRupiah(bill.remainingAmount)}',
+                            'Sisa ${formatRupiah(bill.remainingAmount)}',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: AppColors.warning,
                             ),

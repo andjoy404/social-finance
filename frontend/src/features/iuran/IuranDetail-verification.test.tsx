@@ -9,6 +9,8 @@
  * component so that any drift is caught.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { canApprovePayment } from './IuranDetail'
+import type { AuthUser } from '@/app/AuthContext'
 
 // ---- Validation logic (copied from IuranDetail.tsx handleReject) ----
 
@@ -136,6 +138,97 @@ describe('B3 — Payment verification validation', () => {
       if (!result.ok) throw new Error('Should not error')
       const payload = buildRejectPayload(result.notes)
       expect(payload.officer_notes).toBe(payload.rejection_reason)
+    })
+  })
+
+  // ---- Role-based verification button visibility ----
+
+  describe('canApprovePayment authorization', () => {
+    it('returns false for null user', () => {
+      expect(canApprovePayment(null)).toBe(false)
+    })
+
+    it('returns false for ordinary WARGA user (cannot see Terima/Tolak)', () => {
+      const wargaUser: AuthUser = {
+        id: 'user-warga-1',
+        name: 'Warga Biasa',
+        email: 'warga@test.local',
+        role: 'warga',
+        systemRole: null,
+        jabatan: null,
+        rt: { id: 'rt-1', name: 'RT 002' },
+        effectivePermissions: ['finance.read'],
+      }
+      expect(canApprovePayment(wargaUser)).toBe(false)
+    })
+
+    it('returns true for Ketua RT with role=warga and jabatan=ketua', () => {
+      const ketuaUser: AuthUser = {
+        id: 'user-ketua-1',
+        name: 'Pak RT Ketua',
+        email: 'ketua@test.local',
+        role: 'warga',
+        systemRole: null,
+        jabatan: 'ketua',
+        rt: { id: 'rt-1', name: 'RT 002' },
+        effectivePermissions: ['finance.read', 'finance.create', 'finance.update', 'finance.approve'],
+      }
+      expect(canApprovePayment(ketuaUser)).toBe(true)
+    })
+
+    it('returns true for Bendahara RT with role=bendahara', () => {
+      const bendaharaUser: AuthUser = {
+        id: 'user-bendahara-1',
+        name: 'Bendahara RT',
+        email: 'bendahara@test.local',
+        role: 'bendahara',
+        systemRole: null,
+        jabatan: null,
+        rt: { id: 'rt-1', name: 'RT 002' },
+        effectivePermissions: ['finance.read', 'finance.create', 'finance.update', 'finance.approve'],
+      }
+      expect(canApprovePayment(bendaharaUser)).toBe(true)
+    })
+
+    it('returns true for super_admin', () => {
+      const adminUser: AuthUser = {
+        id: 'user-admin-1',
+        name: 'Super Admin',
+        email: 'admin@test.local',
+        role: 'super_admin',
+        systemRole: 'super_admin',
+        jabatan: null,
+        rt: null,
+      }
+      expect(canApprovePayment(adminUser)).toBe(true)
+    })
+
+    it('returns false for pengurus without finance.approve permission', () => {
+      const pengurusReadOnly: AuthUser = {
+        id: 'user-pengurus-1',
+        name: 'Petugas Keamanan',
+        email: 'keamanan@test.local',
+        role: 'warga',
+        systemRole: null,
+        jabatan: 'keamanan',
+        rt: { id: 'rt-1', name: 'RT 002' },
+        effectivePermissions: ['warga.read'],
+      }
+      expect(canApprovePayment(pengurusReadOnly)).toBe(false)
+    })
+
+    it('returns true when effectivePermissions includes finance.approve', () => {
+      const permittedUser: AuthUser = {
+        id: 'user-permitted-1',
+        name: 'Petugas Keuangan',
+        email: 'petugas@test.local',
+        role: 'warga',
+        systemRole: null,
+        jabatan: null,
+        rt: { id: 'rt-1', name: 'RT 002' },
+        effectivePermissions: ['finance.approve'],
+      }
+      expect(canApprovePayment(permittedUser)).toBe(true)
     })
   })
 })

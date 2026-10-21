@@ -14,6 +14,7 @@ export interface ApiUser {
   system_role?: string
   role: string
   jabatan?: string | null
+  effective_permissions?: string[]
   rt: { id: string; name: string } | null
   rt_id?: string
   rt_name?: string
@@ -1074,6 +1075,8 @@ export interface ApiBill {
   house_number?: string | null
   head_name?: string | null
   is_voluntary?: boolean
+  paid_amount?: string | null
+  pending_amount?: string | null
 }
 
 export interface ApiPayment {
@@ -1127,6 +1130,7 @@ export async function apiListBills(
     search?: string
     due_name?: string
     my_bills?: boolean
+    payment_status?: string
   },
 ): Promise<ApiPaginated<ApiBill>> {
   const q = new URLSearchParams()
@@ -1135,6 +1139,7 @@ export async function apiListBills(
   if (params?.household_occupancy_id) q.set('household_occupancy_id', params.household_occupancy_id)
   if (params?.due_id) q.set('due_id', params.due_id)
   if (params?.status) q.set('status', params.status)
+  if (params?.payment_status) q.set('payment_status', params.payment_status)
   if (params?.period) q.set('period', params.period)
   if (params?.search) q.set('search', params.search)
   if (params?.due_name) q.set('due_name', params.due_name)

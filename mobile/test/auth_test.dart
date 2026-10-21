@@ -108,7 +108,21 @@ void main() {
       expect(user.id, equals('user-3'));
       expect(user.rtId, isNull);
       expect(user.systemRole, isNull);
+      expect(user.houseNumber, isNull);
       expect(user.effectivePermissions, isEmpty);
+    });
+
+    test('AuthUser correctly parses house_number', () {
+      final json = {
+        'id': 'user-house',
+        'email': 'warga@example.com',
+        'name': 'Warga House',
+        'role': 'warga',
+        'house_number': 'Blok B No. 12',
+      };
+      final user = AuthUser.fromJson(json);
+      expect(user.houseNumber, equals('Blok B No. 12'));
+      expect(user.toJson()['house_number'], equals('Blok B No. 12'));
     });
 
     test('AuthUser parses only valid effective permission lists', () {

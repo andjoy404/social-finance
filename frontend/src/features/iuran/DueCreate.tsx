@@ -41,8 +41,12 @@ function hasFinanceCreateAccess(user: {
   systemRole?: string | null
   role?: string
   jabatan?: string | null
+  effectivePermissions?: string[]
 }): boolean {
   if (user.systemRole === 'super_admin') return true
+  if (Array.isArray(user.effectivePermissions) && user.effectivePermissions.includes('finance.create')) {
+    return true
+  }
   if (typeof user.jabatan === 'string' && user.jabatan.length > 0) {
     const writeJabatans = new Set([
       'ketua', 'wakil_ketua', 'sekretaris', 'bendahara',
@@ -51,6 +55,7 @@ function hasFinanceCreateAccess(user: {
   }
   switch (user.role) {
     case 'pengurus':
+    case 'bendahara':
     case 'super_admin':
       return true
     default:

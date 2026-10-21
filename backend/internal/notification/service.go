@@ -132,6 +132,26 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 			return
 		}
 
+		// Also notify Ketua RT — position has full finance permissions (create/update/approve).
+		ketuaTokens, err := s.repo.GetTokensForRTAndRole(bgCtx, rtID, "ketua")
+		if err != nil {
+			slog.Error("failed to get ketua tokens for payment submission", "rt_id", rtID, "error", err)
+			return
+		}
+
+		// Merge tokens (dedup by unique token).
+		tokenSet := make(map[string]struct{}, len(tokens)+len(ketuaTokens))
+		for _, t := range tokens {
+			tokenSet[t] = struct{}{}
+		}
+		for _, t := range ketuaTokens {
+			tokenSet[t] = struct{}{}
+		}
+		merged := make([]string, 0, len(tokenSet))
+		for t := range tokenSet {
+			merged = append(merged, t)
+		}
+
 		// Also check deduplication for the RT event log
 		ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentSubmitted, dedupKey, title, body, payload.ToMap())
 		if err != nil {

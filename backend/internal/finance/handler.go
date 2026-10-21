@@ -1,6 +1,8 @@
 package finance
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -421,6 +423,55 @@ func (h *Handler) DeactivateDue(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// hasStaffFinancePermission determines whether the authenticated user has staff-level
+// authorization for a specific finance permission (e.g. "finance.read", "finance.update"),
+// as opposed to an ordinary citizen whose access is restricted to their own household.
+//
+// Access is granted if:
+//  1. System-level super_admin.
+//  2. The user has an assigned jabatan (such as ketua, bendahara, sekretaris) that
+//     possesses the specified permission in the position_permissions table.
+//  3. The user has tenant role pengurus or bendahara without a conflicting jabatan.
+func (h *Handler) hasStaffFinancePermission(ctx context.Context, tx *sql.Tx, ac *auth.AuthContext, permission string) (bool, error) {
+	if ac == nil {
+		return false, nil
+	}
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return true, nil
+	}
+	if ac.RTID == "" {
+		return false, nil
+	}
+
+	if tx == nil && h.pool != nil {
+		t, err := h.pool.BeginTx(ctx)
+		if err != nil {
+			return false, err
+		}
+		defer t.Rollback()
+		tx = t
+	}
+
+	// Users with a jabatan: evaluate against position_permissions via PermissionResolver
+	if ac.Jabatan != "" {
+		pr := auth.NewPermissionResolver(h.pool)
+		return pr.HasPermission(ctx, tx, ac, permission)
+	}
+
+	// Role-based users without jabatan: pengurus and bendahara roles have staff finance permissions
+	if ac.TenantRole == auth.RolePengurus || ac.TenantRole == auth.RoleBendahara {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// hasStaffFinanceRead determines whether the authenticated user has staff-level
+// authorization to read all RT financial data (e.g. List Iuran Warga).
+func (h *Handler) hasStaffFinanceRead(ctx context.Context, tx *sql.Tx, ac *auth.AuthContext) (bool, error) {
+	return h.hasStaffFinancePermission(ctx, tx, ac, "finance.read")
+}
+
 // --- Bills Handlers ---
 
 func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
@@ -441,7 +492,13 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		}
 		var status *string
 		if s := r.URL.Query().Get("status"); s != "" {
-			status = &s
+			upper := strings.ToUpper(strings.TrimSpace(s))
+			status = &upper
+		}
+		var paymentStatus *string
+		if ps := r.URL.Query().Get("payment_status"); ps != "" {
+			upper := strings.ToUpper(strings.TrimSpace(ps))
+			paymentStatus = &upper
 		}
 		var period *string
 		if p := r.URL.Query().Get("period"); p != "" {
@@ -478,24 +535,24 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 
 		if rtQuery != "" {
 			// Tenant-scoped query for specific RT (cross-tenant admin filtering)
-			total, err = BillCount(r.Context(), tx, rtQuery, occupancyID, dueID, status, period, search, dueName)
+			total, err = BillCount(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
-			bills, err = BillList(r.Context(), tx, rtQuery, occupancyID, dueID, status, period, search, dueName, offset, pageSize)
+			bills, err = BillList(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, offset, pageSize)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
 		} else {
 			// Cross-tenant query (admin viewing all RTs)
-			total, err = BillCountAll(r.Context(), tx, occupancyID, dueID, status, period, search, dueName)
+			total, err = BillCountAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
-			bills, err = BillListAll(r.Context(), tx, occupancyID, dueID, status, period, search, dueName, offset, pageSize)
+			bills, err = BillListAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName, offset, pageSize)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
@@ -527,9 +584,15 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	isStaff, err := h.hasStaffFinanceRead(r.Context(), tx, ac)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to check permissions")
+		return
+	}
+
 	var occupancyID *string
-	// If warga or ?my_bills=true, restrict strictly to user's own active household occupancy!
-	if ac.TenantRole == auth.RoleWarga || r.URL.Query().Get("my_bills") == "true" {
+	// If not staff (ordinary citizen) or explicit ?my_bills=true, restrict strictly to user's own active household occupancy!
+	if !isStaff || r.URL.Query().Get("my_bills") == "true" {
 		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
 		if err != nil || occID == "" {
 			// No occupancy tied to warga -> empty collection
@@ -554,6 +617,11 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	if s := r.URL.Query().Get("status"); s != "" {
 		status = &s
 	}
+	var paymentStatus *string
+	if ps := r.URL.Query().Get("payment_status"); ps != "" {
+		upper := strings.ToUpper(strings.TrimSpace(ps))
+		paymentStatus = &upper
+	}
 	var period *string
 	if p := r.URL.Query().Get("period"); p != "" {
 		period = &p
@@ -572,13 +640,13 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	page, pageSize := parsePagination(r)
 	offset := (page - 1) * pageSize
 
-	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, search, dueName)
+	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
 
-	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, period, search, dueName, offset, pageSize)
+	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, offset, pageSize)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
@@ -646,7 +714,13 @@ func (h *Handler) GetBill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if ac.TenantRole == auth.RoleWarga {
+	isStaff, err := h.hasStaffFinanceRead(r.Context(), tx, ac)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to check permissions")
+		return
+	}
+
+	if !isStaff {
 		occID, _ := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
 		if occID != bill.HouseholdOccupancyID {
 			httpx.WriteNotFound(w, "bill not found")
@@ -782,7 +856,8 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 		}
 		var status *string
 		if s := r.URL.Query().Get("status"); s != "" {
-			status = &s
+			upper := strings.ToUpper(strings.TrimSpace(s))
+			status = &upper
 		}
 
 		tx, err := h.pool.BeginTx(r.Context())
@@ -860,8 +935,14 @@ func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 	if s := r.URL.Query().Get("status"); s != "" {
 		status = &s
 	}
+	isStaff, err := h.hasStaffFinanceRead(r.Context(), tx, ac)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to check permissions")
+		return
+	}
+
 	var submittedBy, occupancyID *string
-	if ac.TenantRole == auth.RoleWarga {
+	if !isStaff {
 		submittedBy = &ac.UserID
 		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
 		if err != nil {
@@ -942,8 +1023,14 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isStaff, err := h.hasStaffFinanceRead(r.Context(), tx, ac)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to check permissions")
+		return
+	}
+
 	var p *Payment
-	if ac.TenantRole == auth.RoleWarga {
+	if !isStaff {
 		var occupancyID *string
 		occID, occErr := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
 		if occErr != nil {
@@ -1273,8 +1360,14 @@ func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	canStaffUpdate, err := h.hasStaffFinancePermission(r.Context(), tx, ac, "finance.update")
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to check permissions")
+		return
+	}
+
 	var payment *Payment
-	if ac.TenantRole == auth.RoleWarga {
+	if !canStaffUpdate {
 		var occupancyID *string
 		occID, occErr := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
 		if occErr != nil {
@@ -1316,7 +1409,11 @@ func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updatedPayment, err := h.svc.AttachPaymentProof(r.Context(), tx, ac.RTID, ac.UserID, string(ac.TenantRole), paymentID, meta)
+	callerRole := string(ac.TenantRole)
+	if canStaffUpdate {
+		callerRole = string(auth.RolePengurus)
+	}
+	updatedPayment, err := h.svc.AttachPaymentProof(r.Context(), tx, ac.RTID, ac.UserID, callerRole, paymentID, meta)
 	if err != nil {
 		_ = h.storage.DeleteProof(r.Context(), meta.Key)
 		httpx.WriteInternalServerError(w, err.Error())
@@ -1359,7 +1456,13 @@ func (h *Handler) GetPaymentProof(w http.ResponseWriter, r *http.Request) {
 		if !requireTenantContext(ac, w) {
 			return
 		}
-		if ac.TenantRole == auth.RoleWarga {
+		isStaff, err := h.hasStaffFinanceRead(r.Context(), tx, ac)
+		if err != nil {
+			httpx.WriteInternalServerError(w, "failed to check permissions")
+			return
+		}
+
+		if !isStaff {
 			var occupancyID *string
 			occID, lookupErr := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
 			if lookupErr != nil {
@@ -1380,6 +1483,10 @@ func (h *Handler) GetPaymentProof(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+	if p == nil {
+		httpx.WriteNotFound(w, "payment not found")
 		return
 	}
 

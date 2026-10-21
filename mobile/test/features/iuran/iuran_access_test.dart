@@ -195,5 +195,54 @@ void main() {
         isFalse,
       );
     });
+
+    test('canVerifyPayment requires authorized role/jabatan and finance.approve', () {
+      final ketuaUser = {
+        'role': AppRole.warga,
+        'jabatan': 'ketua',
+        'effective_permissions': ['finance.read', 'finance.create', 'finance.update', 'finance.approve'],
+      };
+      expect(canVerifyPayment(ketuaUser), isTrue);
+
+      final bendaharaUser = {
+        'role': 'warga',
+        'jabatan': 'bendahara',
+        'effective_permissions': ['finance.read', 'finance.create', 'finance.update', 'finance.approve'],
+      };
+      expect(canVerifyPayment(bendaharaUser), isTrue);
+
+      final bendaharaRole = {
+        'role': AppRole.bendahara,
+        'effective_permissions': ['finance.approve'],
+      };
+      expect(canVerifyPayment(bendaharaRole), isTrue);
+
+      // Super admin always bypasses
+      final superAdmin = {
+        'role': AppRole.superAdmin,
+        'system_role': 'super_admin',
+        'effective_permissions': <String>[],
+      };
+      expect(canVerifyPayment(superAdmin), isTrue);
+
+      // Warga without jabatan cannot verify
+      final plainWarga = {
+        'role': AppRole.warga,
+        'effective_permissions': ['finance.read'],
+      };
+      expect(canVerifyPayment(plainWarga), isFalse);
+
+      // Pengurus without finance.approve cannot verify
+      final pengurusNoApprove = {
+        'role': AppRole.pengurus,
+        'jabatan': 'keamanan',
+        'effective_permissions': ['warga.read'],
+      };
+      expect(canVerifyPayment(pengurusNoApprove), isFalse);
+
+      // Null or missing auth data cannot verify
+      expect(canVerifyPayment(null), isFalse);
+      expect(canVerifyPayment({}), isFalse);
+    });
   });
 }

@@ -135,6 +135,7 @@ class IuranApiClient {
   Future<PaginatedResponse<BackendBill>> listBills({
     String? dueId,
     String? status,
+    String? paymentStatus,
     String? period,
     String? householdOccupancyId,
     bool myBills = false,
@@ -147,6 +148,9 @@ class IuranApiClient {
     };
     if (dueId != null && dueId.isNotEmpty) query['due_id'] = dueId;
     if (status != null && status.isNotEmpty) query['status'] = status;
+    if (paymentStatus != null && paymentStatus.isNotEmpty) {
+      query['payment_status'] = paymentStatus;
+    }
     if (period != null && period.isNotEmpty) query['period'] = period;
     if (householdOccupancyId != null && householdOccupancyId.isNotEmpty) {
       query['household_occupancy_id'] = householdOccupancyId;
