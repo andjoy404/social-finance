@@ -49,6 +49,23 @@ class IuranBill {
     this.dueId,
   });
 
+  /// Returns true if this bill represents voluntary dues (Sukarela).
+  bool get isVoluntaryDues =>
+      isVoluntary ||
+      status == IuranStatus.sukarela ||
+      nominal == 0 ||
+      (dueIsVoluntary ?? false);
+
+  /// Returns true if this bill represents regular dues.
+  bool get isRegularDues => !isVoluntaryDues;
+
+  /// Returns true if this bill requires full payment.
+  bool get isFullPayment => requiresFullPayment;
+
+  /// Returns true if the nominal amount is locked for this bill.
+  /// Nominal is locked ONLY when the dues is Regular AND payment method is Full.
+  bool get isAmountLocked => isRegularDues && isFullPayment;
+
   /// Returns the remaining balance for display purposes.
   /// Calculated as nominal minus APPROVED payments only.
   /// Pending and rejected payments do NOT reduce the displayed balance.

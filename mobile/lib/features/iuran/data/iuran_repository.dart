@@ -163,7 +163,7 @@ class IuranRepository {
           rejectedAmount: rejectedTotal,
           status: _mapBillStatus(bill.status, isVoluntary: isVol),
           isVoluntary: isVol,
-          requiresFullPayment: bill.status == BillStatus.unpaid,
+          requiresFullPayment: !isVol && bill.status == BillStatus.unpaid,
           dueId: bill.dueId,
           dueName: bill.dueName,
           duePeriodType: null,
@@ -238,7 +238,24 @@ class IuranRepository {
         .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
 
     final nominalVal = moneyToDisplayRupiah(bill.amount);
-    final isVol = bill.isVoluntary;
+    bool isVol = bill.isVoluntary;
+    PaymentRule? duePaymentRule;
+    try {
+      final dues = await apiClient.listDues();
+      final matching = dues.where((d) => d.id == bill.dueId).firstOrNull;
+      if (matching != null) {
+        if (!isVol && matching.isVoluntary) {
+          isVol = true;
+        }
+        duePaymentRule = matching.paymentRule;
+      }
+    } catch (_) {}
+
+    final bool requiresFull = !isVol &&
+        (duePaymentRule != null
+            ? duePaymentRule == PaymentRule.full
+            : bill.status == BillStatus.unpaid);
+
     return IuranBill(
       id: bill.id,
       householdName: bill.headName ?? '—',
@@ -250,7 +267,7 @@ class IuranRepository {
       rejectedAmount: rejectedTotal,
       status: _mapBillStatus(bill.status, isVoluntary: isVol),
       isVoluntary: isVol,
-      requiresFullPayment: bill.status == BillStatus.unpaid,
+      requiresFullPayment: requiresFull,
       dueId: bill.dueId,
       dueName: bill.dueName,
       duePeriodType: null,

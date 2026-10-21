@@ -106,9 +106,10 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         AsyncData(:final value) => value,
         _ => null,
       };
-      final isRegularFull =
-          bill != null && !bill.isVoluntary && bill.requiresFullPayment;
-      final amount = isRegularFull
+      final isRegularDues = bill != null && bill.isRegularDues;
+      final isFullPayment = bill != null && bill.isFullPayment;
+      final isAmountLocked = isRegularDues && isFullPayment;
+      final amount = isAmountLocked
           ? (bill.paymentCapacity > 0 ? bill.paymentCapacity : bill.nominal)
           : parseRupiahInput(_nominalCtrl.text);
       if (amount == null || amount <= 0) {
@@ -196,7 +197,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       final state = ref.read(billDetailProvider(widget.billId));
       if (state is AsyncData<IuranBill?> && state.value != null) {
         final bill = state.value!;
-        if (!bill.isVoluntary) {
+        if (bill.isRegularDues) {
           final capacity = bill.paymentCapacity;
           if (amount > capacity && capacity > 0) {
             if (mounted) {
@@ -204,7 +205,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             }
             return false;
           }
-          if (bill.requiresFullPayment && amount != capacity && capacity > 0) {
+          if (bill.isFullPayment && amount != capacity && capacity > 0) {
             if (mounted) {
               setState(
                 () => _error =
@@ -298,10 +299,11 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       if (!_nominalPrefilled &&
           next is AsyncData<IuranBill?> &&
           next.value != null) {
-        if (_nominalCtrl.text.isEmpty && next.value!.paymentCapacity > 0) {
+        final b = next.value!;
+        if (b.isRegularDues && _nominalCtrl.text.isEmpty && b.paymentCapacity > 0) {
           _nominalPrefilled = true;
           _nominalCtrl.text = RupiahInputFormatter.formatForInput(
-            next.value!.paymentCapacity,
+            b.paymentCapacity,
           );
         }
       }
@@ -313,16 +315,15 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       AsyncData(:final value) => value,
       _ => null,
     };
-    final isRegularFull =
-        currentBill != null &&
-        !currentBill.isVoluntary &&
-        currentBill.requiresFullPayment;
+    final isRegularDues = currentBill != null && currentBill.isRegularDues;
+    final isFullPayment = currentBill != null && currentBill.isFullPayment;
+    final isAmountLocked = isRegularDues && isFullPayment;
 
     if (currentBill != null) {
       final targetAmount = currentBill.paymentCapacity > 0
           ? currentBill.paymentCapacity
           : currentBill.nominal;
-      if (isRegularFull && targetAmount > 0) {
+      if (isAmountLocked && targetAmount > 0) {
         final formattedFull = RupiahInputFormatter.formatForInput(targetAmount);
         if (_nominalCtrl.text != formattedFull) {
           _nominalPrefilled = true;
@@ -330,6 +331,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         }
       } else if (!_nominalPrefilled &&
           _nominalCtrl.text.isEmpty &&
+          isRegularDues &&
           currentBill.paymentCapacity > 0) {
         _nominalPrefilled = true;
         _nominalCtrl.text = RupiahInputFormatter.formatForInput(
@@ -537,9 +539,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 controller: _nominalCtrl,
                 label: 'Nominal Pembayaran',
                 hintText: 'Masukkan nominal',
-                readOnly: isRegularFull,
-                enabled: !isRegularFull,
-                suffixIcon: isRegularFull
+                readOnly: isAmountLocked,
+                enabled: !isAmountLocked,
+                suffixIcon: isAmountLocked
                     ? const Icon(Icons.lock_outline, size: 18)
                     : null,
                 keyboardType: TextInputType.number,
@@ -555,12 +557,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   final state = ref.read(billDetailProvider(widget.billId));
                   if (state is AsyncData<IuranBill?> && state.value != null) {
                     final bill = state.value!;
-                    if (!bill.isVoluntary) {
+                    if (bill.isRegularDues) {
                       if (amount > bill.paymentCapacity &&
                           bill.paymentCapacity > 0) {
                         return 'Nominal melebihi sisa tagihan.';
                       }
-                      if (bill.requiresFullPayment &&
+                      if (bill.isFullPayment &&
                           amount != bill.paymentCapacity &&
                           bill.paymentCapacity > 0) {
                         return 'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(bill.paymentCapacity)}).';
@@ -898,18 +900,20 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  bill.isVoluntary ? 'Sifat Tagihan' : 'Sisa Tagihan',
+                  bill.isVoluntaryDues ? 'Sifat Tagihan' : 'Sisa Tagihan',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
               Text(
-                bill.isVoluntary
+                bill.isVoluntaryDues
                     ? 'Sukarela'
                     : formatRupiah(bill.remainingAmount),
                 style: theme.textTheme.titleLarge?.copyWith(
-                  color: bill.isVoluntary ? AppColors.info : AppColors.accent,
+                  color: bill.isVoluntaryDues
+                      ? AppColors.info
+                      : AppColors.accent,
                   fontWeight: FontWeight.bold,
                 ),
               ),
