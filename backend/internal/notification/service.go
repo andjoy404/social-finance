@@ -133,7 +133,7 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 		}
 
 		// Also notify Ketua RT — position has full finance permissions (create/update/approve).
-		ketuaTokens, err := s.repo.GetTokensForRTAndRole(bgCtx, rtID, "ketua")
+		ketuaTokens, err := s.repo.GetTokensForRTAndJabatan(bgCtx, rtID, "ketua")
 		if err != nil {
 			slog.Error("failed to get ketua tokens for payment submission", "rt_id", rtID, "error", err)
 			return
@@ -161,7 +161,7 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 			return // duplicate event
 		}
 
-		s.sendPushToTokens(bgCtx, tokens, title, body, payload.ToMap())
+		s.sendPushToTokens(bgCtx, merged, title, body, payload.ToMap())
 	}()
 }
 
