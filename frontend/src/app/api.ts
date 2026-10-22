@@ -938,6 +938,7 @@ export interface ApiDue {
   payment_rule?: 'full' | 'partial'
   is_voluntary?: boolean
   is_active: boolean
+  valid_until?: string | null
   created_at: string
   updated_at: string
 }
@@ -948,6 +949,7 @@ export interface ApiCreateDueBody {
   period_type: 'monthly' | 'yearly' | 'one_time'
   payment_rule?: 'full' | 'partial'
   is_voluntary?: boolean
+  valid_until?: string
 }
 
 export async function apiListDues(
@@ -988,6 +990,7 @@ export interface ApiUpdateDueBody {
   payment_rule?: 'full' | 'partial'
   is_voluntary?: boolean
   is_active?: boolean
+  valid_until?: string
 }
 
 export async function apiUpdateDue(

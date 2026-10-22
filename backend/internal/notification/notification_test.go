@@ -17,12 +17,14 @@ import (
 
 // inMemoryRepo is a mock repository implementing notification.Repository for isolated unit testing.
 type inMemoryRepo struct {
-	mu           sync.Mutex
-	devices      map[string]map[string]bool // userID -> token -> isActive
-	verifiers    map[string][]string        // rtID -> []userIDs authorized to verify payments
-	rtUsers      map[string][]string        // rtID -> []userIDs
-	billUsers    map[string][]string        // billID -> []userIDs
-	dedupRecords map[string]bool            // dedupKey:userID -> exists
+	mu                  sync.Mutex
+	devices             map[string]map[string]bool // userID -> token -> isActive
+	verifiers           map[string][]string        // rtID -> []userIDs authorized to verify payments
+	rtUsers             map[string][]string        // rtID -> []userIDs
+	billUsers           map[string][]string        // billID -> []userIDs
+	dedupRecords        map[string]bool            // dedupKey:userID -> exists
+	dedupForceError     bool                       // when true, CheckAndRecordDedup returns an error
+	dedupForceErrorOnce bool                       // when true, error is returned only once
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -131,6 +133,12 @@ func (r *inMemoryRepo) GetRecipientUserIDsForBill(ctx context.Context, rtID, bil
 func (r *inMemoryRepo) CheckAndRecordDedup(ctx context.Context, rtID, userID, eventType, dedupKey, title, body string, payload map[string]string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.dedupForceError {
+		if r.dedupForceErrorOnce {
+			r.dedupForceError = false
+		}
+		return false, errors.New("mock dedup error")
+	}
 	if r.dedupRecords[dedupKey] {
 		return false, nil
 	}
@@ -1054,5 +1062,498 @@ func TestBillCreated_ExplicitDuplicateRecipientsSendOnce(t *testing.T) {
 	}
 	if msgs[0].Token != residentToken {
 		t.Errorf("expected token %s, got %s", residentToken, msgs[0].Token)
+	}
+}
+
+// TestPaymentVerified_APPROVED_NotifiesSubmitterAndVerifiers verifies that an APPROVED
+// payment verification delivers a push to both the submitter and all authorized verifiers.
+func TestPaymentVerified_APPROVED_NotifiesSubmitterAndVerifiers(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-1"
+	submitterToken := "tok-submitter-1"
+	verifierUser := "user-verifier-1"
+	verifierToken := "tok-verifier-1"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-100", "pay-200", submitterUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 push messages (submitter + verifier), got %d", len(msgs))
+	}
+
+	tokenSet := make(map[string]bool)
+	for _, m := range msgs {
+		tokenSet[m.Token] = true
+		if m.Data["status"] != "APPROVED" {
+			t.Errorf("expected status APPROVED in message, got %s", m.Data["status"])
+		}
+	}
+	if !tokenSet[submitterToken] {
+		t.Errorf("expected message to submitter token %s", submitterToken)
+	}
+	if !tokenSet[verifierToken] {
+		t.Errorf("expected message to verifier token %s", verifierToken)
+	}
+}
+
+// TestPaymentVerified_DuplicateCallsSendNoDuplicatePush verifies that calling
+// NotifyPaymentVerified with the same paymentID and status twice does not produce
+// duplicate push notifications due to deduplication.
+func TestPaymentVerified_DuplicateCallsSendNoDuplicatePush(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-dedup"
+	submitterToken := "tok-submitter-dedup"
+	verifierUser := "user-verifier-dedup"
+	verifierToken := "tok-verifier-dedup"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-dedup", "pay-dedup", submitterUser, "APPROVED", "")
+	time.Sleep(100 * time.Millisecond)
+
+	firstBatch := provider.GetMessages()
+	if len(firstBatch) != 2 {
+		t.Fatalf("expected 2 initial messages, got %d", len(firstBatch))
+	}
+
+	// Second call with identical arguments should be deduplicated
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-dedup", "pay-dedup", submitterUser, "APPROVED", "")
+	time.Sleep(100 * time.Millisecond)
+
+	secondBatch := provider.GetMessages()
+	if len(secondBatch) != 2 {
+		t.Fatalf("expected deduplication to prevent duplicate messages, got %d", len(secondBatch))
+	}
+}
+
+// TestPaymentVerified_SubmitterAlsoVerifierNoDuplicatePush verifies that when the
+// submitter is also registered as a verifier, they only receive one push message
+// (not one from the submitter path and one from the verifier path).
+func TestPaymentVerified_SubmitterAlsoVerifierNoDuplicatePush(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	jointUser := "user-joint-1"
+	jointToken := "tok-joint-1"
+
+	_ = repo.RegisterDevice(ctx, jointUser, jointToken, "android", nil)
+	repo.verifiers[rtID] = []string{jointUser}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-joint", "pay-joint", jointUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	tokenCount := 0
+	for _, m := range msgs {
+		if m.Token == jointToken {
+			tokenCount++
+		}
+	}
+	if tokenCount != 1 {
+		t.Errorf("expected exactly 1 push to joint user token, got %d", tokenCount)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected exactly 1 message total, got %d", len(msgs))
+	}
+}
+
+// TestPaymentVerified_REJECTED_NotifiesSubmitterAndVerifiers verifies that a REJECTED
+// payment verification delivers a push to both the submitter and all authorized verifiers.
+func TestPaymentVerified_REJECTED_NotifiesSubmitterAndVerifiers(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-2"
+	submitterToken := "tok-submitter-2"
+	verifierUser := "user-verifier-2"
+	verifierToken := "tok-verifier-2"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	reason := "Bukti transfer tidak jelas"
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-101", "pay-201", submitterUser, "REJECTED", reason)
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 push messages (submitter + verifier), got %d", len(msgs))
+	}
+
+	tokenSet := make(map[string]bool)
+	for _, m := range msgs {
+		tokenSet[m.Token] = true
+		if m.Data["status"] != "REJECTED" {
+			t.Errorf("expected status REJECTED in message, got %s", m.Data["status"])
+		}
+	}
+	if !tokenSet[submitterToken] {
+		t.Errorf("expected message to submitter token %s", submitterToken)
+	}
+	if !tokenSet[verifierToken] {
+		t.Errorf("expected message to verifier token %s", verifierToken)
+	}
+}
+
+// TestPaymentVerified_DedupErrorDoesNotSend verifies that when CheckAndRecordDedup
+// returns an error, no push notifications are sent (dedup failure must not cause
+// unsafe notification delivery).
+func TestPaymentVerified_DedupErrorDoesNotSend(t *testing.T) {
+	repo := newInMemoryRepo()
+	repo.dedupForceError = true
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-error"
+	submitterToken := "tok-submitter-error"
+	verifierUser := "user-verifier-error"
+	verifierToken := "tok-verifier-error"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-error", "pay-error", submitterUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages when dedup fails, got %d", len(msgs))
+	}
+}
+
+// TestPaymentVerified_PengurusPaysOwnBillReceivesVerification verifies that a
+// pengurus who pays their own household's bill still receives the verification
+// result notification — officer notes are NEVER included, but the notification
+// must still be delivered to the submitter regardless of role.
+func TestPaymentVerified_PengurusPaysOwnBillReceivesVerification(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	pengurusUser := "user-pengurus-1"
+	pengurusToken := "tok-pengurus-1"
+	verifierUser := "user-verifier-1"
+	verifierToken := "tok-verifier-1"
+
+	_ = repo.RegisterDevice(ctx, pengurusUser, pengurusToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-pengurus-self", "pay-pengurus-self", pengurusUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	foundSubmitter := false
+	for _, m := range msgs {
+		if m.Token == pengurusToken {
+			foundSubmitter = true
+			break
+		}
+	}
+	if !foundSubmitter {
+		t.Error("expected pengurus submitter to receive verification notification")
+	}
+}
+
+// TestPaymentVerified_EmptySubmitterUserIDDoesNotPanic verifies that passing an
+// empty submitterUserID is handled gracefully — no panic, and no messages
+// are sent when there are no registered verifiers either.
+func TestPaymentVerified_EmptySubmitterUserIDNoVerifiers(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+
+	// No submitter, no verifiers registered → no messages
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-1", "pay-1", "", "APPROVED", "")
+	time.Sleep(100 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 messages when submitterUserID is empty and no verifiers registered, got %d", len(msgs))
+	}
+}
+
+// TestPaymentVerified_EmptySubmitterWithVerifierNotifiesVerifiers verifies that when
+// submitterUserID is empty but verifier group has tokens, the verifier group
+// still receives the notification.
+func TestPaymentVerified_EmptySubmitterWithVerifierNotifiesVerifiers(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	verifierUser := "user-verifier-empty"
+	verifierToken := "tok-verifier-empty"
+
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	// No submitter — verifier should still receive
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-empty-sub", "pay-empty-sub", "", "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message to verifier (no submitter), got %d", len(msgs))
+	}
+	if msgs[0].Token != verifierToken {
+		t.Errorf("expected message to verifier token %s, got %s", verifierToken, msgs[0].Token)
+	}
+}
+
+// TestPaymentVerified_Unit_KetuaRoleTokenNotInVerifierList verifies that when
+// the mock verifier list does not include a token registered for a
+// role=ketua user, that user does not receive a push notification.
+// NOTE: This tests service-level notification delivery against a mock repo.
+// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
+// RequireAccess middleware; for that, see repository_db_test.go.
+func TestPaymentVerified_Unit_KetuaRoleTokenNotInVerifierList(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-2"
+	submitterToken := "tok-submitter-2"
+	verifierUser := "user-verifier-2"
+	verifierToken := "tok-verifier-2"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+
+	// Register a token that mimics a role=ketua user WITHOUT jabatan —
+	// this token is intentionally NOT placed in the verifier list.
+	_ = repo.RegisterDevice(ctx, "user-ketua-nojabatan", "tok-ketua-nojabatan", "android", nil)
+
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-ketua-excl", "pay-ketua-excl", submitterUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+	foundKetuaNoJabatan := false
+	for _, m := range msgs {
+		if m.Token == "tok-ketua-nojabatan" {
+			foundKetuaNoJabatan = true
+		}
+	}
+	if foundKetuaNoJabatan {
+		t.Error("token not in verifier list should NOT receive notification")
+	}
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages (submitter + verifier), got %d", len(msgs))
+	}
+}
+
+// TestPaymentVerified_Unit_WakilKetuaRoleTokenNotInVerifierList verifies that
+// when the mock verifier list does not include a token for a
+// role=wakil_ketua user, that user does not receive a push notification.
+// NOTE: This tests service-level notification delivery against a mock repo.
+// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
+// RequireAccess middleware; for that, see repository_db_test.go.
+func TestPaymentVerified_Unit_WakilKetuaRoleTokenNotInVerifierList(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-3"
+	submitterToken := "tok-submitter-3"
+	verifierUser := "user-verifier-3"
+	verifierToken := "tok-verifier-3"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+
+	// Register a token that mimics a role=wakil_ketua user WITHOUT jabatan —
+	// this token is intentionally NOT placed in the verifier list.
+	_ = repo.RegisterDevice(ctx, "user-wakil-ketua-nojabatan", "tok-wakil-ketua-nojabatan", "android", nil)
+
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-wakil-excl", "pay-wakil-excl", submitterUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+
+	foundWakilKetua := false
+	for _, m := range msgs {
+		if m.Token == "tok-wakil-ketua-nojabatan" {
+			foundWakilKetua = true
+		}
+	}
+	if foundWakilKetua {
+		t.Error("token not in verifier list should NOT receive notification")
+	}
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages (submitter + verifier), got %d", len(msgs))
+	}
+}
+
+// TestPaymentVerified_Unit_JabatanAnggotaTokenNotInVerifierList verifies that
+// when the mock verifier list does not include a token for a
+// pengurus+jabatan=anggota user, that user does not receive a push
+// notification.
+// NOTE: This tests service-level notification delivery against a mock repo.
+// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
+// RequirePermission middleware; for that, see repository_db_test.go.
+func TestPaymentVerified_Unit_JabatanAnggotaTokenNotInVerifierList(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-4"
+	submitterToken := "tok-submitter-4"
+	verifierUser := "user-verifier-4"
+	verifierToken := "tok-verifier-4"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+	_ = repo.RegisterDevice(ctx, verifierUser, verifierToken, "android", nil)
+
+	// Register a token that mimics pengurus+jabatan=anggota —
+	// this token is intentionally NOT placed in the verifier list.
+	_ = repo.RegisterDevice(ctx, "user-pengurus-anggota", "tok-pengurus-anggota", "android", nil)
+
+	repo.verifiers[rtID] = []string{verifierUser}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-anggota-excl", "pay-anggota-excl", submitterUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+
+	foundAnggota := false
+	for _, m := range msgs {
+		if m.Token == "tok-pengurus-anggota" {
+			foundAnggota = true
+		}
+	}
+	if foundAnggota {
+		t.Error("token not in verifier list should NOT receive notification")
+	}
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages (submitter + verifier), got %d", len(msgs))
+	}
+}
+
+// TestPaymentVerified_Unit_PengurusBendaharaTokenInVerifierList verifies that
+// when the mock verifier list includes a token for a
+// pengurus+jabatan=bendahara user, that user DOES receive a push notification.
+// NOTE: This tests service-level notification delivery against a mock repo.
+// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
+// position_permissions check; for that, see repository_db_test.go.
+func TestPaymentVerified_Unit_PengurusBendaharaTokenInVerifierList(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-5"
+	submitterToken := "tok-submitter-5"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+
+	// Register a token that mimics pengurus+jabatan=bendahara —
+	// this token IS placed in the verifier list.
+	pengurusBendahara := "user-pengurus-bendahara-2"
+	_ = repo.RegisterDevice(ctx, pengurusBendahara, "tok-pengurus-bendahara-2", "android", nil)
+	repo.verifiers[rtID] = []string{pengurusBendahara}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-pengurus-bendahara", "pay-pengurus-bendahara", submitterUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+
+	foundPengurusBendahara := false
+	for _, m := range msgs {
+		if m.Token == "tok-pengurus-bendahara-2" {
+			foundPengurusBendahara = true
+		}
+	}
+	if !foundPengurusBendahara {
+		t.Error("token in verifier list should receive notification")
+	}
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages (submitter + pengurus bendahara), got %d", len(msgs))
+	}
+}
+
+// TestPaymentVerified_Unit_WargaKetuaTokenInVerifierList verifies that when
+// the mock verifier list includes a token for a warga+jabatan=ketua user,
+// that user DOES receive a push notification.
+// NOTE: This tests service-level notification delivery against a mock repo.
+// It does NOT verify the SQL query in GetTokensForPaymentVerifiers or the
+// position_permissions check; for that, see repository_db_test.go.
+func TestPaymentVerified_Unit_WargaKetuaTokenInVerifierList(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	ctx := context.Background()
+	rtID := "rt-01"
+	submitterUser := "user-submitter-6"
+	submitterToken := "tok-submitter-6"
+
+	_ = repo.RegisterDevice(ctx, submitterUser, submitterToken, "android", nil)
+
+	// Register a token that mimics warga+jabatan=ketua —
+	// this token IS placed in the verifier list.
+	wargaKetua := "user-warga-ketua-2"
+	_ = repo.RegisterDevice(ctx, wargaKetua, "tok-warga-ketua-2", "android", nil)
+	repo.verifiers[rtID] = []string{wargaKetua}
+
+	svc.NotifyPaymentVerified(ctx, rtID, "bill-warga-ketua", "pay-warga-ketua", submitterUser, "APPROVED", "")
+	time.Sleep(150 * time.Millisecond)
+
+	msgs := provider.GetMessages()
+
+	foundWargaKetua := false
+	for _, m := range msgs {
+		if m.Token == "tok-warga-ketua-2" {
+			foundWargaKetua = true
+		}
+	}
+	if !foundWargaKetua {
+		t.Error("token in verifier list should receive notification")
+	}
+	if len(msgs) != 2 {
+		t.Errorf("expected 2 messages (submitter + warga ketua), got %d", len(msgs))
 	}
 }

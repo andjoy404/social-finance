@@ -55,6 +55,15 @@ class _RouterRefreshNotifier extends ChangeNotifier {
 }
 
 class _AppState extends ConsumerState<App> {
+  // Track targets currently being processed to prevent duplicate navigation
+  // from multiple callbacks triggered by the same user interaction
+  // (e.g., initial native link + initial Firebase message arriving within
+  // milliseconds).  Entries are removed after a short debounce window so
+  // that subsequent user taps — even on the same target — are always
+  // allowed to navigate.
+  final Set<String> _deeplinkInFlight = {};
+  static const Duration _deeplinkDedupWindow = Duration(milliseconds: 2000);
+
   late final _RouterRefreshNotifier _refreshNotifier;
   late final GoRouter _router;
   final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
@@ -105,6 +114,19 @@ class _AppState extends ConsumerState<App> {
 
   void _navigateToDeepLink(String? link) {
     final target = _normalizeDeepLink(link);
+
+    // Skip if this target is already in the dedup window (covers duplicate
+    // callbacks from the same user tap — initial native link + onMessage,
+    // tap stream + onMessage, etc.).  After the window expires the target
+    // is automatically removed so a subsequent user tap is always allowed.
+    if (_deeplinkInFlight.contains(target)) {
+      return;
+    }
+    _deeplinkInFlight.add(target);
+    Future.delayed(_deeplinkDedupWindow, () {
+      _deeplinkInFlight.remove(target);
+    });
+
     final user = ref.read(authRepositoryProvider)?.valueOrNull;
     final isRTOperational =
         target.startsWith('/home/kas') ||
@@ -121,6 +143,7 @@ class _AppState extends ConsumerState<App> {
       _router.go('/home');
     }
   }
+
 
   @override
   void initState() {

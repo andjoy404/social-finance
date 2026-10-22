@@ -28,6 +28,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
   final _amountCtrl = TextEditingController();
   final _periodCtrl = TextEditingController();
   final _dueDateCtrl = TextEditingController();
+  final _validUntilCtrl = TextEditingController();
   BackendDue? _createdDue;
 
   DuePeriodType _periodType = DuePeriodType.monthly;
@@ -54,6 +55,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     _amountCtrl.dispose();
     _periodCtrl.dispose();
     _dueDateCtrl.dispose();
+    _validUntilCtrl.dispose();
     super.dispose();
   }
 
@@ -89,6 +91,22 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
         _dueDateCtrl.text = _formatDate(picked);
         _setPeriodForType(_periodType);
       });
+    }
+  }
+
+  /// Show date picker for the validity end date of a voluntary due.
+  Future<void> _pickValidUntil() async {
+    final initial = DateTime.tryParse(_validUntilCtrl.text) ??
+        DateTime.now().add(const Duration(days: 365));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2100),
+      helpText: 'PILIH TANGGAL BERLAKU SAMPAI',
+    );
+    if (picked != null) {
+      setState(() => _validUntilCtrl.text = _formatDate(picked));
     }
   }
 
@@ -137,10 +155,12 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     setState(() {
       _dueType = type;
       if (type == DueType.voluntary) {
-        _amountCtrl.text = '';
+        _amountCtrl.text = '0';
         _paymentRule = PaymentRule.partial;
+        _validUntilCtrl.clear();
       } else {
         _amountCtrl.text = '';
+        _validUntilCtrl.clear();
       }
       if (_validationErrors.isNotEmpty) {
         _validationErrors = [];
@@ -218,6 +238,10 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                 ? PaymentRule.partial
                 : _paymentRule,
             isVoluntary: _dueType == DueType.voluntary,
+            validUntil: _dueType == DueType.voluntary &&
+                    _validUntilCtrl.text.isNotEmpty
+                ? _validUntilCtrl.text.trim()
+                : null,
           );
 
       _dueCreated = true;
@@ -597,6 +621,24 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       ),
                     ],
                   ),
+                ),
+              if (_dueType == DueType.voluntary)
+                const SizedBox(height: AppSpacing.lg),
+
+              // Tanggal berlaku sampai — sukarela only
+              if (_dueType == DueType.voluntary)
+                AppTextField(
+                  controller: _validUntilCtrl,
+                  label: 'Berlaku Sampai',
+                  hintText: 'YYYY-MM-DD',
+                  readOnly: true,
+                  onTap: _pickValidUntil,
+                  suffixIcon: const Icon(Icons.calendar_today, size: 20),
+                  onChanged: (value) {
+                    if (_validationErrors.isNotEmpty) {
+                      setState(() => _validationErrors = []);
+                    }
+                  },
                 ),
               if (_dueType == DueType.voluntary)
                 const SizedBox(height: AppSpacing.lg),

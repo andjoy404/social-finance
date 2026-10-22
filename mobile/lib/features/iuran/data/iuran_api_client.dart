@@ -72,6 +72,7 @@ class IuranApiClient {
     required DuePeriodType periodType,
     PaymentRule? paymentRule,
     bool? isVoluntary,
+    String? validUntil,
   }) async {
     final Map<String, dynamic> body = {
       'name': name,
@@ -83,6 +84,12 @@ class IuranApiClient {
     }
     if (isVoluntary != null) {
       body['is_voluntary'] = isVoluntary;
+    }
+    // Send valid_until only for voluntary dues (non-null values).
+    // Regular dues never carry a valid_until; omitting the field lets the
+    // backend keep the column NULL.
+    if (isVoluntary == true && validUntil != null && validUntil.isNotEmpty) {
+      body['valid_until'] = validUntil;
     }
 
     final response = await dio.post('/api/v1/dues', data: body);
@@ -101,6 +108,7 @@ class IuranApiClient {
     PaymentRule? paymentRule,
     bool? isVoluntary,
     bool? isActive,
+    String? validUntil,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
@@ -113,6 +121,11 @@ class IuranApiClient {
     }
     if (isVoluntary != null) body['is_voluntary'] = isVoluntary;
     if (isActive != null) body['is_active'] = isActive;
+    // Send empty string to clear valid_until (backend coerces "" → NULL).
+    // Only include valid_until for voluntary dues.
+    if (validUntil != null) {
+      body['valid_until'] = validUntil;
+    }
 
     final response = await dio.patch(
       '/api/v1/dues/$id',

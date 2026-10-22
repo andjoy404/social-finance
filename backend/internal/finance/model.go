@@ -82,6 +82,7 @@ type Due struct {
 	PaymentRule PaymentRule   `json:"payment_rule"`
 	IsVoluntary bool          `json:"is_voluntary"`
 	IsActive    bool          `json:"is_active"`
+	ValidUntil  *string       `json:"valid_until"`
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
 }
@@ -92,6 +93,7 @@ type CreateDueInput struct {
 	PeriodType  DuePeriodType `json:"period_type"`
 	PaymentRule PaymentRule   `json:"payment_rule"` // defaults to "full"
 	IsVoluntary bool          `json:"is_voluntary"`
+	ValidUntil  *string       `json:"valid_until,omitempty"`
 }
 
 type UpdateDueInput struct {
@@ -101,6 +103,7 @@ type UpdateDueInput struct {
 	PaymentRule *PaymentRule   `json:"payment_rule,omitempty"`
 	IsVoluntary *bool          `json:"is_voluntary,omitempty"`
 	IsActive    *bool          `json:"is_active"`
+	ValidUntil  *string        `json:"valid_until,omitempty"`
 }
 
 // BillStatus represents current status of a bill.

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -138,6 +139,12 @@ func (r *pgRepository) GetTokensForUser(ctx context.Context, userID string) ([]s
 // allowlist missed. Inactive users, inactive memberships, and inactive
 // devices are excluded; DISTINCT prevents duplicate tokens when a member
 // matches multiple conditions.
+//
+// Note: role=ketua or role=wakil_ketua WITHOUT a jabatan are intentionally
+// excluded from the role-based fallback because RequireAccess does not list
+// them in the role map (only jabatan=ketua/bendahara grants access).
+// Users with jabatan=ketua or jabatan=bendahara still qualify via the
+// position_permissions branch.
 func (r *pgRepository) GetTokensForPaymentVerifiers(ctx context.Context, rtID string) ([]string, error) {
 	query := `
 		SELECT DISTINCT ud.fcm_token
@@ -283,8 +290,7 @@ func (r *pgRepository) CheckAndRecordDedup(
 			return false, nil
 		}
 		if isTableMissingErr(err) {
-			slog.Warn("notification_logs table does not exist yet, skipping dedup record", "error", err)
-			return true, nil
+			return false, fmt.Errorf("notification_logs table does not exist (migration pending): %w", err)
 		}
 		return false, err
 	}
