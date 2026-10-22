@@ -569,3 +569,47 @@ func TestGetRecipientUserIDsForBill_NoDuplicateRecipients(t *testing.T) {
 		t.Fatalf("expected exactly one recipient [%s], got %v", userID, ids)
 	}
 }
+
+// jabatan=ketua (with finance.approve from migration 031) MUST be included
+// in the verifier list via the position_permissions branch.  This test
+// confirms the positive path: when jabatan=ketua has the permission grant,
+// the user appears regardless of their tenant role.
+func TestGetTokensForPaymentVerifiers_JabatanKetuaWithFinanceApproveIncluded(t *testing.T) {
+	pool := notifTestPool(t)
+	ensureFinanceApproveCatalog(t, pool) // migration 031 already grants this, but be explicit
+	repo := notification.NewRepository(pool)
+	ctx := context.Background()
+
+	rtID := notifTestRT(t, pool)
+	defer cleanupNotifTestRT(t, pool, rtID)
+
+	// role=warga with jabatan=ketua and finance.approve should be included
+	// via the position_permissions branch of the query.
+	jabatanKetuaID := notifTestUser(t, pool, "jabatan-ketua-with-perm", true)
+	jabatan := "ketua"
+	notifTestMembership(t, pool, jabatanKetuaID, rtID, "warga", &jabatan, true)
+	_, err := pool.Raw().ExecContext(ctx,
+		`INSERT INTO user_devices (user_id, fcm_token, platform, is_active, last_seen_at, updated_at)
+		 VALUES ($1, $2, 'android', true, NOW(), NOW())`,
+		jabatanKetuaID, "tok-jabatan-ketua-with-perm",
+	)
+	if err != nil {
+		t.Fatalf("register device: %v", err)
+	}
+
+	tokens, err := repo.GetTokensForPaymentVerifiers(ctx, rtID)
+	if err != nil {
+		t.Fatalf("GetTokensForPaymentVerifiers: %v", err)
+	}
+
+	found := false
+	for _, tok := range tokens {
+		if tok == "tok-jabatan-ketua-with-perm" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("jabatan=ketua WITH finance.approve SHOULD be a payment verifier, but token was not returned")
+	}
+}

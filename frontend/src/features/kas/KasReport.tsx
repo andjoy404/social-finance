@@ -51,6 +51,24 @@ export function KasReport() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
+  // Authorization: only Bendahara or Ketua RT (jabatan) can access KAS report
+  const canExportKasPdf = user?.role === 'bendahara' || user?.jabatan === 'ketua'
+
+  if (!canExportKasPdf) {
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--sf-danger)' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Akses Ditolak</h3>
+        <p style={{ fontSize: 13, color: 'var(--sf-text-muted)', marginBottom: 16 }}>
+          Anda tidak memiliki izin untuk mengakses Laporan KAS.
+        </p>
+        <button type="button" className="sf-btn-primary" onClick={() => navigate('/kas')}>
+          ← Kembali ke KAS
+        </button>
+      </div>
+    )
+  }
+
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState<FilterType>('semua')
   const [jenisValue, setJenisValue] = useState<string | null>(null)

@@ -25,6 +25,7 @@ interface DueFormState {
   period_type: DuePeriodType
   payment_rule: PaymentRuleType
   due_type: DueType
+  valid_until: string
 }
 
 const emptyForm: DueFormState = {
@@ -33,6 +34,7 @@ const emptyForm: DueFormState = {
   period_type: 'monthly',
   payment_rule: 'full',
   due_type: 'regular',
+  valid_until: '',
 }
 
 /* ── Authorization gate ─────────────────────────────────────────────── */
@@ -205,6 +207,30 @@ function DueFormFields({
         </div>
       )}
 
+      {/* Masa berlaku — voluntary only */}
+      {form.due_type === 'voluntary' && (
+        <div className="sf-form-field">
+          <label className="sf-form-label" htmlFor="df-valid-until">
+            Berlaku Sampai (opsional)
+          </label>
+          <DatePicker
+            id="df-valid-until"
+            picker="date"
+            value={form.valid_until ? dayjs(form.valid_until) : null}
+            onChange={(date) => onChange('valid_until', date?.format('YYYY-MM-DD') || '')}
+            allowClear
+            placeholder="Tanpa batas waktu"
+            format="DD/MM/YYYY"
+            disabled={disabled}
+            disabledDate={(date) => date.isBefore(dayjs().startOf('day'))}
+            style={{ width: '100%' }}
+          />
+          <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--sf-text-muted)' }}>
+            Iuran tetap aktif sampai tanggal ini (inklusif, WIB), lalu otomatis tidak aktif pada hari berikutnya.
+          </p>
+        </div>
+      )}
+
       {/* Frekuensi */}
       <div className="sf-form-field">
         <label className="sf-form-label" htmlFor="df-period">
@@ -285,6 +311,7 @@ export function DueCreate({
           next.payment_rule = 'full'
         } else {
           next.amount = ''
+          next.valid_until = ''
         }
       }
       return next
@@ -314,6 +341,9 @@ export function DueCreate({
     if (!form.period_type) errs.push('Frekuensi harus dipilih.')
     if (!period || !/^\d{4}(-\d{2})?$/.test(period)) errs.push('Periode harus YYYY-MM atau YYYY.')
     if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) errs.push('Tanggal jatuh tempo harus YYYY-MM-DD.')
+    if (form.due_type === 'voluntary' && form.valid_until && !/^\d{4}-\d{2}-\d{2}$/.test(form.valid_until)) {
+      errs.push('Tanggal berlaku harus YYYY-MM-DD.')
+    }
     if (errs.length > 0) { setValidationErrors(errs); return false }
     return true
   }
@@ -338,6 +368,9 @@ export function DueCreate({
         period_type: form.period_type,
         payment_rule: form.due_type === 'voluntary' ? 'partial' : form.payment_rule,
         is_voluntary: form.due_type === 'voluntary',
+        ...(form.due_type === 'voluntary' && form.valid_until
+          ? { valid_until: form.valid_until }
+          : {}),
       }
 
       const due = await apiCreateDue(pair.accessToken, body)

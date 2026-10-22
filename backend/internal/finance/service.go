@@ -26,6 +26,7 @@ type Service struct {
 	pool     *database.Pool
 	storage  storage.Service
 	notifier Notifier
+	now      func() time.Time
 }
 
 func NewService(pool *database.Pool, opts ...storage.Service) *Service {
@@ -35,7 +36,14 @@ func NewService(pool *database.Pool, opts ...storage.Service) *Service {
 	} else {
 		store = storage.NewMockStorage()
 	}
-	return &Service{pool: pool, storage: store}
+	return &Service{pool: pool, storage: store, now: time.Now}
+}
+
+func (s *Service) clockNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func (s *Service) SetNotifier(n Notifier) {
@@ -181,6 +189,27 @@ func (s *Service) CreateDue(ctx context.Context, tx *sql.Tx, rtID, userID string
 		}
 		in.Amount = canon
 	}
+	if in.ValidUntil != nil {
+		trimmed := strings.TrimSpace(*in.ValidUntil)
+		if trimmed == "" {
+			in.ValidUntil = nil
+		} else if !in.IsVoluntary {
+			return nil, errors.New("valid_until is only allowed for voluntary dues")
+		} else {
+			normalized, err := normalizeDateOnly(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			today, err := JakartaDate(s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			if normalized < today {
+				return nil, errors.New("valid_until cannot be in the past")
+			}
+			in.ValidUntil = &normalized
+		}
+	}
 	due, err := DueCreate(ctx, tx, rtID, in)
 	if err != nil {
 		return nil, err
@@ -205,6 +234,50 @@ func (s *Service) UpdateDue(ctx context.Context, tx *sql.Tx, id, rtID, userID st
 		}
 		in.Amount = &canon
 	}
+
+	// Lock the row so the scheduler cannot change its status between the
+	// expiry/re-activation validation and this update.
+	existing, err := DueGetByIDForUpdate(ctx, tx, id, rtID)
+	if err != nil {
+		return nil, err
+	}
+
+	finalVoluntary := existing.IsVoluntary
+	if in.IsVoluntary != nil {
+		finalVoluntary = *in.IsVoluntary
+	}
+	finalValidUntil := existing.ValidUntil
+	if in.ValidUntil != nil {
+		trimmed := strings.TrimSpace(*in.ValidUntil)
+		if trimmed == "" {
+			finalValidUntil = nil
+		} else if !finalVoluntary {
+			return nil, errors.New("valid_until is only allowed for voluntary dues")
+		} else {
+			normalized, err := normalizeDateOnly(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			finalValidUntil = &normalized
+		}
+	}
+	if !finalVoluntary {
+		finalValidUntil = nil
+	}
+
+	// Never silently reactivate a voluntary due whose deadline has passed.
+	// The caller must explicitly extend valid_until and activate it in the
+	// same update (or extend first, then activate in a later update).
+	if in.IsActive != nil && *in.IsActive && finalVoluntary && finalValidUntil != nil {
+		today, err := JakartaDate(s.clockNow())
+		if err != nil {
+			return nil, err
+		}
+		if today > *finalValidUntil {
+			return nil, errors.New("cannot activate voluntary due after valid_until; extend valid_until first")
+		}
+	}
+
 	due, err := DueUpdate(ctx, tx, id, rtID, in)
 	if err != nil {
 		return nil, err
@@ -238,12 +311,15 @@ func (s *Service) DeactivateDue(ctx context.Context, tx *sql.Tx, id, rtID, userI
 // --- Bills ---
 
 func (s *Service) GenerateBills(ctx context.Context, tx *sql.Tx, rtID, userID string, in GenerateBillsInput) ([]*Bill, error) {
-	due, err := DueGetByID(ctx, tx, in.DueID, rtID)
+	due, err := DueGetByIDForUpdate(ctx, tx, in.DueID, rtID)
 	if err != nil {
 		return nil, fmt.Errorf("due not found: %w", err)
 	}
 	if !due.IsActive {
 		return nil, errors.New("cannot generate bills for inactive due")
+	}
+	if err := ensureVoluntaryDueNotExpired(due, s.clockNow()); err != nil {
+		return nil, fmt.Errorf("cannot generate bills for expired voluntary due: %w", err)
 	}
 
 	if strings.TrimSpace(in.Period) == "" {
@@ -297,6 +373,19 @@ func (s *Service) CreateBill(ctx context.Context, tx *sql.Tx, rtID, userID strin
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
+	// A bill must reference an active dues definition belonging to this RT.
+	// This also prevents creating a bill for an inactive due through the
+	// single-bill endpoint (GenerateBills already enforces the same rule).
+	due, err := DueGetByIDForUpdate(ctx, tx, in.DueID, rtID)
+	if err != nil {
+		return nil, fmt.Errorf("due not found: %w", err)
+	}
+	if !due.IsActive {
+		return nil, errors.New("cannot create bill for inactive due")
+	}
+	if err := ensureVoluntaryDueNotExpired(due, s.clockNow()); err != nil {
+		return nil, fmt.Errorf("cannot create bill for expired voluntary due: %w", err)
+	}
 	bill, err := BillCreate(ctx, tx, rtID, in)
 	if err != nil {
 		return nil, err
@@ -345,6 +434,9 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		}
 		if !due.IsActive {
 			return nil, errors.New("cannot donate to an inactive due")
+		}
+		if err := ensureVoluntaryDueNotExpired(due, s.clockNow()); err != nil {
+			return nil, fmt.Errorf("cannot donate to an expired voluntary due: %w", err)
 		}
 		if !due.IsVoluntary {
 			return nil, errors.New("donation target must be a voluntary due")
@@ -1826,4 +1918,3 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 		RecentTransactions: recent,
 	}, nil
 }
-

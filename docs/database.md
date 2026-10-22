@@ -219,11 +219,20 @@ Indexes & Constraints:
 | `payment_rule` | `text` | NOT NULL, CHECK IN (`full`, `partial`) | Bill payment rule |
 | `is_voluntary` | `boolean` | NOT NULL, default `false` | Whether this due definition accepts voluntary donations |
 | `is_active` | `boolean` | NOT NULL, default `true` | Active status |
+| `valid_until` | `date` | NULL, CHECK `valid_until IS NULL OR is_voluntary` | Optional last valid date for a voluntary due |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
 
 Indexes:
 - Index on `(rt_id)`
+- Partial index on `(valid_until)` WHERE `is_voluntary AND is_active AND valid_until IS NOT NULL` for the daily expiry job
+
+Automatic expiry semantics:
+- `valid_until` is only valid for voluntary dues. Regular dues keep it `NULL` and are never expired automatically.
+- The due remains active for the entire `valid_until` date in `Asia/Jakarta` and becomes expired at `00:00 WIB` on the next date.
+- A daily backend job runs at `00:05 WIB` and sets `is_active = false` for expired voluntary dues. The same expiry rule is enforced synchronously when creating bills or accepting new donations, so correctness does not depend on the scheduler.
+- Re-activating an expired voluntary due requires explicitly extending `valid_until` to today or later and setting `is_active = true`; the backend rejects activation while the stored date is already past.
+- Expiry only changes `dues.is_active`. Existing bills, payments, allocations, transactions, balances, and historical reports are never modified.
 
 ### 4.3 `bills` — Household Occupancy Bills
 
@@ -346,6 +355,7 @@ Indexes & Constraints:
 | 024 | `024_period_opening_balances.up.sql` | Creates `period_opening_balances` table for monthly balance and audit trail | false |
 | 026 | `026_enrich_transactions_creator_and_household_updates.up.sql` | Adds `created_by` to `transactions` and allows editing household metadata | false |
 | 027 | `027_rw_domain_and_transaction_reference.up.sql` | Creates `rws` domain table, adds `rts.rw_id` foreign key, and adds `transactions.reference_no` for auto-generated KAS transaction references | false |
+| 032 | `032_dues_valid_until.up.sql` | Adds nullable `dues.valid_until` for voluntary-due auto-expiry plus a partial expiry index | false |
 
 Migration execution: `docker compose run --rm migrate up`
 

@@ -152,6 +152,13 @@ func main() {
 
 	router := buildRouter(pool, authHandler, store)
 
+	// Expire voluntary dues once on startup (catch-up) and daily at 00:05 WIB.
+	// Test environments do not start background jobs; expiry logic is covered
+	// deterministically by tests that pass an explicit reference time.
+	if cfg.AppEnv != "test" {
+		finance.StartVoluntaryDueExpiryScheduler(ctx, pool)
+	}
+
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	slog.Info("server starting", "port", cfg.HTTPPort, "env", cfg.AppEnv)
 

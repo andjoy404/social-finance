@@ -156,59 +156,99 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 	}()
 }
 
-// NotifyPaymentVerified notifies strictly the resident who submitted the payment,
-// regardless of whether the submitter also holds a management role — an officer
-// paying their own household's bill still receives the verification result.
-// Officer notes are NEVER included.
+// NotifyPaymentVerified notifies the payment submitter and, if required by business rules, also notifies authorized verifiers.
+// When submitterUserID is empty, only the verifier group is notified (no submitter path).
 func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string) {
-	if submitterUserID == "" {
-		return
-	}
+    go func() {
+        bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+        defer cancel()
 
-	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
+        var title, body string
+        if status == "APPROVED" {
+            title = "Pembayaran Iuran Diverifikasi"
+            body = "Pembayaran iuran Anda telah disetujui dan dicatat dalam pembukuan."
+        } else {
+            title = "Pembayaran Iuran Ditolak"
+            if strings.TrimSpace(rejectionReason) != "" {
+                body = fmt.Sprintf("Pembayaran iuran Anda ditolak: %s", rejectionReason)
+            } else {
+                body = "Pembayaran iuran Anda ditolak oleh bendahara. Silakan periksa kembali bukti transfer Anda."
+            }
+        }
 
-		var title, body string
-		if status == "APPROVED" {
-			title = "Pembayaran Iuran Diverifikasi"
-			body = "Pembayaran iuran Anda telah disetujui dan dicatat dalam pembukuan."
-		} else {
-			title = "Pembayaran Iuran Ditolak"
-			if strings.TrimSpace(rejectionReason) != "" {
-				body = fmt.Sprintf("Pembayaran iuran Anda ditolak: %s", rejectionReason)
-			} else {
-				body = "Pembayaran iuran Anda ditolak oleh bendahara. Silakan periksa kembali bukti transfer Anda."
-			}
-		}
+        payload := NotificationPayload{
+            Type:      EventPaymentVerified,
+            RTID:      rtID,
+            BillID:    billID,
+            PaymentID: paymentID,
+            Status:    status,
+            DeepLink:  fmt.Sprintf("/home/iuran/detail/%s?payment_id=%s", billID, paymentID),
+        }
 
-		payload := NotificationPayload{
-			Type:      EventPaymentVerified,
-			RTID:      rtID,
-			BillID:    billID,
-			PaymentID: paymentID,
-			Status:    status,
-			DeepLink:  fmt.Sprintf("/home/iuran/detail/%s?payment_id=%s", billID, paymentID),
-		}
+        // Submitter path: only when submitterUserID is non-empty
+        if submitterUserID != "" {
+            // Deduplication for the submitter
+            submitterDedupKey := fmt.Sprintf("payment_verified:%s:%s", paymentID, status)
+            okSubmitter, dedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, submitterUserID, EventPaymentVerified, submitterDedupKey, title, body, payload.ToMap())
+            if dedupErr != nil {
+                slog.Warn("payment verified dedup check failed for submitter", "payment_id", paymentID, "user_id", submitterUserID, "error", dedupErr)
+            }
 
-		dedupKey := fmt.Sprintf("payment_verified:%s:%s", paymentID, status)
+            var submitterTokens []string
+            if dedupErr == nil && okSubmitter {
+                var err error
+                submitterTokens, err = s.repo.GetTokensForUser(bgCtx, submitterUserID)
+                if err != nil {
+                    slog.Error("failed to get tokens for payment submitter", "user_id", submitterUserID, "error", err)
+                } else if len(submitterTokens) > 0 {
+                    s.sendPushToTokens(bgCtx, submitterTokens, title, body, payload.ToMap())
+                }
+            }
 
-		ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, submitterUserID, EventPaymentVerified, dedupKey, title, body, payload.ToMap())
-		if err != nil {
-			slog.Warn("payment verified dedup check failed", "payment_id", paymentID, "error", err)
-		}
-		if !ok {
-			return // already notified
-		}
-
-		tokens, err := s.repo.GetTokensForUser(bgCtx, submitterUserID)
-		if err != nil {
-			slog.Error("failed to get tokens for payment submitter", "user_id", submitterUserID, "error", err)
-			return
-		}
-
-		s.sendPushToTokens(bgCtx, tokens, title, body, payload.ToMap())
-	}()
+            // Notify other authorized verifiers
+            verifierTokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
+            if err != nil {
+                slog.Error("failed to get verifier tokens for payment verified", "rt_id", rtID, "error", err)
+            } else if len(verifierTokens) > 0 {
+                verifierDedupKey := fmt.Sprintf("payment_verified_verifier:%s:%s", paymentID, status)
+                okVerifier, verifierDedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentVerified, verifierDedupKey, title, body, payload.ToMap())
+                if verifierDedupErr != nil {
+                    slog.Warn("verifier payment verified dedup check failed", "payment_id", paymentID, "error", verifierDedupErr)
+                }
+                if verifierDedupErr == nil && okVerifier {
+                    // Remove any tokens already sent to submitter to avoid duplicate pushes
+                    sent := make(map[string]struct{}, len(submitterTokens))
+                    for _, t := range submitterTokens {
+                        sent[t] = struct{}{}
+                    }
+                    var filtered []string
+                    for _, vt := range verifierTokens {
+                        if _, exists := sent[vt]; !exists {
+                            filtered = append(filtered, vt)
+                        }
+                    }
+                    if len(filtered) > 0 {
+                        s.sendPushToTokens(bgCtx, filtered, title, body, payload.ToMap())
+                    }
+                }
+            }
+        } else {
+            // No submitter — still notify authorized verifiers if they exist
+            verifierTokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
+            if err != nil {
+                slog.Error("failed to get verifier tokens for payment verified", "rt_id", rtID, "error", err)
+            } else if len(verifierTokens) > 0 {
+                verifierDedupKey := fmt.Sprintf("payment_verified_verifier:%s:%s", paymentID, status)
+                okVerifier, verifierDedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentVerified, verifierDedupKey, title, body, payload.ToMap())
+                if verifierDedupErr != nil {
+                    slog.Warn("verifier payment verified dedup check failed", "payment_id", paymentID, "error", verifierDedupErr)
+                }
+                if verifierDedupErr == nil && okVerifier {
+                    s.sendPushToTokens(bgCtx, verifierTokens, title, body, payload.ToMap())
+                }
+            }
+        }
+    }()
 }
 
 // NotifyWasteTruckArrival dispatches manual notification to all warga in the sender's RT.

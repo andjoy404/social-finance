@@ -116,6 +116,9 @@ class BackendDue {
   final PaymentRule paymentRule;
   final bool isVoluntary;
   final bool isActive;
+
+  /// Optional last valid date in YYYY-MM-DD (voluntary dues only).
+  final String? validUntil;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -128,6 +131,7 @@ class BackendDue {
     required this.paymentRule,
     required this.isVoluntary,
     required this.isActive,
+    this.validUntil,
     this.createdAt,
     this.updatedAt,
   });

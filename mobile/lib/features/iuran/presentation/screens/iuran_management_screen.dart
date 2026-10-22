@@ -618,7 +618,7 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          '${_periodLabel(due.periodType)} · ${due.isActive ? 'Aktif' : 'Nonaktif'}',
+                                          '${_periodLabel(due.periodType)} · ${due.isActive ? 'Aktif' : 'Tidak Aktif'}',
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                                 color: theme
@@ -736,9 +736,11 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _amountController;
+  late final TextEditingController _validUntilController;
   late DuePeriodType _periodType;
   late PaymentRule _paymentRule;
   late bool _isVoluntary;
+  late bool _isActive;
   bool _loading = false;
   String? _errorMessage;
 
@@ -748,15 +750,18 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     _nameController = TextEditingController(text: widget.due.name);
     final rawAmount = widget.due.amount.split('.').first;
     _amountController = TextEditingController(text: rawAmount);
+    _validUntilController = TextEditingController(text: widget.due.validUntil ?? '');
     _periodType = widget.due.periodType;
     _paymentRule = widget.due.paymentRule;
     _isVoluntary = widget.due.isVoluntary;
+    _isActive = widget.due.isActive;
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _amountController.dispose();
+    _validUntilController.dispose();
     super.dispose();
   }
 
@@ -774,6 +779,10 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           ? 0
           : int.tryParse(_amountController.text.trim()) ?? 0;
 
+      final validUntil = _isVoluntary && _validUntilController.text.trim().isNotEmpty
+          ? _validUntilController.text.trim()
+          : null;
+
       await ref
           .read(iuranRepositoryProvider)
           .updateDue(
@@ -783,6 +792,8 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
             periodType: _periodType,
             paymentRule: _paymentRule,
             isVoluntary: _isVoluntary,
+            isActive: _isActive,
+            validUntil: validUntil,
           );
 
       if (mounted) {
@@ -797,6 +808,30 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
         });
       }
     }
+  }
+
+  /// Show date picker for the validity end date of a voluntary due.
+  Future<void> _pickValidUntil() async {
+    final initial = DateTime.tryParse(_validUntilController.text) ??
+        DateTime.now().add(const Duration(days: 365));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2100),
+      helpText: 'PILIH TANGGAL BERLAKU SAMPAI',
+    );
+    if (picked != null) {
+      setState(() {
+        _validUntilController.text =
+            '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      });
+    }
+  }
+
+  /// Clear the validUntil date.
+  void _clearValidUntil() {
+    setState(() => _validUntilController.text = '');
   }
 
   @override
@@ -934,6 +969,67 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                     : (v) {
                         if (v != null) setState(() => _paymentRule = v);
                       },
+              ),
+              if (_isVoluntary) ...[
+                const SizedBox(height: 14),
+                ListTile(
+                  dense: true,
+                  title: const Text('Berlaku Sampai'),
+                  subtitle: Text(
+                    _validUntilController.text.isEmpty
+                        ? 'Tidak ada (selalu aktif)'
+                        : _validUntilController.text,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.calendar_today, size: 20),
+                        tooltip: 'Pilih tanggal',
+                        onPressed: _loading
+                            ? null
+                            : _pickValidUntil,
+                      ),
+                      if (_validUntilController.text.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.clear, size: 20),
+                          tooltip: 'Hapus tanggal',
+                          onPressed: _loading ? null : _clearValidUntil,
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Tanggal maksimum tagihan iuran sukarela dibuat. Kosongkan agar berlaku tanpa batas.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
+              DropdownButtonFormField<bool>(
+                key: const ValueKey('edit-due-status'),
+                value: _isActive,
+                decoration: const InputDecoration(labelText: 'Status'),
+                items: const [
+                  DropdownMenuItem(value: true, child: Text('Aktif')),
+                  DropdownMenuItem(value: false, child: Text('Tidak Aktif')),
+                ],
+                onChanged: _loading
+                    ? null
+                    : (v) {
+                        if (v != null) setState(() => _isActive = v);
+                      },
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Iuran tidak aktif tidak dapat menghasilkan tagihan baru. '
+                'Tagihan dan pembayaran lama tetap tersimpan.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),

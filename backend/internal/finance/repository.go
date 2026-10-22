@@ -124,52 +124,58 @@ func CategoryDeactivate(ctx context.Context, tx *sql.Tx, id, rtID string) error 
 
 func DueCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateDueInput) (*Due, error) {
 	var d Due
+	var validUntil sql.NullString
 	err := tx.QueryRowContext(ctx,
-		`INSERT INTO dues (rt_id, name, amount, period_type, payment_rule, is_voluntary, is_active)
-		 VALUES ($1, $2, $3, $4, $5, $6, true)
-		 RETURNING id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $1) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at`,
-		rtID, in.Name, in.Amount, in.PeriodType, in.PaymentRule, in.IsVoluntary,
-	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
+		`INSERT INTO dues (rt_id, name, amount, period_type, payment_rule, is_voluntary, is_active, valid_until)
+		 VALUES ($1, $2, $3, $4, $5, $6, true, $7)
+		 RETURNING id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $1) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, to_char(valid_until, 'YYYY-MM-DD'), created_at, updated_at`,
+		rtID, in.Name, in.Amount, in.PeriodType, in.PaymentRule, in.IsVoluntary, in.ValidUntil,
+	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &validUntil, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create dues: %w", err)
 	}
+	setDueValidUntil(&d, validUntil)
 	return &d, nil
 }
 
 func DueGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Due, error) {
 	var d Due
+	var validUntil sql.NullString
 	err := tx.QueryRowContext(ctx,
-		`SELECT id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $2) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at
+		`SELECT id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $2) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, to_char(valid_until, 'YYYY-MM-DD'), created_at, updated_at
 		 FROM dues WHERE id = $1 AND rt_id = $2 LIMIT 1`,
 		id, rtID,
-	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &validUntil, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get due by id: %w", err)
 	}
+	setDueValidUntil(&d, validUntil)
 	return &d, nil
 }
 
 func DueGetByIDForUpdate(ctx context.Context, tx *sql.Tx, id, rtID string) (*Due, error) {
 	var d Due
+	var validUntil sql.NullString
 	err := tx.QueryRowContext(ctx,
-		`SELECT id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $2) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at
+		`SELECT id, rt_id, (SELECT rts.rt FROM rts WHERE rts.id = $2) as rt_code, name, amount::text, period_type, payment_rule, is_voluntary, is_active, to_char(valid_until, 'YYYY-MM-DD'), created_at, updated_at
 		 FROM dues WHERE id = $1 AND rt_id = $2 LIMIT 1 FOR UPDATE`,
 		id, rtID,
-	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
+	).Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &validUntil, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get due by id for update: %w", err)
 	}
+	setDueValidUntil(&d, validUntil)
 	return &d, nil
 }
 
 func DueList(ctx context.Context, tx *sql.Tx, rtID string, isActive *bool) ([]*Due, error) {
-	query := `SELECT d.id, d.rt_id, rts.rt as rt_code, d.name, d.amount::text, d.period_type, d.payment_rule, d.is_voluntary, d.is_active, d.created_at, d.updated_at
+	query := `SELECT d.id, d.rt_id, rts.rt as rt_code, d.name, d.amount::text, d.period_type, d.payment_rule, d.is_voluntary, d.is_active, to_char(d.valid_until, 'YYYY-MM-DD'), d.created_at, d.updated_at
 	          FROM dues d JOIN rts ON rts.id = d.rt_id WHERE d.rt_id = $1`
 	var args []interface{}
 	args = append(args, rtID)
@@ -188,12 +194,23 @@ func DueList(ctx context.Context, tx *sql.Tx, rtID string, isActive *bool) ([]*D
 	var list []*Due
 	for rows.Next() {
 		var d Due
-		if err := rows.Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		var validUntil sql.NullString
+		if err := rows.Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &validUntil, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan due: %w", err)
 		}
+		setDueValidUntil(&d, validUntil)
 		list = append(list, &d)
 	}
 	return list, nil
+}
+
+func setDueValidUntil(d *Due, value sql.NullString) {
+	if value.Valid {
+		s := value.String
+		d.ValidUntil = &s
+	} else {
+		d.ValidUntil = nil
+	}
 }
 
 func DueUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in UpdateDueInput) (*Due, error) {
@@ -225,18 +242,33 @@ func DueUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in UpdateDueInp
 	if in.IsActive != nil {
 		isActive = *in.IsActive
 	}
+	validUntil := existing.ValidUntil
+	if in.ValidUntil != nil {
+		trimmed := strings.TrimSpace(*in.ValidUntil)
+		if trimmed == "" {
+			validUntil = nil
+		} else {
+			validUntil = &trimmed
+		}
+	}
+	// Regular dues never carry a validity deadline.
+	if !isVoluntary {
+		validUntil = nil
+	}
 
 	var d Due
+	var storedValidUntil sql.NullString
 	err = tx.QueryRowContext(ctx,
 		`UPDATE dues
-		 SET name = $1, amount = $2, period_type = $3, payment_rule = $4, is_voluntary = $5, is_active = $6, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = $7 AND rt_id = $8
-		 RETURNING id, rt_id, name, amount::text, period_type, payment_rule, is_voluntary, is_active, created_at, updated_at`,
-		name, amount, periodType, paymentRule, isVoluntary, isActive, id, rtID,
-	).Scan(&d.ID, &d.RTID, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt)
+		 SET name = $1, amount = $2, period_type = $3, payment_rule = $4, is_voluntary = $5, is_active = $6, valid_until = $7, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = $8 AND rt_id = $9
+		 RETURNING id, rt_id, name, amount::text, period_type, payment_rule, is_voluntary, is_active, to_char(valid_until, 'YYYY-MM-DD'), created_at, updated_at`,
+		name, amount, periodType, paymentRule, isVoluntary, isActive, validUntil, id, rtID,
+	).Scan(&d.ID, &d.RTID, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &storedValidUntil, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("update due: %w", err)
 	}
+	setDueValidUntil(&d, storedValidUntil)
 	return &d, nil
 }
 
@@ -1467,7 +1499,7 @@ func CategoryListAll(ctx context.Context, tx *sql.Tx, isActive *bool) ([]*Financ
 // --- Dues ---
 
 func DueListAll(ctx context.Context, tx *sql.Tx, isActive *bool) ([]*Due, error) {
-	query := `SELECT d.id, d.rt_id, rts.rt as rt_code, d.name, d.amount::text, d.period_type, d.payment_rule, d.is_voluntary, d.is_active, d.created_at, d.updated_at
+	query := `SELECT d.id, d.rt_id, rts.rt as rt_code, d.name, d.amount::text, d.period_type, d.payment_rule, d.is_voluntary, d.is_active, to_char(d.valid_until, 'YYYY-MM-DD'), d.created_at, d.updated_at
 	          FROM dues d JOIN rts ON rts.id = d.rt_id`
 	var args []interface{}
 	if isActive != nil {
@@ -1485,9 +1517,11 @@ func DueListAll(ctx context.Context, tx *sql.Tx, isActive *bool) ([]*Due, error)
 	var list []*Due
 	for rows.Next() {
 		var d Due
-		if err := rows.Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		var validUntil sql.NullString
+		if err := rows.Scan(&d.ID, &d.RTID, &d.RTCode, &d.Name, &d.Amount, &d.PeriodType, &d.PaymentRule, &d.IsVoluntary, &d.IsActive, &validUntil, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan due: %w", err)
 		}
+		setDueValidUntil(&d, validUntil)
 		list = append(list, &d)
 	}
 	return list, nil

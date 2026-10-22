@@ -7,6 +7,8 @@ import {
   AlertOutlined,
   PlusOutlined,
 } from '@ant-design/icons'
+import { DatePicker } from 'antd'
+import dayjs from 'dayjs'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { FilterDropdown } from '@/components/FilterDropdown'
@@ -65,6 +67,7 @@ const colStyles = {
   paid: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
   pending: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
   status: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'center' as const },
+  validUntil: { width: 130, minWidth: 130, maxWidth: 130, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
   action: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const },
 }
 
@@ -143,7 +146,7 @@ export function IuranList() {
 
   // Edit Due modal state
   const [editDueId, setEditDueId] = useState<string | null>(null)
-  const [editDueForm, setEditDueForm] = useState<{ name: string; amount: string; period_type: 'monthly' | 'yearly' | 'one_time'; payment_rule: 'full' | 'partial'; is_voluntary: boolean } | null>(null)
+  const [editDueForm, setEditDueForm] = useState<{ name: string; amount: string; period_type: 'monthly' | 'yearly' | 'one_time'; payment_rule: 'full' | 'partial'; is_voluntary: boolean; is_active: boolean; valid_until: string } | null>(null)
   const [editDueLoading, setEditDueLoading] = useState(false)
 
   // Deactivate due state
@@ -380,7 +383,9 @@ export function IuranList() {
         setDuesLoading(false)
         return
       }
-      const resp = await apiListDues(token, { is_active: true })
+      // Kelola Iuran must also expose inactive dues so managers can
+      // reactivate them from the edit form.
+      const resp = await apiListDues(token)
       if (currentReq !== requestIdRef.current) return
       if (!resp || !Array.isArray(resp) || resp.length === 0) {
         if (resp && resp.length === 0) {
@@ -411,7 +416,7 @@ export function IuranList() {
   }, [activeTab, loadDues])
 
   // Client-side filter for Kelola Iuran: search by name, filter by period_type
-  // (Due model lacks server-side search/filter — backend API only supports { is_active })
+  // (Due model lacks server-side search/filter; the backend only filters is_active)
   const filteredDues = useMemo(() => {
     if (dues.length === 0) return dues
     return dues.filter((due) => {
@@ -579,6 +584,8 @@ export function IuranList() {
       period_type: due.period_type,
       payment_rule: due.payment_rule ?? 'full',
       is_voluntary: due.is_voluntary ?? false,
+      is_active: due.is_active,
+      valid_until: due.valid_until ?? '',
     })
   }, [])
 
@@ -594,7 +601,12 @@ export function IuranList() {
     if (!token) return
     setEditDueLoading(true)
     try {
-      await apiUpdateDue(token, editDueId, editDueForm)
+      await apiUpdateDue(token, editDueId, {
+        ...editDueForm,
+        // Empty string explicitly clears a voluntary deadline. Regular dues
+        // always send an empty value so backend enforces valid_until = NULL.
+        valid_until: editDueForm.is_voluntary ? editDueForm.valid_until : '',
+      })
       handleCloseEdit()
       void loadDues()
     } catch (err) {
@@ -1060,6 +1072,25 @@ export function IuranList() {
                     </label>
                   </div>
                 </div>
+                {editDueForm.is_voluntary && (
+                  <div className="sf-form-field">
+                    <label className="sf-form-label" htmlFor="edit-due-valid-until">Berlaku Sampai (opsional)</label>
+                    <DatePicker
+                      id="edit-due-valid-until"
+                      picker="date"
+                      value={editDueForm.valid_until ? dayjs(editDueForm.valid_until) : null}
+                      onChange={(date) => setEditDueForm({ ...editDueForm, valid_until: date?.format('YYYY-MM-DD') || '' })}
+                      allowClear
+                      placeholder="Tanpa batas waktu"
+                      format="DD/MM/YYYY"
+                      disabled={editDueLoading}
+                      style={{ width: '100%' }}
+                    />
+                    <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--sf-text-muted)' }}>
+                      Aktif sampai tanggal ini (inklusif, WIB). Mulai hari berikutnya otomatis tidak aktif. Untuk mengaktifkan kembali setelah kedaluwarsa, perpanjang tanggal ini lalu pilih Aktif.
+                    </p>
+                  </div>
+                )}
                 <div className="sf-form-field">
                   <label className="sf-form-label" htmlFor="edit-due-period">Frekuensi</label>
                   <select
@@ -1084,6 +1115,21 @@ export function IuranList() {
                     <option value="full">Seluruh</option>
                     <option value="partial">Sebagian</option>
                   </select>
+                </div>
+                <div className="sf-form-field">
+                  <label className="sf-form-label" htmlFor="edit-due-status">Status</label>
+                  <select
+                    id="edit-due-status"
+                    className="sf-form-select"
+                    value={editDueForm.is_active ? 'true' : 'false'}
+                    onChange={(e) => setEditDueForm({ ...editDueForm, is_active: e.target.value === 'true' })}
+                  >
+                    <option value="true">Aktif</option>
+                    <option value="false">Tidak Aktif</option>
+                  </select>
+                  <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--sf-text-muted)' }}>
+                    Iuran tidak aktif tidak dapat menghasilkan tagihan baru. Tagihan dan pembayaran lama tetap tersimpan.
+                  </p>
                 </div>
               </ModalBody>
               <ModalFooter>
@@ -1299,6 +1345,8 @@ export function IuranList() {
                       <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>FREKUENSI</th>
                       <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>ATURAN</th>
                       <th style={{ width: 110, minWidth: 110, textAlign: 'center' }}>TIPE</th>
+                      <th style={colStyles.validUntil}>BERLAKU SAMPAI</th>
+                      <th style={{ width: 120, minWidth: 120, textAlign: 'center' }}>STATUS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1362,6 +1410,16 @@ export function IuranList() {
                                 Reguler
                               </span>
                             )}
+                          </td>
+                          <td style={colStyles.validUntil}>
+                            {isVoluntary
+                              ? (due.valid_until ? dayjs(due.valid_until).format('DD/MM/YYYY') : 'Tanpa batas')
+                              : '—'}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <Badge variant={due.is_active ? 'green' : 'gray'}>
+                              {due.is_active ? 'Aktif' : 'Tidak Aktif'}
+                            </Badge>
                           </td>
                         </tr>
                       )

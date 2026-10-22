@@ -32,6 +32,7 @@ class IuranRepository {
     required DuePeriodType periodType,
     PaymentRule? paymentRule,
     bool? isVoluntary,
+    String? validUntil,
   }) async {
     return apiClient.createDue(
       name: name,
@@ -39,6 +40,7 @@ class IuranRepository {
       periodType: periodType,
       paymentRule: paymentRule,
       isVoluntary: isVoluntary,
+      validUntil: validUntil,
     );
   }
 
@@ -50,6 +52,7 @@ class IuranRepository {
     PaymentRule? paymentRule,
     bool? isVoluntary,
     bool? isActive,
+    String? validUntil,
   }) async {
     return apiClient.updateDue(
       id,
@@ -59,6 +62,7 @@ class IuranRepository {
       paymentRule: paymentRule,
       isVoluntary: isVoluntary,
       isActive: isActive,
+      validUntil: validUntil,
     );
   }
 
