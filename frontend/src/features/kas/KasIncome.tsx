@@ -196,7 +196,7 @@ export function KasIncome() {
                 transition: 'all 150ms ease',
               }}
             >
-              <ArrowUpOutlined style={{ fontSize: 12, color: 'inherit' }} />
+              <ArrowDownOutlined style={{ fontSize: 12, color: 'inherit' }} />
               Pemasukan
             </button>
             <button
@@ -225,7 +225,7 @@ export function KasIncome() {
                 transition: 'all 150ms ease',
               }}
             >
-              <ArrowDownOutlined style={{ fontSize: 12, color: 'inherit' }} />
+              <ArrowUpOutlined style={{ fontSize: 12, color: 'inherit' }} />
               Pengeluaran
             </button>
           </div>

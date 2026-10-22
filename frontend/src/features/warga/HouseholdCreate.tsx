@@ -680,7 +680,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         address: form.address.trim() || null,
         occupancy_status: form.occupancy_status,
         start_date: startDate.trim() || undefined,
-        end_date: endDate.trim() ? endDate.trim() : null,
+        end_date: endDate.trim() || "",
         is_active: form.is_active,
         password: form.password?.trim() || undefined,
       }
