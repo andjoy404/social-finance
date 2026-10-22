@@ -291,7 +291,7 @@ export function ResidentDetail() {
                   phone: editForm.phone.trim() || undefined,
                   email: editForm.email.trim() || undefined,
                   start_date: editForm.startDate.trim() || undefined,
-                  end_date: editForm.endDate.trim() ? editForm.endDate.trim() : null,
+                  end_date: editForm.endDate.trim() || "",
                   is_active: editForm.isActive,
                   password: editForm.password.trim() || undefined,
                 })
@@ -307,7 +307,7 @@ export function ResidentDetail() {
                   address: editForm.address.trim() || null,
                   occupancy_status: editForm.occupancyStatus,
                   start_date: editForm.startDate.trim() || undefined,
-                  end_date: editForm.endDate.trim() ? editForm.endDate.trim() : null,
+                  end_date: editForm.endDate.trim() || "",
                   is_active: editForm.isActive,
                 }
                 await updateHousehold(pair.accessToken, resident.household_id, householdBody)
