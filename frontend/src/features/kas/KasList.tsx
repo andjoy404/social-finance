@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
 import {
+  BarChartOutlined,
+  CheckCircleOutlined,
   WalletOutlined,
   PlusOutlined,
-  LeftOutlined,
-  RightOutlined,
   EditOutlined,
   ArrowDownOutlined,
   ArrowUpOutlined,
@@ -26,6 +26,7 @@ import {
 } from '@/app/api'
 import { fetchPeriodBalance, fetchKasTransactions, type KasPeriodSummary } from './kas-api'
 import { formatRupiah, formatTanggal } from './kasTypes'
+import { KasReport } from './KasReport'
 
 const MONTH_NAMES = [
   'Januari',
@@ -104,10 +105,12 @@ interface TableRowItem {
 export function KasList() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [reportModalOpen, setReportModalOpen] = useState(false)
+
+  const canViewKasReport = user?.systemRole === 'super_admin'
+    || (user?.jabatan !== 'keamanan' && user?.jabatan !== 'kebersihan_pembangunan')
 
   const currentJakarta = useMemo(() => getCurrentJakartaPeriod(), [])
-  const [selectedYear, setSelectedYear] = useState<number>(currentJakarta.year)
-  const [selectedMonth, setSelectedMonth] = useState<number>(currentJakarta.month)
   const [isAllPeriods, setIsAllPeriods] = useState<boolean>(false)
 
   const [loading, setLoading] = useState<boolean>(true)
@@ -157,13 +160,8 @@ export function KasList() {
 
   const activePeriodStr = useMemo(() => {
     if (isAllPeriods) return undefined
-    return `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`
-  }, [isAllPeriods, selectedYear, selectedMonth])
-
-  const yearOptions = useMemo(() => {
-    const current = currentJakarta.year
-    return [current - 2, current - 1, current, current + 1, current + 2]
-  }, [currentJakarta.year])
+    return currentJakarta.periodStr
+  }, [isAllPeriods, currentJakarta])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -221,42 +219,8 @@ export function KasList() {
     }
   }, [editingTx])
 
-  const handlePrevMonth = () => {
-    setIsAllPeriods(false)
-    if (selectedMonth === 1) {
-      setSelectedMonth(12)
-      setSelectedYear((y) => y - 1)
-    } else {
-      setSelectedMonth((m) => m - 1)
-    }
-    setPage(1)
-  }
-
-  const handleNextMonth = () => {
-    setIsAllPeriods(false)
-    if (selectedMonth === 12) {
-      setSelectedMonth(1)
-      setSelectedYear((y) => y + 1)
-    } else {
-      setSelectedMonth((m) => m + 1)
-    }
-    setPage(1)
-  }
-
   const handleAllPeriods = () => {
     setIsAllPeriods((prev) => !prev)
-    setPage(1)
-  }
-
-  const handleMonthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setIsAllPeriods(false)
-    setSelectedMonth(parseInt(e.target.value, 10))
-    setPage(1)
-  }
-
-  const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setIsAllPeriods(false)
-    setSelectedYear(parseInt(e.target.value, 10))
     setPage(1)
   }
 
@@ -338,7 +302,7 @@ export function KasList() {
       rows.push({
         id: '__saldo_awal__',
         tanggal: !isAllPeriods
-          ? `01 ${MONTH_NAMES[selectedMonth - 1]?.slice(0, 3)} ${selectedYear}`
+          ? `01 ${MONTH_NAMES[currentJakarta.month - 1]?.slice(0, 3)} ${currentJakarta.year}`
           : '—',
         keterangan: 'Saldo Awal',
         kategori: '—',
@@ -410,13 +374,13 @@ export function KasList() {
     })
 
     return rows
-  }, [rawTransactions, search, filterArus, filterMetode, summary.openingBalance, page, isAllPeriods, selectedMonth, selectedYear])
+  }, [rawTransactions, search, filterArus, filterMetode, summary.openingBalance, page, isAllPeriods])
 
   if (!user) return null
 
   const displayPeriodLabel = isAllPeriods
     ? 'Semua Periode'
-    : `${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}`
+    : `${MONTH_NAMES[currentJakarta.month - 1]} ${currentJakarta.year}`
 
   const hasNoTransactions = !loading && rawTransactions.length === 0
 
@@ -567,90 +531,7 @@ export function KasList() {
       <div className="sf-list-toolbar" style={{ marginTop: 0, marginBottom: 0 }}>
         {/* Row 1: Period Navigation & Filters (left), Period Action (right) */}
         <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
-          {/* Period navigation */}
-          <button
-            type="button"
-            className="sf-btn sf-btn-outline sf-kas-period-button"
-            onClick={handlePrevMonth}
-            style={{
-              padding: '6px 10px',
-              fontSize: 13,
-              background: 'rgba(169, 112, 255, 0.06)',
-              border: '1px solid rgba(169, 112, 255, 0.35)',
-              color: 'var(--sf-accent)',
-              borderRadius: 'var(--sf-radius-sm)',
-              transition: 'all 0.25s ease',
-            }}
-            title="Bulan Sebelumnya"
-            aria-label="Bulan Sebelumnya"
-          >
-            <LeftOutlined style={{ fontSize: 11 }} />
-          </button>
-
-          <select
-            value={isAllPeriods ? '' : selectedMonth}
-            onChange={handleMonthChange}
-            disabled={isAllPeriods}
-            style={{
-              padding: '6px 12px',
-              fontSize: 13,
-              fontWeight: 600,
-              borderRadius: 'var(--sf-radius-sm)',
-              border: '1px solid var(--sf-border)',
-              background: 'var(--sf-bg)',
-              color: 'var(--sf-text)',
-              cursor: isAllPeriods ? 'not-allowed' : 'pointer',
-            }}
-            aria-label="Pilih Bulan"
-          >
-            {MONTH_NAMES.map((m, idx) => (
-              <option key={m} value={idx + 1}>
-                {m}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={isAllPeriods ? '' : selectedYear}
-            onChange={handleYearChange}
-            disabled={isAllPeriods}
-            style={{
-              padding: '6px 12px',
-              fontSize: 13,
-              fontWeight: 600,
-              borderRadius: 'var(--sf-radius-sm)',
-              border: '1px solid var(--sf-border)',
-              background: 'var(--sf-bg)',
-              color: 'var(--sf-text)',
-              cursor: isAllPeriods ? 'not-allowed' : 'pointer',
-            }}
-            aria-label="Pilih Tahun"
-          >
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-
-          <button
-            type="button"
-            className="sf-btn sf-btn-outline sf-kas-period-button"
-            onClick={handleNextMonth}
-            style={{
-              padding: '6px 10px',
-              fontSize: 13,
-              background: 'rgba(169, 112, 255, 0.06)',
-              border: '1px solid rgba(169, 112, 255, 0.35)',
-              color: 'var(--sf-accent)',
-              borderRadius: 'var(--sf-radius-sm)',
-              transition: 'all 0.25s ease',
-            }}
-            title="Bulan Berikutnya"
-            aria-label="Bulan Berikutnya"
-          >
-            <RightOutlined style={{ fontSize: 11 }} />
-          </button>
+          {/* Filter & Pencarian (default periode: bulan ini) */}
 
           {/* Filter Arus Kas */}
           <select
@@ -688,46 +569,40 @@ export function KasList() {
           </div>
         </div>
 
-        {/* Right: Semua Periode button + Active Period Badge */}
+        {/* Right: Laporan KAS button + Semua Periode button + Active Period Badge */}
         <div className="sf-list-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {canViewKasReport && (
+            <button
+              type="button"
+              className="sf-btn sf-btn-outline"
+              onClick={() => setReportModalOpen(true)}
+              aria-label="Laporan KAS"
+            >
+              <BarChartOutlined style={{ fontSize: 12, marginRight: 6 }} />
+              Laporan KAS
+            </button>
+          )}
+
           <button
             type="button"
             className={`sf-btn sf-kas-period-button ${isAllPeriods ? 'sf-btn-primary' : 'sf-btn-outline'}`}
             onClick={handleAllPeriods}
+            aria-pressed={isAllPeriods}
             style={{
-              fontSize: 12,
-              padding: '6px 12px',
-              background: isAllPeriods
-                ? 'rgba(169, 112, 255, 0.14)'
-                : 'rgba(169, 112, 255, 0.06)',
-              border: isAllPeriods
-                ? '1px solid rgba(169, 112, 255, 0.55)'
-                : '1px solid rgba(169, 112, 255, 0.35)',
-              color: isAllPeriods ? 'var(--sf-accent)' : 'var(--sf-accent)',
+              padding: '8px 20px',
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: '1.2',
               borderRadius: 'var(--sf-radius-sm)',
               transition: 'all 0.25s ease',
-              boxShadow: isAllPeriods
-                ? '0 0 12px rgba(169, 112, 255, 0.18)'
-                : '0 0 6px rgba(169, 112, 255, 0.06)',
+              boxSizing: 'border-box',
             }}
           >
+            {isAllPeriods && (
+              <CheckCircleOutlined style={{ fontSize: 11, marginRight: 5 }} />
+            )}
             Semua Periode
           </button>
-
-          <div
-            style={{
-              padding: '5px 12px',
-              borderRadius: 'var(--sf-radius-sm)',
-              background: 'rgba(59, 130, 246, 0.1)',
-              border: '1px solid rgba(59, 130, 246, 0.25)',
-              fontSize: 12,
-              fontWeight: 600,
-              color: '#3b82f6',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {displayPeriodLabel}
-          </div>
 
           {canWrite && (
             <button className="sf-create-btn" onClick={handleCreate} aria-label="+ Tambah Transaksi">
@@ -1496,6 +1371,41 @@ export function KasList() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Laporan KAS */}
+      {reportModalOpen && (
+        <div className="sf-modal-overlay" onClick={() => setReportModalOpen(false)}>
+          <div
+            className="sf-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 960, width: '95%', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Laporan KAS"
+          >
+            <div className="sf-modal-header">
+              <div className="sf-modal-header-copy">
+                <div className="sf-modal-title">Laporan KAS</div>
+                <div className="sf-modal-subtitle">
+                  {isAllPeriods
+                    ? `Semua Periode`
+                    : `${MONTH_NAMES[currentJakarta.month - 1]?.slice(0, 3)} ${currentJakarta.year}`}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="sf-modal-close"
+                onClick={() => setReportModalOpen(false)}
+                aria-label="Tutup"
+              >
+                ×
+              </button>
+            </div>
+            <div className="sf-modal-body" style={{ flex: 1, overflow: 'auto', padding: 0 }}>
+              <KasReport onClose={() => setReportModalOpen(false)} onNavigateBack={() => setReportModalOpen(false)} period={activePeriodStr} />
+            </div>
           </div>
         </div>
       )}

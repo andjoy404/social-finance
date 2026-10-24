@@ -834,6 +834,73 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     setState(() => _validUntilController.text = '');
   }
 
+  /// Neon-style action button for the edit dialog actions bar.
+  Widget _buildNeonActionButton({
+    Key? key,
+    required String label,
+    required IconData icon,
+    required Color neonColor,
+    required Color softBg,
+    required VoidCallback? onPressed,
+    bool isSaving = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      key: key,
+      decoration: BoxDecoration(
+        color: softBg,
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: neonColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: neonColor.withValues(alpha: isDark ? 0.35 : 0.22),
+            blurRadius: 8,
+            spreadRadius: 1,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isSaving ? null : onPressed,
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isSaving)
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      backgroundColor: Colors.transparent,
+                      valueColor: AlwaysStoppedAnimation<Color>(neonColor),
+                    ),
+                  )
+                else ...[
+                  Icon(icon, size: 18, color: neonColor),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: neonColor,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1009,19 +1076,43 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                 ),
               ],
               const SizedBox(height: 14),
-              DropdownButtonFormField<bool>(
+              GestureDetector(
                 key: const ValueKey('edit-due-status'),
-                value: _isActive,
-                decoration: const InputDecoration(labelText: 'Status'),
-                items: const [
-                  DropdownMenuItem(value: true, child: Text('Aktif')),
-                  DropdownMenuItem(value: false, child: Text('Tidak Aktif')),
-                ],
-                onChanged: _loading
+                onTap: _loading
                     ? null
-                    : (v) {
-                        if (v != null) setState(() => _isActive = v);
-                      },
+                    : () => setState(() => _isActive = !_isActive),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    border: Border.all(color: theme.dividerColor),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Status',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      AppBadge(
+                        label: _isActive ? 'Aktif' : 'Tidak Aktif',
+                        backgroundColor: _isActive
+                            ? AppColors.success.withValues(alpha: 0.12)
+                            : AppColors.danger.withValues(alpha: 0.12),
+                        textColor: _isActive
+                            ? AppColors.success
+                            : AppColors.danger,
+                      ),
+                    ],
+                  ),
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1036,22 +1127,27 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
         ),
       ),
       actions: [
-        TextButton(
+        _buildNeonActionButton(
+          label: 'Batal',
+          icon: Icons.cancel_outlined,
+          neonColor: AppColors.danger,
+          softBg: Theme.of(context).brightness == Brightness.dark
+              ? AppColors.darkDangerSoft
+              : AppColors.lightDangerSoft,
           onPressed: _loading ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Batal'),
+          isSaving: false,
         ),
-        FilledButton(
+        const SizedBox(width: AppSpacing.sm),
+        _buildNeonActionButton(
+          key: const ValueKey('iuran-save-button'),
+          label: _loading ? '' : 'Simpan',
+          icon: Icons.save_outlined,
+          neonColor: AppColors.accent,
+          softBg: Theme.of(context).brightness == Brightness.dark
+              ? AppColors.darkAccentSoft
+              : AppColors.lightAccentSoft,
           onPressed: _loading ? null : _handleSave,
-          child: _loading
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Text('Simpan'),
+          isSaving: _loading,
         ),
       ],
     );

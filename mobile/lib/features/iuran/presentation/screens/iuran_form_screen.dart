@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
+import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_providers.dart';
@@ -176,8 +177,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
       errors.add('Nama iuran harus diisi.');
     }
 
-    final amountText = _amountCtrl.text.trim().replaceAll('.', '');
-    final amount = int.tryParse(amountText);
+    final amount = parseRupiahInput(_amountCtrl.text);
     if (amount == null) {
       errors.add('Nominal harus angka yang valid.');
     } else if (_dueType == DueType.voluntary && amount < 0) {
@@ -225,8 +225,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     });
 
     try {
-      final amountText = _amountCtrl.text.trim().replaceAll('.', '');
-      final amount = int.tryParse(amountText) ?? 0;
+      final amount = parseRupiahInput(_amountCtrl.text) ?? 0;
 
       final due = _createdDue ??= await ref
           .read(iuranRepositoryProvider)
@@ -351,6 +350,80 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
     if (shouldCancel == true && mounted) {
       context.pop();
     }
+  }
+
+  /// Neon-style button matching the pattern used in iuran_detail_screen.dart.
+  ///
+  /// - [neonColor]: border / icon / text color (accent=violet for Simpan, danger=red for Batal)
+  /// - [softBg]: soft tinted background (light/dark aware)
+  /// - [isSaving]: when true, shows a spinner instead of label/icon and disables tap
+  Widget _buildNeonButton({
+    Key? key,
+    required String label,
+    required IconData icon,
+    required Color neonColor,
+    required Color softBg,
+    required VoidCallback? onPressed,
+    bool isSaving = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      key: key,
+      decoration: BoxDecoration(
+        color: softBg,
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: neonColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: neonColor.withValues(alpha: isDark ? 0.35 : 0.22),
+            blurRadius: 8,
+            spreadRadius: 1,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isSaving ? null : onPressed,
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isSaving)
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      backgroundColor: Colors.transparent,
+                      valueColor: AlwaysStoppedAnimation<Color>(neonColor),
+                    ),
+                  )
+                else ...[
+                  Icon(icon, size: 18, color: neonColor),
+                  const SizedBox(width: AppSpacing.xs),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: neonColor,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -557,9 +630,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                     controller: _amountCtrl,
                     keyboardType: TextInputType.number,
                     inputFormatters: [
-                      FilteringTextInputFormatter.allow(
-                        RegExp(r'^\d{1,10}(\.\d{0,2})?$'),
-                      ),
+                      RupiahInputFormatter(),
                     ],
                     decoration: InputDecoration(
                       hintText: _dueType == DueType.voluntary
@@ -628,6 +699,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
               // Tanggal berlaku sampai — sukarela only
               if (_dueType == DueType.voluntary)
                 AppTextField(
+                  key: const ValueKey('iuran-valid-until-field'),
                   controller: _validUntilCtrl,
                   label: 'Berlaku Sampai',
                   hintText: 'YYYY-MM-DD',
@@ -769,73 +841,33 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
               ),
               const SizedBox(height: AppSpacing.xxl),
 
-              // Horizontal buttons: Simpan + Batal
+              // Horizontal buttons: Simpan + Batal (neon style)
               Row(
                 children: [
                   Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.accent.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          key: const ValueKey('iuran-save-button'),
-                          onPressed: _saving ? null : _save,
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.accent),
-                            foregroundColor: AppColors.accent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                            ),
-                          ),
-                          child: _saving
-                              ? SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    backgroundColor: Colors.transparent,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      AppColors.accent,
-                                    ),
-                                  ),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.save_outlined, size: 18),
-                                    SizedBox(width: 6),
-                                    Text('Simpan'),
-                                  ],
-                                ),
-                        ),
-                      ),
+                    child: _buildNeonButton(
+                      key: const ValueKey('iuran-save-button'),
+                      label: _saving ? '' : 'Simpan',
+                      icon: Icons.save_outlined,
+                      neonColor: AppColors.accent,
+                      softBg: Theme.of(context).brightness == Brightness.dark
+                          ? AppColors.darkAccentSoft
+                          : AppColors.lightAccentSoft,
+                      onPressed: _saving ? null : _save,
+                      isSaving: _saving,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        onPressed: _saving ? null : _confirmCancel,
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppColors.danger),
-                          foregroundColor: AppColors.danger,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
-                        child: const Text('Batal'),
-                      ),
+                    child: _buildNeonButton(
+                      label: 'Batal',
+                      icon: Icons.cancel_outlined,
+                      neonColor: AppColors.danger,
+                      softBg: Theme.of(context).brightness == Brightness.dark
+                          ? AppColors.darkDangerSoft
+                          : AppColors.lightDangerSoft,
+                      onPressed: _saving ? null : _confirmCancel,
+                      isSaving: false,
                     ),
                   ),
                 ],

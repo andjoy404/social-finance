@@ -128,11 +128,7 @@ void main() {
     testWidgets('incoming and outgoing direction indicators remain visible', (
       tester,
     ) async {
-      await _pumpCard(
-        tester,
-        paymentMethod: 'CASH',
-        jenis: KasJenis.masuk,
-      );
+      await _pumpCard(tester, paymentMethod: 'CASH', jenis: KasJenis.masuk);
       expect(find.byIcon(Icons.arrow_downward), findsOneWidget);
       expect(find.byTooltip('Tunai'), findsOneWidget);
 
@@ -217,10 +213,7 @@ void main() {
           ),
         );
 
-        expect(
-          find.text('Iuran Keamanan · Tanpa Referensi'),
-          findsOneWidget,
-        );
+        expect(find.text('Iuran Keamanan · Tanpa Referensi'), findsOneWidget);
         expect(find.textContaining('A2/05'), findsNothing);
         expect(find.text('IPL'), findsNothing);
       },

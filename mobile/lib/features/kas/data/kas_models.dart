@@ -47,7 +47,8 @@ class KasTransaction {
   final String? officerName;
   final String? houseNumber;
   final String? paymentMethod;
-  final DateTime? createdAt; // backend created_at, used as deterministic tie-breaker
+  final DateTime?
+  createdAt; // backend created_at, used as deterministic tie-breaker
   final String nominal;
   final String saldo;
 

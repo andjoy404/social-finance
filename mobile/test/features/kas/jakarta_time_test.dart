@@ -29,22 +29,36 @@ void main() {
       expect(jakarta.day, 31);
     });
 
-    test('toJakartaUtc produces correctly ordered UTC instants for different dates', () {
-      final a = toJakartaUtc('2026-10-01');
-      final b = toJakartaUtc('2026-10-02');
-      // Same Jakarta wall-clock time (approximately), later date = later instant
-      expect(b.isAfter(a), isTrue);
-    });
+    test(
+      'toJakartaUtc produces correctly ordered UTC instants for different dates',
+      () {
+        final a = toJakartaUtc('2026-10-01');
+        final b = toJakartaUtc('2026-10-02');
+        // Same Jakarta wall-clock time (approximately), later date = later instant
+        expect(b.isAfter(a), isTrue);
+      },
+    );
 
-    test('toJakartaUtc earlier date produces earlier instant even with later wall-clock time', () {
-      // Even if "now" advances between calls, a much earlier date should still be earlier
-      final a = toJakartaUtc('2026-01-01');
-      final b = toJakartaUtc('2026-12-31');
-      expect(b.isAfter(a), isTrue);
-    });
+    test(
+      'toJakartaUtc earlier date produces earlier instant even with later wall-clock time',
+      () {
+        // Even if "now" advances between calls, a much earlier date should still be earlier
+        final a = toJakartaUtc('2026-01-01');
+        final b = toJakartaUtc('2026-12-31');
+        expect(b.isAfter(a), isTrue);
+      },
+    );
 
     test('formatJakartaIso8601 includes explicit +07:00 offset', () {
-      final utc = DateTime.utc(2026, 10, 22, 3, 30, 0, 0); // 03:30 UTC = 10:30 WIB
+      final utc = DateTime.utc(
+        2026,
+        10,
+        22,
+        3,
+        30,
+        0,
+        0,
+      ); // 03:30 UTC = 10:30 WIB
       final result = formatJakartaIso8601(utc);
       expect(result, '2026-10-22T10:30:00.000+07:00');
     });

@@ -5,6 +5,35 @@
 
 import 'package:flutter/foundation.dart';
 
+// ─── BackendRTIdentity ────────────────────────────────────────────────
+
+@immutable
+class BackendRTIdentity {
+  final String name;
+  final String? address;
+  final String? rt;
+  final int? rw;
+  final String? rwName;
+
+  const BackendRTIdentity({
+    required this.name,
+    this.address,
+    this.rt,
+    this.rw,
+    this.rwName,
+  });
+
+  factory BackendRTIdentity.fromJson(Map<String, dynamic> json) {
+    return BackendRTIdentity(
+      name: json['name'] as String? ?? '',
+      address: json['address'] as String?,
+      rt: json['rt'] as String?,
+      rw: (json['rw'] as num?)?.toInt(),
+      rwName: json['rw_name'] as String?,
+    );
+  }
+}
+
 // ─── BackendTransaction ───────────────────────────────────────────────
 
 /// Mirrors the Go `Transaction` struct in `backend/internal/finance/model.go`.
@@ -102,7 +131,10 @@ class BackendBalance {
       totalIncome: json['total_income'] as String? ?? '0',
       totalExpense: json['total_expense'] as String? ?? '0',
       netMovement: json['net_movement'] as String? ?? '0',
-      closingBalance: json['closing_balance'] as String? ?? json['net_balance'] as String? ?? '0',
+      closingBalance:
+          json['closing_balance'] as String? ??
+          json['net_balance'] as String? ??
+          '0',
       netBalance: json['net_balance'] as String? ?? '0',
       transactionCount: (json['transaction_count'] as num?)?.toInt() ?? 0,
     );
@@ -145,10 +177,7 @@ class PaginatedResponse<T> {
   final List<T> data;
   final PaginationInfo pagination;
 
-  const PaginatedResponse({
-    required this.data,
-    required this.pagination,
-  });
+  const PaginatedResponse({required this.data, required this.pagination});
 }
 
 @immutable

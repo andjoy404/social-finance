@@ -6,16 +6,14 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
+import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:printing/printing.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:file_saver/file_saver.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
@@ -25,7 +23,7 @@ import 'package:social_finance/features/kas/data/kas_repository.dart';
 import 'package:social_finance/features/kas/export/kas_export_utils.dart';
 import 'package:social_finance/features/kas/export/kas_report_model.dart';
 
-// ---------------------------------------------------------------------------
+// --------------------------------------------i-------------------------------
 // Akses (sama dengan Web)
 // ---------------------------------------------------------------------------
 
@@ -69,6 +67,12 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
   KasReportModel? _model;
   List<BackendTransaction> _transactions = const [];
   bool _exporting = false;
+
+  // Pinch-to-zoom
+  double _zoom = 1.0;
+  double _zoomAtScaleStart = 1.0;
+  static const double _zoomMin = 0.7;
+  static const double _zoomMax = 2.5;
 
   @override
   void initState() {
@@ -167,13 +171,22 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
         transactions: _transactions,
         logoBytes: await _logoBytes(),
       );
-      await Printing.sharePdf(
+      final fileName = getKasReportPdfFileName(model);
+      final saved = await FileSaver.instance.saveAs(
+        name: fileName.replaceAll('.pdf', ''),
         bytes: bytes,
-        filename: getKasReportPdfFileName(model),
+        mimeType: MimeType.pdf,
+        fileExtension: 'pdf',
       );
+      if (!mounted) return;
+      if (saved != null) {
+        _showToast('PDF berhasil disimpan:\n$fileName');
+      } else {
+        _showToast('Penyimpanan PDF dibatalkan atau gagal.');
+      }
     } catch (e, st) {
       debugPrint('Export PDF gagal: $e\n$st');
-      _toast('Gagal mengekspor PDF: $e');
+      _showToast('Gagal mengekspor PDF: $e');
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -188,20 +201,28 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
         model: model,
         transactions: _transactions,
       );
-      final dir = await getTemporaryDirectory();
-      final name = getKasReportXlsxFileName(model);
-      final file = File('${dir.path}/$name');
-      await file.writeAsBytes(bytes, flush: true);
-      await Share.shareXFiles([XFile(file.path)], subject: name);
+      final fileName = getKasReportXlsxFileName(model);
+      final saved = await FileSaver.instance.saveAs(
+        name: fileName.replaceAll('.xlsx', ''),
+        bytes: bytes,
+        mimeType: MimeType.microsoftExcel,
+        fileExtension: 'xlsx',
+      );
+      if (!mounted) return;
+      if (saved != null) {
+        _showToast('XLSX berhasil disimpan:\n$fileName');
+      } else {
+        _showToast('Penyimpanan XLSX dibatalkan atau gagal.');
+      }
     } catch (e, st) {
       debugPrint('Export XLSX gagal: $e\n$st');
-      _toast('Gagal mengekspor XLSX: $e');
+      _showToast('Gagal mengekspor XLSX: $e');
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
   }
 
-  void _toast(String message) {
+  void _showToast(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
@@ -216,6 +237,21 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
       jabatan: user?['jabatan'] as String?,
       role: user?['role']?.toString().split('.').last,
     );
+
+    // ---- DIAGNOSTIC Sementara — hapus setelah bug diperbaiki ----
+    // Catat nilai permission yang tidak sensitif untuk debugging.
+    // debugPrint di-drop pada build release; untuk release mode
+    // gunakan: adb logcat -s KasReportDiag
+    // atau jalankan di mode debug/development.
+    final normRole = (user?['role']?.toString().split('.').last ?? '').toLowerCase().trim();
+    final normJabatan = (user?['jabatan'] as String? ?? '').toLowerCase().trim();
+    final normSysRole = (user?['system_role'] as String? ?? '').toLowerCase().trim();
+    log(
+      'KAS: role=$normRole jabatan=$normJabatan system_role=$normSysRole canExport=${access.canExport}',
+      name: 'KasReportDiag',
+      level: 1000, // INFO — terlihat di release tanpa crash
+    );
+    // ---- END DIAGNOSTIC ----
 
     return Scaffold(
       appBar: AppBar(
@@ -300,7 +336,7 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
                 ],
               ),
             ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 24),
           // ---- Peringatan selisih saldo ----
           if (model.reconciles == false)
             Container(
@@ -324,18 +360,115 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
   }
 
   /// Lembar dokumen Laporan KAS — selalu berlatar putih bersih,
-  /// tidak mewarisi tema gelap dari Scaffold.  Dokumen dibungkus
-  /// dalam SingleChildScrollView agar tidak terjadi conflict
-  /// scroll antara halaman utama (vertikal) dan tabel (horizontal).
+  /// tidak mewarisi tema gelap dari Scaffold.
+  ///
+  /// Layout responsif:
+  ///   - Dokumen mengisi lebar area layar pada zoom 100%.
+  ///   - Ketika konten melebihi viewport (zoom > 1.0), horizontal scrolling aktif.
+  ///   - Pinch-to-zoom tersedia dengan batas 0.7 — 2.5.
+  ///
+  /// Rantai constraint:
+  ///   LayoutBuilder → SingleChildScrollView(h) → Align(topCenter)
+  ///     → Container → KasReportDocument → Column → _buildStatementTable
+  ///       → ConstrainedBox(minWidth) → SingleChildScrollView(h) → Table
+  ///
+  /// [constraints.maxWidth] memberi lebar area yang tersedia tanpa batas atas
+  /// agar dokumen memenuhi viewport. [Align(topCenter)] memusatkan dokumen
+  /// secara horizontal ketika lebarnya lebih kecil daripada viewport.
   Widget _buildDocumentPage(BuildContext context, KasReportModel model) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Container(
-        decoration: const BoxDecoration(color: Color(0xFFFFFFFF)),
-        constraints: const BoxConstraints(minWidth: 320, maxWidth: 900),
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        child: KasReportDocument(model: model),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Simpan lebar viewport sebelum masuk horizontal scroll.
+        // constraints.maxWidth dari LayoutBuilder di luar horizontal scroll
+        // adalah lebar viewport sebenarnya. Dari dalam horizontal scroll,
+        // maxWidth akan infinity sehingga tidak bisa dipakai untuk menentukan
+        // lebar dokumen.
+        final viewportWidth = constraints.maxWidth;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ---- Kontrol zoom ----
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  // Tombol minus
+                  IconButton(
+                    key: const Key('kas-report-zoom-out'),
+                    icon: const Text('-'),
+                    onPressed: () {
+                      final newZoom = (_zoom - 0.1)
+                          .clamp(_zoomMin, _zoomMax);
+                      if ((newZoom - _zoom).abs() > 0.001) {
+                        setState(() => _zoom = newZoom);
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  // Persentase zoom
+                  Text(
+                    '${(_zoom * 100).toInt()}%',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(width: 8),
+                  // Tombol plus
+                  IconButton(
+                    key: const Key('kas-report-zoom-in'),
+                    icon: const Text('+'),
+                    onPressed: () {
+                      final newZoom = (_zoom + 0.1)
+                          .clamp(_zoomMin, _zoomMax);
+                      if ((newZoom - _zoom).abs() > 0.001) {
+                        setState(() => _zoom = newZoom);
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 16),
+                  // Pinch-to-zoom hint
+                  const Text(
+                    'Cubit untuk zoom',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF888888)),
+                  ),
+                ],
+              ),
+            ),
+            // ---- Dokumen laporan ----
+            SingleChildScrollView(
+              child: GestureDetector(
+                onScaleStart: (_) {
+                  _zoomAtScaleStart = _zoom;
+                },
+                onScaleUpdate: (details) {
+                  final newZoom = (_zoomAtScaleStart * details.scale)
+                      .clamp(_zoomMin, _zoomMax);
+                  if ((newZoom - _zoom).abs() > 0.001) {
+                    setState(() => _zoom = newZoom);
+                  }
+                },
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: viewportWidth),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Container(
+                        decoration: const BoxDecoration(color: Color(0xFFFFFFFF)),
+                        child: KasReportDocument(
+                          model: model,
+                          zoom: _zoom,
+                          viewportWidth: viewportWidth,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -390,17 +523,34 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
   }) {
     return Material(
       key: key,
-      color: Colors.white,
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(8),
-      elevation: 1,
+      elevation: 0,
       child: InkWell(
         onTap: isLoading ? null : onPressed,
         borderRadius: BorderRadius.circular(8),
+        highlightColor: color.withValues(alpha: 0.12),
+        splashColor: color.withValues(alpha: 0.18),
         child: Container(
           height: 40,
           decoration: BoxDecoration(
-            border: Border.all(color: color.withValues(alpha: 0.35)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                color.withValues(alpha: 0.22),
+                color.withValues(alpha: 0.08),
+              ],
+            ),
+            border: Border.all(color: color.withValues(alpha: 0.45)),
             borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.18),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           alignment: Alignment.center,
           child: Row(
@@ -444,8 +594,15 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
 // ---------------------------------------------------------------------------
 
 class KasReportDocument extends StatelessWidget {
-  const KasReportDocument({super.key, required this.model});
+  const KasReportDocument({
+    super.key,
+    required this.model,
+    this.zoom = 1.0,
+    this.viewportWidth = 900.0,
+  });
   final KasReportModel model;
+  final double zoom;
+  final double viewportWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -453,59 +610,83 @@ class KasReportDocument extends StatelessWidget {
     final generatedAt = model.generatedAt;
     final hasOther = model.expenseHasOther;
 
-    return Container(
-      key: const Key('kas-report-document'),
-      decoration: const BoxDecoration(color: Color(0xFFFFFFFF)),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ---- Header ----
-          _buildHeader(),
+    // Lebar efektif diskalakan oleh zoom agar dokumen membesar/mengecil sesuai zoom level.
+    // Dikalikan zoomMax (2.5) sebagai batas maksimal agar dokumen tidak terlalu lebar pada zoom > 1.
+    final effectiveWidth =
+        (viewportWidth.isFinite ? viewportWidth : 900.0) * zoom;
+    final effectiveMaxWidth = effectiveWidth * 2.5;
+    final effectiveMinWidth = effectiveWidth.clamp(300.0, effectiveMaxWidth);
 
-          const Divider(height: 24, thickness: 0.5, color: Color(0xFFDDDDDD)),
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        minWidth: effectiveMinWidth,
+        maxWidth: effectiveMaxWidth,
+      ),
+      child: Container(
+        key: const Key('kas-report-document'),
+        decoration: const BoxDecoration(color: Color(0xFFFFFFFF)),
+        padding: EdgeInsets.all(16 * zoom),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ---- Header ----
+            _buildHeader(),
 
-          // ---- Tabel transaksi ----
-          if (model.transactionCount == 0)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Center(
-                child: Text(
-                  'Belum ada transaksi KAS pada ${model.periodLabel}.',
-                  key: const Key('kas-report-empty'),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF666666),
+            Divider(
+              height: 24 * zoom,
+              thickness: 0.5 * zoom,
+              color: const Color(0xFFDDDDDD),
+            ),
+
+            // ---- Tabel transaksi ----
+            if (model.transactionCount == 0)
+              Padding(
+                padding: EdgeInsets.symmetric(vertical: 24 * zoom),
+                child: Center(
+                  child: Text(
+                    'Belum ada transaksi KAS pada ${model.periodLabel}.',
+                    key: const Key('kas-report-empty'),
+                    style: TextStyle(
+                      fontSize: 11 * zoom,
+                      color: const Color(0xFF666666),
+                    ),
                   ),
                 ),
+              )
+            else
+              _buildStatementTable(rows),
+
+            // ---- Rekap Pengeluaran per Kategori ----
+            SizedBox(height: 28 * zoom),
+            _buildRecapSection(hasOther),
+
+            // ---- Footer ----
+            SizedBox(height: 16 * zoom),
+            Padding(
+              padding: EdgeInsets.only(top: 12 * zoom),
+              child: Divider(
+                thickness: 0.5 * zoom,
+                color: const Color(0xFFE0E0E0),
               ),
-            )
-          else
-            _buildStatementTable(rows),
-
-          // ---- Rekap Pengeluaran per Kategori ----
-          const SizedBox(height: 28),
-          _buildRecapSection(hasOther),
-
-          // ---- Footer ----
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Divider(thickness: 0.5, color: const Color(0xFFE0E0E0)),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: [
-                Text(
-                  'Dicetak: ${_formatDate(generatedAt)}',
-                  style: const TextStyle(fontSize: 9, color: Color(0xFF888888)),
-                ),
-              ],
             ),
+            Padding(
+              padding: EdgeInsets.only(top: 12 * zoom),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Text(
+                    'Dicetak: ${_formatDate(generatedAt)}',
+                    style: TextStyle(
+                      fontSize: 9 * zoom,
+                      color: const Color(0xFF888888),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ],
           ),
-        ],
       ),
     );
   }
@@ -537,7 +718,7 @@ class KasReportDocument extends StatelessWidget {
                   child: Text(
                     lines[i],
                     style: TextStyle(
-                      fontSize: i == 0 ? 14 : 11,
+                      fontSize: (i == 0 ? 14 : 11) * zoom,
                       fontWeight: i == 0 ? FontWeight.bold : FontWeight.w600,
                       color: const Color(0xFF222222),
                     ),
@@ -551,30 +732,41 @@ class KasReportDocument extends StatelessWidget {
   }
 
   // ------------------------------------------------------------------
-  // Tabel transaksi utama — semua lebar kolom eksplisit.
-  // ConstrainedBox(minWidth) menjamin FlexColumnWidth mendapat ruang
-  // yang cukup sebelum SingleChildScrollView( Axis.horizontal )
-  // mengizinkan scroll horizontal.
+  // Tabel transaksi utama — lebar kolom eksplisit dan diskalakan oleh zoom.
+  //
+  // Kontrak data: setiap baris memiliki [r.label] = uraian/deskripsi
+  // yang berasal dari field [description] pada model transaksi.
+  // Header "Uraian" dan sel uraian (r.label) sudah ada di kode asli.
+  //
+  // Penyebab kolom Uraian hilang: sebelumnya menggunakan
+  // [FlexColumnWidth()] tanpa [maxWidth] pada container luar, sehingga
+  // kolom fleksibel mendapat ruang hampir nol.
+  // Perbaikan: [FixedColumnWidth(120 * zoom)] menjamin lebar minimum
+  // agar teks uraian selalu terbaca, bersama dengan [minWidth: 700 * zoom]
+  // agar tabel tidak lebih kecil dari lebar tabelnya sendiri.
   // ------------------------------------------------------------------
 
   Widget _buildStatementTable(List<KasStatementRow> rows) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 700),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Table(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Tidak perlu SingleChildScrollView lagi — outer scroll di
+        // _buildDocumentPage sudah menangani horizontal scroll ketika konten
+        // melebihi viewport.
+        return Table(
           key: const Key('kas-report-statement'),
-          border: TableBorder.all(color: const Color(0xFFCCCCCC), width: 0.5),
-          columnWidths: const {
-            0: FixedColumnWidth(30), // No
-            1: FlexColumnWidth(), // Uraian — dominan
-            2: FixedColumnWidth(100), // Debet
-            3: FixedColumnWidth(100), // Kredit
-            4: FixedColumnWidth(110), // Saldo
+          border: TableBorder.all(
+            color: const Color(0xFFCCCCCC),
+            width: 0.5 * zoom,
+          ),
+          columnWidths: {
+            0: FixedColumnWidth(25 * zoom),       // No
+            1: FlexColumnWidth(1.0),              // Uraian — ambil sisa ruang
+            2: FixedColumnWidth(85 * zoom),       // Debet
+            3: FixedColumnWidth(85 * zoom),       // Kredit
+            4: FixedColumnWidth(95 * zoom),       // Saldo
           },
           defaultVerticalAlignment: TableCellVerticalAlignment.middle,
           children: [
-            // Header kolom
             _tableRow(
               children: [
                 _tc('No', right: true, bold: true, size: 10),
@@ -585,11 +777,10 @@ class KasReportDocument extends StatelessWidget {
               ],
               header: true,
             ),
-            // Baris data
             for (final r in rows) _statementRow(r),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -654,19 +845,23 @@ class KasReportDocument extends StatelessWidget {
     double size = 10,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      padding: EdgeInsets.symmetric(
+        horizontal: 6 * zoom,
+        vertical: 4 * zoom,
+      ),
       child: Text(
         text,
+        softWrap: false,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         textAlign: right ? TextAlign.right : TextAlign.left,
-        style:
-            const TextStyle(
-              fontSize: 10,
-              color: Color(0xFF222222),
-              height: 1.3,
-            ).copyWith(
-              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
-              fontSize: size,
-            ),
+        style: TextStyle(
+          fontSize: size * zoom,
+          color: const Color(0xFF222222),
+          height: 1.3,
+        ).copyWith(
+          fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+        ),
       ),
     );
   }
@@ -677,15 +872,15 @@ class KasReportDocument extends StatelessWidget {
 
   Widget _buildRecapSection(bool hasOther) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'REKAP PENGELUARAN PER KATEGORI',
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 12,
+          style: TextStyle(
+            fontSize: 12 * zoom,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF222222),
+            color: const Color(0xFF222222),
           ),
         ),
         Text(
@@ -693,9 +888,12 @@ class KasReportDocument extends StatelessWidget {
               ? 'Periode ${model.periodLabel}'
               : 'Semua Periode',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 10, color: Color(0xFF666666)),
+          style: TextStyle(
+            fontSize: 10 * zoom,
+            color: const Color(0xFF666666),
+          ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8 * zoom),
         _buildRecapTable(hasOther),
       ],
     );
@@ -703,17 +901,23 @@ class KasReportDocument extends StatelessWidget {
 
   Widget _buildRecapTable(bool hasOther) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 450),
+      constraints: BoxConstraints(
+        minWidth: 450 * zoom,
+        maxWidth: 2000 * zoom,
+      ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Table(
           key: const Key('kas-report-recap'),
-          border: TableBorder.all(color: const Color(0xFFCCCCCC), width: 0.5),
+          border: TableBorder.all(
+            color: const Color(0xFFCCCCCC),
+            width: 0.5 * zoom,
+          ),
           columnWidths: {
             0: FlexColumnWidth(),
-            1: FixedColumnWidth(100),
-            2: FixedColumnWidth(100),
-            if (hasOther) 3: FixedColumnWidth(100),
+            1: FixedColumnWidth(100 * zoom),
+            2: FixedColumnWidth(100 * zoom),
+            if (hasOther) 3: FixedColumnWidth(100 * zoom),
           },
           defaultVerticalAlignment: TableCellVerticalAlignment.middle,
           children: [

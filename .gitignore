@@ -59,3 +59,4 @@ frontend/tsconfig.tsbuildinfo
 # Agent
 .kilo/
 AGENTS.md
+.aider*

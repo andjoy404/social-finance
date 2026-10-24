@@ -30,6 +30,16 @@ class KasApiClient {
 
   KasApiClient({required this.dio});
 
+  // ─── RT identity ────────────────────────────────────────────────────
+
+  /// GET /api/v1/rts/{id}; uses the authenticated RT context.
+  Future<BackendRTIdentity> getRTIdentity(String rtId) async {
+    final response = await dio.get('/api/v1/rts/$rtId');
+    final data = response.data;
+    if (data is! Map) throw const FormatException('Unexpected RT response');
+    return BackendRTIdentity.fromJson(data.cast<String, dynamic>());
+  }
+
   // ─── Transactions ───────────────────────────────────────────────────
 
   /// GET /api/v1/transactions
@@ -147,10 +157,7 @@ class KasApiClient {
       body['occurred_at'] = occurredAt.toIso8601String();
     }
 
-    final response = await dio.put(
-      '/api/v1/transactions/$id',
-      data: body,
-    );
+    final response = await dio.put('/api/v1/transactions/$id', data: body);
     final data = response.data;
     if (data is! Map) throw const FormatException('Unexpected response');
     return BackendTransaction.fromJson(data.cast<String, dynamic>());

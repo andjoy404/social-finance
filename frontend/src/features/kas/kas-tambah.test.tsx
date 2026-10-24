@@ -21,6 +21,7 @@ vi.mock('@/app/wargaAuth', () => ({
 
 vi.mock('@/utils/jakartaTime', () => ({
   toJakartaIso8601: vi.fn((d: string) => `${d}T10:00:00.000+07:00`),
+  getJakartaDateString: vi.fn(() => '2026-10-22'),
 }))
 
 vi.mock('react-router-dom', async (importOriginal) => {

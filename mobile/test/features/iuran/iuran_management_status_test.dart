@@ -126,10 +126,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(statusField);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Tidak Aktif').last);
-    await tester.pumpAndSettle();
+    expect(find.text('Tidak Aktif'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Simpan'));
+    await tester.tap(find.byKey(const ValueKey('iuran-save-button')));
     await tester.pumpAndSettle();
 
     expect(repository.activeUpdates, contains(false));
@@ -157,10 +156,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(statusField);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Aktif').last);
-    await tester.pumpAndSettle();
+    expect(find.text('Aktif'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Simpan'));
+    await tester.tap(find.byKey(const ValueKey('iuran-save-button')));
     await tester.pumpAndSettle();
 
     expect(repository.activeUpdates, contains(true));

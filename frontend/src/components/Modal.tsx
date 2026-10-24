@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 
 interface ModalProps {
   open: boolean
@@ -66,15 +67,18 @@ export function ModalHeader({
   title,
   subtitle,
   onClose,
+  icon,
 }: {
   title: string
   subtitle?: string
   onClose: () => void
+  icon?: ReactNode
 }) {
   return (
     <div className="sf-modal-header">
+      {icon && <span className="sf-modal-header-icon">{icon}</span>}
       <div className="sf-modal-header-copy">
-        <div className="sf-modal-title">{title}</div>
+        {title && <div className="sf-modal-header-title">{title}</div>}
         {subtitle && <div className="sf-modal-subtitle">{subtitle}</div>}
       </div>
       <a

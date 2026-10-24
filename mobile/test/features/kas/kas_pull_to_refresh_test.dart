@@ -84,6 +84,12 @@ class _MockKasApiClient implements KasApiClient {
   }
 
   @override
+  Future<BackendRTIdentity> getRTIdentity(String rtId) async {
+    if (shouldFail) throw Exception('Network error');
+    return const BackendRTIdentity(name: 'RT 001');
+  }
+
+  @override
   Future<PaginatedResponse<BackendTransaction>> listTransactions({
     String? categoryId,
     String? type,
@@ -438,100 +444,100 @@ void main() {
       expect(cards[2].transaction.keterangan, 'Transaksi terlama');
     });
 
-    testWidgets('transactions with equal tanggal use deterministic tie-breaker by createdAt (no type priority)', (
-      tester,
-    ) async {
-      final now = DateTime(2025, 10, 21, 10, 0, 0);
-      // Same tanggal, different types — tie-breaker by createdAt DESC
-      apiClient.transactions = [
-        KasTransaction(
-          id: 'zzz-income',
-          tanggal: now,
-          jenis: KasJenis.masuk,
-          kategori: KasCategory.operasionalRT,
-          keterangan: 'Income zzz',
-          nominal: '10000',
-          saldo: '10000',
-          createdAt: DateTime(2025, 10, 21, 9, 0, 0), // older creation
-        ),
-        KasTransaction(
-          id: 'aaa-expense',
-          tanggal: now,
-          jenis: KasJenis.keluar,
-          kategori: KasCategory.operasionalRT,
-          keterangan: 'Expense aaa',
-          nominal: '50000',
-          saldo: '50000',
-          createdAt: DateTime(2025, 10, 21, 11, 0, 0), // newer creation
-        ),
-      ];
+    testWidgets(
+      'transactions with equal tanggal use deterministic tie-breaker by createdAt (no type priority)',
+      (tester) async {
+        final now = DateTime(2025, 10, 21, 10, 0, 0);
+        // Same tanggal, different types — tie-breaker by createdAt DESC
+        apiClient.transactions = [
+          KasTransaction(
+            id: 'zzz-income',
+            tanggal: now,
+            jenis: KasJenis.masuk,
+            kategori: KasCategory.operasionalRT,
+            keterangan: 'Income zzz',
+            nominal: '10000',
+            saldo: '10000',
+            createdAt: DateTime(2025, 10, 21, 9, 0, 0), // older creation
+          ),
+          KasTransaction(
+            id: 'aaa-expense',
+            tanggal: now,
+            jenis: KasJenis.keluar,
+            kategori: KasCategory.operasionalRT,
+            keterangan: 'Expense aaa',
+            nominal: '50000',
+            saldo: '50000',
+            createdAt: DateTime(2025, 10, 21, 11, 0, 0), // newer creation
+          ),
+        ];
 
-      await _pumpKasScreen(tester, repository: repository);
-      await tester.pumpAndSettle();
+        await _pumpKasScreen(tester, repository: repository);
+        await tester.pumpAndSettle();
 
-      final cards = tester
-          .widgetList<KasTransactionCard>(find.byType(KasTransactionCard))
-          .toList();
-      expect(cards.length, 2);
+        final cards = tester
+            .widgetList<KasTransactionCard>(find.byType(KasTransactionCard))
+            .toList();
+        expect(cards.length, 2);
 
-      // Same timestamp — tie-breaker by createdAt DESC (newer creation first),
-      // not by type (IN/OUT) and not by random UUID id.
-      expect(cards[0].transaction.keterangan, 'Expense aaa');
-      expect(cards[1].transaction.keterangan, 'Income zzz');
-    });
+        // Same timestamp — tie-breaker by createdAt DESC (newer creation first),
+        // not by type (IN/OUT) and not by random UUID id.
+        expect(cards[0].transaction.keterangan, 'Expense aaa');
+        expect(cards[1].transaction.keterangan, 'Income zzz');
+      },
+    );
 
-    testWidgets('IN and OUT mixed by time on same date, OUT newer above IN older', (
-      tester,
-    ) async {
-      final base = DateTime(2025, 10, 21);
-      // Same date, different times — intentionally unsorted (3 transactions fit in viewport)
-      apiClient.transactions = [
-        KasTransaction(
-          id: 'tx-1',
-          tanggal: base.add(const Duration(hours: 14, minutes: 20)), // 14:20
-          jenis: KasJenis.masuk,
-          kategori: KasCategory.operasionalRT,
-          keterangan: 'IN 14:20',
-          nominal: '100000',
-          saldo: '100000',
-        ),
-        KasTransaction(
-          id: 'tx-2',
-          tanggal: base.add(const Duration(hours: 15, minutes: 30)), // 15:30
-          jenis: KasJenis.keluar,
-          kategori: KasCategory.operasionalRT,
-          keterangan: 'OUT 15:30',
-          nominal: '50000',
-          saldo: '50000',
-        ),
-        KasTransaction(
-          id: 'tx-3',
-          tanggal: base.add(const Duration(hours: 15, minutes: 15)), // 15:15
-          jenis: KasJenis.masuk,
-          kategori: KasCategory.operasionalRT,
-          keterangan: 'IN 15:15',
-          nominal: '75000',
-          saldo: '75000',
-        ),
-      ];
+    testWidgets(
+      'IN and OUT mixed by time on same date, OUT newer above IN older',
+      (tester) async {
+        final base = DateTime(2025, 10, 21);
+        // Same date, different times — intentionally unsorted (3 transactions fit in viewport)
+        apiClient.transactions = [
+          KasTransaction(
+            id: 'tx-1',
+            tanggal: base.add(const Duration(hours: 14, minutes: 20)), // 14:20
+            jenis: KasJenis.masuk,
+            kategori: KasCategory.operasionalRT,
+            keterangan: 'IN 14:20',
+            nominal: '100000',
+            saldo: '100000',
+          ),
+          KasTransaction(
+            id: 'tx-2',
+            tanggal: base.add(const Duration(hours: 15, minutes: 30)), // 15:30
+            jenis: KasJenis.keluar,
+            kategori: KasCategory.operasionalRT,
+            keterangan: 'OUT 15:30',
+            nominal: '50000',
+            saldo: '50000',
+          ),
+          KasTransaction(
+            id: 'tx-3',
+            tanggal: base.add(const Duration(hours: 15, minutes: 15)), // 15:15
+            jenis: KasJenis.masuk,
+            kategori: KasCategory.operasionalRT,
+            keterangan: 'IN 15:15',
+            nominal: '75000',
+            saldo: '75000',
+          ),
+        ];
 
-      await _pumpKasScreen(tester, repository: repository);
-      await tester.pumpAndSettle();
+        await _pumpKasScreen(tester, repository: repository);
+        await tester.pumpAndSettle();
 
-      final cards = tester
-          .widgetList<KasTransactionCard>(find.byType(KasTransactionCard))
-          .toList();
-      expect(cards.length, 3);
+        final cards = tester
+            .widgetList<KasTransactionCard>(find.byType(KasTransactionCard))
+            .toList();
+        expect(cards.length, 3);
 
-      // Newest first by time: OUT 15:30, IN 15:15, IN 14:20
-      expect(cards[0].transaction.keterangan, 'OUT 15:30');
-      expect(cards[1].transaction.keterangan, 'IN 15:15');
-      expect(cards[2].transaction.keterangan, 'IN 14:20');
-    });
+        // Newest first by time: OUT 15:30, IN 15:15, IN 14:20
+        expect(cards[0].transaction.keterangan, 'OUT 15:30');
+        expect(cards[1].transaction.keterangan, 'IN 15:15');
+        expect(cards[2].transaction.keterangan, 'IN 14:20');
+      },
+    );
 
-    testWidgets('IN newer above OUT older on same date', (
-      tester,
-    ) async {
+    testWidgets('IN newer above OUT older on same date', (tester) async {
       final base = DateTime(2025, 10, 21);
       apiClient.transactions = [
         KasTransaction(

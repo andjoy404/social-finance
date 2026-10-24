@@ -18,10 +18,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:social_finance/features/iuran/data/iuran_api_client.dart';
-import 'package:social_finance/features/iuran/data/iuran_api_models.dart'
-    show IuranBill;
+import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
+import 'package:social_finance/features/iuran/data/iuran_models.dart' show IuranBill;
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
 import 'package:social_finance/features/iuran/presentation/screens/iuran_form_screen.dart';
+import 'package:social_finance/core/widgets/app_text_field.dart';
 
 // ─── Fake Repositories ──────────────────────────────────────────────────
 
@@ -248,22 +249,23 @@ void main() {
         await tester.tap(find.text('Sukarela'));
         await tester.pumpAndSettle();
 
-        // Enter amount
+        // Enter required fields. The voluntary amount may be zero.
+        await tester.enterText(find.byType(TextField).at(0), 'Sumbangan Test');
         await tester.enterText(find.byType(TextField).at(1), '0');
         await tester.pumpAndSettle();
 
         // ValidUntil field muncul setelah switch sukarela
         // Scroll ke bawah untuk menemukan date field
+        final validUntilField = find.byKey(const ValueKey('iuran-valid-until-field'));
         await tester.scrollUntilVisible(
-          find.byIcon(Icons.calendar_today),
+          validUntilField,
           500,
+          scrollable: find.byType(Scrollable).first,
         );
         await tester.pumpAndSettle();
 
         // Tap date field to open picker
-        final calendarIcon = find.widgetWithIcon(IconButton, Icons.calendar_today);
-        expect(calendarIcon, findsOneWidget);
-        await tester.tap(calendarIcon);
+        await tester.tap(validUntilField);
         await tester.pumpAndSettle();
 
         // Pick date 15
@@ -271,9 +273,21 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('OK').last);
         await tester.pumpAndSettle();
+        final validUntilText = tester.widget<TextField>(
+          find.descendant(of: validUntilField, matching: find.byType(TextField)),
+        ).controller!.text;
+        expect(validUntilText, matches(RegExp(r'^\d{4}-\d{2}-\d{2}$')));
 
         // Save
-        await _tapSave(tester);
+        final saveButton = find.byKey(const ValueKey('iuran-save-button'));
+        await tester.scrollUntilVisible(
+          saveButton,
+          500,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(saveButton, warnIfMissed: false);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
 
         expect(fake.lastCall, isNotNull);
         expect(fake.lastCall!.isVoluntary, isTrue);
@@ -294,7 +308,8 @@ void main() {
         await tester.tap(find.text('Sukarela'));
         await tester.pumpAndSettle();
 
-        // Don't touch the date field — leave it empty
+        // Fill required fields but leave the date field empty.
+        await tester.enterText(find.byType(TextField).at(0), 'Sumbangan Test');
         await tester.enterText(find.byType(TextField).at(1), '0');
         await tester.pumpAndSettle();
 
