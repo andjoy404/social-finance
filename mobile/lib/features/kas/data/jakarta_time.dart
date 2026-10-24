@@ -64,9 +64,7 @@ DateTime toJakartaUtc(String dateStr) {
 /// @returns ISO 8601 string like "2026-10-22T10:30:00.000+07:00"
 String formatJakartaIso8601(DateTime dateTime) {
   final jakarta = dateTime.add(const Duration(hours: _jakartaOffsetHours));
-  return (
-    '${jakarta.year}-${_pad2(jakarta.month)}-${_pad2(jakarta.day)}T'
-    '${_pad2(jakarta.hour)}:${_pad2(jakarta.minute)}:${_pad2(jakarta.second)}.'
-    '${_pad3(jakarta.millisecond)}+07:00'
-  );
+  return ('${jakarta.year}-${_pad2(jakarta.month)}-${_pad2(jakarta.day)}T'
+      '${_pad2(jakarta.hour)}:${_pad2(jakarta.minute)}:${_pad2(jakarta.second)}.'
+      '${_pad3(jakarta.millisecond)}+07:00');
 }

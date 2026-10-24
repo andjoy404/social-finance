@@ -6,6 +6,8 @@ class AuthUser {
   final String role;
   final String? rtId;
   final String? rtCode;
+  final String? rtName;
+  final String? rtAddress;
   final String? rwId;
   final String? rwCode;
   final String? rwName;
@@ -23,6 +25,8 @@ class AuthUser {
     required this.role,
     this.rtId,
     this.rtCode,
+    this.rtName,
+    this.rtAddress,
     this.rwId,
     this.rwCode,
     this.rwName,
@@ -49,6 +53,7 @@ class AuthUser {
     final rtId =
         json['rt_id'] as String? ??
         (rawRt is Map ? rawRt['id'] as String? : null);
+    final rtAddress = json['rt_address'] as String?;
     final rwId = json['rw_id'] as String?;
     final rwName = json['rw_name'] as String?;
     final rawRtRw = json['rt_rw'] ?? (rawRt is Map ? rawRt['rw'] : null);
@@ -81,6 +86,8 @@ class AuthUser {
       role: json['role'] as String? ?? '',
       rtId: rtId,
       rtCode: rtCode,
+      rtName: rtName,
+      rtAddress: rtAddress,
       rwId: rwId,
       rwCode: rwCode,
       rwName: rwName,
@@ -100,6 +107,8 @@ class AuthUser {
     'role': role,
     if (rtId != null) 'rt_id': rtId,
     if (rtCode != null) 'rt_rt': rtCode,
+    if (rtName != null) 'rt_name': rtName,
+    if (rtAddress != null) 'rt_address': rtAddress,
     if (rwId != null) 'rw_id': rwId,
     if (rwCode != null) 'rt_rw': int.tryParse(rwCode!) ?? rwCode,
     if (rwName != null) 'rw_name': rwName,

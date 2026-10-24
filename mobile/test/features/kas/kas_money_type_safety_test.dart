@@ -11,48 +11,89 @@ void main() {
   group('KAS money type-safety — nominal/saldo are Strings', () {
     test('all mock transactions have String nominal', () {
       for (final tx in KasMockData.getTransactions()) {
-        expect(tx.nominal, isA<String>(), reason: 'nominal for ${tx.id} must be String');
+        expect(
+          tx.nominal,
+          isA<String>(),
+          reason: 'nominal for ${tx.id} must be String',
+        );
       }
     });
 
     test('all mock transactions have String saldo', () {
       for (final tx in KasMockData.getTransactions()) {
-        expect(tx.saldo, isA<String>(), reason: 'saldo for ${tx.id} must be String');
+        expect(
+          tx.saldo,
+          isA<String>(),
+          reason: 'saldo for ${tx.id} must be String',
+        );
       }
     });
 
     test('all nominal values parse to valid non-negative integers', () {
       for (final tx in KasMockData.getTransactions()) {
         final parsed = int.tryParse(tx.nominal);
-        expect(parsed, isNotNull, reason: 'nominal "${tx.nominal}" must parse to int');
-        expect(parsed!, equals(int.parse(tx.nominal))); // no leading zeros or sign chars
-        expect(parsed, greaterThanOrEqualTo(0), reason: 'nominal for ${tx.id} must be non-negative');
+        expect(
+          parsed,
+          isNotNull,
+          reason: 'nominal "${tx.nominal}" must parse to int',
+        );
+        expect(
+          parsed!,
+          equals(int.parse(tx.nominal)),
+        ); // no leading zeros or sign chars
+        expect(
+          parsed,
+          greaterThanOrEqualTo(0),
+          reason: 'nominal for ${tx.id} must be non-negative',
+        );
       }
     });
 
     test('all saldo values parse to valid integers', () {
       for (final tx in KasMockData.getTransactions()) {
         final parsed = int.tryParse(tx.saldo);
-        expect(parsed, isNotNull, reason: 'saldo "${tx.saldo}" must parse to int');
+        expect(
+          parsed,
+          isNotNull,
+          reason: 'saldo "${tx.saldo}" must parse to int',
+        );
       }
     });
 
     test('no empty nominal or saldo values', () {
       for (final tx in KasMockData.getTransactions()) {
-        expect(tx.nominal.isNotEmpty, isTrue, reason: 'nominal must not be empty for ${tx.id}');
-        expect(tx.saldo.isNotEmpty, isTrue, reason: 'saldo must not be empty for ${tx.id}');
+        expect(
+          tx.nominal.isNotEmpty,
+          isTrue,
+          reason: 'nominal must not be empty for ${tx.id}',
+        );
+        expect(
+          tx.saldo.isNotEmpty,
+          isTrue,
+          reason: 'saldo must not be empty for ${tx.id}',
+        );
       }
     });
 
-    test('nominal values within NUMERIC(15,2) range (max 13 digits, no decimal)', () {
-      for (final tx in KasMockData.getTransactions()) {
-        // NUMERIC(15,2) means 13 digits before decimal + 2 after = max 13 digits for integer amounts
-        expect(tx.nominal.length, lessThanOrEqualTo(13),
-            reason: 'nominal "${tx.nominal}" exceeds NUMERIC(15,2) integer capacity for ${tx.id}');
-        expect(tx.nominal.contains('.'), isFalse,
-            reason: 'nominal must not contain decimal point for ${tx.id}');
-      }
-    });
+    test(
+      'nominal values within NUMERIC(15,2) range (max 13 digits, no decimal)',
+      () {
+        for (final tx in KasMockData.getTransactions()) {
+          // NUMERIC(15,2) means 13 digits before decimal + 2 after = max 13 digits for integer amounts
+          expect(
+            tx.nominal.length,
+            lessThanOrEqualTo(13),
+            reason:
+                'nominal "${tx.nominal}" exceeds NUMERIC(15,2) integer capacity for ${tx.id}',
+          );
+          expect(
+            tx.nominal.contains('.'),
+            isFalse,
+            reason: 'nominal must not contain decimal point for ${tx.id}',
+          );
+        }
+      },
+    );
   });
 
   group('formatRupiah — String input', () {

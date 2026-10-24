@@ -399,6 +399,8 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
           : _profilePermissionsUnavailable,
       'rt_id': user.rtId,
       'rt': user.rtCode,
+      'rt_name': user.rtName,
+      'rt_address': user.rtAddress,
       'rw': user.rwCode,
       'rw_id': user.rwId,
       'rw_name': user.rwName,

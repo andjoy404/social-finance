@@ -27,6 +27,21 @@ dependencies:
   intl: ^0.20.2
   fl_chart: ^0.69.0
   image_picker: ^1.2.4
+  path_provider: ^2.1.5
+  share_plus: ^13.3.1
+
+  # PDF generation
+  pdf: ^3.11.3
+  printing: ^5.13.4
+
+  # Excel generation
+  excel: ^4.0.6
+
+  # File system access
+  file: ^7.0.0
+
+  # Save file to device storage
+  file_saver: ^0.7.0
 
   # Firebase Push Notifications
   firebase_core: ^5.0.0

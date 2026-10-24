@@ -17,6 +17,12 @@ class KasRepository {
 
   KasRepository({required this.apiClient});
 
+  // ─── RT identity ────────────────────────────────────────────────────
+
+  Future<BackendRTIdentity> fetchRTIdentity(String rtId) {
+    return apiClient.getRTIdentity(rtId);
+  }
+
   // ─── Transactions ───────────────────────────────────────────────────
 
   /// Fetch paginated transactions with optional filters.
@@ -93,6 +99,30 @@ class KasRepository {
     return allTransactions;
   }
 
+  /// Fetch ALL backend transactions (every page, 100 per page = backend cap)
+  /// without UI-model mapping, so report code keeps category name, payment
+  /// method and status exactly as the API returned them.
+  Future<List<BackendTransaction>> fetchAllBackendTransactions({
+    String? status,
+    String? period,
+  }) async {
+    final all = <BackendTransaction>[];
+    var page = 1;
+    var totalPages = 1;
+    do {
+      final response = await apiClient.listTransactions(
+        status: status,
+        period: period,
+        page: page,
+        pageSize: 100,
+      );
+      all.addAll(response.data);
+      totalPages = response.pagination.totalPages;
+      page++;
+    } while (page <= totalPages);
+    return all;
+  }
+
   /// Fetch a single transaction detail by ID.
   Future<KasTransaction> getTransaction(String id) async {
     final backendTx = await apiClient.getTransaction(id);
@@ -145,11 +175,16 @@ class KasRepository {
     final jenis = bt.type == 'expense' ? KasJenis.keluar : KasJenis.masuk;
 
     // Use categoryName from backend if available, otherwise derive from category
-    final kategori = _resolveKategoriFromBackend(bt.categoryName ?? bt.categoryId);
+    final kategori = _resolveKategoriFromBackend(
+      bt.categoryName ?? bt.categoryId,
+    );
 
-    final ref = bt.paymentNo ??
+    final ref =
+        bt.paymentNo ??
         (bt.paymentId != null && bt.paymentId!.isNotEmpty
-            ? (bt.paymentId!.length >= 8 ? 'PAY-${bt.paymentId!.substring(0, 8)}' : bt.paymentId)
+            ? (bt.paymentId!.length >= 8
+                  ? 'PAY-${bt.paymentId!.substring(0, 8)}'
+                  : bt.paymentId)
             : (bt.reversesTransactionId != null ? 'Reversal' : null));
 
     return KasTransaction(
@@ -166,9 +201,7 @@ class KasRepository {
       officerName: bt.officerName,
       houseNumber: bt.houseNumber,
       paymentMethod: bt.paymentMethod,
-      createdAt: bt.createdAt != null
-          ? DateTime.tryParse(bt.createdAt!)
-          : null,
+      createdAt: bt.createdAt != null ? DateTime.tryParse(bt.createdAt!) : null,
       nominal: bt.amount,
       saldo: '0', // Balance is computed server-side, not per-transaction
     );
@@ -182,10 +215,12 @@ class KasRepository {
     if (normalized.contains('operasional')) {
       return KasCategory.operasionalRT;
     }
-    if (normalized.contains('iuran warga') || normalized.contains('iuranwarga')) {
+    if (normalized.contains('iuran warga') ||
+        normalized.contains('iuranwarga')) {
       return KasCategory.iuranWarga;
     }
-    if (normalized.contains('iuran paksa') || normalized.contains('iuranpaksa')) {
+    if (normalized.contains('iuran paksa') ||
+        normalized.contains('iuranpaksa')) {
       return KasCategory.iuranPaksa;
     }
     if (normalized.contains('perlengkapan')) {
@@ -220,7 +255,9 @@ class KasRepository {
       id: id,
       categoryId: categoryId,
       amount: amount != null ? _formatMoney(amount) : null,
-      type: jenis != null ? (jenis == KasJenis.keluar ? 'expense' : 'income') : null,
+      type: jenis != null
+          ? (jenis == KasJenis.keluar ? 'expense' : 'income')
+          : null,
       description: description,
       occurredAt: occurredAt,
       paymentMethod: paymentMethod,

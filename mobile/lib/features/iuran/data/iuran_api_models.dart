@@ -146,6 +146,7 @@ class BackendDue {
       paymentRule: _parsePaymentRule(json['payment_rule'] as String?),
       isVoluntary: json['is_voluntary'] as bool? ?? false,
       isActive: json['is_active'] as bool? ?? true,
+      validUntil: json['valid_until'] as String?,
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
     );

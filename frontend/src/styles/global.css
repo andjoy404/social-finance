@@ -1650,6 +1650,29 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
   cursor: not-allowed;
 }
 
+.sf-btn-outline {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--sf-accent);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--sf-accent) 38%, var(--sf-border));
+  border-radius: var(--sf-radius-sm);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.sf-btn-outline:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sf-accent) 8%, var(--sf-bg));
+  border-color: var(--sf-accent);
+}
+
+.sf-btn-outline:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .sf-btn-ghost {
   padding: 8px 20px;
   font-size: 13px;
@@ -1949,4 +1972,124 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
 .table-wrapper table.sf-warga-table td.col-email {
   min-width: 180px;
   text-align: left !important;
+}
+
+/* ── Laporan KAS: dokumen formal (kertas putih, terbaca di tema terang/gelap) ── */
+.sf-kas-report-header { margin-top: 20px; margin-bottom: 20px; }
+.sf-kas-history-header { margin-top: 16px; margin-bottom: 0; }
+.sf-kas-history-content { margin-top: 0; }
+.sf-kas-export-pdf,
+.sf-kas-export-xlsx {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  border-radius: var(--sf-radius-sm);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 100ms ease;
+}
+.sf-kas-export-pdf {
+  color: #ff6b6b;
+  background: color-mix(in srgb, #ff3b30 12%, var(--sf-bg));
+  border: 1px solid color-mix(in srgb, #ff3b30 70%, var(--sf-border));
+  box-shadow: 0 0 8px color-mix(in srgb, #ff3b30 38%, transparent);
+}
+.sf-kas-export-pdf:hover:not(:disabled),
+.sf-kas-export-pdf:focus-visible {
+  color: #fff;
+  background: #ff3b30;
+  border-color: #ff6b6b;
+  box-shadow: 0 0 12px rgba(255, 59, 48, 0.75);
+}
+.sf-kas-export-xlsx {
+  color: #73d98b;
+  background: color-mix(in srgb, #34c759 12%, var(--sf-bg));
+  border: 1px solid color-mix(in srgb, #34c759 70%, var(--sf-border));
+  box-shadow: 0 0 8px color-mix(in srgb, #34c759 38%, transparent);
+}
+.sf-kas-export-xlsx:hover:not(:disabled),
+.sf-kas-export-xlsx:focus-visible {
+  color: #fff;
+  background: #34c759;
+  border-color: #73d98b;
+  box-shadow: 0 0 12px rgba(52, 199, 89, 0.75);
+}
+.sf-kas-export-pdf:active:not(:disabled),
+.sf-kas-export-xlsx:active:not(:disabled) { transform: translateY(1px); }
+.sf-kas-export-pdf:disabled,
+.sf-kas-export-xlsx:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.sf-kas-export-pdf:focus-visible,
+.sf-kas-export-xlsx:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.sf-kas-export-print { color: #c0c0c0; border-color: #808080; text-shadow: 0 0 8px rgba(192, 192, 192, 0.7); box-shadow: 0 0 10px rgba(192, 192, 192, 0.4); transition: color .15s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease, transform .1s ease, text-shadow .15s ease; }
+.sf-kas-export-print:hover:not(:disabled),
+.sf-kas-export-print:focus-visible { color: #fff; background: #808080; border-color: #c0c0c0; box-shadow: 0 0 16px rgba(192, 192, 192, 0.9); text-shadow: 0 0 12px rgba(255, 255, 255, 0.9); }
+.sf-kas-export-print:active:not(:disabled) { transform: translateY(1px); }
+.sf-kas-export-print:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.sf-kas-doc {
+  background: #fff;
+  color: #000;
+  border: 1px solid var(--sf-border);
+  border-radius: var(--sf-radius-md);
+  padding: 20px;
+  margin-bottom: 16px;
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.sf-kas-doc-head { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+.sf-kas-doc-logo { width: 64px; height: 64px; object-fit: contain; flex: none; }
+.sf-kas-doc-title { flex: 1; text-align: center; font-weight: 700; font-size: 14px; line-height: 1.45; }
+.sf-kas-doc-title-main { font-weight: 700; font-size: 15px; text-transform: uppercase; }
+.sf-kas-doc-scroll { overflow-x: auto; }
+.sf-kas-doc-table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: #000;
+  table-layout: fixed;
+}
+.sf-kas-doc-table th,
+.sf-kas-doc-table td {
+  border: 1px solid #000;
+  padding: 3px 8px;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.sf-kas-doc-table th { text-align: left; font-weight: 700; background: #fff; }
+.sf-kas-doc-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sf-kas-doc-table thead th:nth-child(1) { width: 36px; }
+.sf-kas-doc-table thead th:nth-child(2) { width: auto; min-width: 120px; }
+.sf-kas-doc-table thead th:nth-child(3),
+.sf-kas-doc-table thead th:nth-child(4) { width: 100px; }
+.sf-kas-doc-table thead th:nth-child(5) { width: 110px; }
+.sf-kas-doc-table tbody td:nth-child(1) { width: 36px; text-align: right; }
+.sf-kas-doc-table tbody td:nth-child(2) { width: auto; min-width: 120px; }
+.sf-kas-doc-table tbody td:nth-child(3),
+.sf-kas-doc-table tbody td:nth-child(4) { width: 100px; text-align: right; }
+.sf-kas-doc-table tbody td:nth-child(5) { width: 110px; text-align: right; }
+.sf-kas-doc-table tr { break-inside: avoid; }
+.sf-kas-doc-table tr.kind-subtotal td, .sf-kas-doc-table tr.kind-total td { font-weight: 700; }
+.sf-kas-doc-table tr.kind-total td { font-size: 14px; }
+.sf-kas-doc-table tr.kind-grand td { font-weight: 700; font-size: 15px; }
+.sf-kas-doc-table.recap th { background: #ddebf7; border: none; }
+.sf-kas-doc-table.recap td { border: none; }
+.sf-kas-doc-table.recap tr.kind-grand td { background: #ddebf7; }
+.sf-kas-doc-empty { padding: 10px; text-align: center; font-size: 13px; color: #444; }
+.sf-kas-doc-foot { margin-top: 12px; font-size: 11px; color: #444; }
+
+@media (max-width: 600px) {
+  .sf-kas-doc { padding: 10px; }
+  .sf-kas-doc-head { flex-direction: column; }
+  .sf-kas-doc-table { font-size: 11px; }
+}
+
+@media print {
+  body * { visibility: hidden; }
+  .sf-kas-doc, .sf-kas-doc * { visibility: visible; }
+  .sf-kas-doc { position: absolute; left: 0; top: 0; width: 100%; max-width: none; border: none; padding: 0; }
+  .sf-no-print { display: none !important; }
+  .sf-kas-doc-table thead { display: table-header-group; }
+  @page { size: A4 portrait; margin: 12mm; }
 }
