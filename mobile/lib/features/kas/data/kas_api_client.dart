@@ -99,6 +99,7 @@ class KasApiClient {
     required String description,
     DateTime? occurredAt,
     String? paymentMethod,
+    String? locationId,
     required String idempotencyKey,
   }) async {
     final Map<String, dynamic> body = {
@@ -108,6 +109,9 @@ class KasApiClient {
     };
     if (categoryId != null && categoryId.isNotEmpty) {
       body['category_id'] = categoryId;
+    }
+    if (locationId != null && locationId.isNotEmpty) {
+      body['location_id'] = locationId;
     }
     if (paymentMethod != null && paymentMethod.isNotEmpty) {
       body['payment_method'] = paymentMethod;
@@ -136,10 +140,14 @@ class KasApiClient {
     String? description,
     DateTime? occurredAt,
     String? paymentMethod,
+    String? locationId,
   }) async {
     final Map<String, dynamic> body = {};
     if (categoryId != null && categoryId.isNotEmpty) {
       body['category_id'] = categoryId;
+    }
+    if (locationId != null && locationId.isNotEmpty) {
+      body['location_id'] = locationId;
     }
     if (amount != null && amount.isNotEmpty) {
       body['amount'] = amount;

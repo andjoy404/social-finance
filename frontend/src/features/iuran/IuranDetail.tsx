@@ -33,7 +33,10 @@ import {
   apiListPayments,
   apiGetPaymentProofBlob,
   apiVerifyPayment,
+  apiReversePayment,
+  apiListFundLocations,
   getSessionPair,
+  type FundLocation,
 } from '@/app/api'
 import { useAuth, type AuthUser } from '@/app/AuthContext'
 
@@ -727,10 +730,14 @@ function PaymentDetailModal({
   payment,
   onClose,
   onViewProof,
+  canApprove,
+  onReverse,
 }: {
   payment: IuranPaymentRecord
   onClose: () => void
   onViewProof?: (paymentId: string) => void
+  canApprove?: boolean
+  onReverse?: () => void
 }) {
   const isApproved = payment.status === 'APPROVED'
   const isRejected = payment.status === 'REJECTED'
@@ -1015,9 +1022,21 @@ function PaymentDetailModal({
         </div>
       </ModalBody>
       <ModalFooter>
-        <button type="button" className="sf-btn-primary" onClick={onClose}>
-          Tutup
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+          {canApprove && isApproved && onReverse ? (
+            <button
+              type="button"
+              className="sf-btn"
+              onClick={onReverse}
+              style={{ color: 'var(--sf-danger)', border: '1px solid var(--sf-danger)', background: 'transparent', cursor: 'pointer' }}
+            >
+              Batalkan Pembayaran (Reversal)
+            </button>
+          ) : <div />}
+          <button type="button" className="sf-btn-primary" onClick={onClose}>
+            Tutup
+          </button>
+        </div>
       </ModalFooter>
     </Modal>
   )
@@ -1062,6 +1081,20 @@ export function IuranDetail({
   const [verifyingPayment, setVerifyingPayment] = useState<IuranPaymentRecord | null>(null)
   const [previewingProofId, setPreviewingProofId] = useState<string | null>(null)
   const [selectedPaymentDetail, setSelectedPaymentDetail] = useState<IuranPaymentRecord | null>(null)
+  const [fundLocations, setFundLocations] = useState<FundLocation[]>([])
+  const [reversingPayment, setReversingPayment] = useState<IuranPaymentRecord | null>(null)
+  const [reversalReason, setReversalReason] = useState('')
+  const [reversingLoading, setReversingLoading] = useState(false)
+  const [reversalError, setReversalError] = useState('')
+
+  useEffect(() => {
+    const token = getSessionPair()?.accessToken
+    if (token) {
+      apiListFundLocations(token, { is_active: true })
+        .then(setFundLocations)
+        .catch(() => {})
+    }
+  }, [])
 
   // Load bill data
   const loadBill = useCallback(async () => {
@@ -1178,7 +1211,7 @@ export function IuranDetail({
 
   // ── Verification handlers ────────────────────────────────────────
 
-  async function handleApprove(paymentId: string) {
+  async function handleApprove(paymentId: string, locationId?: string) {
     if (!window.confirm('Terima pembayaran ini?')) return
     setVerifyingId(paymentId)
     setRejectError('')
@@ -1188,7 +1221,7 @@ export function IuranDetail({
         setError('Sesi telah berakhir. Silakan login ulang.')
         return
       }
-      await apiVerifyPayment(token, paymentId, 'approve', { officerNotes: officerNotes.trim() || undefined })
+      await apiVerifyPayment(token, paymentId, 'approve', { officerNotes: officerNotes.trim() || undefined, locationId })
       setOfficerNotes('')
       setVerifyingPayment(null)
       await loadBill()
@@ -1198,6 +1231,30 @@ export function IuranDetail({
       setRejectError(msg)
     } finally {
       setVerifyingId(null)
+    }
+  }
+
+  async function handleReversePayment(e: React.FormEvent) {
+    e.preventDefault()
+    if (!reversingPayment) return
+    if (!reversalReason.trim()) {
+      setReversalError('Alasan pembatalan (reversal) wajib diisi.')
+      return
+    }
+    setReversingLoading(true)
+    setReversalError('')
+    try {
+      const token = getSessionPair()?.accessToken
+      if (!token) throw new Error('Sesi telah berakhir. Silakan login ulang.')
+      await apiReversePayment(token, reversingPayment.id, reversalReason.trim())
+      setReversingPayment(null)
+      setReversalReason('')
+      await loadBill()
+      onStatusChange?.()
+    } catch (err: any) {
+      setReversalError(err?.message || 'Gagal membatalkan pembayaran')
+    } finally {
+      setReversingLoading(false)
     }
   }
 
@@ -1381,6 +1438,7 @@ export function IuranDetail({
             officerNotes={officerNotes}
             rejectError={rejectError}
             canApprove={canApprove}
+            fundLocations={fundLocations}
             onClose={() => setVerifyingPayment(null)}
             onNotesChange={setOfficerNotes}
             onPreviewProof={(paymentId) => setPreviewingProofId(paymentId)}
@@ -1393,9 +1451,52 @@ export function IuranDetail({
         {selectedPaymentDetail && (
           <PaymentDetailModal
             payment={selectedPaymentDetail}
+            canApprove={canApprove}
+            onReverse={() => {
+              setReversingPayment(selectedPaymentDetail)
+              setSelectedPaymentDetail(null)
+            }}
             onClose={() => setSelectedPaymentDetail(null)}
             onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
           />
+        )}
+
+        {/* Reversal Confirmation Modal in Modal Mode */}
+        {reversingPayment && (
+          <Modal open onClose={() => setReversingPayment(null)} width={460}>
+            <ModalHeader title="Batalkan Pembayaran (Reversal)" onClose={() => setReversingPayment(null)} />
+            <form onSubmit={handleReversePayment}>
+              <ModalBody>
+                <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--sf-text)' }}>
+                  Apakah Anda yakin ingin membatalkan verifikasi pembayaran sebesar <strong>{formatRupiah(reversingPayment.nominal)}</strong>?
+                </div>
+                <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                  Tagihan warga akan kembali berstatus Belum Lunas dan transaksi pengeluaran penyesuaian akan dicatat pada buku kas dan lokasi dana terkait.
+                </div>
+                {reversalError && (
+                  <div style={{ padding: 8, background: 'rgba(242, 73, 92, 0.1)', color: 'var(--sf-danger)', borderRadius: 4, marginBottom: 12, fontSize: 13 }}>
+                    {reversalError}
+                  </div>
+                )}
+                <div style={{ marginBottom: 12 }}>
+                  <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Alasan Pembatalan *</label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: Bukti transfer palsu, salah konfirmasi"
+                    value={reversalReason}
+                    onChange={(e) => setReversalReason(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-surface)', color: 'var(--sf-text)' }}
+                  />
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <button type="button" className="sf-btn-ghost" onClick={() => setReversingPayment(null)}>Batal</button>
+                <button type="submit" className="sf-btn" disabled={reversingLoading} style={{ background: 'var(--sf-danger)', color: '#fff' }}>
+                  {reversingLoading ? 'Memproses...' : 'Konfirmasi Reversal'}
+                </button>
+              </ModalFooter>
+            </form>
+          </Modal>
         )}
 
         {/* Proof Preview Modal — rendered after PaymentDetailModal so it stacks on top */}
@@ -1521,6 +1622,7 @@ export function IuranDetail({
               officerNotes={officerNotes}
               rejectError={rejectError}
               canApprove={canApprove}
+              fundLocations={fundLocations}
               onClose={() => setVerifyingPayment(null)}
               onNotesChange={setOfficerNotes}
               onPreviewProof={(paymentId) => setPreviewingProofId(paymentId)}
@@ -1533,9 +1635,52 @@ export function IuranDetail({
           {selectedPaymentDetail && (
             <PaymentDetailModal
               payment={selectedPaymentDetail}
+              canApprove={canApprove}
+              onReverse={() => {
+                setReversingPayment(selectedPaymentDetail)
+                setSelectedPaymentDetail(null)
+              }}
               onClose={() => setSelectedPaymentDetail(null)}
               onViewProof={(paymentId) => setPreviewingProofId(paymentId)}
             />
+          )}
+
+          {/* Reversal Confirmation Modal in Page Mode */}
+          {reversingPayment && (
+            <Modal open onClose={() => setReversingPayment(null)} width={460}>
+              <ModalHeader title="Batalkan Pembayaran (Reversal)" onClose={() => setReversingPayment(null)} />
+              <form onSubmit={handleReversePayment}>
+                <ModalBody>
+                  <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--sf-text)' }}>
+                    Apakah Anda yakin ingin membatalkan verifikasi pembayaran sebesar <strong>{formatRupiah(reversingPayment.nominal)}</strong>?
+                  </div>
+                  <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                    Tagihan warga akan kembali berstatus Belum Lunas dan transaksi pengeluaran penyesuaian akan dicatat pada buku kas dan lokasi dana terkait.
+                  </div>
+                  {reversalError && (
+                    <div style={{ padding: 8, background: 'rgba(242, 73, 92, 0.1)', color: 'var(--sf-danger)', borderRadius: 4, marginBottom: 12, fontSize: 13 }}>
+                      {reversalError}
+                    </div>
+                  )}
+                  <div style={{ marginBottom: 12 }}>
+                    <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Alasan Pembatalan *</label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: Bukti transfer palsu, salah konfirmasi"
+                      value={reversalReason}
+                      onChange={(e) => setReversalReason(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-surface)', color: 'var(--sf-text)' }}
+                    />
+                  </div>
+                </ModalBody>
+                <ModalFooter>
+                  <button type="button" className="sf-btn-ghost" onClick={() => setReversingPayment(null)}>Batal</button>
+                  <button type="submit" className="sf-btn" disabled={reversingLoading} style={{ background: 'var(--sf-danger)', color: '#fff' }}>
+                    {reversingLoading ? 'Memproses...' : 'Konfirmasi Reversal'}
+                  </button>
+                </ModalFooter>
+              </form>
+            </Modal>
           )}
 
           {/* Proof Preview Modal in Page Mode — rendered after PaymentDetailModal so it stacks on top */}
@@ -1557,6 +1702,7 @@ function VerificationDialog({
   officerNotes,
   rejectError,
   canApprove = true,
+  fundLocations = [],
   onClose,
   onNotesChange,
   onPreviewProof,
@@ -1568,12 +1714,30 @@ function VerificationDialog({
   officerNotes: string
   rejectError: string
   canApprove?: boolean
+  fundLocations?: FundLocation[]
   onClose: () => void
   onNotesChange: (notes: string) => void
   onPreviewProof: (paymentId: string) => void
   onReject: (paymentId: string) => void
-  onApprove: (paymentId: string) => void
+  onApprove: (paymentId: string, locationId?: string) => void
 }) {
+  const eligibleLocations = useMemo(() => {
+    const method = verifyingPayment.method?.toUpperCase() || 'CASH'
+    if (method === 'CASH') {
+      return fundLocations.filter((l) => (l.category === 'coh' || l.category === 'brankas') && l.is_active)
+    }
+    if (method === 'TRANSFER') {
+      return fundLocations.filter((l) => l.category === 'rekening' && l.is_active)
+    }
+    return fundLocations.filter((l) => l.is_active)
+  }, [fundLocations, verifyingPayment.method])
+
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(() => {
+    if (eligibleLocations.length === 1) {
+      return eligibleLocations[0].id
+    }
+    return ''
+  })
   return (
     <div
       style={{
@@ -1751,6 +1915,72 @@ function VerificationDialog({
             )}
           </div>
 
+          {/* Lokasi Dana (GAP B) */}
+          {canApprove && (
+            <div style={{ marginBottom: '16px' }}>
+              <label
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--sf-text)',
+                  marginBottom: '6px',
+                  display: 'block',
+                }}
+              >
+                Lokasi Dana Penampungan <span style={{ color: 'var(--sf-danger)' }}>*</span>
+              </label>
+
+              {eligibleLocations.length === 0 ? (
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    color: 'var(--sf-danger)',
+                    background: 'var(--sf-danger-soft)',
+                    border: '1px solid rgba(242,73,92,0.3)',
+                    borderRadius: 'var(--sf-radius-sm)',
+                  }}
+                >
+                  Tidak ada lokasi dana aktif yang sesuai untuk metode pembayaran{' '}
+                  <strong>{verifyingPayment.method || 'CASH'}</strong>.
+                  Harap tambahkan lokasi dana ({verifyingPayment.method === 'TRANSFER' ? 'Rekening Bank' : 'Brankas / COH'}) di menu Lokasi Dana terlebih dahulu.
+                </div>
+              ) : (
+                <>
+                  <select
+                    value={selectedLocationId}
+                    onChange={(e) => setSelectedLocationId(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      color: 'var(--sf-text)',
+                      background: 'var(--sf-surface)',
+                      border: '1px solid var(--sf-border)',
+                      borderRadius: 'var(--sf-radius-sm)',
+                    }}
+                  >
+                    {eligibleLocations.length > 1 && (
+                      <option value="">-- Pilih Rekening / Brankas Tujuan --</option>
+                    )}
+                    {eligibleLocations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name} ({loc.category.toUpperCase()})
+                        {loc.bank_name ? ` - ${loc.bank_name}` : ''}
+                        {loc.account_number ? ` (${loc.account_number})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {eligibleLocations.length === 1 && (
+                    <div style={{ fontSize: '11px', color: 'var(--sf-text-muted)', marginTop: '4px' }}>
+                      Otomatis memilih satu-satunya lokasi yang sesuai untuk metode {verifyingPayment.method || 'CASH'}.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* Officer notes */}
           {canApprove && (
             <div style={{ marginBottom: '16px' }}>
@@ -1870,8 +2100,8 @@ function VerificationDialog({
               </button>
               <button
                 type="button"
-                onClick={() => onApprove(verifyingPayment.id)}
-                disabled={verifyingId === verifyingPayment.id}
+                onClick={() => onApprove(verifyingPayment.id, selectedLocationId || undefined)}
+                disabled={verifyingId === verifyingPayment.id || eligibleLocations.length === 0 || !selectedLocationId}
                 style={{
                   padding: '8px 16px',
                   fontSize: '13px',
@@ -1880,7 +2110,7 @@ function VerificationDialog({
                   background: 'var(--sf-success-soft)',
                   border: '1px solid rgba(46,204,113,0.3)',
                   borderRadius: 'var(--sf-radius-sm)',
-                  cursor: verifyingId === verifyingPayment.id ? 'not-allowed' : 'pointer',
+                  cursor: (verifyingId === verifyingPayment.id || eligibleLocations.length === 0 || !selectedLocationId) ? 'not-allowed' : 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',

@@ -361,12 +361,24 @@ class IuranRepository {
     required String action,
     String? rejectionReason,
     String? officerNotes,
+    String? locationId,
   }) async {
     return apiClient.verifyPayment(
       paymentId,
       action: action,
       rejectionReason: rejectionReason,
       officerNotes: officerNotes,
+      locationId: locationId,
+    );
+  }
+
+  Future<BackendPayment> reversePayment(
+    String paymentId, {
+    required String reason,
+  }) async {
+    return apiClient.reversePayment(
+      paymentId,
+      reason: reason,
     );
   }
 

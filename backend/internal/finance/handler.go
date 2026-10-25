@@ -2229,3 +2229,72 @@ func (h *Handler) GetDashboardSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summary)
 }
 
+func (h *Handler) ReversePayment(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		httpx.WriteForbidden(w, "super admin is read-only")
+		return
+	}
+	if ac.TenantRole != auth.RoleBendahara && ac.TenantRole != auth.RolePengurus {
+		httpx.WriteForbidden(w, "insufficient permissions")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+
+	var in ReversePaymentInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "database error")
+		return
+	}
+	defer tx.Rollback()
+
+	revTx, err := h.svc.ReverseApprovedPayment(r.Context(), tx, ac.RTID, ac.UserID, id, in.Reason)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "payment not found")
+			return
+		}
+		if errors.Is(err, ErrCannotReverseNonApprovedPayment) {
+			httpx.WriteError(w, http.StatusConflict, "invalid_status", "only approved payments can be reversed")
+			return
+		}
+		if errors.Is(err, ErrInsufficientReversalBalance) || errors.Is(err, ErrInsufficientFunds) {
+			httpx.WriteError(w, http.StatusUnprocessableEntity, "INSUFFICIENT_REVERSAL_BALANCE", err.Error())
+			return
+		}
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteInternalServerError(w, "commit error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":      "success",
+		"message":     "payment reversed successfully",
+		"transaction": revTx,
+	})
+}
+

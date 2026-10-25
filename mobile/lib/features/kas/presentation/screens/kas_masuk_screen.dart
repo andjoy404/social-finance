@@ -20,6 +20,8 @@ import 'package:social_finance/features/kas/data/kas_api_models.dart';
 import 'package:social_finance/features/kas/data/kas_models.dart';
 import 'package:social_finance/features/kas/data/kas_repository.dart';
 import 'package:social_finance/features/kas/data/jakarta_time.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
+import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// Generates a v4-style random UUID for idempotency keys.
@@ -45,6 +47,13 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
   final _nominalCtrl = TextEditingController();
   final _keteranganCtrl = TextEditingController();
 
+  List<BackendCategory> _incomeCategories = [];
+  String? _selectedCategoryId;
+  bool _loadingCategories = true;
+
+  List<FundLocation> _locations = [];
+  String? _selectedLocationId;
+
   String _paymentMethod = 'CASH';
   bool _saving = false;
   String? _error;
@@ -58,6 +67,46 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
     final now = DateTime.now();
     _tanggalCtrl.text =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final repo = ref.read(kasRepositoryProvider);
+      final cats = await repo.fetchCategories(isActive: true);
+      final incomeCats = cats.where((c) => c.type == 'income').toList();
+      String? defaultId;
+      for (final c in incomeCats) {
+        if (c.name.toLowerCase().contains('iuran')) {
+          defaultId = c.id;
+          break;
+        }
+      }
+      if (defaultId == null && incomeCats.isNotEmpty) {
+        defaultId = incomeCats.first.id;
+      }
+
+      List<FundLocation> locs = [];
+      try {
+        final locRepo = ref.read(fundLocationRepositoryProvider);
+        locs = await locRepo.fetchLocations(isActive: true);
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() {
+          _incomeCategories = incomeCats;
+          _selectedCategoryId = defaultId;
+          _locations = locs;
+          _loadingCategories = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadingCategories = false;
+        });
+      }
+    }
   }
 
   @override
@@ -114,11 +163,13 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
       final desc = _keteranganCtrl.text.trim();
 
       await repository.createTransaction(
+        categoryId: _selectedCategoryId,
         amount: nominalInt,
         jenis: KasJenis.masuk,
         description: desc,
         occurredAt: occurredAt,
         paymentMethod: _paymentMethod,
+        locationId: _selectedLocationId,
         idempotencyKey: _generateUuid(),
       );
 
@@ -513,22 +564,64 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: AppSpacing.sm),
-              // Live preview formatted amount
-              if (_nominalCtrl.text.trim().isNotEmpty &&
-                  int.tryParse(_nominalCtrl.text.trim()) != null)
+
+              // Kategori
+              if (_loadingCategories)
                 Padding(
-                  padding: const EdgeInsets.only(
-                    left: 16,
-                    bottom: AppSpacing.lg,
-                  ),
-                  child: Text(
-                    'Format: +${RupiahFormatter.format(int.parse(_nominalCtrl.text.trim()))}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.success,
-                      fontWeight: FontWeight.w600,
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   ),
+                )
+              else
+                DropdownButtonFormField<String>(
+                  value: _selectedCategoryId,
+                  decoration: InputDecoration(
+                    labelText: 'Kategori',
+                    hintText: 'Pilih kategori pemasukan',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
+                  ),
+                  items: _incomeCategories.map((cat) {
+                    return DropdownMenuItem<String>(
+                      value: cat.id,
+                      child: Text(cat.name),
+                    );
+                  }).toList(),
+                  onChanged: (val) => setState(() => _selectedCategoryId = val),
                 ),
+              const SizedBox(height: AppSpacing.sm),
+
+              // Lokasi Dana (Opsional)
+              DropdownButtonFormField<String?>(
+                value: _selectedLocationId,
+                decoration: InputDecoration(
+                  labelText: 'Lokasi Dana (Opsional)',
+                  hintText: 'Pilih lokasi penyimpanan dana',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('-- Belum Dialokasikan (Kas Umum) --'),
+                  ),
+                  ..._locations.map((loc) {
+                    return DropdownMenuItem<String?>(
+                      value: loc.id,
+                      child: Text('${loc.name} (${loc.category.label})'),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedLocationId = val),
+              ),
+              const SizedBox(height: AppSpacing.sm),
 
               // Keterangan
               AppTextField(

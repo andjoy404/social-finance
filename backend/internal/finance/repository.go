@@ -1091,13 +1091,19 @@ func TransactionCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateTr
 		refNo = fmt.Sprintf("KAS-%s-%05d", dateStr, seq)
 	}
 
-	var payMethodStr, createdByStr, refNoStr sql.NullString
+	var payMethodStr, createdByStr, refNoStr, locIDStr sql.NullString
+	var locID *string
+	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
+		trimmed := strings.TrimSpace(*in.LocationID)
+		locID = &trimmed
+	}
+
 	err := tx.QueryRowContext(ctx,
-		`INSERT INTO transactions (rt_id, category_id, amount, type, status, reverses_transaction_id, payment_id, reference_no, description, occurred_at, payment_method, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		 RETURNING id, rt_id, category_id, amount::text, type, status, reverses_transaction_id, payment_id, reference_no, description, occurred_at, created_at, updated_at, payment_method, created_by::text`,
-		rtID, in.CategoryID, in.Amount, in.Type, status, reversesID, paymentID, refNo, in.Description, occurredAt, payMethod, createdBy,
-	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status, &t.ReversesTransactionID, &t.PaymentID, &refNoStr, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt, &payMethodStr, &createdByStr)
+		`INSERT INTO transactions (rt_id, category_id, amount, type, status, reverses_transaction_id, payment_id, reference_no, description, occurred_at, payment_method, created_by, location_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		 RETURNING id, rt_id, category_id, amount::text, type, status, reverses_transaction_id, payment_id, reference_no, description, occurred_at, created_at, updated_at, payment_method, created_by::text, location_id::text`,
+		rtID, in.CategoryID, in.Amount, in.Type, status, reversesID, paymentID, refNo, in.Description, occurredAt, payMethod, createdBy, locID,
+	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status, &t.ReversesTransactionID, &t.PaymentID, &refNoStr, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt, &payMethodStr, &createdByStr, &locIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("create transaction: %w", err)
 	}
@@ -1111,12 +1117,47 @@ func TransactionCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateTr
 	if createdByStr.Valid {
 		t.CreatedBy = &createdByStr.String
 	}
+	if locIDStr.Valid && locIDStr.String != "" {
+		t.LocationID = &locIDStr.String
+	}
+
+	// Insert into location_balance_changes if location_id is provided and status is posted
+	if locID != nil && status == TransactionStatusPosted {
+		var changeType string
+		var amtDelta string
+		if reversesID != nil {
+			if in.Type == TransactionTypeIncome {
+				changeType = "reversal_expense"
+				amtDelta = in.Amount
+			} else {
+				changeType = "reversal_income"
+				amtDelta = "-" + in.Amount
+			}
+		} else {
+			if in.Type == TransactionTypeIncome {
+				changeType = "income"
+				amtDelta = in.Amount
+			} else {
+				changeType = "expense"
+				amtDelta = "-" + in.Amount
+			}
+		}
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO location_balance_changes (rt_id, location_id, transaction_id, change_type, amount_delta, notes, created_by, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			rtID, *locID, t.ID, changeType, amtDelta, in.Description, createdBy, occurredAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("insert location_balance_changes for transaction: %w", err)
+		}
+	}
+
 	return &t, nil
 }
 
 func TransactionGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Transaction, error) {
 	var t Transaction
-	var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber sql.NullString
+	var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber, locID, locName sql.NullString
 	err := tx.QueryRowContext(ctx,
 		`SELECT t.id, t.rt_id, t.category_id, t.amount::text, t.type, t.status,
 		        t.reverses_transaction_id, t.payment_id, t.description, t.occurred_at, t.created_at, t.updated_at,
@@ -1127,7 +1168,9 @@ func TransactionGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Tran
 		        COALESCE(u_creator.full_name, u_creator.email) as officer_name,
 		        COALESCE(d.name, '') as due_name,
 		        COALESCE(NULLIF(u_warga.full_name, ''), NULLIF(h.head_name, ''), 'Warga') as citizen_name,
-		        COALESCE(ph.house_number, '') as house_number
+		        COALESCE(ph.house_number, '') as house_number,
+		        t.location_id::text,
+		        COALESCE(fl.name, '') as location_name
 		 FROM transactions t
 		 JOIN financial_categories fc ON t.category_id = fc.id
 		 LEFT JOIN users u_creator ON t.created_by = u_creator.id
@@ -1138,11 +1181,13 @@ func TransactionGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Tran
 		 LEFT JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
 		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 		 LEFT JOIN households h ON ho.household_id = h.id
+		 LEFT JOIN fund_locations fl ON t.location_id = fl.id
 		 WHERE t.id = $1 AND t.rt_id = $2 LIMIT 1`,
 		id, rtID,
 	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
 		&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
-		&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber)
+		&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber,
+		&locID, &locName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -1174,6 +1219,12 @@ func TransactionGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Tran
 	if houseNumber.Valid && houseNumber.String != "" {
 		t.HouseNumber = &houseNumber.String
 	}
+	if locID.Valid && locID.String != "" {
+		t.LocationID = &locID.String
+	}
+	if locName.Valid && locName.String != "" {
+		t.LocationName = &locName.String
+	}
 	return &t, nil
 }
 
@@ -1187,7 +1238,9 @@ func TransactionList(ctx context.Context, tx *sql.Tx, rtID string, categoryID, t
 	                 COALESCE(u_creator.full_name, u_creator.email) as officer_name,
 	                 COALESCE(d.name, '') as due_name,
 	                 COALESCE(NULLIF(u_warga.full_name, ''), NULLIF(h.head_name, ''), 'Warga') as citizen_name,
-	                 COALESCE(ph.house_number, '') as house_number
+	                 COALESCE(ph.house_number, '') as house_number,
+	                 t.location_id::text,
+	                 COALESCE(fl.name, '') as location_name
 	          FROM transactions t
 	          JOIN financial_categories fc ON t.category_id = fc.id
 	          LEFT JOIN users u_creator ON t.created_by = u_creator.id
@@ -1198,6 +1251,7 @@ func TransactionList(ctx context.Context, tx *sql.Tx, rtID string, categoryID, t
 	          LEFT JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
 	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 	          LEFT JOIN households h ON ho.household_id = h.id
+	          LEFT JOIN fund_locations fl ON t.location_id = fl.id
 	          WHERE t.rt_id = $1`
 	args := []interface{}{rtID}
 	pos := 2
@@ -1240,10 +1294,11 @@ func TransactionList(ctx context.Context, tx *sql.Tx, rtID string, categoryID, t
 	var list []*Transaction
 	for rows.Next() {
 		var t Transaction
-		var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber sql.NullString
+		var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber, locID, locName sql.NullString
 		if err := rows.Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
 			&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
-			&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber); err != nil {
+			&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber,
+			&locID, &locName); err != nil {
 			return nil, fmt.Errorf("scan transaction: %w", err)
 		}
 		if catName.Valid {
@@ -1270,6 +1325,12 @@ func TransactionList(ctx context.Context, tx *sql.Tx, rtID string, categoryID, t
 		}
 		if houseNumber.Valid && houseNumber.String != "" {
 			t.HouseNumber = &houseNumber.String
+		}
+		if locID.Valid && locID.String != "" {
+			t.LocationID = &locID.String
+		}
+		if locName.Valid && locName.String != "" {
+			t.LocationName = &locName.String
 		}
 		list = append(list, &t)
 	}
@@ -1799,7 +1860,7 @@ func PaymentCountAll(ctx context.Context, tx *sql.Tx, billID, dueID, status *str
 
 func TransactionGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Transaction, error) {
 	var t Transaction
-	var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber sql.NullString
+	var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber, locID, locName sql.NullString
 	err := tx.QueryRowContext(ctx,
 		`SELECT t.id, t.rt_id, t.category_id, t.amount::text, t.type, t.status,
 		        t.reverses_transaction_id, t.payment_id, t.description, t.occurred_at, t.created_at, t.updated_at,
@@ -1810,7 +1871,9 @@ func TransactionGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Transac
 		        COALESCE(u_creator.full_name, u_creator.email) as officer_name,
 		        COALESCE(d.name, '') as due_name,
 		        COALESCE(NULLIF(u_warga.full_name, ''), NULLIF(h.head_name, ''), 'Warga') as citizen_name,
-		        COALESCE(ph.house_number, '') as house_number
+		        COALESCE(ph.house_number, '') as house_number,
+		        t.location_id::text,
+		        COALESCE(fl.name, '') as location_name
 		 FROM transactions t
 		 JOIN financial_categories fc ON t.category_id = fc.id
 		 LEFT JOIN users u_creator ON t.created_by = u_creator.id
@@ -1821,11 +1884,13 @@ func TransactionGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Transac
 		 LEFT JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
 		 LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 		 LEFT JOIN households h ON ho.household_id = h.id
+		 LEFT JOIN fund_locations fl ON t.location_id = fl.id
 		 WHERE t.id = $1 LIMIT 1`,
 		id,
 	).Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
 		&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
-		&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber)
+		&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber,
+		&locID, &locName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -1857,6 +1922,12 @@ func TransactionGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Transac
 	if houseNumber.Valid && houseNumber.String != "" {
 		t.HouseNumber = &houseNumber.String
 	}
+	if locID.Valid && locID.String != "" {
+		t.LocationID = &locID.String
+	}
+	if locName.Valid && locName.String != "" {
+		t.LocationName = &locName.String
+	}
 	return &t, nil
 }
 
@@ -1870,7 +1941,9 @@ func TransactionListAll(ctx context.Context, tx *sql.Tx, categoryID, transType, 
 	                 COALESCE(u_creator.full_name, u_creator.email) as officer_name,
 	                 COALESCE(d.name, '') as due_name,
 	                 COALESCE(NULLIF(u_warga.full_name, ''), NULLIF(h.head_name, ''), 'Warga') as citizen_name,
-	                 COALESCE(ph.house_number, '') as house_number
+	                 COALESCE(ph.house_number, '') as house_number,
+	                 t.location_id::text,
+	                 COALESCE(fl.name, '') as location_name
 	          FROM transactions t
 	          JOIN financial_categories fc ON t.category_id = fc.id
 	          LEFT JOIN users u_creator ON t.created_by = u_creator.id
@@ -1881,6 +1954,7 @@ func TransactionListAll(ctx context.Context, tx *sql.Tx, categoryID, transType, 
 	          LEFT JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
 	          LEFT JOIN physical_houses ph ON ho.physical_house_id = ph.id
 	          LEFT JOIN households h ON ho.household_id = h.id
+	          LEFT JOIN fund_locations fl ON t.location_id = fl.id
 	          WHERE 1=1`
 	var args []interface{}
 	pos := 1
@@ -1923,10 +1997,11 @@ func TransactionListAll(ctx context.Context, tx *sql.Tx, categoryID, transType, 
 	var list []*Transaction
 	for rows.Next() {
 		var t Transaction
-		var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber sql.NullString
+		var catName, payNo, payMethod, createdBy, officerName, dueName, citizenName, houseNumber, locID, locName sql.NullString
 		if err := rows.Scan(&t.ID, &t.RTID, &t.CategoryID, &t.Amount, &t.Type, &t.Status,
 			&t.ReversesTransactionID, &t.PaymentID, &t.Description, &t.OccurredAt, &t.CreatedAt, &t.UpdatedAt,
-			&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber); err != nil {
+			&catName, &payNo, &payMethod, &createdBy, &officerName, &dueName, &citizenName, &houseNumber,
+			&locID, &locName); err != nil {
 			return nil, fmt.Errorf("scan transaction: %w", err)
 		}
 		if catName.Valid {
@@ -1953,6 +2028,12 @@ func TransactionListAll(ctx context.Context, tx *sql.Tx, categoryID, transType, 
 		}
 		if houseNumber.Valid && houseNumber.String != "" {
 			t.HouseNumber = &houseNumber.String
+		}
+		if locID.Valid && locID.String != "" {
+			t.LocationID = &locID.String
+		}
+		if locName.Valid && locName.String != "" {
+			t.LocationName = &locName.String
 		}
 		list = append(list, &t)
 	}

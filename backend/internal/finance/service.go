@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -693,6 +694,47 @@ func reconcileBillStatus(ctx context.Context, tx *sql.Tx, billID, rtID string) e
 	return BillUpdateStatus(ctx, tx, bill.ID, rtID, newStatus)
 }
 
+func validatePaymentLocation(ctx context.Context, tx *sql.Tx, rtID string, paymentMethod PaymentMethod, locationID *string) error {
+	enforced := os.Getenv("FUND_LOCATION_ENFORCEMENT") == "enforced"
+	if locationID == nil || strings.TrimSpace(*locationID) == "" {
+		if enforced {
+			return errors.New("location_id is required")
+		}
+		return nil
+	}
+
+	locID := strings.TrimSpace(*locationID)
+	var category string
+	var isActive bool
+	err := tx.QueryRowContext(ctx,
+		`SELECT category, is_active FROM fund_locations WHERE id = $1 AND rt_id = $2`,
+		locID, rtID,
+	).Scan(&category, &isActive)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("fund location not found")
+		}
+		return err
+	}
+
+	if !isActive {
+		return errors.New("cannot allocate payment to inactive fund location")
+	}
+
+	pMethod := strings.ToUpper(strings.TrimSpace(string(paymentMethod)))
+	if pMethod == "CASH" {
+		if category != "coh" && category != "brankas" {
+			return errors.New("metode tunai (CASH) hanya dapat disetorkan ke Brankas atau COH")
+		}
+	} else if pMethod == "TRANSFER" {
+		if category != "rekening" {
+			return errors.New("metode transfer bank hanya dapat dicatat ke rekening bank RT")
+		}
+	}
+
+	return nil
+}
+
 func postPaymentIncome(ctx context.Context, tx *sql.Tx, rtID string, payment *Payment, description string, verifierID ...string) error {
 	catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
 	if err != nil {
@@ -702,9 +744,13 @@ func postPaymentIncome(ctx context.Context, tx *sql.Tx, rtID string, payment *Pa
 	if len(verifierID) > 0 && verifierID[0] != "" {
 		createdBy = &verifierID[0]
 	}
+	var locID *string
+	if len(verifierID) > 1 && verifierID[1] != "" {
+		locID = &verifierID[1]
+	}
 	payMethod := string(payment.Method)
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
-		CategoryID: catID, Amount: payment.Amount, Type: TransactionTypeIncome, Description: description, PaymentMethod: &payMethod,
+		CategoryID: catID, Amount: payment.Amount, Type: TransactionTypeIncome, Description: description, PaymentMethod: &payMethod, LocationID: locID,
 	}, TransactionStatusPosted, nil, &payment.ID, createdBy, time.Now())
 	if err != nil {
 		return fmt.Errorf("post ledger transaction for payment: %w", err)
@@ -766,6 +812,10 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	}
 
 	// action == "approve"
+	if err := validatePaymentLocation(ctx, tx, rtID, payment.Method, in.LocationID); err != nil {
+		return nil, err
+	}
+
 	if payment.BillID == nil {
 		if payment.DueID == nil {
 			return nil, errors.New("payment has no target")
@@ -785,7 +835,11 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		if err != nil {
 			return nil, fmt.Errorf("approve donation: %w", err)
 		}
-		if err := postPaymentIncome(ctx, tx, rtID, verifiedPayment, fmt.Sprintf("Voluntary donation for due %s", due.Name), verifierID); err != nil {
+		var locArg string
+		if in.LocationID != nil {
+			locArg = strings.TrimSpace(*in.LocationID)
+		}
+		if err := postPaymentIncome(ctx, tx, rtID, verifiedPayment, fmt.Sprintf("Voluntary donation for due %s", due.Name), verifierID, locArg); err != nil {
 			return nil, err
 		}
 		auditPayload, _ := json.Marshal(verifiedPayment)
@@ -933,12 +987,18 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 	}
 	now := time.Now()
 	payMethod := string(verifiedPayment.Method)
+	var locID *string
+	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
+		trimmed := strings.TrimSpace(*in.LocationID)
+		locID = &trimmed
+	}
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 		CategoryID:    catID,
 		Amount:        verifiedPayment.Amount,
 		Type:          TransactionTypeIncome,
 		Description:   desc,
 		PaymentMethod: &payMethod,
+		LocationID:    locID,
 	}, TransactionStatusPosted, nil, &verifiedPayment.ID, &verifierID, now)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for approved payment: %w", err)
@@ -1072,12 +1132,18 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 	desc := fmt.Sprintf("Pembayaran Multi-Periode (%s)%s", strings.Join(periods, ", "), mPNo)
 	now := time.Now()
 	mPayMethod := string(verifiedPayment.Method)
+	var locID *string
+	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
+		trimmed := strings.TrimSpace(*in.LocationID)
+		locID = &trimmed
+	}
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 		CategoryID:    catID,
 		Amount:        payment.Amount,
 		Type:          TransactionTypeIncome,
 		Description:   desc,
 		PaymentMethod: &mPayMethod,
+		LocationID:    locID,
 	}, TransactionStatusPosted, nil, &payment.ID, &verifierID, now)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
@@ -1140,6 +1206,57 @@ func (s *Service) CreateManualTransaction(ctx context.Context, tx *sql.Tx, rtID,
 	if !cat.IsActive {
 		return nil, errors.New("cannot create transaction for inactive category")
 	}
+
+	var locID *string
+	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
+		trimmed := strings.TrimSpace(*in.LocationID)
+		var isActive bool
+		err := tx.QueryRowContext(ctx,
+			`SELECT is_active FROM fund_locations WHERE id = $1 AND rt_id = $2`,
+			trimmed, rtID,
+		).Scan(&isActive)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, errors.New("fund location not found")
+			}
+			return nil, err
+		}
+		if !isActive {
+			return nil, errors.New("cannot create transaction for inactive fund location")
+		}
+
+		if in.Type == TransactionTypeExpense {
+			var lockedID string
+			err = tx.QueryRowContext(ctx,
+				`SELECT id FROM fund_locations WHERE id = $1 AND rt_id = $2 FOR UPDATE`,
+				trimmed, rtID,
+			).Scan(&lockedID)
+			if err != nil {
+				return nil, err
+			}
+
+			var balStr string
+			err = tx.QueryRowContext(ctx,
+				`SELECT COALESCE(SUM(amount_delta), 0)::text FROM location_balance_changes WHERE location_id = $1 AND rt_id = $2`,
+				trimmed, rtID,
+			).Scan(&balStr)
+			if err != nil {
+				return nil, err
+			}
+
+			balCents, _, _ := ParseMoney(balStr)
+			amtCents, _, _ := ParseMoney(in.Amount)
+			if balCents < amtCents {
+				return nil, ErrInsufficientFunds
+			}
+		}
+		locID = &trimmed
+	} else {
+		if os.Getenv("FUND_LOCATION_ENFORCEMENT") == "enforced" {
+			return nil, errors.New("location_id is required")
+		}
+	}
+	in.LocationID = locID
 
 	occurredAt := time.Now()
 	if in.OccurredAt != nil && *in.OccurredAt != "" {
@@ -1206,6 +1323,35 @@ func (s *Service) ReverseTransaction(ctx context.Context, tx *sql.Tx, rtID, user
 		revType = TransactionTypeIncome
 	}
 
+	// If reversing an income transaction, it creates an expense mutation on the location.
+	// Verify location has sufficient balance.
+	if orig.Type == TransactionTypeIncome && orig.LocationID != nil && strings.TrimSpace(*orig.LocationID) != "" {
+		locID := strings.TrimSpace(*orig.LocationID)
+		var lockedID string
+		err = tx.QueryRowContext(ctx,
+			`SELECT id FROM fund_locations WHERE id = $1 AND rt_id = $2 FOR UPDATE`,
+			locID, rtID,
+		).Scan(&lockedID)
+		if err != nil {
+			return nil, err
+		}
+
+		var balStr string
+		err = tx.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(amount_delta), 0)::text FROM location_balance_changes WHERE location_id = $1 AND rt_id = $2`,
+			locID, rtID,
+		).Scan(&balStr)
+		if err != nil {
+			return nil, err
+		}
+
+		balCents, _, _ := ParseMoney(balStr)
+		amtCents, _, _ := ParseMoney(orig.Amount)
+		if balCents < amtCents {
+			return nil, ErrInsufficientFunds
+		}
+	}
+
 	reason := strings.TrimSpace(in.Reason)
 	if reason == "" {
 		reason = "Compensating reversal"
@@ -1220,6 +1366,7 @@ func (s *Service) ReverseTransaction(ctx context.Context, tx *sql.Tx, rtID, user
 		Type:          revType,
 		Description:   desc,
 		PaymentMethod: orig.PaymentMethod,
+		LocationID:    orig.LocationID,
 	}
 	reversal, err := TransactionCreate(ctx, tx, rtID, revInput, TransactionStatusPosted, &orig.ID, orig.PaymentID, &userID, now)
 	if err != nil {
@@ -1611,6 +1758,10 @@ func (s *Service) UpdateManualTransaction(ctx context.Context, tx *sql.Tx, rtID,
 		return nil, err
 	}
 
+	if current.Status == TransactionStatusPosted {
+		return nil, ErrTransactionPosted
+	}
+
 	if current.PaymentID != nil {
 		return nil, errors.New("transaksi pembayaran iuran tidak dapat diubah secara manual")
 	}
@@ -1917,4 +2068,135 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 		Chart:              chart,
 		RecentTransactions: recent,
 	}, nil
+}
+
+// ReverseApprovedPayment reverses an approved payment, restoring bill status and recording compensating transactions.
+func (s *Service) ReverseApprovedPayment(ctx context.Context, tx *sql.Tx, rtID, userID, paymentID, reason string) (*Transaction, error) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return nil, errors.New("reason is required")
+	}
+
+	payment, err := PaymentGetByIDForUpdate(ctx, tx, paymentID, rtID)
+	if err != nil {
+		return nil, err
+	}
+	if payment.Status != PaymentStatusApproved {
+		return nil, ErrCannotReverseNonApprovedPayment
+	}
+
+	// Fetch original income transaction
+	var origTxID, origCatID, origAmount string
+	var origLocID, origPaymentMethod sql.NullString
+	err = tx.QueryRowContext(ctx,
+		`SELECT id, category_id, amount::text, payment_method, location_id::text
+		 FROM transactions
+		 WHERE payment_id = $1 AND rt_id = $2 AND type = 'income' AND reverses_transaction_id IS NULL
+		 ORDER BY created_at ASC LIMIT 1`,
+		paymentID, rtID,
+	).Scan(&origTxID, &origCatID, &origAmount, &origPaymentMethod, &origLocID)
+	if err != nil {
+		return nil, fmt.Errorf("find original payment transaction: %w", err)
+	}
+
+	var locIDPtr *string
+	if origLocID.Valid && origLocID.String != "" {
+		locID := origLocID.String
+		locIDPtr = &locID
+
+		// Lock location
+		var lockedID string
+		err = tx.QueryRowContext(ctx,
+			`SELECT id FROM fund_locations WHERE id = $1 AND rt_id = $2 FOR UPDATE`,
+			locID, rtID,
+		).Scan(&lockedID)
+		if err != nil {
+			return nil, err
+		}
+
+		var balStr string
+		err = tx.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(amount_delta), 0)::text FROM location_balance_changes WHERE location_id = $1 AND rt_id = $2`,
+			locID, rtID,
+		).Scan(&balStr)
+		if err != nil {
+			return nil, err
+		}
+
+		balCents, _, _ := ParseMoney(balStr)
+		amtCents, _, _ := ParseMoney(payment.Amount)
+		if balCents < amtCents {
+			return nil, ErrInsufficientReversalBalance
+		}
+	}
+
+	// Create compensating reversal transaction
+	var pMethod *string
+	if origPaymentMethod.Valid {
+		pMethod = &origPaymentMethod.String
+	}
+	desc := fmt.Sprintf("Reversal pembayaran iuran (%s): %s", paymentID, reason)
+	now := time.Now()
+	revTx, err := TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
+		CategoryID:    origCatID,
+		Amount:        payment.Amount,
+		Type:          TransactionTypeExpense,
+		Description:   desc,
+		PaymentMethod: pMethod,
+		LocationID:    locIDPtr,
+	}, TransactionStatusPosted, &origTxID, &payment.ID, &userID, now)
+	if err != nil {
+		return nil, fmt.Errorf("create reversal transaction: %w", err)
+	}
+
+	// Update payment status to REVERSED
+	_, err = tx.ExecContext(ctx,
+		`UPDATE payments SET status = 'REVERSED', updated_at = NOW() WHERE id = $1 AND rt_id = $2`,
+		paymentID, rtID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update payment status: %w", err)
+	}
+
+	// Reconcile bills
+	if payment.BillID != nil {
+		if err := reconcileBillStatus(ctx, tx, *payment.BillID, rtID); err != nil {
+			return nil, fmt.Errorf("reconcile bill status: %w", err)
+		}
+	}
+
+	// Multi-period bills if any
+	rows, err := tx.QueryContext(ctx,
+		`SELECT DISTINCT bill_id FROM payment_allocations WHERE payment_id = $1`,
+		paymentID,
+	)
+	if err == nil {
+		var billIDs []string
+		for rows.Next() {
+			var bID string
+			if err := rows.Scan(&bID); err == nil {
+				billIDs = append(billIDs, bID)
+			}
+		}
+		rows.Close()
+		for _, bID := range billIDs {
+			_ = reconcileBillStatus(ctx, tx, bID, rtID)
+		}
+	}
+
+	auditPayload, _ := json.Marshal(map[string]interface{}{
+		"payment_id":              paymentID,
+		"reason":                  reason,
+		"reversal_transaction_id": revTx.ID,
+	})
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &userID,
+		Action:     "reverse_payment",
+		EntityType: "payment",
+		EntityID:   paymentID,
+		NewValues:  auditPayload,
+	})
+
+	return revTx, nil
 }

@@ -23,6 +23,10 @@ var (
 	ErrInvalidCategoryType  = errors.New("invalid category type: must be income or expense")
 	ErrInvalidAmount        = errors.New("amount must be greater than zero")
 	ErrOverpayment          = errors.New("payment amount exceeds remaining balance")
+	ErrInsufficientFunds    = errors.New("insufficient funds in source location")
+	ErrInsufficientReversalBalance = errors.New("insufficient balance in location for reversal")
+	ErrPaymentAlreadyReversed      = errors.New("payment has already been reversed")
+	ErrCannotReverseNonApprovedPayment = errors.New("cannot reverse a non-approved payment")
 )
 
 // CategoryType represents income or expense.
@@ -176,6 +180,7 @@ const (
 	PaymentStatusPending  PaymentStatus = "PENDING"
 	PaymentStatusApproved PaymentStatus = "APPROVED"
 	PaymentStatusRejected PaymentStatus = "REJECTED"
+	PaymentStatusReversed PaymentStatus = "REVERSED"
 )
 
 // Payment represents a recorded payment for a bill or a voluntary donation.
@@ -228,6 +233,11 @@ type VerifyPaymentInput struct {
 	Action          string  `json:"action"` // "approve" or "reject"
 	RejectionReason *string `json:"rejection_reason,omitempty"`
 	OfficerNotes    *string `json:"officer_notes,omitempty"`
+	LocationID      *string `json:"location_id,omitempty"`
+}
+
+type ReversePaymentInput struct {
+	Reason string `json:"reason"`
 }
 
 // VerifyPaymentResult carries the outcome of VerifyPayment.
@@ -315,6 +325,8 @@ type Transaction struct {
 	DueName       *string `json:"due_name,omitempty"`
 	CitizenName   *string `json:"citizen_name,omitempty"`
 	HouseNumber   *string `json:"house_number,omitempty"`
+	LocationID    *string `json:"location_id,omitempty"`
+	LocationName  *string `json:"location_name,omitempty"`
 }
 
 type CreateTransactionInput struct {
@@ -324,6 +336,7 @@ type CreateTransactionInput struct {
 	Description   string          `json:"description"`
 	OccurredAt    *string         `json:"occurred_at,omitempty"` // RFC3339 or YYYY-MM-DD
 	PaymentMethod *string         `json:"payment_method,omitempty"`
+	LocationID    *string         `json:"location_id,omitempty"`
 }
 
 type UpdateTransactionInput struct {
@@ -333,6 +346,7 @@ type UpdateTransactionInput struct {
 	Description   *string          `json:"description,omitempty"`
 	OccurredAt    *string          `json:"occurred_at,omitempty"`
 	PaymentMethod *string          `json:"payment_method,omitempty"`
+	LocationID    *string          `json:"location_id,omitempty"`
 }
 
 type DashboardPaymentMethodBreakdown struct {

@@ -6,6 +6,26 @@ import 'package:social_finance/features/iuran/data/iuran_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_providers.dart';
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
 import 'package:social_finance/features/iuran/presentation/screens/iuran_detail_screen.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
+import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
+
+class MockFundLocationRepository extends Fake implements FundLocationRepository {
+  @override
+  Future<List<FundLocation>> fetchLocations({String? category, bool? isActive}) async {
+    return [
+      FundLocation(
+        id: 'loc-1',
+        rtId: 'rt-1',
+        name: 'Rekening BCA',
+        category: FundLocationCategory.rekening,
+        isActive: true,
+        currentBalance: '1000000.00',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    ];
+  }
+}
 
 class MockIuranRepository extends Fake implements IuranRepository {
   String? lastVerifiedId;
@@ -19,6 +39,7 @@ class MockIuranRepository extends Fake implements IuranRepository {
     required String action,
     String? rejectionReason,
     String? officerNotes,
+    String? locationId,
   }) async {
     lastVerifiedId = paymentId;
     lastAction = action;
@@ -126,6 +147,7 @@ void main() {
                     .overrideWith((ref) async => [pendingPayment]),
                 canVerifyPaymentProvider.overrideWith((ref) => true),
                 iuranRepositoryProvider.overrideWithValue(mockRepo),
+                fundLocationRepositoryProvider.overrideWithValue(MockFundLocationRepository()),
               ],
               child: const IuranDetailScreen(billId: 'bill-1'),
             ),
@@ -210,6 +232,7 @@ void main() {
                     .overrideWith((ref) async => [pendingPayment]),
                 canVerifyPaymentProvider.overrideWith((ref) => true),
                 iuranRepositoryProvider.overrideWithValue(mockRepo),
+                fundLocationRepositoryProvider.overrideWithValue(MockFundLocationRepository()),
               ],
               child: const IuranDetailScreen(billId: 'bill-1'),
             ),
@@ -261,6 +284,7 @@ void main() {
                     .overrideWith((ref) async => [pendingPayment]),
                 canVerifyPaymentProvider.overrideWith((ref) => true),
                 iuranRepositoryProvider.overrideWithValue(mockRepo),
+                fundLocationRepositoryProvider.overrideWithValue(MockFundLocationRepository()),
               ],
               child: const IuranDetailScreen(billId: 'bill-1'),
             ),

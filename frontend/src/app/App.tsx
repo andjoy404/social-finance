@@ -11,6 +11,7 @@ import { RtEdit } from '@/features/rt/RtEdit'
 import { WargaLayout } from '@/features/warga/WargaLayout'
 import { IuranRoutes } from '@/features/iuran/iuranRoutes'
 import { KasRoutes } from '@/features/kas/kasRoutes'
+import { FundLocationRoutes } from '@/features/fund_location/fundLocationRoutes'
 import { ResidentDetail } from '@/features/warga/ResidentDetail'
 import { HouseholdCreate } from '@/features/warga/HouseholdCreate'
 import { HouseholdEdit } from '@/features/warga/HouseholdEdit'
@@ -151,6 +152,14 @@ export function App() {
           element={
             <AllowedRTRoute>
               <KasRoutes />
+            </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="lokasi-dana/*"
+          element={
+            <AllowedRTRoute>
+              <FundLocationRoutes />
             </AllowedRTRoute>
           }
         />

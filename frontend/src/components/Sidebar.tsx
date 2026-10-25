@@ -9,6 +9,7 @@ import {
   ApartmentOutlined,
   AccountBookOutlined,
   DollarOutlined,
+  BankOutlined,
 } from '@ant-design/icons'
 
 function isActive(route: string, pathname: string): boolean {
@@ -58,6 +59,14 @@ export function Sidebar() {
       { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
       { to: '/kas', label: 'KAS', icon: <DollarOutlined />, id: 'kas' },
     )
+    if (user?.role !== 'warga' && !isSuperAdmin) {
+      items.push({
+        to: '/lokasi-dana',
+        label: 'Lokasi Dana',
+        icon: <BankOutlined />,
+        id: 'lokasi-dana',
+      })
+    }
   }
 
   if (isSuperAdmin) {

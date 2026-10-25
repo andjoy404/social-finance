@@ -46,12 +46,13 @@ enum PaymentMethod { cash, transfer }
 
 enum PaymentOrigin { selfSubmitted, staffRecorded }
 
-enum PaymentStatus { pending, approved, rejected }
+enum PaymentStatus { pending, approved, rejected, reversed }
 
 String donationStatusMessage(PaymentStatus status) => switch (status) {
   PaymentStatus.pending => 'Donasi berhasil diajukan dan menunggu verifikasi.',
   PaymentStatus.approved => 'Donasi disetujui dan telah dicatat.',
   PaymentStatus.rejected => 'Donasi ditolak dan tidak menambah kas.',
+  PaymentStatus.reversed => 'Donasi telah dibatalkan (reversal).',
 };
 
 enum TransactionType { income, expense }
@@ -371,13 +372,15 @@ PaymentOrigin _parsePaymentOrigin(String? value) {
 }
 
 PaymentStatus _parsePaymentStatus(String? value) {
-  switch (value) {
+  switch (value?.toUpperCase()) {
     case 'PENDING':
       return PaymentStatus.pending;
     case 'APPROVED':
       return PaymentStatus.approved;
     case 'REJECTED':
       return PaymentStatus.rejected;
+    case 'REVERSED':
+      return PaymentStatus.reversed;
     default:
       return PaymentStatus.pending;
   }

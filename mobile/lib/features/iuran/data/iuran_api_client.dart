@@ -344,6 +344,7 @@ class IuranApiClient {
     required String action,
     String? rejectionReason,
     String? officerNotes,
+    String? locationId,
   }) async {
     final response = await dio.post(
       '/api/v1/payments/$paymentId/verify',
@@ -353,6 +354,25 @@ class IuranApiClient {
           'rejection_reason': rejectionReason,
         if (officerNotes != null && officerNotes.isNotEmpty)
           'officer_notes': officerNotes,
+        if (locationId != null && locationId.isNotEmpty)
+          'location_id': locationId,
+      },
+    );
+
+    final data = response.data;
+    if (data is! Map) throw const FormatException('Unexpected response');
+    return BackendPayment.fromJson(data.cast<String, dynamic>());
+  }
+
+  /// POST /api/v1/payments/{id}/reverse
+  Future<BackendPayment> reversePayment(
+    String paymentId, {
+    required String reason,
+  }) async {
+    final response = await dio.post(
+      '/api/v1/payments/$paymentId/reverse',
+      data: {
+        'reason': reason,
       },
     );
 

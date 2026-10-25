@@ -19,6 +19,7 @@ import (
 	"social-finance/internal/database"
 	"social-finance/internal/devseed"
 	"social-finance/internal/finance"
+	"social-finance/internal/fund_location"
 	"social-finance/internal/health"
 	"social-finance/internal/household"
 	httpmw "social-finance/internal/http"
@@ -706,11 +707,34 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Post("/api/v1/bills/generate", finH.GenerateBills)
 		r.Delete("/api/v1/bills/{id}", finH.CancelBill)
 		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
+		r.Post("/api/v1/payments/{id}/reverse", finH.ReversePayment)
 		r.Post("/api/v1/transactions", finH.CreateTransaction)
 		r.Put("/api/v1/transactions/{id}", finH.UpdateTransaction)
 		r.Patch("/api/v1/transactions/{id}", finH.UpdateTransaction)
 		r.Post("/api/v1/transactions/{id}/reverse", finH.ReverseTransaction)
 		r.Put("/api/v1/reports/balance/opening/{period}", finH.UpdateOpeningBalance)
+	})
+
+	// Fund Location module (Rekening, Brankas, COH)
+	locRepo := fundlocation.NewRepository(pool.Raw())
+	locSvc := fundlocation.NewService(pool, locRepo)
+	locH := fundlocation.NewHandler(pool, locSvc)
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
+		r.Get("/api/v1/fund-locations", locH.ListLocations)
+		r.Post("/api/v1/fund-locations", locH.CreateLocation)
+		r.Get("/api/v1/fund-locations/{id}", locH.GetLocation)
+		r.Patch("/api/v1/fund-locations/{id}", locH.UpdateLocation)
+		r.Delete("/api/v1/fund-locations/{id}", locH.DeactivateLocation)
+		r.Get("/api/v1/fund-locations/{id}/history", locH.GetLocationHistory)
+		r.Put("/api/v1/fund-locations/{id}/opening-balance", locH.SetOpeningBalance)
+		r.Get("/api/v1/fund-transfers", locH.ListTransfers)
+		r.Post("/api/v1/fund-transfers", locH.CreateTransfer)
+		r.Get("/api/v1/fund-transfers/{id}", locH.GetTransfer)
+		r.Post("/api/v1/fund-transfers/{id}/reverse", locH.ReverseTransfer)
+		r.Get("/api/v1/reports/fund-locations/reconciliation", locH.GetReconciliationReport)
 	})
 
 	// Notification module

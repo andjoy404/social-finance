@@ -139,6 +139,7 @@ class KasRepository {
     required String description,
     DateTime? occurredAt,
     String? paymentMethod,
+    String? locationId,
     required String idempotencyKey,
   }) async {
     final backendTx = await apiClient.createTransaction(
@@ -148,6 +149,7 @@ class KasRepository {
       description: description,
       occurredAt: occurredAt,
       paymentMethod: paymentMethod,
+      locationId: locationId,
       idempotencyKey: idempotencyKey,
     );
     return _toUiTransaction(backendTx);

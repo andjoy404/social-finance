@@ -37,6 +37,7 @@ import '../features/kas/presentation/screens/kas_detail_screen.dart';
 import '../features/kas/presentation/screens/kas_masuk_screen.dart';
 import '../features/kas/presentation/screens/kas_keluar_screen.dart';
 import '../features/kas/presentation/screens/kas_report_screen.dart';
+import '../features/fund_location/presentation/screens/fund_location_screen.dart';
 
 class App extends ConsumerStatefulWidget {
   const App({super.key});
@@ -517,7 +518,17 @@ class _AppState extends ConsumerState<App> {
                       name: 'kas_report',
                       builder: (context, state) => const KasReportScreen(),
                     ),
+                    GoRoute(
+                      path: 'lokasi-dana',
+                      name: 'kas_lokasi_dana',
+                      redirect: (context, state) => '/home/lokasi-dana',
+                    ),
                   ],
+                ),
+                GoRoute(
+                  path: 'lokasi-dana',
+                  name: 'lokasi_dana',
+                  builder: (context, state) => const FundLocationScreen(),
                 ),
                 GoRoute(
                   path: 'warga',

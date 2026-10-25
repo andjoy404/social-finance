@@ -457,6 +457,27 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                     context.push('/home/kas/keluar').then((_) => _loadData());
                   },
                 ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: const Icon(
+                      Icons.account_balance,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                  title: const Text('Lokasi Dana'),
+                  subtitle: const Text(
+                    'Kelola rekening, brankas, dan kas tunai (COH)',
+                  ),
+                  onTap: () {
+                    Navigator.pop(bottomSheetContext);
+                    context.push('/home/lokasi-dana');
+                  },
+                ),
               ],
             ),
           ),
@@ -477,6 +498,13 @@ class _KasScreenState extends ConsumerState<KasScreen> {
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Kas'),
           actions: [
+            if (_hasKasWriteAccess(ref))
+              IconButton(
+                key: const Key('kas-lokasi-dana-btn'),
+                icon: const Icon(Icons.account_balance_outlined),
+                tooltip: 'Lokasi Dana',
+                onPressed: () => context.push('/home/lokasi-dana'),
+              ),
             if (_canAccessKasReport(ref))
               IconButton(
                 key: const Key('kas-report-btn'),
@@ -563,6 +591,13 @@ class _KasScreenState extends ConsumerState<KasScreen> {
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Kas'),
           actions: [
+            if (_hasKasWriteAccess(ref))
+              IconButton(
+                key: const Key('kas-lokasi-dana-btn'),
+                icon: const Icon(Icons.account_balance_outlined),
+                tooltip: 'Lokasi Dana',
+                onPressed: () => context.push('/home/lokasi-dana'),
+              ),
             if (_canAccessKasReport(ref))
               IconButton(
                 key: const Key('kas-report-btn'),

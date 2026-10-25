@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { useAuth } from '@/app/AuthContext'
 import { hasWargaWriteAccess } from '@/app/wargaAuth'
-import { apiCreateTransaction, getSessionPair } from '@/app/api'
+import { apiCreateTransaction, apiListFundLocations, getSessionPair, type FundLocation } from '@/app/api'
 import { toJakartaIso8601, getJakartaDateString } from '@/utils/jakartaTime'
 import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
 import {
@@ -25,6 +25,7 @@ interface FormState {
   keterangan: string
   paymentMethod: 'CASH' | 'TRANSFER'
   jenis: 'masuk' | 'keluar'
+  locationId: string
 }
 
 const emptyForm: FormState = {
@@ -33,6 +34,7 @@ const emptyForm: FormState = {
   keterangan: '',
   paymentMethod: 'CASH',
   jenis: 'masuk',
+  locationId: '',
 }
 
 export function KasIncome() {
@@ -72,6 +74,16 @@ export function KasIncome() {
   // Bukti bayar (opsional, tidak dikirim ke backend karena contract API transaksi tidak mendukung file)
   const [proofFile, setProofFile] = useState<File | null>(null)
   const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
+  const [fundLocations, setFundLocations] = useState<FundLocation[]>([])
+
+  useEffect(() => {
+    const token = getSessionPair()?.accessToken
+    if (token) {
+      apiListFundLocations(token, { is_active: true })
+        .then(setFundLocations)
+        .catch(() => {})
+    }
+  }, [])
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -133,6 +145,16 @@ export function KasIncome() {
       }
     }
     if (!form.keterangan.trim()) errs.push('Keterangan harus diisi.')
+    if (form.jenis === 'keluar' && form.locationId) {
+      const selected = fundLocations.find((l) => l.id === form.locationId)
+      if (selected) {
+        const bal = parseMoney(selected.current_balance) || 0
+        const nom = parseMoney(form.nominal) || 0
+        if (nom > bal) {
+          errs.push(`Saldo pada ${selected.name} tidak mencukupi (Tersedia: Rp ${formatRibuan(bal)}).`)
+        }
+      }
+    }
     if (errs.length > 0) {
       setValidationErrors(errs)
       return
@@ -147,6 +169,7 @@ export function KasIncome() {
         description: form.keterangan.trim(),
         occurred_at: toJakartaIso8601(form.tanggal),
         payment_method: form.paymentMethod,
+        location_id: form.locationId || undefined,
       })
 
       navigate('/kas')
@@ -308,6 +331,38 @@ export function KasIncome() {
                 <BankOutlined style={{ color: form.paymentMethod === 'TRANSFER' ? 'var(--sf-accent)' : 'var(--sf-text-muted)' }} /> Transfer Bank
               </button>
             </div>
+          </div>
+
+          {/* Lokasi Dana */}
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="ki-location">
+              Lokasi Dana
+            </label>
+            <select
+              id="ki-location"
+              className="sf-select"
+              value={form.locationId}
+              onChange={(e) => handleChange('locationId', e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-surface)', color: 'var(--sf-text)' }}
+            >
+              <option value="">-- Tanpa Lokasi Dana (Kas Umum) --</option>
+              {fundLocations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name} ({loc.category.toUpperCase()}) - Saldo: Rp {formatRibuan(loc.current_balance)}
+                </option>
+              ))}
+            </select>
+            {form.jenis === 'keluar' && form.locationId && (() => {
+              const sel = fundLocations.find((l) => l.id === form.locationId)
+              if (sel && parseMoney(form.nominal) > (parseMoney(sel.current_balance) || 0)) {
+                return (
+                  <div style={{ color: 'var(--sf-danger)', fontSize: 12, marginTop: 4 }}>
+                    Peringatan: Saldo {sel.name} tidak mencukupi (Rp {formatRibuan(sel.current_balance)}).
+                  </div>
+                )
+              }
+              return null
+            })()}
           </div>
 
           {/* Nominal */}

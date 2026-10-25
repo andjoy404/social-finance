@@ -1324,7 +1324,7 @@ export async function apiVerifyPayment(
   token: string,
   paymentId: string,
   action: 'approve' | 'reject',
-  options?: { rejectionReason?: string; officerNotes?: string },
+  options?: { rejectionReason?: string; officerNotes?: string; locationId?: string },
 ): Promise<ApiPayment> {
   const res = await authenticatedApiRequest(BASE + '/payments/' + paymentId + '/verify', {
     method: 'POST',
@@ -1336,10 +1336,36 @@ export async function apiVerifyPayment(
       action,
       ...(options?.rejectionReason ? { rejection_reason: options.rejectionReason } : {}),
       ...(options?.officerNotes ? { officer_notes: options.officerNotes } : {}),
+      ...(options?.locationId ? { location_id: options.locationId } : {}),
     }),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
   const data = await json<ApiPayment>(res)
+  if (!res.ok || !data) {
+    const body = await json<ApiError>(res).catch(() => null)
+    if (res.status >= 400 && body?.code) {
+      throw new ApiError(body.code, body.message)
+    }
+    throw new ApiError('unexpected', 'Unexpected response')
+  }
+  return data
+}
+
+export async function apiReversePayment(
+  token: string,
+  paymentId: string,
+  reason: string,
+): Promise<{ status: string; message: string; transaction: ApiTransaction }> {
+  const res = await authenticatedApiRequest(BASE + `/payments/${paymentId}/reverse`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ reason }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ status: string; message: string; transaction: ApiTransaction }>(res)
   if (!res.ok || !data) {
     const body = await json<ApiError>(res).catch(() => null)
     if (res.status >= 400 && body?.code) {
@@ -1470,6 +1496,8 @@ export interface ApiTransaction {
   reference_no?: string | null
   payment_method?: 'CASH' | 'TRANSFER' | string | null
   house_number?: string | null
+  location_id?: string | null
+  location_name?: string | null
 }
 
 export interface ApiTransactionPaginated {
@@ -1505,6 +1533,7 @@ export interface ApiCreateTransactionInput {
   description: string
   occurred_at?: string
   payment_method?: 'CASH' | 'TRANSFER'
+  location_id?: string
 }
 
 export async function apiListTransactions(
@@ -1827,4 +1856,269 @@ export async function apiCommitWargaImportXLSX(
   }
 
   return body as ApiWargaImportCommitResponse
+}
+
+// ─────────────────────────────────────────────────────────────
+// Fund Locations & Transfers (Lokasi Dana: Rekening, Brankas, COH)
+// ─────────────────────────────────────────────────────────────
+
+export type FundLocationCategory = 'rekening' | 'brankas' | 'coh'
+
+export interface FundLocation {
+  id: string
+  rt_id: string
+  name: string
+  category: FundLocationCategory
+  bank_name?: string | null
+  account_number?: string | null
+  account_holder?: string | null
+  is_active: boolean
+  current_balance: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateFundLocationInput {
+  name: string
+  category: FundLocationCategory
+  bank_name?: string
+  account_number?: string
+  account_holder?: string
+}
+
+export interface UpdateFundLocationInput {
+  name?: string
+  bank_name?: string
+  account_number?: string
+  account_holder?: string
+}
+
+export interface LocationBalanceChange {
+  id: string
+  rt_id: string
+  location_id: string
+  transaction_id?: string | null
+  transfer_id?: string | null
+  change_type: string
+  amount_delta: string
+  notes?: string | null
+  created_by?: string | null
+  created_at: string
+}
+
+export interface FundTransfer {
+  id: string
+  rt_id: string
+  from_location_id: string
+  to_location_id: string
+  amount: string
+  transfer_date: string
+  notes?: string | null
+  created_by?: string | null
+  reverses_transfer_id?: string | null
+  created_at: string
+  from_location_name?: string | null
+  to_location_name?: string | null
+}
+
+export interface CreateFundTransferInput {
+  from_location_id: string
+  to_location_id: string
+  amount: string
+  transfer_date?: string
+  notes?: string
+}
+
+export interface ReconciliationReport {
+  kas_balance: string
+  total_allocated_balance: string
+  unallocated_balance: string
+  discrepancy: string
+  status: 'MATCHED' | 'MATCH_WITH_NOTES' | 'DISCREPANCY'
+  status_label: string
+  locations_summary: Array<{
+    category: string
+    total_balance: string
+    locations_count: number
+  }>
+  anomalies_detected: string[]
+}
+
+export async function apiListFundLocations(
+  token: string,
+  params?: { category?: string; is_active?: boolean },
+): Promise<FundLocation[]> {
+  const q = new URLSearchParams()
+  if (params?.category) q.set('category', params.category)
+  if (params?.is_active != null) q.set('is_active', String(params.is_active))
+  const res = await authenticatedApiRequest(BASE + '/fund-locations' + (q.toString() ? '?' + q.toString() : ''), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<FundLocation[]>(res)
+  if (!Array.isArray(data)) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateFundLocation(
+  token: string,
+  body: CreateFundLocationInput,
+): Promise<FundLocation> {
+  const res = await authenticatedApiRequest(BASE + '/fund-locations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<FundLocation>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetFundLocation(token: string, id: string): Promise<FundLocation> {
+  const res = await authenticatedApiRequest(BASE + `/fund-locations/${encodeURIComponent(id)}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<FundLocation>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiUpdateFundLocation(
+  token: string,
+  id: string,
+  body: UpdateFundLocationInput,
+): Promise<FundLocation> {
+  const res = await authenticatedApiRequest(BASE + `/fund-locations/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<FundLocation>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiDeactivateFundLocation(token: string, id: string): Promise<FundLocation> {
+  const res = await authenticatedApiRequest(BASE + `/fund-locations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<FundLocation>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetFundLocationHistory(
+  token: string,
+  id: string,
+  params?: { page?: number; page_size?: number },
+): Promise<{ data: LocationBalanceChange[]; pagination: any }> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  const res = await authenticatedApiRequest(BASE + `/fund-locations/${encodeURIComponent(id)}/history` + (q.toString() ? '?' + q.toString() : ''), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: LocationBalanceChange[]; pagination: any }>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiSetOpeningBalance(
+  token: string,
+  id: string,
+  body: { amount: string; notes?: string },
+): Promise<FundLocation> {
+  const res = await authenticatedApiRequest(BASE + `/fund-locations/${encodeURIComponent(id)}/opening-balance`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<FundLocation>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiListFundTransfers(
+  token: string,
+  params?: { page?: number; page_size?: number },
+): Promise<{ data: FundTransfer[]; pagination: any }> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  const res = await authenticatedApiRequest(BASE + '/fund-transfers' + (q.toString() ? '?' + q.toString() : ''), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: FundTransfer[]; pagination: any }>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateFundTransfer(
+  token: string,
+  body: CreateFundTransferInput,
+): Promise<FundTransfer> {
+  const res = await authenticatedApiRequest(BASE + '/fund-transfers', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'Idempotency-Key': `transfer-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<FundTransfer>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiReverseFundTransfer(
+  token: string,
+  id: string,
+  body: { reason: string },
+): Promise<FundTransfer> {
+  const res = await authenticatedApiRequest(BASE + `/fund-transfers/${encodeURIComponent(id)}/reverse`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<FundTransfer>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetFundLocationReconciliation(token: string): Promise<ReconciliationReport> {
+  const res = await authenticatedApiRequest(BASE + '/reports/fund-locations/reconciliation', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ReconciliationReport>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
 }

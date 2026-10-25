@@ -15,6 +15,8 @@ import '../../data/iuran_models.dart';
 import '../../data/iuran_providers.dart';
 import '../../data/iuran_repository.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
+import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
 import '../widgets/payment_proof_thumbnail.dart';
 
 /// Detail screen for a single iuran bill.
@@ -565,124 +567,214 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
 
   Future<void> _approvePayment(
     BuildContext context,
-    String paymentId, {
+    BackendPayment payment, {
     VoidCallback? onSuccess,
   }) async {
     final notesController = TextEditingController();
+    final isCash = payment.method == PaymentMethod.cash;
+
+    // Fetch eligible fund locations according to GAP B
+    List<FundLocation> eligibleLocs = [];
+    try {
+      final locRepo = ref.read(fundLocationRepositoryProvider);
+      final allLocs = await locRepo.fetchLocations(isActive: true);
+      eligibleLocs = allLocs.where((l) {
+        if (isCash) {
+          return l.category == FundLocationCategory.coh ||
+              l.category == FundLocationCategory.brankas;
+        } else {
+          return l.category == FundLocationCategory.rekening;
+        }
+      }).toList();
+    } catch (_) {}
+
+    String? selectedLocationId =
+        eligibleLocs.length == 1 ? eligibleLocs.first.id : null;
+
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Konfirmasi Persetujuan'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Apakah Anda yakin ingin menyetujui pembayaran ini?',
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: notesController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Catatan Pengurus (opsional)',
-                    border: OutlineInputBorder(),
-                    alignLabelWithHint: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actionsPadding: const EdgeInsets.fromLTRB(
-            AppSpacing.base,
-            0,
-            AppSpacing.base,
-            AppSpacing.base,
-          ),
-          actions: [
-            Row(
-              children: [
-                Expanded(
-                  child: _buildNeonVerifyButton(
-                    context: dialogContext,
-                    label: 'Setuju',
-                    icon: Icons.check_circle_outline,
-                    neonColor: AppColors.success,
-                    softBg: Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkSuccessSoft
-                        : AppColors.lightSuccessSoft,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: 12,
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hasEligible = eligibleLocs.isNotEmpty;
+            final canApprove = hasEligible && selectedLocationId != null;
+
+            return AlertDialog(
+              title: const Text('Konfirmasi Persetujuan'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Apakah Anda yakin ingin menyetujui pembayaran ini?',
+                      style: TextStyle(fontSize: 14),
                     ),
-                    onPressed: () async {
-                      final notes = notesController.text.trim();
-                      Navigator.pop(dialogContext);
-
-                      final snackBar = SnackBar(
-                        content: const Text('Memverifikasi pembayaran...'),
-                        duration: const Duration(seconds: 1),
-                      );
-                      ScaffoldMessenger.of(context).showSnackBar(snackBar);
-
-                      try {
-                        final repository = ref.read(iuranRepositoryProvider);
-                        await repository.verifyPayment(
-                          paymentId,
-                          action: 'approve',
-                          officerNotes: notes.isNotEmpty ? notes : null,
-                        );
-
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Pembayaran berhasil diverifikasi'),
-                              backgroundColor: AppColors.success,
+                    const SizedBox(height: AppSpacing.md),
+                    if (!hasEligible)
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.sm),
+                        margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(
+                            color: AppColors.danger.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Text(
+                          'Tidak ada lokasi dana yang sesuai untuk metode ${isCash ? "Tunai (Kas Tunai/Brankas)" : "Transfer (Rekening Bank)"}. Tambahkan lokasi dana terlebih dahulu sebelum menyetujui.',
+                          style: const TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 12,
+                          ),
+                        ),
+                      )
+                    else ...[
+                      DropdownButtonFormField<String>(
+                        value: selectedLocationId,
+                        decoration: const InputDecoration(
+                          labelText: 'Lokasi Dana Tujuan (Wajib)',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: eligibleLocs.map((loc) {
+                          return DropdownMenuItem<String>(
+                            value: loc.id,
+                            child: Text(
+                              '${loc.name} (${loc.category.label})',
                             ),
                           );
-                          ref.invalidate(billDetailProvider(widget.billId));
-                          ref.invalidate(billPaymentsProvider(widget.billId));
-                          ref.invalidate(pendingPaymentsProvider);
-                          onSuccess?.call();
-                        }
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Gagal memverifikasi: $e'),
-                              backgroundColor: AppColors.warning,
-                            ),
-                          );
-                        }
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: _buildNeonVerifyButton(
-                    context: dialogContext,
-                    label: 'Batal',
-                    icon: Icons.cancel_outlined,
-                    neonColor: AppColors.danger,
-                    softBg: Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.lightDangerSoft,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: 12,
+                        }).toList(),
+                        onChanged: (val) {
+                          setDialogState(() => selectedLocationId = val);
+                        },
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                    TextField(
+                      controller: notesController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Catatan Pengurus (opsional)',
+                        border: OutlineInputBorder(),
+                        alignLabelWithHint: true,
+                      ),
                     ),
-                    onPressed: () => Navigator.pop(dialogContext),
-                  ),
+                  ],
+                ),
+              ),
+              actionsPadding: const EdgeInsets.fromLTRB(
+                AppSpacing.base,
+                0,
+                AppSpacing.base,
+                AppSpacing.base,
+              ),
+              actions: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildNeonVerifyButton(
+                        context: dialogContext,
+                        label: 'Setuju',
+                        icon: Icons.check_circle_outline,
+                        neonColor: canApprove ? AppColors.success : Colors.grey,
+                        softBg: canApprove
+                            ? (Theme.of(dialogContext).brightness ==
+                                    Brightness.dark
+                                ? AppColors.darkSuccessSoft
+                                : AppColors.lightSuccessSoft)
+                            : Colors.grey.withValues(alpha: 0.1),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                          vertical: 12,
+                        ),
+                        onPressed: () async {
+                          if (!canApprove) return;
+                          final notes = notesController.text.trim();
+                          Navigator.pop(dialogContext);
+
+                          const snackBar = SnackBar(
+                            content: Text('Memverifikasi pembayaran...'),
+                            duration: Duration(seconds: 1),
+                          );
+                          ScaffoldMessenger.of(
+                            context,
+                          ).showSnackBar(snackBar);
+
+                          try {
+                            final repository = ref.read(
+                              iuranRepositoryProvider,
+                            );
+                            await repository.verifyPayment(
+                              payment.id,
+                              action: 'approve',
+                              officerNotes:
+                                  notes.isNotEmpty ? notes : null,
+                              locationId: selectedLocationId,
+                            );
+
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(
+                                context,
+                              ).hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Pembayaran berhasil diverifikasi',
+                                  ),
+                                  backgroundColor: AppColors.success,
+                                ),
+                              );
+                              ref.invalidate(
+                                billDetailProvider(widget.billId),
+                              );
+                              ref.invalidate(
+                                billPaymentsProvider(widget.billId),
+                              );
+                              ref.invalidate(pendingPaymentsProvider);
+                              onSuccess?.call();
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(
+                                context,
+                              ).hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Gagal memverifikasi: $e'),
+                                  backgroundColor: AppColors.warning,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: _buildNeonVerifyButton(
+                        context: dialogContext,
+                        label: 'Batal',
+                        icon: Icons.cancel_outlined,
+                        neonColor: AppColors.danger,
+                        softBg: Theme.of(dialogContext).brightness ==
+                                Brightness.dark
+                            ? AppColors.darkDangerSoft
+                            : AppColors.lightDangerSoft,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                          vertical: 12,
+                        ),
+                        onPressed: () => Navigator.pop(dialogContext),
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -1438,7 +1530,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                         onPressed: () {
                           _approvePayment(
                             context,
-                            payment.id,
+                            payment,
                             onSuccess: () {
                               if (Navigator.of(dialogCtx).canPop()) {
                                 Navigator.of(dialogCtx).pop();
@@ -1489,9 +1581,131 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     },
                   ),
                 ],
+
+                // Action button: Batalkan Pembayaran (Reversal) for approved payments
+                if (payment.status == PaymentStatus.approved && canVerify) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  const Divider(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.danger,
+                        side: const BorderSide(color: AppColors.danger),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () {
+                        Navigator.of(dialogCtx).pop();
+                        _showReversePaymentDialog(context, payment);
+                      },
+                      icon: const Icon(Icons.undo, size: 16),
+                      label: const Text('Batalkan Pembayaran (Reversal)'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showReversePaymentDialog(
+    BuildContext context,
+    BackendPayment payment,
+  ) async {
+    final reasonController = TextEditingController();
+    bool submitting = false;
+    String? error;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Batalkan Pembayaran (Reversal)'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (error != null) ...[
+                      Text(error!, style: const TextStyle(color: AppColors.danger)),
+                      const SizedBox(height: 8),
+                    ],
+                    Text(
+                      'Pembayaran senilai Rp ${_formatAmount(payment.amount)} akan dibatalkan melalui transaksi reversal KAS kompensasi.',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      controller: reasonController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Alasan Pembatalan (Wajib, min. 5 karakter)',
+                        border: OutlineInputBorder(),
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+                  onPressed: submitting
+                      ? null
+                      : () async {
+                          final reason = reasonController.text.trim();
+                          if (reason.length < 5) {
+                            setDialogState(() => error = 'Alasan pembatalan minimal 5 karakter.');
+                            return;
+                          }
+
+                          setDialogState(() {
+                            submitting = true;
+                            error = null;
+                          });
+
+                          try {
+                            final repository = ref.read(iuranRepositoryProvider);
+                            await repository.reversePayment(
+                              payment.id,
+                              reason: reason,
+                            );
+
+                            if (context.mounted) {
+                              Navigator.pop(dialogContext);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Pembayaran berhasil dibatalkan (reversal)'),
+                                  backgroundColor: AppColors.success,
+                                ),
+                              );
+                              ref.invalidate(billDetailProvider(widget.billId));
+                              ref.invalidate(billPaymentsProvider(widget.billId));
+                              ref.invalidate(pendingPaymentsProvider);
+                            }
+                          } catch (e) {
+                            setDialogState(() {
+                              submitting = false;
+                              error = 'Gagal membatalkan pembayaran: $e';
+                            });
+                          }
+                        },
+                  child: submitting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Batalkan Pembayaran', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
         );
       },
     );

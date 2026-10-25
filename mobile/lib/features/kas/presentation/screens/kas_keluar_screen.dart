@@ -20,6 +20,8 @@ import 'package:social_finance/features/kas/data/kas_api_models.dart';
 import 'package:social_finance/features/kas/data/kas_models.dart';
 import 'package:social_finance/features/kas/data/jakarta_time.dart';
 import 'package:social_finance/features/kas/data/kas_repository.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
+import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// Generates a v4-style random UUID for idempotency keys.
@@ -48,6 +50,9 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
   List<BackendCategory> _expenseCategories = [];
   String? _selectedCategoryId;
   bool _loadingCategories = true;
+
+  List<FundLocation> _locations = [];
+  String? _selectedLocationId;
 
   String _paymentMethod = 'CASH';
   bool _saving = false;
@@ -80,10 +85,18 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       if (defaultId == null && expenseCats.isNotEmpty) {
         defaultId = expenseCats.first.id;
       }
+
+      List<FundLocation> locs = [];
+      try {
+        final locRepo = ref.read(fundLocationRepositoryProvider);
+        locs = await locRepo.fetchLocations(isActive: true);
+      } catch (_) {}
+
       if (mounted) {
         setState(() {
           _expenseCategories = expenseCats;
           _selectedCategoryId = defaultId;
+          _locations = locs;
           _loadingCategories = false;
         });
       }
@@ -116,6 +129,11 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       final parsed = parseRupiahInput(_nominalCtrl.text.trim());
       if (parsed == null || parsed <= 0) {
         errors.add('Nominal harus berupa angka yang lebih besar dari 0.');
+      } else if (_selectedLocationId != null) {
+        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        if (loc != null && parsed > loc.balanceRupiah) {
+          errors.add('Nominal melebihi saldo lokasi dana (${RupiahFormatter.format(loc.balanceRupiah)}).');
+        }
       }
     }
     if (_keteranganCtrl.text.trim().isEmpty) {
@@ -144,6 +162,17 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
         return;
       }
 
+      if (_selectedLocationId != null) {
+        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        if (loc != null && nominalInt > loc.balanceRupiah) {
+          setState(() {
+            _error = 'Saldo lokasi dana tidak mencukupi. Saldo saat ini: ${RupiahFormatter.format(loc.balanceRupiah)}.';
+            _saving = false;
+          });
+          return;
+        }
+      }
+
       final repository = ref.read(kasRepositoryProvider);
       final occurredAt = toJakartaUtc(_tanggalCtrl.text.trim());
 
@@ -156,6 +185,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
         description: desc,
         occurredAt: occurredAt,
         paymentMethod: _paymentMethod,
+        locationId: _selectedLocationId,
         idempotencyKey: _generateUuid(),
       );
 
@@ -623,22 +653,69 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: AppSpacing.sm),
-              // Live preview formatted amount
-              if (_nominalCtrl.text.trim().isNotEmpty &&
-                  int.tryParse(_nominalCtrl.text.trim()) != null)
+
+              // Kategori
+              if (_loadingCategories)
                 Padding(
-                  padding: const EdgeInsets.only(
-                    left: 16,
-                    bottom: AppSpacing.lg,
-                  ),
-                  child: Text(
-                    'Format: -${RupiahFormatter.format(int.parse(_nominalCtrl.text.trim()))}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.danger,
-                      fontWeight: FontWeight.w600,
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   ),
+                )
+              else
+                DropdownButtonFormField<String>(
+                  value: _selectedCategoryId,
+                  decoration: InputDecoration(
+                    labelText: 'Kategori',
+                    hintText: 'Pilih kategori pengeluaran',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
+                  ),
+                  items: _expenseCategories.map((cat) {
+                    return DropdownMenuItem<String>(
+                      value: cat.id,
+                      child: Text(cat.name),
+                    );
+                  }).toList(),
+                  onChanged: (val) => setState(() => _selectedCategoryId = val),
                 ),
+              const SizedBox(height: AppSpacing.sm),
+
+              // Lokasi Dana (Opsional)
+              DropdownButtonFormField<String?>(
+                value: _selectedLocationId,
+                decoration: InputDecoration(
+                  labelText: 'Lokasi Dana (Opsional)',
+                  hintText: 'Pilih lokasi pengambilan dana',
+                  helperText: () {
+                    if (_selectedLocationId == null) return null;
+                    final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+                    return loc != null ? 'Saldo tersedia: ${RupiahFormatter.format(loc.balanceRupiah)}' : null;
+                  }(),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('-- Belum Dialokasikan (Kas Umum) --'),
+                  ),
+                  ..._locations.map((loc) {
+                    return DropdownMenuItem<String?>(
+                      value: loc.id,
+                      child: Text('${loc.name} (${RupiahFormatter.format(loc.balanceRupiah)})'),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedLocationId = val),
+              ),
+              const SizedBox(height: AppSpacing.sm),
 
               // Keterangan
               AppTextField(
