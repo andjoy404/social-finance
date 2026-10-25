@@ -6,7 +6,6 @@
 library;
 
 import 'dart:async';
-import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -42,7 +41,10 @@ class KasReportAccess {
     final blocked = j == 'keamanan' || j == 'operasional';
     return KasReportAccess(
       canView: systemRole == 'super_admin' || !blocked,
-      canExport: j == 'ketua' || j == 'wakil_ketua' || r == 'bendahara',
+      canExport: j == 'ketua' ||
+          j == 'wakil_ketua' ||
+          j == 'bendahara' ||
+          r == 'bendahara',
     );
   }
 }
@@ -237,21 +239,6 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
       jabatan: user?['jabatan'] as String?,
       role: user?['role']?.toString().split('.').last,
     );
-
-    // ---- DIAGNOSTIC Sementara — hapus setelah bug diperbaiki ----
-    // Catat nilai permission yang tidak sensitif untuk debugging.
-    // debugPrint di-drop pada build release; untuk release mode
-    // gunakan: adb logcat -s KasReportDiag
-    // atau jalankan di mode debug/development.
-    final normRole = (user?['role']?.toString().split('.').last ?? '').toLowerCase().trim();
-    final normJabatan = (user?['jabatan'] as String? ?? '').toLowerCase().trim();
-    final normSysRole = (user?['system_role'] as String? ?? '').toLowerCase().trim();
-    log(
-      'KAS: role=$normRole jabatan=$normJabatan system_role=$normSysRole canExport=${access.canExport}',
-      name: 'KasReportDiag',
-      level: 1000, // INFO — terlihat di release tanpa crash
-    );
-    // ---- END DIAGNOSTIC ----
 
     return Scaffold(
       appBar: AppBar(

@@ -93,7 +93,7 @@ func SetJabatan(ctx context.Context, tx *sql.Tx, rtID, userID string, jabatan au
 		return &item, old, nil
 	}
 
-	if jabatan == auth.JabatanKetua {
+	if jabatan == auth.JabatanKetua || jabatan == auth.JabatanWakilKetua {
 		var existing string
 		err := tx.QueryRowContext(ctx, `SELECT id FROM user_rt_memberships WHERE rt_id = $1 AND is_active = true AND jabatan = $2 AND user_id <> $3 LIMIT 1`, rtID, string(jabatan), userID).Scan(&existing)
 		if err == nil {

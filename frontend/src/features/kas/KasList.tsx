@@ -43,31 +43,8 @@ const MONTH_NAMES = [
   'Desember',
 ]
 
-function getCurrentJakartaPeriod(): { year: number; month: number; periodStr: string } {
-  try {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Jakarta',
-      year: 'numeric',
-      month: '2-digit',
-    })
-    const parts = formatter.format(new Date()).split('-')
-    const year = parseInt(parts[0], 10)
-    const month = parseInt(parts[1], 10)
-    return {
-      year,
-      month,
-      periodStr: `${parts[0]}-${parts[1]}`,
-    }
-  } catch {
-    const now = new Date()
-    const year = now.getFullYear()
-    const month = now.getMonth() + 1
-    return {
-      year,
-      month,
-      periodStr: `${year}-${String(month).padStart(2, '0')}`,
-    }
-  }
+function formatPeriodLabel(year: number, month: number): string {
+  return `${MONTH_NAMES[month - 1]} ${year}`
 }
 
 export function cleanKasDescription(desc: string): string {
@@ -110,7 +87,11 @@ export function KasList() {
   const canViewKasReport = user?.systemRole === 'super_admin'
     || (user?.jabatan !== 'keamanan' && user?.jabatan !== 'kebersihan_pembangunan')
 
-  const currentJakarta = useMemo(() => getCurrentJakartaPeriod(), [])
+  // Month filter state — default to current month
+  const [selectedMonth, setSelectedMonth] = useState<{ year: number; month: number }>(() => {
+    const now = new Date()
+    return { year: now.getFullYear(), month: now.getMonth() + 1 }
+  })
   const [isAllPeriods, setIsAllPeriods] = useState<boolean>(false)
 
   const [loading, setLoading] = useState<boolean>(true)
@@ -160,8 +141,8 @@ export function KasList() {
 
   const activePeriodStr = useMemo(() => {
     if (isAllPeriods) return undefined
-    return currentJakarta.periodStr
-  }, [isAllPeriods, currentJakarta])
+    return `${selectedMonth.year}-${String(selectedMonth.month).padStart(2, '0')}`
+  }, [isAllPeriods, selectedMonth])
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -230,7 +211,7 @@ export function KasList() {
 
   const handleSaveOpeningBalance = async (e: React.FormEvent) => {
     e.preventDefault()
-    const targetPeriod = activePeriodStr || currentJakarta.periodStr
+    const targetPeriod = activePeriodStr || `${selectedMonth.year}-${String(selectedMonth.month).padStart(2, '0')}`
     const token = getSessionPair()?.accessToken
     if (!token) return
 
@@ -302,7 +283,7 @@ export function KasList() {
       rows.push({
         id: '__saldo_awal__',
         tanggal: !isAllPeriods
-          ? `01 ${MONTH_NAMES[currentJakarta.month - 1]?.slice(0, 3)} ${currentJakarta.year}`
+          ? `01 ${MONTH_NAMES[selectedMonth.month - 1]?.slice(0, 3)} ${selectedMonth.year}`
           : '—',
         keterangan: 'Saldo Awal',
         kategori: '—',
@@ -380,7 +361,7 @@ export function KasList() {
 
   const displayPeriodLabel = isAllPeriods
     ? 'Semua Periode'
-    : `${MONTH_NAMES[currentJakarta.month - 1]} ${currentJakarta.year}`
+    : formatPeriodLabel(selectedMonth.year, selectedMonth.month)
 
   const hasNoTransactions = !loading && rawTransactions.length === 0
 
@@ -532,6 +513,22 @@ export function KasList() {
         {/* Row 1: Period Navigation & Filters (left), Period Action (right) */}
         <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
           {/* Filter & Pencarian (default periode: bulan ini) */}
+
+          {/* Filter Bulan */}
+          <DatePicker
+            picker="month"
+            value={selectedMonth ? dayjs(`${selectedMonth.year}-${String(selectedMonth.month).padStart(2, '0')}-01`) : null}
+            onChange={(date) => {
+              if (date) {
+                setSelectedMonth({ year: date.year(), month: date.month() + 1 })
+                setPage(1)
+              }
+            }}
+            allowClear={false}
+            format="YYYY-MM"
+            style={{ fontSize: 13, width: 140 }}
+            aria-label="Filter Bulan"
+          />
 
           {/* Filter Arus Kas */}
           <select
@@ -1391,7 +1388,7 @@ export function KasList() {
                 <div className="sf-modal-subtitle">
                   {isAllPeriods
                     ? `Semua Periode`
-                    : `${MONTH_NAMES[currentJakarta.month - 1]?.slice(0, 3)} ${currentJakarta.year}`}
+                    : `${MONTH_NAMES[selectedMonth.month - 1]?.slice(0, 3)} ${selectedMonth.year}`}
                 </div>
               </div>
               <button

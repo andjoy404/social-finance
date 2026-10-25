@@ -426,7 +426,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
               const SizedBox(height: AppSpacing.lg),
 
-              // ── Tanggal Pembayaran ──
+              // ── Tanggal Pembayaran (otomatis hari ini) ──
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -437,53 +437,41 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.now(),
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      if (picked != null && mounted) {
-                        setState(() {
-                          _tanggalCtrl.text = picked.toLocal().toString().split(
-                            ' ',
-                          )[0];
-                        });
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.lightBorder),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        color: isDark
-                            ? AppColors.darkSurface
-                            : AppColors.lightSurface,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today,
-                            size: 20,
-                            color: AppColors.accent,
-                          ),
-                          const SizedBox(width: AppSpacing.md),
-                          Text(
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.lightBorder),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      color: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurface,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 20,
+                          color: AppColors.accent,
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Text(
                             _tanggalCtrl.text.isEmpty
                                 ? 'Pilih tanggal'
                                 : _tanggalCtrl.text,
-                            style: theme.textTheme.bodyLarge,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                            ),
                           ),
-                          const Spacer(),
-                          const Icon(
-                            Icons.arrow_forward_ios,
-                            size: 16,
-                            color: Colors.grey,
-                          ),
-                        ],
-                      ),
+                        ),
+                        const Icon(
+                          Icons.lock_outline,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
+                      ],
                     ),
                   ),
                 ],

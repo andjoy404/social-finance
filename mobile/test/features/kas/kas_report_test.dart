@@ -312,10 +312,24 @@ void main() {
         isTrue,
       );
       expect(KasReportAccess.from(role: 'bendahara').canExport, isTrue);
+      expect(KasReportAccess.from(jabatan: 'bendahara').canExport, isTrue);
+      expect(
+        KasReportAccess.from(role: 'pengurus', jabatan: 'bendahara').canExport,
+        isTrue,
+      );
+      expect(
+        KasReportAccess.from(role: 'warga', jabatan: 'bendahara').canExport,
+        isTrue,
+      );
       expect(KasReportAccess.from(jabatan: 'ketua').canExport, isTrue);
       expect(KasReportAccess.from(jabatan: 'wakil_ketua').canExport, isTrue);
       expect(KasReportAccess.from(role: 'warga').canExport, isFalse);
+      expect(KasReportAccess.from(role: 'pengurus').canExport, isFalse);
       expect(KasReportAccess.from(jabatan: 'sekretaris').canExport, isFalse);
+      expect(
+        KasReportAccess.from(role: 'pengurus', jabatan: 'sekretaris').canExport,
+        isFalse,
+      );
     });
   });
 
@@ -336,6 +350,23 @@ void main() {
       expect(find.byKey(const Key('kas-report-export-pdf')), findsOneWidget);
       expect(find.byKey(const Key('kas-report-export-xlsx')), findsOneWidget);
     });
+
+    testWidgets(
+      'sukses: tombol ekspor muncul untuk pengurus dengan jabatan bendahara (seperti bendahara-002@local.com)',
+      (tester) async {
+        await pumpScreen(
+          tester,
+          _FakeRepo(txs: fixture, closing: '3200000.00'),
+          role: AppRole.pengurus,
+          jabatan: 'bendahara',
+        );
+        expect(find.byKey(const Key('kas-report-loading')), findsOneWidget);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('kas-report-document')), findsOneWidget);
+        expect(find.byKey(const Key('kas-report-export-pdf')), findsOneWidget);
+        expect(find.byKey(const Key('kas-report-export-xlsx')), findsOneWidget);
+      },
+    );
 
     testWidgets('identitas RT detail dipakai oleh dokumen laporan', (
       tester,
