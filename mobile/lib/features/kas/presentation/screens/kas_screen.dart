@@ -67,6 +67,7 @@ class KasScreen extends ConsumerStatefulWidget {
 
 class _KasScreenState extends ConsumerState<KasScreen> {
   late final TextEditingController _searchController;
+  bool _filtersExpanded = false;
 
   static const _monthNames = [
     'Januari',
@@ -637,234 +638,301 @@ class _KasScreenState extends ConsumerState<KasScreen> {
             children: [
               const SizedBox(height: AppSpacing.sm),
 
-              // ── FILTER AREA (pindah di atas Summary Cards) ──
-              // Month Navigator & Filter Periode (Date / Semua)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-                height: 38,
-                decoration: BoxDecoration(
-                  color: theme.scaffoldBackgroundColor,
-                  borderRadius: BorderRadius.circular(AppRadius.base),
-                  border: Border.all(
-                    color: isDark
-                        ? AppColors.darkBorder
-                        : AppColors.lightBorder,
-                  ),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
-                ),
-                child: Row(
+              // ── FILTER COLLAPSIBLE ──
+              InkWell(
+                onTap: () {
+                  setState(() {
+                    _filtersExpanded = !_filtersExpanded;
+                  });
+                },
+                borderRadius: BorderRadius.circular(AppRadius.base),
+                child: Column(
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      onPressed: _isAllPeriods ? null : _prevMonth,
-                      tooltip: 'Bulan Sebelumnya',
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    Expanded(
-                      child: InkWell(
-                        onTap: _isAllPeriods ? null : _pickMonth,
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 4,
-                            horizontal: 8,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.scaffoldBackgroundColor,
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                        border: Border.all(
+                          color: isDark
+                              ? AppColors.darkBorder
+                              : AppColors.lightBorder,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.tune,
+                            size: 18,
+                            color: isDark
+                                ? AppColors.darkText
+                                : AppColors.lightText,
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                _isAllPeriods
-                                    ? 'Semua Periode'
-                                    : _formatMonthYear(_activeDate),
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: _isAllPeriods
-                                      ? theme.colorScheme.onSurfaceVariant
-                                      : AppColors.accent,
+                          const SizedBox(width: 8),
+                          Text(
+                            'Filter',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          AnimatedRotation(
+                            turns: _filtersExpanded ? 0 : 0.5,
+                            duration: const Duration(milliseconds: 200),
+                            child: Icon(
+                              Icons.keyboard_arrow_down,
+                              size: 20,
+                              color: AppColors.accent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeInOut,
+                      alignment: Alignment.topCenter,
+                      child: _filtersExpanded
+                          ? Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Month Navigator & Filter Periode (Date / Semua)
+                                Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    color: theme.scaffoldBackgroundColor,
+                                    borderRadius: BorderRadius.circular(AppRadius.base),
+                                    border: Border.all(
+                                      color: isDark
+                                          ? AppColors.darkBorder
+                                          : AppColors.lightBorder,
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.sm,
+                                    vertical: AppSpacing.xs,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.chevron_left),
+                                        onPressed: _isAllPeriods ? null : _prevMonth,
+                                        tooltip: 'Bulan Sebelumnya',
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      Expanded(
+                                        child: InkWell(
+                                          onTap: _isAllPeriods ? null : _pickMonth,
+                                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 4,
+                                              horizontal: 8,
+                                            ),
+                                            child: Row(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Text(
+                                                  _isAllPeriods
+                                                      ? 'Semua Periode'
+                                                      : _formatMonthYear(_activeDate),
+                                                  style: theme.textTheme.titleMedium?.copyWith(
+                                                    fontWeight: FontWeight.bold,
+                                                    color: _isAllPeriods
+                                                        ? theme.colorScheme.onSurfaceVariant
+                                                        : AppColors.accent,
+                                                  ),
+                                                ),
+                                                if (!_isAllPeriods) ...[
+                                                  const SizedBox(width: 4),
+                                                  const Icon(
+                                                    Icons.arrow_drop_down,
+                                                    size: 20,
+                                                    color: AppColors.accent,
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.chevron_right),
+                                        onPressed: _isAllPeriods ? null : _nextMonth,
+                                        tooltip: 'Bulan Berikutnya',
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      ChoiceChip(
+                                        label: Text(
+                                          _isAllPeriods ? 'Per Bulan' : 'Semua',
+                                          style: const TextStyle(fontSize: 11),
+                                        ),
+                                        selected: _isAllPeriods,
+                                        visualDensity: VisualDensity.compact,
+                                        onSelected: (val) {
+                                          setState(() {
+                                            _isAllPeriods = !_isAllPeriods;
+                                          });
+                                          _loadData();
+                                        },
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              if (!_isAllPeriods) ...[
-                                const SizedBox(width: 4),
-                                const Icon(
-                                  Icons.arrow_drop_down,
-                                  size: 20,
-                                  color: AppColors.accent,
+
+                                const SizedBox(height: AppSpacing.xs),
+
+                                // Arus Kas & Metode Filter Row
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.base,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Container(
+                                          height: 38,
+                                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                                          decoration: BoxDecoration(
+                                            color: theme.scaffoldBackgroundColor,
+                                            borderRadius: BorderRadius.circular(AppRadius.base),
+                                            border: Border.all(
+                                              color: isDark
+                                                  ? AppColors.darkBorder
+                                                  : AppColors.lightBorder,
+                                            ),
+                                          ),
+                                          child: DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                              value: _filterArus,
+                                              isExpanded: true,
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              dropdownColor: theme.scaffoldBackgroundColor,
+                                              items: const [
+                                                DropdownMenuItem(
+                                                  value: 'all',
+                                                  child: Text('Semua Arus Kas'),
+                                                ),
+                                                DropdownMenuItem(
+                                                  value: 'masuk',
+                                                  child: Text('Pemasukan (Masuk)'),
+                                                ),
+                                                DropdownMenuItem(
+                                                  value: 'keluar',
+                                                  child: Text('Pengeluaran (Keluar)'),
+                                                ),
+                                              ],
+                                              onChanged: (val) {
+                                                if (val != null) {
+                                                  setState(() => _filterArus = val);
+                                                  _refreshFiltered();
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: AppSpacing.sm),
+                                      Expanded(
+                                        child: Container(
+                                          height: 38,
+                                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                                          decoration: BoxDecoration(
+                                            color: theme.scaffoldBackgroundColor,
+                                            borderRadius: BorderRadius.circular(AppRadius.base),
+                                            border: Border.all(
+                                              color: isDark
+                                                  ? AppColors.darkBorder
+                                                  : AppColors.lightBorder,
+                                            ),
+                                          ),
+                                          child: DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                              value: _filterMetode,
+                                              isExpanded: true,
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              dropdownColor: theme.scaffoldBackgroundColor,
+                                              items: const [
+                                                DropdownMenuItem(
+                                                  value: 'all',
+                                                  child: Text('Semua Metode'),
+                                                ),
+                                                DropdownMenuItem(
+                                                  value: 'CASH',
+                                                  child: Text('Tunai (Cash)'),
+                                                ),
+                                                DropdownMenuItem(
+                                                  value: 'TRANSFER',
+                                                  child: Text('Transfer Bank'),
+                                                ),
+                                              ],
+                                              onChanged: (val) {
+                                                if (val != null) {
+                                                  setState(() => _filterMetode = val);
+                                                  _refreshFiltered();
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                const SizedBox(height: AppSpacing.xs),
+
+                                // Search
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.base,
+                                  ),
+                                  child: SizedBox(
+                                    height: 38,
+                                    child: AppTextField(
+                                      controller: _searchController,
+                                      hintText: 'Cari transaksi...',
+                                      isDense: true,
+                                      fillColor: theme.scaffoldBackgroundColor,
+                                      textAlignVertical: TextAlignVertical.center,
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 0,
+                                      ),
+                                      prefixIconConstraints: const BoxConstraints(
+                                        minWidth: 36,
+                                        minHeight: 38,
+                                      ),
+                                      suffixIconConstraints: const BoxConstraints(
+                                        minWidth: 36,
+                                        minHeight: 38,
+                                      ),
+                                      prefixIcon: const Icon(Icons.search, size: 18),
+                                      suffixIcon: _searchController.text.isNotEmpty
+                                          ? IconButton(
+                                              padding: EdgeInsets.zero,
+                                              icon: const Icon(Icons.clear, size: 18),
+                                              onPressed: _clearSearch,
+                                            )
+                                          : null,
+                                      onChanged: _onSearchChanged,
+                                    ),
+                                  ),
                                 ),
                               ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      onPressed: _isAllPeriods ? null : _nextMonth,
-                      tooltip: 'Bulan Berikutnya',
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    const SizedBox(width: 4),
-                    ChoiceChip(
-                      label: Text(
-                        _isAllPeriods ? 'Per Bulan' : 'Semua',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      selected: _isAllPeriods,
-                      visualDensity: VisualDensity.compact,
-                      onSelected: (val) {
-                        setState(() {
-                          _isAllPeriods = !_isAllPeriods;
-                        });
-                        _loadData();
-                      },
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ],
-                ),
-              ),
-
-              const SizedBox(height: AppSpacing.xs),
-
-              // Arus Kas & Metode Filter Row
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.base,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 38,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        decoration: BoxDecoration(
-                          color: theme.scaffoldBackgroundColor,
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          border: Border.all(
-                            color: isDark
-                                ? AppColors.darkBorder
-                                : AppColors.lightBorder,
-                          ),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _filterArus,
-                            isExpanded: true,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                            dropdownColor: theme.scaffoldBackgroundColor,
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'all',
-                                child: Text('Semua Arus Kas'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'masuk',
-                                child: Text('Pemasukan (Masuk)'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'keluar',
-                                child: Text('Pengeluaran (Keluar)'),
-                              ),
-                            ],
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() => _filterArus = val);
-                                _refreshFiltered();
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Container(
-                        height: 38,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        decoration: BoxDecoration(
-                          color: theme.scaffoldBackgroundColor,
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          border: Border.all(
-                            color: isDark
-                                ? AppColors.darkBorder
-                                : AppColors.lightBorder,
-                          ),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _filterMetode,
-                            isExpanded: true,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                            dropdownColor: theme.scaffoldBackgroundColor,
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'all',
-                                child: Text('Semua Metode'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'CASH',
-                                child: Text('Tunai (Cash)'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'TRANSFER',
-                                child: Text('Transfer Bank'),
-                              ),
-                            ],
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() => _filterMetode = val);
-                                _refreshFiltered();
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: AppSpacing.xs),
-
-              // ── Search ──
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.base,
-                ),
-                child: SizedBox(
-                  height: 38,
-                  child: AppTextField(
-                    controller: _searchController,
-                    hintText: 'Cari transaksi...',
-                    isDense: true,
-                    fillColor: theme.scaffoldBackgroundColor,
-                    textAlignVertical: TextAlignVertical.center,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 0,
-                    ),
-                    prefixIconConstraints: const BoxConstraints(
-                      minWidth: 36,
-                      minHeight: 38,
-                    ),
-                    suffixIconConstraints: const BoxConstraints(
-                      minWidth: 36,
-                      minHeight: 38,
-                    ),
-                    prefixIcon: const Icon(Icons.search, size: 18),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            padding: EdgeInsets.zero,
-                            icon: const Icon(Icons.clear, size: 18),
-                            onPressed: _clearSearch,
-                          )
-                        : null,
-                    onChanged: _onSearchChanged,
-                  ),
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),

@@ -1846,6 +1846,122 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
   filter: brightness(0.9) saturate(0.9);
 }
 
+/* ── Ant Design DatePicker — theme match ────────────────────────────── */
+
+.ant-picker {
+  background: var(--sf-bg) !important;
+  border: 1px solid var(--sf-border) !important;
+  color: var(--sf-text) !important;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.ant-picker:hover,
+.ant-picker:focus,
+.ant-picker-focused {
+  border-color: var(--sf-accent) !important;
+}
+
+.ant-picker input {
+  color: var(--sf-text) !important;
+  background: transparent !important;
+}
+
+.ant-picker-suffix {
+  color: var(--sf-text-muted) !important;
+}
+
+.ant-picker-clear {
+  color: var(--sf-text-muted) !important;
+  background: transparent !important;
+}
+
+.ant-picker-clear:hover {
+  color: var(--sf-text) !important;
+}
+
+.ant-picker-panel-container {
+  background: var(--sf-surface) !important;
+  border: 1px solid var(--sf-border) !important;
+  box-shadow: var(--sf-shadow-md) !important;
+}
+
+.ant-picker-panel {
+  background: var(--sf-surface) !important;
+  color: var(--sf-text) !important;
+}
+
+.ant-picker-header {
+  background: var(--sf-surface) !important;
+  border-bottom: 1px solid var(--sf-border) !important;
+  color: var(--sf-text) !important;
+}
+
+.ant-picker-header button {
+  color: var(--sf-text) !important;
+  background: transparent !important;
+}
+
+.ant-picker-header-view button {
+  color: var(--sf-text) !important;
+  background: transparent !important;
+}
+
+.ant-picker-cell {
+  color: var(--sf-text) !important;
+}
+
+.ant-picker-cell-inner {
+  background: transparent !important;
+  color: var(--sf-text) !important;
+}
+
+.ant-picker-cell-in-view {
+  color: var(--sf-text) !important;
+}
+
+.ant-picker-cell-disabled .ant-picker-cell-inner {
+  color: var(--sf-text-muted) !important;
+  opacity: 0.4;
+}
+
+.ant-picker-cell-selected .ant-picker-cell-inner {
+  background: var(--sf-accent) !important;
+  color: #fff !important;
+}
+
+.ant-picker-cell-range-start .ant-picker-cell-inner,
+.ant-picker-cell-range-end .ant-picker-cell-inner {
+  background: var(--sf-accent) !important;
+  color: #fff !important;
+}
+
+.ant-picker-cell-range-start:not(.ant-picker-cell-range-end-hover) .ant-picker-cell-inner,
+.ant-picker-cell-range-end:not(.ant-picker-cell-range-start-hover) .ant-picker-cell-inner {
+  background: var(--sf-accent) !important;
+  color: #fff !important;
+}
+
+.ant-picker-cell-today .ant-picker-cell-inner::before {
+  border: 1px solid var(--sf-accent) !important;
+}
+
+.ant-picker-cell:not(.ant-picker-cell-disabled):hover .ant-picker-cell-inner {
+  background: var(--sf-surface-hover) !important;
+}
+
+.ant-picker-range .ant-picker-input > input::placeholder {
+  color: var(--sf-text-muted) !important;
+}
+
+.ant-picker-dropdown {
+  background: var(--sf-surface) !important;
+}
+
+/* ── Chart bar hover — softer highlight ─────────────────────────────── */
+.recharts-wrapper:hover {
+  filter: brightness(0.9) saturate(0.9);
+}
+
 .recharts-wrapper {
   transition: filter 0.2s ease;
 }

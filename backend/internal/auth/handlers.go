@@ -421,6 +421,7 @@ func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.P
 	roleAllowsManagement := ac.TenantRole == RoleBendahara ||
 		ac.TenantRole == RolePengurus ||
 		ac.Jabatan == JabatanKetua ||
+		ac.Jabatan == JabatanWakilKetua ||
 		ac.Jabatan == JabatanBendahara ||
 		ac.Jabatan == JabatanSekretaris
 

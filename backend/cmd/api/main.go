@@ -573,7 +573,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Use(auth.RequirePermission(pool, "warga.export"))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
 		))
 		r.Get("/api/v1/warga/template", household.HandleWargaTemplateXLSX(pool))
 		r.Get("/api/v1/warga/export/xlsx", household.HandleWargaExportXLSX(pool))
@@ -625,7 +625,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Use(auth.RequirePermission(pool, "warga.import"))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
 		))
 		r.Post("/api/v1/warga/import/preview", household.HandleWargaImportPreview(pool))
 		r.Post("/api/v1/warga/import/commit", household.HandleWargaImportCommit(pool))
@@ -680,7 +680,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus},
-			[]auth.Jabatan{auth.JabatanKetua},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua},
 		))
 		r.Post("/api/v1/categories", finH.CreateCategory)
 		r.Patch("/api/v1/categories/{id}", finH.UpdateCategory)
@@ -697,7 +697,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Use(auth.RequirePermission(pool, "finance.approve"))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RoleBendahara, auth.RolePengurus},
-			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanBendahara},
 		))
 		r.Post("/api/v1/dues", finH.CreateDue)
 		r.Patch("/api/v1/dues/{id}", finH.UpdateDue)

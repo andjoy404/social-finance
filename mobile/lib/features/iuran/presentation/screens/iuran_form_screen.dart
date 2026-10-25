@@ -70,7 +70,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
       case DuePeriodType.yearly:
         return date.year.toString();
       case DuePeriodType.oneTime:
-        return _formatDate(date);
+        return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}';
     }
   }
 
@@ -113,42 +113,371 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
 
   Future<void> _pickPeriod() async {
     final now = DateTime.now();
-    DateTime initial = now;
-    if (_periodType == DuePeriodType.monthly) {
-      final parts = _periodCtrl.text.split('-');
-      if (parts.length >= 2) {
-        initial = DateTime(
-          int.tryParse(parts[0]) ?? now.year,
-          int.tryParse(parts[1]) ?? now.month,
-        );
+    if (_periodType == DuePeriodType.yearly) {
+      final selected = await _pickYear();
+      if (selected != null && mounted) {
+        setState(() {
+          _periodCtrl.text = selected.toString();
+          if (_validationErrors.isNotEmpty) {
+            _validationErrors = [];
+          }
+        });
       }
-    } else if (_periodType == DuePeriodType.yearly) {
-      final y = int.tryParse(_periodCtrl.text);
-      if (y != null) {
-        initial = DateTime(y);
+    } else if (_periodType == DuePeriodType.monthly) {
+      final result = await _pickMonthYear();
+      if (result != null && mounted) {
+        setState(() {
+          _periodCtrl.text = _formatPeriod(DateTime(result.$1, result.$2), _periodType);
+          if (_validationErrors.isNotEmpty) {
+            _validationErrors = [];
+          }
+        });
+      }
+    } else {
+      final picked = await _buildPeriodPicker(now);
+      if (picked != null && mounted) {
+        setState(() {
+          _periodCtrl.text = _formatPeriod(picked, _periodType);
+          if (_validationErrors.isNotEmpty) {
+            _validationErrors = [];
+          }
+        });
+      }
+    }
+  }
+
+  Future<int?> _pickYear() async {
+    final currentYear = DateTime.now().year;
+    final years = List.generate(31, (i) => currentYear - 15 + i);
+    final initial = int.tryParse(_periodCtrl.text) ?? currentYear;
+    int selected = initial;
+
+    return showModalBottomSheet<int>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Tahun',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: years.length,
+                    itemBuilder: (_, index) {
+                      final year = years[index];
+                      final isSelected = year == selected;
+                      return ListTile(
+                        title: Text(year.toString()),
+                        selected: isSelected,
+                        selectedTileColor: AppColors.accent.withOpacity(0.15),
+                        onTap: () {
+                          setModalState(() => selected = year);
+                          Navigator.of(ctx).pop(year);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<(int year, int month)?> _pickMonthYear() async {
+    final now = DateTime.now();
+    final parts = _periodCtrl.text.split('-');
+    final currentYear = now.year;
+    int selYear = currentYear;
+    int selMonth = now.month;
+    if (parts.length >= 2) {
+      selYear = int.tryParse(parts[0]) ?? currentYear;
+      selMonth = int.tryParse(parts[1]) ?? now.month;
+    }
+
+    return await showModalBottomSheet<(int, int)>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final months = [
+            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+          ];
+          final years = List.generate(11, (i) => currentYear - 5 + i);
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Periode',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                // Year dropdown
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 150),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      isExpanded: true,
+                      value: selYear,
+                      menuMaxHeight: 150,
+                      items: years.map((y) {
+                        return DropdownMenuItem<int>(
+                          value: y,
+                          child: Text(y.toString()),
+                        );
+                      }).toList(),
+                      onChanged: (v) => setModalState(() => selYear = v!),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                // Month grid
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 2.5,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: 12,
+                  itemBuilder: (_, i) {
+                    final isSelected = i + 1 == selMonth;
+                    return InkWell(
+                      onTap: () => setModalState(() => selMonth = i + 1),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
+                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          border: Border.all(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          months[i],
+                          style: TextStyle(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: AppSpacing.md),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.accent,
+                      side: const BorderSide(color: AppColors.accent, width: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop((selYear, selMonth)),
+                    child: const Text(
+                      'OK',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<DateTime?> _buildPeriodPicker(DateTime now) async {
+    final parts = _periodCtrl.text.split('-');
+    final currentYear = now.year;
+    int selYear = currentYear;
+    int selMonth = now.month;
+    if (_periodType == DuePeriodType.monthly) {
+      if (parts.length >= 2) {
+        selYear = int.tryParse(parts[0]) ?? currentYear;
+        selMonth = int.tryParse(parts[1]) ?? now.month;
       }
     } else {
       final parsed = DateTime.tryParse(_periodCtrl.text);
-      if (parsed != null) initial = parsed;
+      if (parsed != null) {
+        selYear = parsed.year;
+        selMonth = parsed.month;
+      }
     }
-    final picked = await showDatePicker(
+
+    final picked = await showModalBottomSheet<(int, int)>(
       context: context,
-      initialDate: initial,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-      initialDatePickerMode: DatePickerMode.year,
-      helpText: _periodType == DuePeriodType.monthly
-          ? 'PILIH BULAN PERIODE'
-          : 'PILIH PERIODE',
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final months = [
+            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+          ];
+          final years = List.generate(11, (i) => currentYear - 5 + i);
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Periode',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 150),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      isExpanded: true,
+                      value: selYear,
+                      menuMaxHeight: 150,
+                      items: years.map((y) {
+                        return DropdownMenuItem<int>(
+                          value: y,
+                          child: Text(y.toString()),
+                        );
+                      }).toList(),
+                      onChanged: (v) => setModalState(() => selYear = v!),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 2.5,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: 12,
+                  itemBuilder: (_, i) {
+                    final isSelected = i + 1 == selMonth;
+                    return InkWell(
+                      onTap: () => setModalState(() => selMonth = i + 1),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
+                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          border: Border.all(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          months[i],
+                          style: TextStyle(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: AppSpacing.md),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.accent,
+                      side: const BorderSide(color: AppColors.accent, width: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    onPressed: () {
+                      final date = DateTime(selYear, selMonth, 1);
+                      Navigator.of(ctx).pop(date);
+                    },
+                    child: const Text(
+                      'OK',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
+
     if (picked != null) {
-      setState(() {
-        _periodCtrl.text = _formatPeriod(picked, _periodType);
-        if (_validationErrors.isNotEmpty) {
-          _validationErrors = [];
-        }
-      });
+      return DateTime(picked.$1, picked.$2, 1);
     }
+    return null;
   }
 
   /// Reset form when switching due type.
@@ -193,9 +522,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
       final validPeriod = switch (_periodType) {
         DuePeriodType.monthly => RegExp(r'^\d{4}-\d{2}$').hasMatch(period),
         DuePeriodType.yearly => RegExp(r'^\d{4}$').hasMatch(period),
-        DuePeriodType.oneTime => RegExp(
-          r'^\d{4}-\d{2}-\d{2}$',
-        ).hasMatch(period),
+        DuePeriodType.oneTime => RegExp(r'^\d{4}-\d{2}$').hasMatch(period),
       };
       if (!validPeriod) errors.add('Format periode tidak sesuai frekuensi.');
     }

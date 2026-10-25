@@ -50,10 +50,12 @@ SELECT 'ketua', id FROM permission_types WHERE code IN (
 )
 ON CONFLICT (position, permission_id) DO NOTHING;
 
--- wakil_ketua
+-- wakil_ketua — setara ketua
 INSERT INTO position_permissions (position, permission_id)
 SELECT 'wakil_ketua', id FROM permission_types WHERE code IN (
-    'warga.read', 'warga.create', 'warga.update', 'finance.read', 'reports.read', 'rt.settings.read'
+    'warga.read', 'warga.create', 'warga.update', 'warga.import', 'warga.export',
+    'finance.read', 'finance.create', 'finance.update', 'finance.approve',
+    'reports.read', 'rt.settings.read', 'rt.settings.manage'
 )
 ON CONFLICT (position, permission_id) DO NOTHING;
 
