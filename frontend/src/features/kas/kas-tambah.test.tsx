@@ -163,6 +163,11 @@ describe('KAS Tambah — Nominal Rupiah formatting', () => {
     expect(formatRibuan('500000')).toBe('500.000')
     expect(formatRibuan('1500000')).toBe('1.500.000')
     expect(formatRibuan('1000')).toBe('1.000')
+    // Decimal strings from PostgreSQL NUMERIC(15, 2) / API
+    expect(formatRibuan('325000.00')).toBe('325.000')
+    expect(formatRibuan('1000000.00')).toBe('1.000.000')
+    expect(formatRibuan('1325000.00')).toBe('1.325.000')
+    expect(formatRibuan('0.00')).toBe('0')
   })
 
   it('parseMoney extracts digits from formatted string', () => {

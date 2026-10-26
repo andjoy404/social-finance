@@ -195,6 +195,7 @@ class BackendBill {
 
   // Enriched fields from JOIN queries
   final String? dueName;
+  final bool? dueIsActive;
   final String? houseNumber;
   final String? headName;
   final bool isVoluntary;
@@ -213,6 +214,7 @@ class BackendBill {
     this.createdAt,
     this.updatedAt,
     this.dueName,
+    this.dueIsActive,
     this.houseNumber,
     this.headName,
     this.isVoluntary = false,
@@ -233,6 +235,7 @@ class BackendBill {
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
       dueName: json['due_name'] as String?,
+      dueIsActive: json['due_is_active'] as bool?,
       houseNumber: json['house_number'] as String?,
       headName: json['head_name'] as String?,
       isVoluntary: json['is_voluntary'] as bool? ?? false,

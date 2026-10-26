@@ -1075,6 +1075,7 @@ export interface ApiBill {
   created_at: string
   updated_at: string
   due_name?: string | null
+  due_is_active?: boolean | null
   house_number?: string | null
   head_name?: string | null
   is_voluntary?: boolean
@@ -1944,6 +1945,48 @@ export interface ReconciliationReport {
   anomalies_detected: string[]
 }
 
+function unpackFundLocation(resData: any): FundLocation {
+  if (!resData) throw new ApiError('unexpected', 'Response data missing')
+  let payload = resData.data !== undefined ? resData.data : resData
+  if (Array.isArray(payload)) {
+    if (payload.length !== 1) throw new ApiError('unexpected', 'Response data missing')
+    payload = payload[0]
+  }
+  if (!payload || typeof payload !== 'object' || !payload.id || typeof payload.id !== 'string') {
+    throw new ApiError('unexpected', 'Response data missing')
+  }
+  return payload as FundLocation
+}
+
+function unpackFundLocationList(resData: any): FundLocation[] {
+  if (!resData) throw new ApiError('unexpected', 'Response data missing')
+  const payload = resData.data !== undefined ? resData.data : resData
+  if (!Array.isArray(payload)) throw new ApiError('unexpected', 'Response data missing')
+  return payload as FundLocation[]
+}
+
+function unpackFundTransfer(resData: any): FundTransfer {
+  if (!resData) throw new ApiError('unexpected', 'Response data missing')
+  let payload = resData.data !== undefined ? resData.data : resData
+  if (Array.isArray(payload)) {
+    if (payload.length !== 1) throw new ApiError('unexpected', 'Response data missing')
+    payload = payload[0]
+  }
+  if (!payload || typeof payload !== 'object' || !payload.id || typeof payload.id !== 'string') {
+    throw new ApiError('unexpected', 'Response data missing')
+  }
+  return payload as FundTransfer
+}
+
+function unpackReconciliation(resData: any): ReconciliationReport {
+  if (!resData) throw new ApiError('unexpected', 'Response data missing')
+  const payload = resData.data !== undefined ? resData.data : resData
+  if (!payload || typeof payload !== 'object' || payload.kas_balance === undefined) {
+    throw new ApiError('unexpected', 'Response data missing')
+  }
+  return payload as ReconciliationReport
+}
+
 export async function apiListFundLocations(
   token: string,
   params?: { category?: string; is_active?: boolean },
@@ -1956,9 +1999,8 @@ export async function apiListFundLocations(
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<FundLocation[]>(res)
-  if (!Array.isArray(data)) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackFundLocationList(resData)
 }
 
 export async function apiCreateFundLocation(
@@ -1974,9 +2016,8 @@ export async function apiCreateFundLocation(
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<FundLocation>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackFundLocation(resData)
 }
 
 export async function apiGetFundLocation(token: string, id: string): Promise<FundLocation> {
@@ -1985,9 +2026,8 @@ export async function apiGetFundLocation(token: string, id: string): Promise<Fun
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<FundLocation>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackFundLocation(resData)
 }
 
 export async function apiUpdateFundLocation(
@@ -2004,9 +2044,8 @@ export async function apiUpdateFundLocation(
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<FundLocation>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackFundLocation(resData)
 }
 
 export async function apiDeactivateFundLocation(token: string, id: string): Promise<FundLocation> {
@@ -2015,9 +2054,8 @@ export async function apiDeactivateFundLocation(token: string, id: string): Prom
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<FundLocation>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackFundLocation(resData)
 }
 
 export async function apiGetFundLocationHistory(
@@ -2033,9 +2071,11 @@ export async function apiGetFundLocationHistory(
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<{ data: LocationBalanceChange[]; pagination: any }>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  if (!resData) throw new ApiError('unexpected', 'Response data missing')
+  const items = resData.data !== undefined ? resData.data : (Array.isArray(resData) ? resData : [])
+  const pagination = resData.pagination !== undefined ? resData.pagination : {}
+  return { data: Array.isArray(items) ? items : [], pagination }
 }
 
 export async function apiSetOpeningBalance(
@@ -2052,9 +2092,8 @@ export async function apiSetOpeningBalance(
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<FundLocation>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackFundLocation(resData)
 }
 
 export async function apiListFundTransfers(
@@ -2069,9 +2108,11 @@ export async function apiListFundTransfers(
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<{ data: FundTransfer[]; pagination: any }>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  if (!resData) throw new ApiError('unexpected', 'Response data missing')
+  const items = resData.data !== undefined ? resData.data : (Array.isArray(resData) ? resData : [])
+  const pagination = resData.pagination !== undefined ? resData.pagination : {}
+  return { data: Array.isArray(items) ? items : [], pagination }
 }
 
 export async function apiCreateFundTransfer(
@@ -2088,9 +2129,8 @@ export async function apiCreateFundTransfer(
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<FundTransfer>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackFundTransfer(resData)
 }
 
 export async function apiReverseFundTransfer(
@@ -2107,9 +2147,8 @@ export async function apiReverseFundTransfer(
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<FundTransfer>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackFundTransfer(resData)
 }
 
 export async function apiGetFundLocationReconciliation(token: string): Promise<ReconciliationReport> {
@@ -2118,7 +2157,6 @@ export async function apiGetFundLocationReconciliation(token: string): Promise<R
     headers: { Authorization: `Bearer ${token}` },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<ReconciliationReport>(res)
-  if (!data) throw new ApiError('unexpected', 'Response data missing')
-  return data
+  const resData = await json<any>(res)
+  return unpackReconciliation(resData)
 }

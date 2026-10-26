@@ -65,6 +65,7 @@ export interface IuranBill {
   payments?: IuranPaymentRecord[]
   isVoluntary?: boolean
   dueId?: string
+  dueIsActive?: boolean
 }
 
 export type IuranType = 'Keamanan' | 'Kebersihan' | 'Pembangunan'
@@ -147,11 +148,17 @@ export function getPaymentStatusVariant(status: PaymentStatusDisplay): 'default'
 }
 
 export function formatRibuan(value: number | string): string {
-  const digits = typeof value === 'number'
-    ? (isNaN(value) ? '' : String(Math.floor(Math.abs(value))))
-    : value.replace(/\D/g, '')
-  if (!digits) return ''
-  return new Intl.NumberFormat('id-ID').format(parseInt(digits, 10))
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'number') {
+    if (isNaN(value)) return ''
+    return new Intl.NumberFormat('id-ID').format(Math.floor(Math.abs(value)))
+  }
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+
+  const absStr = trimmed.startsWith('-') ? trimmed.slice(1).trim() : trimmed
+  const num = parseMoney(absStr)
+  return new Intl.NumberFormat('id-ID').format(num)
 }
 
 export type MoneyParseContract = 'auto' | 'api' | 'rupiah'

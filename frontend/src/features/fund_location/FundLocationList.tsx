@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   BankOutlined,
   WalletOutlined,
@@ -12,6 +12,13 @@ import {
   CheckCircleOutlined,
   InfoCircleOutlined,
   WarningOutlined,
+  TagOutlined,
+  BuildOutlined,
+  UserOutlined,
+  PhoneOutlined,
+  ArrowLeftOutlined,
+  ArrowRightOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
@@ -64,6 +71,7 @@ export function FundLocationList() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [reversingTransfer, setReversingTransfer] = useState<FundTransfer | null>(null)
   const [reversalReason, setReversalReason] = useState('')
+  const [transferSuccess, setTransferSuccess] = useState<string | null>(null)
 
   // Form states
   const [createForm, setCreateForm] = useState<{
@@ -104,12 +112,14 @@ export function FundLocationList() {
 
   const [formError, setFormError] = useState<string | null>(null)
   const [formSubmitting, setFormSubmitting] = useState(false)
+  const loadErrorRef = useRef(false)
 
   const loadData = useCallback(async () => {
     const token = getSessionPair()?.accessToken
     if (!token) return
     setLoading(true)
     setError(null)
+    loadErrorRef.current = false
     try {
       const [locs, rec, trans] = await Promise.all([
         apiListFundLocations(token),
@@ -120,6 +130,7 @@ export function FundLocationList() {
       setReconciliation(rec)
       setTransfers(trans.data || [])
     } catch (err: any) {
+      loadErrorRef.current = true
       setError(err?.message || 'Gagal memuat data lokasi dana')
     } finally {
       setLoading(false)
@@ -182,6 +193,7 @@ export function FundLocationList() {
   const handleCreateLocation = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError(null)
+    setError(null)
     const token = getSessionPair()?.accessToken
     if (!token) return
 
@@ -196,7 +208,7 @@ export function FundLocationList() {
 
     setFormSubmitting(true)
     try {
-      await apiCreateFundLocation(token, {
+      const created = await apiCreateFundLocation(token, {
         name: createForm.name.trim(),
         category: createForm.category,
         bank_name: createForm.bank_name.trim() || undefined,
@@ -205,7 +217,13 @@ export function FundLocationList() {
       })
       setShowCreateModal(false)
       setCreateForm({ name: '', category: 'rekening', bank_name: '', account_number: '', account_holder: '' })
+      setCategoryFilter('all')
+      setLocations((prev) => [...prev, created])
+
       await loadData()
+      if (loadErrorRef.current) {
+        setError('Lokasi berhasil dibuat, namun gagal memperbarui ringkasan data')
+      }
     } catch (err: any) {
       setFormError(err?.message || 'Gagal membuat lokasi dana')
     } finally {
@@ -309,6 +327,7 @@ export function FundLocationList() {
         amount: String(amt),
         notes: transferForm.notes.trim() || undefined,
       })
+      setTransferSuccess(`Transfer dana sebesar Rp ${formatRibuan(amt)} berhasil diproses.`)
       setShowTransferModal(false)
       setTransferForm({ from_location_id: '', to_location_id: '', amount: '', notes: '' })
       await loadData()
@@ -387,77 +406,44 @@ export function FundLocationList() {
   }
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 16px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--sf-text)' }}>Lokasi Dana</h1>
-          <p style={{ margin: '4px 0 0', color: 'var(--sf-text-muted)', fontSize: 14 }}>
-            Manajemen Posisi Kas RT (Rekening Bank, Brankas, dan Cash on Hand / COH)
-          </p>
+    <div style={{ padding: '1px 1px' }}>
+      {/* PageHeader */}
+      <div className="sf-page-header-surface">
+        <div className="sf-page-header-left">
+          <span className="sf-page-header-icon">
+            <BankOutlined style={{ fontSize: 14 }} />
+          </span>
+          <div className="sf-page-header-copy">
+            <div className="sf-page-header-title-text">Lokasi Dana</div>
+            <div className="sf-page-header-subtitle">
+              Manajemen Posisi Kas RT (Rekening Bank, Brankas, dan Cash on Hand / COH)
+            </div>
+          </div>
         </div>
         {isPengurusOrBendahara && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="sf-page-header-actions">
             <button
               type="button"
-              className="sf-btn"
+              className="sf-btn-primary"
               onClick={() => { setFormError(null); setShowCreateModal(true); }}
-              style={{
-                background: 'var(--sf-primary)',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 14px',
-                borderRadius: 6,
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
             >
-              <PlusOutlined /> Tambah Lokasi
+              <PlusOutlined style={{ marginRight: 6, fontSize: 12 }} /> Tambah Lokasi
             </button>
             {isBendahara && (
               <button
                 type="button"
-                className="sf-btn"
+                className="sf-btn-outline"
                 onClick={() => { setFormError(null); setShowTransferModal(true); }}
-                style={{
-                  background: 'var(--sf-surface)',
-                  color: 'var(--sf-text)',
-                  border: '1px solid var(--sf-border)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '8px 14px',
-                  borderRadius: 6,
-                  fontWeight: 600,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
               >
-                <SwapOutlined /> Transfer Dana
+                <SwapOutlined style={{ marginRight: 6, fontSize: 12 }} /> Transfer Dana
               </button>
             )}
             <button
               type="button"
-              className="sf-btn"
+              className="sf-btn-outline"
               onClick={() => { setFormError(null); setShowOpeningBalanceModal(true); }}
-              style={{
-                background: 'var(--sf-surface)',
-                color: 'var(--sf-text)',
-                border: '1px solid var(--sf-border)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 14px',
-                borderRadius: 6,
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: 'pointer',
-              }}
             >
-              <HistoryOutlined /> Alokasi Saldo Awal
+              <HistoryOutlined style={{ marginRight: 6, fontSize: 12 }} /> Alokasi Saldo Awal
             </button>
           </div>
         )}
@@ -470,14 +456,32 @@ export function FundLocationList() {
       )}
 
       {/* Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 12,
+          marginTop: 8,
+          marginBottom: 8,
+        }}
+      >
         {/* Rekening Card */}
-        <div style={{ background: 'var(--sf-surface)', border: '1px solid var(--sf-border)', borderRadius: 8, padding: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 13, color: 'var(--sf-text-muted)', fontWeight: 600 }}>REKENING BANK</span>
-            <BankOutlined style={{ fontSize: 18, color: 'var(--sf-primary)' }} />
+        <div
+          style={{
+            background: 'color-mix(in srgb, var(--sf-info) 8%, var(--sf-bg))',
+            borderRadius: 'var(--sf-radius-md)',
+            border: '1px solid color-mix(in srgb, var(--sf-info) 35%, var(--sf-border))',
+            padding: '14px 16px',
+            boxShadow: '0 0 10px rgba(87, 148, 242, 0.08)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+              REKENING BANK
+            </span>
+            <BankOutlined style={{ fontSize: 16, color: 'var(--sf-info)' }} />
           </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sf-text)', marginBottom: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-info)', marginBottom: 4 }}>
             Rp {formatRibuan(categorySummary.rekening.total)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
@@ -486,12 +490,22 @@ export function FundLocationList() {
         </div>
 
         {/* Brankas Card */}
-        <div style={{ background: 'var(--sf-surface)', border: '1px solid var(--sf-border)', borderRadius: 8, padding: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 13, color: 'var(--sf-text-muted)', fontWeight: 600 }}>BRANKAS KAS</span>
-            <SafetyCertificateOutlined style={{ fontSize: 18, color: 'var(--sf-warning)' }} />
+        <div
+          style={{
+            background: 'color-mix(in srgb, var(--sf-success) 8%, var(--sf-bg))',
+            borderRadius: 'var(--sf-radius-md)',
+            border: '1px solid color-mix(in srgb, var(--sf-success) 35%, var(--sf-border))',
+            padding: '14px 16px',
+            boxShadow: '0 0 10px rgba(115, 191, 105, 0.08)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+              BRANKAS KAS
+            </span>
+            <SafetyCertificateOutlined style={{ fontSize: 16, color: 'var(--sf-success)' }} />
           </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sf-text)', marginBottom: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-success)', marginBottom: 4 }}>
             Rp {formatRibuan(categorySummary.brankas.total)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
@@ -500,12 +514,22 @@ export function FundLocationList() {
         </div>
 
         {/* COH Card */}
-        <div style={{ background: 'var(--sf-surface)', border: '1px solid var(--sf-border)', borderRadius: 8, padding: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 13, color: 'var(--sf-text-muted)', fontWeight: 600 }}>CASH ON HAND (COH)</span>
-            <WalletOutlined style={{ fontSize: 18, color: 'var(--sf-success)' }} />
+        <div
+          style={{
+            background: 'color-mix(in srgb, var(--sf-warning) 8%, var(--sf-bg))',
+            borderRadius: 'var(--sf-radius-md)',
+            border: '1px solid color-mix(in srgb, var(--sf-warning) 35%, var(--sf-border))',
+            padding: '14px 16px',
+            boxShadow: '0 0 10px rgba(255, 152, 48, 0.08)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+              Kas di Tangan (COH)
+            </span>
+            <WalletOutlined style={{ fontSize: 16, color: 'var(--sf-warning)' }} />
           </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--sf-text)', marginBottom: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-warning)', marginBottom: 4 }}>
             Rp {formatRibuan(categorySummary.coh.total)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
@@ -517,11 +541,11 @@ export function FundLocationList() {
       {/* Reconciliation Card */}
       {reconciliation && (
         <div style={{
-          background: 'var(--sf-surface)',
+          background: 'color-mix(in srgb, var(--sf-accent) 6%, var(--sf-bg))',
           border: '1px solid var(--sf-border)',
           borderRadius: 8,
           padding: 16,
-          marginBottom: 24,
+          marginBottom: 8,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -584,7 +608,7 @@ export function FundLocationList() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--sf-border)', marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: 16 }}>
         <button
           type="button"
           onClick={() => setActiveTab('locations')}
@@ -592,11 +616,11 @@ export function FundLocationList() {
             padding: '10px 16px',
             border: 'none',
             background: 'none',
-            fontWeight: 600,
+            fontWeight: activeTab === 'locations' ? 600 : 400,
             fontSize: 14,
             cursor: 'pointer',
-            borderBottom: activeTab === 'locations' ? '2px solid var(--sf-primary)' : '2px solid transparent',
-            color: activeTab === 'locations' ? 'var(--sf-primary)' : 'var(--sf-text-muted)',
+            borderBottom: activeTab === 'locations' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+            color: activeTab === 'locations' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
           }}
         >
           Daftar Lokasi Dana ({locations.length})
@@ -608,24 +632,29 @@ export function FundLocationList() {
             padding: '10px 16px',
             border: 'none',
             background: 'none',
-            fontWeight: 600,
+            fontWeight: activeTab === 'transfers' ? 600 : 400,
             fontSize: 14,
             cursor: 'pointer',
-            borderBottom: activeTab === 'transfers' ? '2px solid var(--sf-primary)' : '2px solid transparent',
-            color: activeTab === 'transfers' ? 'var(--sf-primary)' : 'var(--sf-text-muted)',
+            borderBottom: activeTab === 'transfers' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+            color: activeTab === 'transfers' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
           }}
         >
           Riwayat Transfer Dana ({transfers.length})
         </button>
       </div>
 
+      {transferSuccess && (
+        <div data-testid="success-banner" style={{ padding: 12, background: 'rgba(115, 191, 105, 0.1)', border: '1px solid var(--sf-success)', borderRadius: 6, color: 'var(--sf-success)', marginBottom: 16 }}>
+          {transferSuccess}
+        </div>
+      )}
+
       {activeTab === 'locations' ? (
-        <>
-          {/* Filters & Search */}
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
-            <div style={{ flex: 1, minWidth: 200 }}>
+        <div className="sf-content-surface">
+          {/* Toolbar / Filters */}
+          <div className="sf-list-toolbar">
+            <div className="sf-list-toolbar-left">
               <SearchBox value={search} onChange={setSearch} placeholder="Cari nama, bank, atau rekening..." />
-            </div>
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
@@ -646,9 +675,10 @@ export function FundLocationList() {
               <option value="inactive">Nonaktif</option>
             </select>
           </div>
+        </div>
 
           {/* Table */}
-          <div style={{ background: 'var(--sf-surface)', border: '1px solid var(--sf-border)', borderRadius: 8, overflow: 'hidden' }}>
+          <div className="table-wrapper">
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: 'rgba(0,0,0,0.02)', borderBottom: '1px solid var(--sf-border)' }}>
@@ -677,8 +707,8 @@ export function FundLocationList() {
                         <td style={{ padding: '12px 16px', fontWeight: 600 }}>{loc.name}</td>
                         <td style={{ padding: '12px 16px' }}>
                           {loc.category === 'rekening' && <Badge variant="blue">Rekening Bank</Badge>}
-                          {loc.category === 'brankas' && <Badge variant="amber">Brankas</Badge>}
-                          {loc.category === 'coh' && <Badge variant="green">Cash On Hand</Badge>}
+                          {loc.category === 'brankas' && <Badge variant="green">Brankas Kas</Badge>}
+                          {loc.category === 'coh' && <Badge variant="amber">Kas di Tangan (COH)</Badge>}
                         </td>
                         <td style={{ padding: '12px 16px', color: 'var(--sf-text-muted)' }}>
                           {loc.category === 'rekening' ? (
@@ -744,7 +774,7 @@ export function FundLocationList() {
               </tbody>
             </table>
           </div>
-        </>
+        </div>
       ) : (
         /* Transfers Tab */
         <div style={{ background: 'var(--sf-surface)', border: '1px solid var(--sf-border)', borderRadius: 8, overflow: 'hidden' }}>
@@ -821,8 +851,11 @@ export function FundLocationList() {
                 </div>
               )}
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Kategori Lokasi *</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }} htmlFor="category-select">
+                  <TagOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Kategori Lokasi *
+                </label>
                 <select
+                  id="category-select"
                   value={createForm.category}
                   onChange={(e) => setCreateForm({ ...createForm, category: e.target.value as FundLocationCategory })}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-surface)', color: 'var(--sf-text)' }}
@@ -833,7 +866,9 @@ export function FundLocationList() {
                 </select>
               </div>
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nama Lokasi *</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <BuildOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nama Lokasi *
+                </label>
                 <input
                   type="text"
                   placeholder="Contoh: Rekening BCA RT, Brankas Kantor, COH Bendahara"
@@ -845,7 +880,9 @@ export function FundLocationList() {
               {createForm.category === 'rekening' && (
                 <>
                   <div style={{ marginBottom: 12 }}>
-                    <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nama Bank *</label>
+                    <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <BankOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nama Bank *
+                </label>
                     <input
                       type="text"
                       placeholder="Contoh: BCA, Mandiri, BRI, BNI"
@@ -855,7 +892,9 @@ export function FundLocationList() {
                     />
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nomor Rekening</label>
+                    <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                      <PhoneOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nomor Rekening
+                    </label>
                     <input
                       type="text"
                       placeholder="Nomor rekening bank"
@@ -867,8 +906,8 @@ export function FundLocationList() {
                 </>
               )}
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
-                  {createForm.category === 'rekening' ? 'Nama Pemilik Rekening (a.n.)' : 'Nama Pemegang Kas / Penanggung Jawab'}
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <UserOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> {createForm.category === 'rekening' ? 'Nama Pemilik Rekening (a.n.)' : 'Nama Pemegang Kas / Penanggung Jawab'}
                 </label>
                 <input
                   type="text"
@@ -881,7 +920,7 @@ export function FundLocationList() {
             </ModalBody>
             <ModalFooter>
               <button type="button" className="sf-btn-ghost" onClick={() => setShowCreateModal(false)}>Batal</button>
-              <button type="submit" className="sf-btn" disabled={formSubmitting} style={{ background: 'var(--sf-primary)', color: '#fff' }}>
+              <button type="submit" className="sf-btn-primary" disabled={formSubmitting}>
                 {formSubmitting ? 'Menyimpan...' : 'Simpan'}
               </button>
             </ModalFooter>
@@ -901,7 +940,9 @@ export function FundLocationList() {
                 </div>
               )}
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nama Lokasi *</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <BuildOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nama Lokasi *
+                </label>
                 <input
                   type="text"
                   value={editingLocation.name}
@@ -912,7 +953,9 @@ export function FundLocationList() {
               {editingLocation.category === 'rekening' && (
                 <>
                   <div style={{ marginBottom: 12 }}>
-                    <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nama Bank</label>
+                    <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                    <BankOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nama Bank
+                  </label>
                     <input
                       type="text"
                       value={editingLocation.bank_name || ''}
@@ -921,7 +964,9 @@ export function FundLocationList() {
                     />
                   </div>
                   <div style={{ marginBottom: 12 }}>
-                    <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nomor Rekening</label>
+                    <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                      <PhoneOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nomor Rekening
+                    </label>
                     <input
                       type="text"
                       value={editingLocation.account_number || ''}
@@ -932,7 +977,9 @@ export function FundLocationList() {
                 </>
               )}
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nama Pemegang / Atas Nama</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <UserOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nama Pemegang / Atas Nama
+                </label>
                 <input
                   type="text"
                   value={editingLocation.account_holder || ''}
@@ -943,7 +990,7 @@ export function FundLocationList() {
             </ModalBody>
             <ModalFooter>
               <button type="button" className="sf-btn-ghost" onClick={() => setEditingLocation(null)}>Batal</button>
-              <button type="submit" className="sf-btn" disabled={formSubmitting} style={{ background: 'var(--sf-primary)', color: '#fff' }}>
+              <button type="submit" className="sf-btn-primary" disabled={formSubmitting}>
                 {formSubmitting ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
             </ModalFooter>
@@ -963,7 +1010,9 @@ export function FundLocationList() {
                 </div>
               )}
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Dari Lokasi Asal *</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <ArrowLeftOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Dari Lokasi Asal *
+                </label>
                 <select
                   value={transferForm.from_location_id}
                   onChange={(e) => setTransferForm({ ...transferForm, from_location_id: e.target.value })}
@@ -976,9 +1025,16 @@ export function FundLocationList() {
                     </option>
                   ))}
                 </select>
+                {transferForm.from_location_id && (
+                  <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 4, marginBottom: 8 }}>
+                    Saldo tersedia: Rp {formatRibuan(parseMoney(locations.find((l) => l.id === transferForm.from_location_id)?.current_balance || '0') || 0)}
+                  </div>
+                )}
               </div>
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Ke Lokasi Tujuan *</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <ArrowRightOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Ke Lokasi Tujuan *
+                </label>
                 <select
                   value={transferForm.to_location_id}
                   onChange={(e) => setTransferForm({ ...transferForm, to_location_id: e.target.value })}
@@ -993,7 +1049,9 @@ export function FundLocationList() {
                 </select>
               </div>
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nominal Pemindahan (Rp) *</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <PhoneOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nominal Pemindahan (Rp) *
+                </label>
                 <input
                   type="text"
                   placeholder="Contoh: 500000"
@@ -1003,7 +1061,9 @@ export function FundLocationList() {
                 />
               </div>
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Catatan / Keterangan</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <FileTextOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Catatan / Keterangan
+                </label>
                 <textarea
                   placeholder="Contoh: Tarik tunai dari BCA untuk kasir brankas"
                   value={transferForm.notes}
@@ -1014,7 +1074,7 @@ export function FundLocationList() {
             </ModalBody>
             <ModalFooter>
               <button type="button" className="sf-btn-ghost" onClick={() => setShowTransferModal(false)}>Batal</button>
-              <button type="submit" className="sf-btn" disabled={formSubmitting} style={{ background: 'var(--sf-primary)', color: '#fff' }}>
+              <button type="submit" className="sf-btn-primary" disabled={formSubmitting}>
                 {formSubmitting ? 'Memproses...' : 'Kirim Transfer'}
               </button>
             </ModalFooter>
@@ -1042,7 +1102,9 @@ export function FundLocationList() {
               )}
 
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Lokasi Tujuan Alokasi *</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <BuildOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Lokasi Tujuan Alokasi *
+                </label>
                 <select
                   value={openingBalanceForm.location_id}
                   onChange={(e) => setOpeningBalanceForm({ ...openingBalanceForm, location_id: e.target.value })}
@@ -1058,7 +1120,9 @@ export function FundLocationList() {
               </div>
 
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Nominal Alokasi (Rp) *</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <PhoneOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Nominal Alokasi (Rp) *
+                </label>
                 <input
                   type="text"
                   placeholder="Contoh: 1000000"
@@ -1069,7 +1133,9 @@ export function FundLocationList() {
               </div>
 
               <div style={{ marginBottom: 12 }}>
-                <label className="sf-label" style={{ display: 'block', marginBottom: 4, fontWeight: 600, fontSize: 13 }}>Catatan</label>
+                <label className="sf-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontWeight: 600, fontSize: 13 }}>
+                  <FileTextOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)' }} /> Catatan
+                </label>
                 <input
                   type="text"
                   placeholder="Contoh: Saldo awal pembukaan rekening"
@@ -1081,7 +1147,7 @@ export function FundLocationList() {
             </ModalBody>
             <ModalFooter>
               <button type="button" className="sf-btn-ghost" onClick={() => setShowOpeningBalanceModal(false)}>Batal</button>
-              <button type="submit" className="sf-btn" disabled={formSubmitting} style={{ background: 'var(--sf-primary)', color: '#fff' }}>
+              <button type="submit" className="sf-btn-primary" disabled={formSubmitting}>
                 {formSubmitting ? 'Memproses...' : 'Simpan Alokasi'}
               </button>
             </ModalFooter>
@@ -1174,7 +1240,7 @@ export function FundLocationList() {
             </ModalBody>
             <ModalFooter>
               <button type="button" className="sf-btn-ghost" onClick={() => setReversingTransfer(null)}>Batal</button>
-              <button type="submit" className="sf-btn" disabled={formSubmitting} style={{ background: 'var(--sf-danger)', color: '#fff' }}>
+              <button type="submit" className="sf-btn-danger" disabled={formSubmitting}>
                 {formSubmitting ? 'Memproses...' : 'Konfirmasi Reversal'}
               </button>
             </ModalFooter>

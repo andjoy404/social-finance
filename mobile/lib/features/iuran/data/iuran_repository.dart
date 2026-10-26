@@ -155,6 +155,7 @@ class IuranRepository {
 
       final nominalVal = moneyToDisplayRupiah(bill.amount);
       final isVol = bill.isVoluntary;
+      final isActive = bill.dueIsActive ?? true;
       uiBills.add(
         IuranBill(
           id: bill.id,
@@ -173,6 +174,7 @@ class IuranRepository {
           duePeriodType: null,
           dueRtCode: null,
           dueIsVoluntary: isVol,
+          dueIsActive: isActive,
         ),
       );
     }

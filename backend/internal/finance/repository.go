@@ -317,10 +317,11 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 	var b Bill
 	var dueDate time.Time
 	var dueName, houseNum, headName sql.NullString
+	var dueActive bool
 
 	err := tx.QueryRowContext(ctx,
 		`SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
-		        d.name as due_name, ph.house_number, h.head_name
+		        d.name as due_name, d.is_active as due_is_active, ph.house_number, h.head_name
 		 FROM bills b
 		 JOIN dues d ON b.due_id = d.id
 		 JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
@@ -330,7 +331,7 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 		 WHERE b.id = $1 AND b.rt_id = $2 LIMIT 1`,
 		id, rtID,
 	).Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
-		&dueName, &houseNum, &headName)
+		&dueName, &dueActive, &houseNum, &headName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -341,6 +342,7 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 	if dueName.Valid {
 		b.DueName = &dueName.String
 	}
+	b.DueIsActive = &dueActive
 	if houseNum.Valid {
 		b.HouseNumber = &houseNum.String
 	}
@@ -352,7 +354,7 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 
 func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, paymentStatus, period, search, dueName *string, offset, limit int) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
-	                 d.name as due_name, ph.house_number, h.head_name, d.is_voluntary,
+	                 d.name as due_name, d.is_active as due_is_active, ph.house_number, h.head_name, d.is_voluntary,
 	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'APPROVED'), 0)::text as paid_amount,
 	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING'), 0)::text as pending_amount
 	          FROM bills b
@@ -416,14 +418,16 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		var b Bill
 		var dueDate time.Time
 		var dueName, houseNum, headName, paidAmt, pendingAmt sql.NullString
+		var dueActive bool
 		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
-			&dueName, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt); err != nil {
+			&dueName, &dueActive, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}
 		b.DueDate = dueDate.Format("2006-01-02")
 		if dueName.Valid {
 			b.DueName = &dueName.String
 		}
+		b.DueIsActive = &dueActive
 		if houseNum.Valid {
 			b.HouseNumber = &houseNum.String
 		}
@@ -1594,10 +1598,11 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 	var b Bill
 	var dueDate time.Time
 	var dueName, houseNum, headName sql.NullString
+	var dueActive bool
 
 	err := tx.QueryRowContext(ctx,
 		`SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
-		        d.name as due_name, ph.house_number, h.head_name
+		        d.name as due_name, d.is_active as due_is_active, ph.house_number, h.head_name
 		 FROM bills b
 		 JOIN dues d ON b.due_id = d.id
 		 JOIN household_occupancies ho ON b.household_occupancy_id = ho.id
@@ -1607,7 +1612,7 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 		 WHERE b.id = $1 LIMIT 1`,
 		id,
 	).Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
-		&dueName, &houseNum, &headName)
+		&dueName, &dueActive, &houseNum, &headName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -1618,6 +1623,7 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 	if dueName.Valid {
 		b.DueName = &dueName.String
 	}
+	b.DueIsActive = &dueActive
 	if houseNum.Valid {
 		b.HouseNumber = &houseNum.String
 	}
@@ -1629,7 +1635,7 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 
 func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, paymentStatus, period, search, dueName *string, offset, limit int) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.created_at, b.updated_at,
-	                 d.name as due_name, ph.house_number, h.head_name, d.is_voluntary,
+	                 d.name as due_name, d.is_active as due_is_active, ph.house_number, h.head_name, d.is_voluntary,
 	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'APPROVED'), 0)::text as paid_amount,
 	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING'), 0)::text as pending_amount
 	          FROM bills b
@@ -1697,14 +1703,16 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pa
 		var b Bill
 		var dueDate time.Time
 		var dueName, houseNum, headName, paidAmt, pendingAmt sql.NullString
+		var dueActive bool
 		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.CreatedAt, &b.UpdatedAt,
-			&dueName, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt); err != nil {
+			&dueName, &dueActive, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}
 		b.DueDate = dueDate.Format("2006-01-02")
 		if dueName.Valid {
 			b.DueName = &dueName.String
 		}
+		b.DueIsActive = &dueActive
 		if houseNum.Valid {
 			b.HouseNumber = &houseNum.String
 		}

@@ -136,6 +136,7 @@ type Bill struct {
 
 	// Enriched fields from JOIN queries
 	DueName       *string `json:"due_name,omitempty"`
+	DueIsActive   *bool   `json:"due_is_active,omitempty"`
 	HouseNumber   *string `json:"house_number,omitempty"`
 	HeadName      *string `json:"head_name,omitempty"`
 	IsVoluntary   bool    `json:"is_voluntary"`

@@ -677,6 +677,7 @@ export function IuranPayment({
           status,
           isVoluntary,
           dueId: apiBill.due_id,
+          dueIsActive: apiBill.due_is_active ?? true,
           payments: [],
         }
 

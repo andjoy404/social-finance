@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -32,6 +33,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.account_balance_wallet_outlined,
     activeIcon: Icons.account_balance_wallet,
   );
+  static const _lokasiTab = _NavRoute(
+    path: '/home/lokasi-dana',
+    label: 'Lokasi Dana',
+    icon: Icons.account_balance_outlined,
+    activeIcon: Icons.account_balance,
+  );
   static const _iuranTab = _NavRoute(
     path: '/home/iuran',
     label: 'Iuran',
@@ -52,10 +59,32 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     activeIcon: Icons.person,
   );
 
+  bool _canAccessLokasiDana(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final systemRole = user['system_role'] as String?;
+    if (systemRole == 'super_admin') return true;
+    final role = user['role'] as AppRole?;
+    final jabatan = (user['jabatan'] ?? '').toString().toLowerCase();
+    return role == AppRole.bendahara ||
+        role == AppRole.pengurus ||
+        jabatan == 'ketua' ||
+        jabatan == 'bendahara';
+  }
+
   List<_NavRoute> _getActiveTabs() {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     if (isAllowedRT(user)) {
+      if (_canAccessLokasiDana(user)) {
+        return const [
+          _homeTab,
+          _kasTab,
+          _lokasiTab,
+          _iuranTab,
+          _wargaTab,
+          _profileTab,
+        ];
+      }
       return const [_homeTab, _kasTab, _iuranTab, _wargaTab, _profileTab];
     }
     return const [_homeTab, _profileTab];
@@ -195,7 +224,7 @@ class _NavRailItem extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: EdgeInsets.symmetric(
-          horizontal: isProminent ? 14 : 10,
+          horizontal: isProminent ? 10 : 5,
           vertical: isProminent ? 4 : 5,
         ),
         decoration: BoxDecoration(

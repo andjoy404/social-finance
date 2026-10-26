@@ -11,7 +11,7 @@ enum FundLocationCategory {
   String get label => switch (this) {
     FundLocationCategory.rekening => 'Rekening Bank',
     FundLocationCategory.brankas => 'Brankas Fisik',
-    FundLocationCategory.coh => 'Cash on Hand (COH)',
+    FundLocationCategory.coh => 'Kas Di Tangan',
   };
 
   static FundLocationCategory fromString(String val) {
@@ -67,7 +67,9 @@ class FundLocation {
       id: json['id'] as String,
       rtId: json['rt_id'] as String? ?? '',
       name: json['name'] as String? ?? '',
-      category: FundLocationCategory.fromString(json['category'] as String? ?? ''),
+      category: FundLocationCategory.fromString(
+        json['category'] as String? ?? '',
+      ),
       bankName: json['bank_name'] as String?,
       accountNumber: json['account_number'] as String?,
       accountHolder: json['account_holder'] as String?,
@@ -120,7 +122,8 @@ class FundTransfer {
     return parsed != null ? parsed.round() : 0;
   }
 
-  bool get isReversal => reversesTransferId != null && reversesTransferId!.isNotEmpty;
+  bool get isReversal =>
+      reversesTransferId != null && reversesTransferId!.isNotEmpty;
 
   factory FundTransfer.fromJson(Map<String, dynamic> json) {
     return FundTransfer(
@@ -130,7 +133,8 @@ class FundTransfer {
       toLocationId: json['to_location_id'] as String? ?? '',
       amount: json['amount']?.toString() ?? '0.00',
       transferDate: json['transfer_date'] != null
-          ? DateTime.tryParse(json['transfer_date'].toString()) ?? DateTime.now()
+          ? DateTime.tryParse(json['transfer_date'].toString()) ??
+                DateTime.now()
           : DateTime.now(),
       notes: json['notes'] as String?,
       reversesTransferId: json['reverses_transfer_id'] as String?,
@@ -231,17 +235,38 @@ class FundLocationReconciliationReport {
   });
 
   int get kasBalanceRupiah => (double.tryParse(kasBalance) ?? 0).round();
-  int get allocatedBalanceRupiah => (double.tryParse(totalAllocatedBalance) ?? 0).round();
-  int get unallocatedBalanceRupiah => (double.tryParse(unallocatedBalance) ?? 0).round();
+  int get allocatedBalanceRupiah =>
+      (double.tryParse(totalAllocatedBalance) ?? 0).round();
+  int get unallocatedBalanceRupiah =>
+      (double.tryParse(unallocatedBalance) ?? 0).round();
   int get discrepancyRupiah => (double.tryParse(discrepancy) ?? 0).round();
 
-  bool get isBalanced => status == 'Cocok' || status == 'Cocok dengan catatan';
+  bool get isBalanced => status == 'MATCH' || status == 'MATCH_WITH_NOTES';
+
+  String get statusLabel {
+    return switch (status) {
+      'MATCH' => 'Cocok Sempurna',
+      'MATCH_WITH_NOTES' => 'Sesuai Catatan',
+      'DISCREPANCY_ANOMALY' => 'Selisih / Anomali',
+      'Cocok' => 'Cocok Sempurna',
+      'Cocok dengan catatan' => 'Sesuai Catatan',
+      _ => status,
+    };
+  }
+
+  String? get statusDescription {
+    if (status == 'MATCH_WITH_NOTES' || status == 'Cocok dengan catatan') {
+      return 'Saldo KAS sesuai dengan catatan. Masih ada saldo historis yang belum dialokasikan ke lokasi dana.';
+    }
+    return null;
+  }
 
   factory FundLocationReconciliationReport.fromJson(Map<String, dynamic> json) {
     return FundLocationReconciliationReport(
       rtId: json['rt_id'] as String? ?? '',
       kasBalance: json['kas_balance']?.toString() ?? '0.00',
-      totalAllocatedBalance: json['total_allocated_balance']?.toString() ?? '0.00',
+      totalAllocatedBalance:
+          json['total_allocated_balance']?.toString() ?? '0.00',
       unallocatedBalance: json['unallocated_balance']?.toString() ?? '0.00',
       discrepancy: json['discrepancy']?.toString() ?? '0.00',
       status: json['status'] as String? ?? 'Cocok',

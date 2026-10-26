@@ -71,7 +71,7 @@ void main() {
         'total_allocated_balance': '3500000.00',
         'unallocated_balance': '1500000.00',
         'discrepancy': '0.00',
-        'status': 'Cocok',
+        'status': 'MATCH',
         'as_of': '2026-10-25T12:00:00Z',
         'anomalies_detected': false,
       };
@@ -85,7 +85,57 @@ void main() {
       expect(report.anomaliesDetected, false);
 
       // Verify formula: K == L + U
-      expect(report.kasBalanceRupiah, report.allocatedBalanceRupiah + report.unallocatedBalanceRupiah);
+      expect(
+        report.kasBalanceRupiah,
+        report.allocatedBalanceRupiah + report.unallocatedBalanceRupiah,
+      );
+    });
+
+    test('FundLocationReconciliationReport human-readable status labels', () {
+      // Cocok Sempurna (MATCH dari backend)
+      final matched = FundLocationReconciliationReport(
+        rtId: 'rt-1',
+        kasBalance: '1000000.00',
+        totalAllocatedBalance: '1000000.00',
+        unallocatedBalance: '0.00',
+        discrepancy: '0.00',
+        status: 'MATCH',
+        asOf: DateTime(2026, 10, 25, 12, 0, 0),
+        anomaliesDetected: false,
+      );
+      expect(matched.statusLabel, 'Cocok Sempurna');
+      expect(matched.statusDescription, null);
+
+      // Sesuai Catatan (MATCH_WITH_NOTES dari backend)
+      final withNotes = FundLocationReconciliationReport(
+        rtId: 'rt-1',
+        kasBalance: '1000000.00',
+        totalAllocatedBalance: '750000.00',
+        unallocatedBalance: '250000.00',
+        discrepancy: '0.00',
+        status: 'MATCH_WITH_NOTES',
+        asOf: DateTime(2026, 10, 25, 12, 0, 0),
+        anomaliesDetected: false,
+      );
+      expect(withNotes.statusLabel, 'Sesuai Catatan');
+      expect(
+        withNotes.statusDescription,
+        'Saldo KAS sesuai dengan catatan. Masih ada saldo historis yang belum dialokasikan ke lokasi dana.',
+      );
+
+      // Status lain tidak diubah
+      final unknown = FundLocationReconciliationReport(
+        rtId: 'rt-1',
+        kasBalance: '1000000.00',
+        totalAllocatedBalance: '500000.00',
+        unallocatedBalance: '500000.00',
+        discrepancy: '500000.00',
+        status: 'DISCREPANCY_ANOMALY',
+        asOf: DateTime(2026, 10, 25, 12, 0, 0),
+        anomaliesDetected: true,
+      );
+      expect(unknown.statusLabel, 'Selisih / Anomali');
+      expect(unknown.statusDescription, null);
     });
   });
 }

@@ -328,7 +328,7 @@ export function Dashboard() {
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
           gap: 'var(--sf-sp-md)',
-          marginBottom: 'var(--sf-sp-md)',
+          marginBottom: '1px',
         }}
       >
         {/* Iuran progress */}

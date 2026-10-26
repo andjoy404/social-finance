@@ -485,6 +485,10 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	}
 	isVoluntary := due.IsVoluntary
 
+	if !isVoluntary && !due.IsActive {
+		return nil, errors.New("cannot pay bill for an inactive due (iuran tidak aktif)")
+	}
+
 	if !isVoluntary && bill.Status == BillStatusPaid {
 		return nil, ErrBillAlreadyPaid
 	}

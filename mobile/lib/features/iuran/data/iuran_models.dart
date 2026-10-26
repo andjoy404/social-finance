@@ -29,6 +29,7 @@ class IuranBill {
   final String? dueRtCode;
   final bool? dueIsVoluntary;
   final String? dueId;
+  final bool? dueIsActive;
 
   const IuranBill({
     required this.id,
@@ -47,6 +48,7 @@ class IuranBill {
     this.dueRtCode,
     this.dueIsVoluntary,
     this.dueId,
+    this.dueIsActive = true,
   });
 
   /// Returns true if this bill represents voluntary dues (Sukarela).

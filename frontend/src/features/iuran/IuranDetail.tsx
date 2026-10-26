@@ -1139,6 +1139,7 @@ export function IuranDetail({
         status,
         isVoluntary,
         dueId: apiBill.due_id,
+        dueIsActive: apiBill.due_is_active ?? true,
         payments: [], // will be loaded separately
       }
 
@@ -1409,20 +1410,22 @@ export function IuranDetail({
                 {(remaining > 0 || bill.isVoluntary || bill.nominal === 0) && (
                   <button
                     type="button"
-                    onClick={() => onPayment(bill.id)}
+                    onClick={() => !bill.dueIsActive && onPayment(bill.id)}
+                    disabled={!bill.dueIsActive}
                     style={{
                       padding: '8px 20px',
                       fontSize: '13px',
                       fontWeight: 600,
-                      color: 'var(--sf-accent)',
-                      background: 'var(--sf-accent-soft)',
-                      border: `1px solid var(--sf-accent)`,
+                      color: bill.dueIsActive ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                      background: bill.dueIsActive ? 'var(--sf-accent-soft)' : 'var(--sf-bg)',
+                      border: `1px solid ${bill.dueIsActive ? 'var(--sf-accent)' : 'var(--sf-border)'}`,
                       borderRadius: 'var(--sf-radius-sm)',
-                      cursor: 'pointer',
+                      cursor: bill.dueIsActive ? 'pointer' : 'not-allowed',
                       transition: 'background 200ms, border-color 200ms',
+                      opacity: bill.dueIsActive ? 1 : 0.5,
                     }}
                   >
-                    Bayar Sekarang
+                    {bill.dueIsActive ? 'Bayar Sekarang' : 'Iuran Tidak Aktif'}
                   </button>
                 )}
               </div>

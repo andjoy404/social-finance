@@ -534,37 +534,46 @@ func (r *Repository) SetOpeningBalance(ctx context.Context, tx *sql.Tx, rtID, cr
 		return nil, err
 	}
 
-	// Calculate unallocated cash:
-	// T_null = sum(posted income location_id is null) - sum(posted expense location_id is null)
-	// O = sum(amount_delta for opening_balance)
-	// U = T_null - O
-	var nullIncStr, nullExpStr, openBalStr string
-	err = tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text,
-		        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text
-		 FROM transactions
-		 WHERE rt_id = $1 AND status = 'posted' AND location_id IS NULL`,
-		rtID,
-	).Scan(&nullIncStr, &nullExpStr)
+	// Calculate unallocated cash: U = K - L
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	if loc == nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+	now := time.Now().In(loc)
+	currentPeriod := now.Format("2006-01")
+	tPeriod, _ := time.ParseInLocation("2006-01", currentPeriod, loc)
+	startOfMonth := time.Date(tPeriod.Year(), tPeriod.Month(), 1, 0, 0, 0, 0, loc)
+	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
+
+	var maxTxTime sql.NullTime
+	_ = tx.QueryRowContext(ctx, `SELECT MAX(occurred_at) FROM transactions WHERE rt_id = $1`, rtID).Scan(&maxTxTime)
+	endTime := startOfNextMonth
+	if maxTxTime.Valid && maxTxTime.Time.After(endTime) {
+		endTime = maxTxTime.Time.AddDate(0, 1, 0)
+	}
+
+	pb, err := finance.CalculatePeriodBalance(ctx, tx, rtID, currentPeriod, startOfMonth, endTime)
+	if err != nil {
+		return nil, err
+	}
+	kCents, _, err := finance.ParseMoney(pb.ClosingBalance)
 	if err != nil {
 		return nil, err
 	}
 
+	var lbcStr string
 	err = tx.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(amount_delta), 0)::text
 		 FROM location_balance_changes
-		 WHERE rt_id = $1 AND change_type = 'opening_balance'`,
+		 WHERE rt_id = $1`,
 		rtID,
-	).Scan(&openBalStr)
+	).Scan(&lbcStr)
 	if err != nil {
 		return nil, err
 	}
+	lCents, _, _ := finance.ParseMoney(lbcStr)
 
-	nullIncCents, _, _ := finance.ParseMoney(nullIncStr)
-	nullExpCents, _, _ := finance.ParseMoney(nullExpStr)
-	openCents, _, _ := finance.ParseMoney(openBalStr)
-
-	availUCents := (nullIncCents - nullExpCents) - openCents
+	availUCents := kCents - lCents
 	if amtCents > availUCents {
 		return nil, ErrInsufficientUnallocated
 	}
@@ -588,21 +597,32 @@ func (r *Repository) SetOpeningBalance(ctx context.Context, tx *sql.Tx, rtID, cr
 
 func (r *Repository) GetReconciliationReport(ctx context.Context, tx *sql.Tx, rtID string) (*ReconciliationReport, error) {
 	// 1. Kas Balance K
-	var incStr, expStr string
-	err := tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text,
-		        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text
-		 FROM transactions
-		 WHERE rt_id = $1 AND status = 'posted'`,
-		rtID,
-	).Scan(&incStr, &expStr)
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	if loc == nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+	now := time.Now().In(loc)
+	currentPeriod := now.Format("2006-01")
+	tPeriod, _ := time.ParseInLocation("2006-01", currentPeriod, loc)
+	startOfMonth := time.Date(tPeriod.Year(), tPeriod.Month(), 1, 0, 0, 0, 0, loc)
+	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
+
+	var maxTxTime sql.NullTime
+	_ = tx.QueryRowContext(ctx, `SELECT MAX(occurred_at) FROM transactions WHERE rt_id = $1`, rtID).Scan(&maxTxTime)
+	endTime := startOfNextMonth
+	if maxTxTime.Valid && maxTxTime.Time.After(endTime) {
+		endTime = maxTxTime.Time.AddDate(0, 1, 0)
+	}
+
+	pb, err := finance.CalculatePeriodBalance(ctx, tx, rtID, currentPeriod, startOfMonth, endTime)
 	if err != nil {
 		return nil, err
 	}
-	incCents, _, _ := finance.ParseMoney(incStr)
-	expCents, _, _ := finance.ParseMoney(expStr)
-	kCents := incCents - expCents
-	kStr := finance.FormatMoney(kCents)
+	kCents, _, err := finance.ParseMoney(pb.ClosingBalance)
+	if err != nil {
+		return nil, err
+	}
+	kStr := pb.ClosingBalance
 
 	// 2. Total Allocated Balance L (sum of all LBC)
 	var lbcStr string
@@ -618,31 +638,11 @@ func (r *Repository) GetReconciliationReport(ctx context.Context, tx *sql.Tx, rt
 	lCents, _, _ := finance.ParseMoney(lbcStr)
 	lStr := finance.FormatMoney(lCents)
 
-	// 3. Unallocated balance U = T_null - O
-	var nullIncStr, nullExpStr, openBalStr string
-	err = tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0)::text,
-		        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)::text
-		 FROM transactions
-		 WHERE rt_id = $1 AND status = 'posted' AND location_id IS NULL`,
-		rtID,
-	).Scan(&nullIncStr, &nullExpStr)
-	if err != nil {
-		return nil, err
+	// 3. Unallocated balance U = K - L
+	uCents := kCents - lCents
+	if uCents < 0 {
+		uCents = 0
 	}
-	err = tx.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(amount_delta), 0)::text
-		 FROM location_balance_changes
-		 WHERE rt_id = $1 AND change_type = 'opening_balance'`,
-		rtID,
-	).Scan(&openBalStr)
-	if err != nil {
-		return nil, err
-	}
-	nIncCents, _, _ := finance.ParseMoney(nullIncStr)
-	nExpCents, _, _ := finance.ParseMoney(nullExpStr)
-	oBalCents, _, _ := finance.ParseMoney(openBalStr)
-	uCents := (nIncCents - nExpCents) - oBalCents
 	uStr := finance.FormatMoney(uCents)
 
 	// 4. Discrepancy D = K - (L + U)

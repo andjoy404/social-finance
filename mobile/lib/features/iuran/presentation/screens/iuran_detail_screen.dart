@@ -1170,38 +1170,54 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
   }
 
   Widget _buildAndroidFAB(BuildContext context, Color accentSoft) {
+    final isInactive = _cachedBill?.dueIsActive == false;
     return Container(
       decoration: BoxDecoration(
         color: accentSoft,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.accent, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 0),
-          ),
-        ],
+        border: Border.all(
+          color: isInactive ? AppColors.lightTextMuted : AppColors.accent,
+          width: 1,
+        ),
+        boxShadow: isInactive
+            ? []
+            : [
+                BoxShadow(
+                  color: AppColors.accent.withValues(alpha: 0.15),
+                  blurRadius: 8,
+                  offset: const Offset(0, 0),
+                ),
+              ],
       ),
       child: Material(
         color: Colors.transparent,
         clipBehavior: Clip.none,
         child: InkWell(
-          onTap: () => context.push('/home/iuran/pembayaran/$_billId'),
+          onTap: isInactive
+              ? null
+              : () => context.push('/home/iuran/pembayaran/$_billId'),
           borderRadius: BorderRadius.circular(24),
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.payment, size: 20, color: AppColors.accent),
-                SizedBox(width: 6),
+                Icon(
+                  Icons.payment,
+                  size: 20,
+                  color: isInactive
+                      ? AppColors.lightTextMuted
+                      : AppColors.accent,
+                ),
+                const SizedBox(width: 6),
                 Text(
-                  'Bayar',
+                  isInactive ? 'Iuran Tidak Aktif' : 'Bayar',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.accent,
+                    color: isInactive
+                        ? AppColors.lightTextMuted
+                        : AppColors.accent,
                   ),
                 ),
               ],

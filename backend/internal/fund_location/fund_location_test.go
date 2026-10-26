@@ -359,3 +359,92 @@ func TestConcurrentOpposingTransfersNoDeadlock(t *testing.T) {
 	require.Equal(t, "2000000.00", rec.KasBalance)
 	require.Equal(t, "0.00", rec.Discrepancy)
 }
+
+func TestReconciliationWithPeriodOpeningBalanceAndNetMovement(t *testing.T) {
+	pool, svc, _, rt1, _, u1, _ := setupTest(t)
+	ctx := context.Background()
+
+	locTime, _ := time.LoadLocation("Asia/Jakarta")
+	if locTime == nil {
+		locTime = time.FixedZone("WIB", 7*3600)
+	}
+	currentPeriod := time.Now().In(locTime).Format("2006-01")
+
+	// 1. Set Saldo Awal KAS = 1,000,000.00 in period_opening_balances
+	_, err := pool.Raw().ExecContext(ctx,
+		`INSERT INTO period_opening_balances (rt_id, period, opening_balance, source, reason, updated_by)
+		 VALUES ($1, $2, 1000000.00, 'manual', 'Saldo awal kas kasir', $3)`,
+		rt1, currentPeriod, u1,
+	)
+	require.NoError(t, err)
+
+	// 2. Insert transaction in current month: income 325,000.00 (Net movement = 325,000.00)
+	var catID string
+	err = pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO financial_categories (rt_id, name, type) VALUES ($1, 'Iuran Kas Oktober', 'income') RETURNING id`,
+		rt1,
+	).Scan(&catID)
+	require.NoError(t, err)
+
+	_, err = pool.Raw().ExecContext(ctx,
+		`INSERT INTO transactions (rt_id, category_id, amount, type, status, description)
+		 VALUES ($1, $2, 325000.00, 'income', 'posted', 'Net movement Oktober')`,
+		rt1, catID,
+	)
+	require.NoError(t, err)
+
+	// 3. Create location: Rekening BCA
+	bank := "BCA"
+	locBCA, err := svc.CreateLocation(ctx, rt1, u1, fundlocation.CreateFundLocationInput{
+		Name:     "BCA RT",
+		Category: fundlocation.CategoryRekening,
+		BankName: &bank,
+	})
+	require.NoError(t, err)
+
+	// 4. Initial reconciliation: K = 1,325,000.00, L = 0, U = 1,325,000.00, D = 0
+	rec, err := svc.GetReconciliationReport(ctx, rt1)
+	require.NoError(t, err)
+	require.Equal(t, "1325000.00", rec.KasBalance)
+	require.Equal(t, "0.00", rec.TotalAllocatedBalance)
+	require.Equal(t, "1325000.00", rec.UnallocatedBalance)
+	require.Equal(t, "0.00", rec.Discrepancy)
+	require.Equal(t, "MATCH_WITH_NOTES", rec.Status)
+
+	// 5. Allocate 1,000,000.00 to BCA
+	_, err = svc.SetOpeningBalance(ctx, rt1, u1, locBCA.ID, fundlocation.SetOpeningBalanceInput{
+		Amount: "1000000.00",
+	})
+	require.NoError(t, err)
+
+	// 6. Reconciliation after 1,000,000 allocation:
+	// K = 1,325,000.00, L = 1,000,000.00, U = 325,000.00 (exact unallocated reported!), D = 0
+	rec, err = svc.GetReconciliationReport(ctx, rt1)
+	require.NoError(t, err)
+	require.Equal(t, "1325000.00", rec.KasBalance)
+	require.Equal(t, "1000000.00", rec.TotalAllocatedBalance)
+	require.Equal(t, "325000.00", rec.UnallocatedBalance)
+	require.Equal(t, "0.00", rec.Discrepancy)
+	require.Equal(t, "MATCH_WITH_NOTES", rec.Status)
+
+	// 7. Create Brankas and allocate remaining 325,000.00
+	locBrankas, err := svc.CreateLocation(ctx, rt1, u1, fundlocation.CreateFundLocationInput{
+		Name:     "Brankas Kantor",
+		Category: fundlocation.CategoryBrankas,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.SetOpeningBalance(ctx, rt1, u1, locBrankas.ID, fundlocation.SetOpeningBalanceInput{
+		Amount: "325000.00",
+	})
+	require.NoError(t, err)
+
+	// 8. Final reconciliation: K = 1,325,000.00, L = 1,325,000.00, U = 0.00, D = 0.00, Status = MATCH
+	rec, err = svc.GetReconciliationReport(ctx, rt1)
+	require.NoError(t, err)
+	require.Equal(t, "1325000.00", rec.KasBalance)
+	require.Equal(t, "1325000.00", rec.TotalAllocatedBalance)
+	require.Equal(t, "0.00", rec.UnallocatedBalance)
+	require.Equal(t, "0.00", rec.Discrepancy)
+	require.Equal(t, "MATCH", rec.Status)
+}

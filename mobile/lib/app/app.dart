@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/models/role.dart';
+
 import 'theme/app_theme.dart';
 import 'navigation_shell.dart';
 import '../core/theme/app_colors.dart';
@@ -321,10 +323,24 @@ class _AppState extends ConsumerState<App> {
           final loc = state.matchedLocation;
           final isRTOperational =
               loc.startsWith('/home/kas') ||
+              loc.startsWith('/home/lokasi-dana') ||
               loc.startsWith('/home/iuran') ||
               loc.startsWith('/home/warga');
           if (isRTOperational && !isAllowedRT(user)) {
             return '/home';
+          }
+          if (loc.startsWith('/home/lokasi-dana')) {
+            final role = user?['role'] as AppRole?;
+            final systemRole = user?['system_role'] as String?;
+            final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
+            final canAccess = systemRole == 'super_admin' ||
+                role == AppRole.bendahara ||
+                role == AppRole.pengurus ||
+                jabatan == 'ketua' ||
+                jabatan == 'bendahara';
+            if (!canAccess) {
+              return '/home';
+            }
           }
           if (loc.startsWith('/home/iuran/')) {
             if (!canAccessIuranPath(loc, user)) {
