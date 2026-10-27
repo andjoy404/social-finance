@@ -185,15 +185,15 @@ var CanonicalBills []BillSeed
 // CanonicalPayments contains payment samples linked to bills.
 var CanonicalPayments []PaymentSeed
 
-// CanonicalRTs contains the operational RTs (RT 003 and RT 002).
+// CanonicalRTs contains the operational RTs (RT 001 and RT 002).
 var CanonicalRTs = []RTSeed{
-	{ID: "8dfa1e36-6727-45be-8fea-24d958efc155", Name: "Wisma Rukun Tunggal", RW: 16, RT: "003", Address: "Jl. Gading Raya Blok D", HeadName: "Hartono Wijaya", IsActive: true},
+	{ID: "8dfa1e36-6727-45be-8fea-24d958efc155", Name: "Wisma Rukun Tunggal", RW: 16, RT: "001", Address: "Jl. Gading Raya Blok D", HeadName: "Hartono Wijaya", IsActive: true},
 	{ID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", Name: "Urena", RW: 16, RT: "002", Address: "GNI Urena", HeadName: "Atom", IsActive: true},
 }
 
-// CanonicalPhysicalHouses contains the physical houses for RT 003 and RT 002.
+// CanonicalPhysicalHouses contains the physical houses for RT 001 and RT 002.
 var CanonicalPhysicalHouses = []PhysicalHouseSeed{
-	// RT 03
+	// RT 01
 	{ID: "bbbb0001-0001-4c33-8000-000000000001", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", HouseNumber: "01", Address: "Jl. Gading Raya Blok D No. 01", IsActive: true},
 	{ID: "bbbb0001-0002-4c33-8000-000000000002", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", HouseNumber: "02", Address: "Jl. Gading Raya Blok D No. 02", IsActive: true},
 	{ID: "bbbb0001-0003-4c33-8000-000000000003", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", HouseNumber: "03", Address: "Jl. Gading Raya Blok D No. 03", IsActive: true},
@@ -209,7 +209,7 @@ var CanonicalPhysicalHouses = []PhysicalHouseSeed{
 	{ID: "aabb1122-0005-4c33-8000-000000000003", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", HouseNumber: "U12/30", Address: "GNI Blok Urena", IsActive: true},
 }
 
-// CanonicalHouseholds contains the households for RT 002 and RT 003.
+// CanonicalHouseholds contains the households for RT 002 and RT 001.
 var CanonicalHouseholds = []HouseholdSeed{
 	{ID: "aabb1122-0001-4d44-8000-000000000001", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", HeadName: "Aqueen Alsava", IsActive: true},
 	{ID: "5360467d-4b4b-4325-9609-dde8c780b12e", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", HeadName: "Andriyan", IsActive: true},
@@ -225,7 +225,7 @@ var CanonicalHouseholds = []HouseholdSeed{
 	{ID: "cccc0001-0005-4d44-8000-000000000005", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", HeadName: "Bambang Sutrisno", IsActive: false},
 }
 
-// CanonicalOccupancies contains the household occupancies for RT 002 and RT 003.
+// CanonicalOccupancies contains the household occupancies for RT 002 and RT 001.
 var CanonicalOccupancies = []HouseholdOccupancySeed{
 	{ID: "aaee1100-0001-4e55-8000-000000000001", PhysicalHouseID: "aabb1122-0001-4c33-8000-000000000001", HouseholdID: "aabb1122-0001-4d44-8000-000000000001", OccupancyStatus: "OWNER", StartDate: strPtr("2026-09-25"), EndDate: nil},
 	{ID: "d23353e9-5372-41c6-bf0a-a813f1e683d1", PhysicalHouseID: "dd9c1056-29eb-4211-8468-df25323cb4be", HouseholdID: "5360467d-4b4b-4325-9609-dde8c780b12e", OccupancyStatus: "OWNER", StartDate: strPtr("2026-09-20"), EndDate: nil},
@@ -243,7 +243,7 @@ var CanonicalOccupancies = []HouseholdOccupancySeed{
 	{ID: "f68449c9-5472-43fb-853e-794887ec43f9", PhysicalHouseID: "ab799cca-f833-4504-8a4e-ef715d407449", HouseholdID: "9d1f520c-54d3-46b3-b4bc-69a8edf0842e", OccupancyStatus: "OWNER", StartDate: strPtr("2026-09-22"), EndDate: nil},
 }
 
-// CanonicalResidents contains the residents for RT 002 and RT 003.
+// CanonicalResidents contains the residents for RT 002 and RT 001.
 var CanonicalResidents = []ResidentSeed{
 	{ID: "1e0f80e4-6cbc-4b64-960e-4c4419c819d4", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Andriyan", Phone: "+6281200000001", IsActive: true, NIK: strPtr("3175000000000001"), Email: strPtr("andriyan@local.com")},
 	{ID: "6c2a10a1-5afb-4eee-b457-69d18eddbea5", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Mety Fitriani", Phone: "+6281200000002", IsActive: true, NIK: strPtr("3175000000000002"), Email: strPtr("mety.fitriani@local.com")},
@@ -257,7 +257,7 @@ var CanonicalResidents = []ResidentSeed{
 	{ID: "eeee0001-0006-4f66-8000-000000000006", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Sri Mulyani", Phone: "+628130000106", IsActive: true, NIK: strPtr("3173160301730006"), Email: strPtr("sri.mulyani@local.com")},
 }
 
-// CanonicalResidencyPeriods contains the current + historical residency periods for RT 002 and RT 003.
+// CanonicalResidencyPeriods contains the current + historical residency periods for RT 002 and RT 001.
 var CanonicalResidencyPeriods = []ResidencyPeriodSeed{
 	{ID: "aacc0002-0001-4f66-8000-000000000001", ResidentID: "aaaa0002-0001-4f66-8000-000000000001", HouseholdOccupancyID: "aaee1100-0003-4e55-8000-000000000001", StartDate: strPtr("2026-09-25"), EndDate: nil},
 	{ID: "aacc0002-0002-4f66-8000-000000000002", ResidentID: "aaaa0002-0002-4f66-8000-000000000002", HouseholdOccupancyID: "aaee1100-0004-4e55-8000-000000000002", StartDate: strPtr("2026-09-25"), EndDate: nil},
@@ -269,7 +269,7 @@ var CanonicalResidencyPeriods = []ResidencyPeriodSeed{
 	{ID: "d06b7002-c583-4b89-9250-ba5c4c9a49d1", ResidentID: "eeee0001-0004-4f66-8000-000000000004", HouseholdOccupancyID: "dddd0001-0004-4e55-8000-000000000004", StartDate: strPtr("2023-09-15"), EndDate: nil},
 	{ID: "e9f48fbd-f870-4236-9438-4e8b1dada615", ResidentID: "eeee0001-0006-4f66-8000-000000000006", HouseholdOccupancyID: "dddd0001-0002-4e55-8000-000000000002", StartDate: strPtr("2024-02-01"), EndDate: nil},
 	{ID: "f5f4239e-fce6-4186-9faa-a8566631024c", ResidentID: "6c2a10a1-5afb-4eee-b457-69d18eddbea5", HouseholdOccupancyID: "f68449c9-5472-43fb-853e-794887ec43f9", StartDate: strPtr("2026-09-22"), EndDate: nil},
-	// Historical residency periods (RT 03)
+	// Historical residency periods (RT 01)
 	{ID: "ffff0001-0001-feff-5b77-000000000001", ResidentID: "eeee0001-0001-4f66-8000-000000000001", HouseholdOccupancyID: "dddd0001-0001-4e55-8000-000000000001", StartDate: strPtr("2015-03-10"), EndDate: strPtr("2020-06-15")},
 	{ID: "ffff0001-0003-feff-5b77-000000000003", ResidentID: "eeee0001-0003-4f66-8000-000000000003", HouseholdOccupancyID: "dddd0001-0003-4e55-8000-000000000003", StartDate: strPtr("2018-07-01"), EndDate: strPtr("2025-01-01")},
 }
@@ -278,10 +278,10 @@ var CanonicalResidencyPeriods = []ResidencyPeriodSeed{
 // All users share the password "123qweasdzxc" (hashed via auth.Hash()).
 // NEVER include Super Admin here.
 var CanonicalUsers = []UserSeed{
-	// Dedicated Warga account for RT 03
-	{ID: "22220001-0000-4000-8000-000000000001", Email: "warga.rt03@local.com", Phone: "+6281300000030", FullName: "Warga RT 03", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
+	// Dedicated Warga account for RT 01
+	{ID: "22220001-0000-4000-8000-000000000001", Email: "warga.rt01@local.com", Phone: "+6281300000030", FullName: "Warga RT 01", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
 
-	// Resident Warga accounts (RT 03)
+	// Resident Warga accounts (RT 01)
 	{ID: "22220001-0001-4000-8000-000000000001", Email: "hartana.wibowo@local.com", Phone: "+628130000101", FullName: "Hartana Wibowo", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
 	{ID: "22220001-0003-4000-8000-000000000001", Email: "dedi.kurniawan@local.com", Phone: "+628130000103", FullName: "Dedi Kurniawan", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
 	{ID: "22220001-0004-4000-8000-000000000001", Email: "nurhaliza.sari@local.com", Phone: "+628130000104", FullName: "Nurhaliza Sari", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
@@ -293,20 +293,36 @@ var CanonicalUsers = []UserSeed{
 	{ID: "22220000-0003-4000-8000-000000000001", Email: "aqueen.alsava@local.com", Phone: "+6281200000003", FullName: "Aqueen Alsava Khaylila", Role: "warga", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
 }
 
-// positionRTs holds the RT IDs used for position seeding (RT 003 and RT 002).
+// SuperAdminRT002User seeds a system-level SUPER_ADMIN who is also a member
+// of RT 002 with jabatan=ketua (full position permissions).
+var SuperAdminRT002User = struct {
+	ID       string
+	Email    string
+	Phone    string
+	FullName string
+	Jabatan  string
+	RTID     string
+}{
+	ID:       "f0000000-0000-4000-8000-000000000001",
+	Email:    "superadmin@social-finance.local",
+	Phone:    "+6281200000099",
+	FullName: "Super Admin RT 002",
+	Jabatan:  "ketua",
+	RTID:     "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b",
+}
 var positionRTs = []string{
-	"8dfa1e36-6727-45be-8fea-24d958efc155", // RT 03
+	"8dfa1e36-6727-45be-8fea-24d958efc155", // RT 01
 	"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", // RT 002
 }
 
 var positionRTIndex = map[string]int{
-	"8dfa1e36-6727-45be-8fea-24d958efc155": 0, // RT 03
+	"8dfa1e36-6727-45be-8fea-24d958efc155": 0, // RT 01
 	"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b": 4, // RT 002
 }
 
 // positionHouseNumbers maps each RT index to house numbers.
 var positionHouseNumbers = map[int][]string{
-	0: {"06", "07", "08", "09", "10"},                     // RT 03
+	0: {"06", "07", "08", "09", "10"},                     // RT 01
 	4: {"U12/16", "U12/18", "U12/20", "U12/22", "U12/24"}, // RT 002
 }
 
@@ -318,7 +334,7 @@ var positionHouseAddrs = map[int][]string{
 
 // positionHeadNames maps each RT index to 5 head names (one per eligible position).
 var positionHeadNames = map[int][]string{
-	0: {"Ketua RT 03", "Wakil Ketua RT 03", "Sekretaris RT 03", "Bendahara RT 03", "Sosial RT 03"},
+	0: {"Ketua RT 01", "Wakil Ketua RT 01", "Sekretaris RT 01", "Bendahara RT 01", "Sosial RT 01"},
 	4: {"Ketua RT 002", "Wakil Ketua RT 002", "Sekretaris RT 002", "Bendahara RT 002", "Sosial RT 002"},
 }
 
@@ -350,7 +366,7 @@ func init() {
 	}
 	// RT labels match the simplified email pattern used in database
 	rtLabels := map[int]string{
-		0: "003", // RT 003
+		0: "001", // RT 001
 		4: "002", // RT 002
 	}
 	rtBase := map[int]string{
@@ -509,14 +525,14 @@ func init() {
 	financialPositionRTs = make([]string, len(positionRTs))
 	copy(financialPositionRTs, positionRTs)
 
-	// Filter financial seed to only RT 002 and RT 003
+	// Filter financial seed to only RT 002 and RT 001
 	// Position seed still runs for all 5 RTs (org data), but financial data
 	// (categories, dues, bills, payments) is restricted to 2 RTs.
 	{
 		filtered := financialPositionRTs[:0]
 		for _, rtID := range financialPositionRTs {
 			if rtID == "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b" || // RT 002
-				rtID == "8dfa1e36-6727-45be-8fea-24d958efc155" { // RT 003
+				rtID == "8dfa1e36-6727-45be-8fea-24d958efc155" { // RT 001
 				filtered = append(filtered, rtID)
 			}
 		}

@@ -113,6 +113,13 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		summary.RTsCount++
 	}
 
+	// NOTE: Super Admin creation moved to bootstrap (main.go --bootstrap).
+	// The admin account is created from BOOTSTRAP_EMAIL / BOOTSTRAP_PASSWORD
+	// in .env, keeping credentials out of source code.
+	// seed --seed-dev intentionally skips super_admin and memberships.
+
+	// 1c. Bootstrap Super Admin membership skipped here — handled by --bootstrap
+
 	// 2. Physical Houses
 	for _, ph := range CanonicalPhysicalHouses {
 		q := `
@@ -206,12 +213,14 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 	}
 
 	// 7. Users and Memberships
+	// Pre-hash the seed password once — all mock users share the same password.
 	passwordHash, err := auth.Hash(DefaultSeedPassword)
 	if err != nil {
 		return nil, fmt.Errorf("hash seed password: %w", err)
 	}
 
 	for _, u := range CanonicalUsers {
+
 		// HARD CONSTRAINT: Never allow super_admin to be seeded automatically
 		// Super Admin must be created solely via --bootstrap CLI
 		//
@@ -310,6 +319,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 	// 8. Position Users (jabatan)
 	// All position users get system_role=NULL and role="pengurus" with jabatan assigned.
 	// Idempotent via email conflict.
+	// Uses the same pre-hashed password as section 7.
 	for _, p := range CanonicalPositionUsers {
 		userQ := `
 			INSERT INTO users (id, email, phone, password_hash, full_name, is_active, system_role)
