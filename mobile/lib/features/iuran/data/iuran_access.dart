@@ -1,17 +1,10 @@
 import 'package:social_finance/core/models/role.dart';
 
 /// Jabatan pengurus RT yang memiliki akses tulis iuran (position_permissions).
-const Set<String> kIuranManageJabatans = {
-  'ketua',
-  'wakil_ketua',
-  'bendahara',
-};
+const Set<String> kIuranManageJabatans = {'ketua', 'wakil_ketua', 'bendahara'};
 
 /// Jabatan pengurus RT yang memiliki akses verifikasi pembayaran.
-const Set<String> kPaymentVerifyJabatans = {
-  'ketua',
-  'bendahara',
-};
+const Set<String> kPaymentVerifyJabatans = {'ketua', 'bendahara'};
 
 /// Jabatan pengurus RT yang memiliki akses management (bisa buat/edit/approve iuran).
 /// Di-backend, jabatan ini juga harus punya finance.create + finance.update + finance.approve
@@ -41,9 +34,14 @@ bool canVerifyPayment(Map<String, dynamic>? user) {
 
   final role = _roleValue(user['role']);
   final jabatan = user['jabatan'] as String?;
-  if (role == 'bendahara' || role == 'pengurus') return true;
-  if (kPaymentVerifyJabatans.contains(jabatan ?? '')) return true;
-  return false;
+  final isRoleAuthorized =
+      role == 'bendahara' ||
+      role == 'pengurus' ||
+      kPaymentVerifyJabatans.contains(jabatan ?? '');
+
+  if (!isRoleAuthorized) return false;
+
+  return _hasPermission(user, 'finance.approve');
 }
 
 bool canAccessIuranPath(String path, Map<String, dynamic>? user) {

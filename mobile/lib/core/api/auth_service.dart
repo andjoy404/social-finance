@@ -1,12 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'client.dart';
+import 'device_id_service.dart';
 import 'models.dart';
 
 class AuthService {
   final ApiClient client;
+  final DeviceIdService deviceIdService;
 
-  AuthService(this.client);
+  AuthService(this.client, this.deviceIdService);
 
   /// Authenticates using email or phone number.
   Future<LoginResponse> login({
@@ -22,6 +24,10 @@ class AuthService {
     } else {
       throw const FormatException('Email atau nomor HP wajib diisi.');
     }
+
+    // Attach device ID to login request.
+    final deviceId = await deviceIdService.getDeviceId();
+    data['device_id'] = deviceId;
 
     final response = await client.dio.post('/api/v1/auth/login', data: data);
 
@@ -55,9 +61,14 @@ class AuthService {
   }
 
   Future<LoginResponse> refreshToken(String rawRefreshToken) async {
+    // Attach device ID to refresh request.
+    final deviceId = await deviceIdService.getDeviceId();
     final response = await client.dio.post(
       '/api/v1/auth/refresh',
-      data: {'refresh_token': rawRefreshToken},
+      data: {
+        'refresh_token': rawRefreshToken,
+        'device_id': deviceId,
+      },
     );
     final data = response.data;
     if (data is! Map) {
@@ -109,5 +120,6 @@ class AuthService {
 
 final authServiceProvider = Provider<AuthService>((ref) {
   final client = ref.watch(apiClientProvider);
-  return AuthService(client);
+  final deviceIdService = ref.watch(deviceIdServiceProvider);
+  return AuthService(client, deviceIdService);
 });

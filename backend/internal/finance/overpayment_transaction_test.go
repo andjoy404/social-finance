@@ -104,7 +104,7 @@ func TestOverpaymentRejectedPersisted(t *testing.T) {
 
 	// Bendahara verifies the payment. Expect HTTP 400 (overpayment).
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -258,7 +258,7 @@ func TestOverpaymentRejectedAuditLogHasValidEntityID(t *testing.T) {
 
 	// Reject overpayment.
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -386,7 +386,7 @@ func TestOverpaymentRejectPaymentVerifyErrorPropagated(t *testing.T) {
 
 	// Now try to verify — should get 404, NOT 400.
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -489,7 +489,7 @@ func TestOverpaymentRejectWithOfficerNotes(t *testing.T) {
 
 	// Reject overpayment WITH custom rejection_reason and officer_notes.
 	{
-		body := `{"action":"approve","rejection_reason":"Total iuran sudah penuh","officer_notes":"Jumlah melebihi yang diperlukan"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20","rejection_reason":"Total iuran sudah penuh","officer_notes":"Jumlah melebihi yang diperlukan"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -600,7 +600,7 @@ func TestOverpaymentRejectDefaultReason(t *testing.T) {
 
 	// Reject overpayment WITHOUT providing rejection_reason.
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -713,7 +713,7 @@ func TestOverpaymentRejectPaymentVerifyNotFound(t *testing.T) {
 
 	// Verify should return 404, not 500 or 400.
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -804,7 +804,7 @@ func TestOverpaymentRejectPaymentVerifyDBError(t *testing.T) {
 	// Verify should succeed in rejecting (returns 400 overpayment) and
 	// the payment should be REJECTED.
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")

@@ -12,8 +12,17 @@ class ApiClient {
   String _baseUrl = '';
   String? _token;
   String? _refreshToken;
+  String? _deviceID;
   void Function()? onUnauthorized;
   Future<LoginResponse?> Function(String refreshToken)? onRefreshToken;
+
+  /// Current device identifier (set once at app start).
+  String? get deviceID => _deviceID;
+
+  /// Sets the persistent device ID for refresh token rotation.
+  void setDeviceID(String? id) {
+    _deviceID = id;
+  }
 
   // Completer-based single-flight gate.
   Completer<LoginResponse?>? _refreshGate;

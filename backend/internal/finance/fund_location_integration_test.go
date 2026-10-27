@@ -6,11 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"social-finance/internal/database"
 	"social-finance/internal/finance"
 	fundlocation "social-finance/internal/fund_location"
 	"social-finance/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 func setupFinanceTest(t *testing.T) (*database.Pool, *finance.Service, *fundlocation.Service, string, string, string) {
@@ -160,17 +161,20 @@ func TestVerifyPaymentGAPBAndReversePaymentGAPD(t *testing.T) {
 
 	// GAP B: Attempting to approve CASH payment into rekening must FAIL
 	approveAction := "approve"
+	actualDate := "2026-10-20"
 	_, err = finSvc.VerifyPayment(ctx, tx, rtID, vID, cashPayment.ID, finance.VerifyPaymentInput{
-		Action:     approveAction,
-		LocationID: &rekening.ID,
+		Action:             approveAction,
+		LocationID:         &rekening.ID,
+		ActualReceivedDate: &actualDate,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "metode tunai (CASH) hanya dapat disetorkan ke Brankas atau COH")
 
 	// GAP B: Approving CASH payment into brankas must SUCCEED
 	res, err := finSvc.VerifyPayment(ctx, tx, rtID, vID, cashPayment.ID, finance.VerifyPaymentInput{
-		Action:     approveAction,
-		LocationID: &brankas.ID,
+		Action:             approveAction,
+		LocationID:         &brankas.ID,
+		ActualReceivedDate: &actualDate,
 	})
 	require.NoError(t, err)
 	require.Equal(t, finance.PaymentStatusApproved, res.Payment.Status)

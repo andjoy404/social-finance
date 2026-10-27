@@ -32,6 +32,7 @@ class MockIuranRepository extends Fake implements IuranRepository {
   String? lastAction;
   String? lastRejectionReason;
   String? lastOfficerNotes;
+  String? lastActualReceivedDate;
 
   @override
   Future<BackendPayment> verifyPayment(
@@ -40,11 +41,13 @@ class MockIuranRepository extends Fake implements IuranRepository {
     String? rejectionReason,
     String? officerNotes,
     String? locationId,
+    String? actualReceivedDate,
   }) async {
     lastVerifiedId = paymentId;
     lastAction = action;
     lastRejectionReason = rejectionReason;
     lastOfficerNotes = officerNotes;
+    lastActualReceivedDate = actualReceivedDate;
 
     return BackendPayment(
       id: paymentId,
@@ -208,6 +211,8 @@ void main() {
 
         expect(mockRepo.lastVerifiedId, 'pay-pending-1');
         expect(mockRepo.lastAction, 'approve');
+        expect(mockRepo.lastActualReceivedDate, isNotNull);
+        expect(mockRepo.lastActualReceivedDate, matches(RegExp(r'^\d{4}-\d{2}-\d{2}$')));
       },
     );
 

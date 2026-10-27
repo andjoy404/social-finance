@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,9 +10,6 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_providers.dart';
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
-
-/// Enum representing the type of due (iuran definition).
-enum DueType { regular, voluntary }
 
 /// Screen for creating a new iuran (bill type / due).
 class IuranFormScreen extends ConsumerStatefulWidget {
@@ -35,6 +31,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
   DuePeriodType _periodType = DuePeriodType.monthly;
   PaymentRule _paymentRule = PaymentRule.full;
   DueType _dueType = DueType.regular;
+  int _selectedYear = DateTime.now().year;
   bool _saving = false;
   bool _dueCreated = false;
   String _generationKey = '';
@@ -488,6 +485,13 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
         _amountCtrl.text = '0';
         _paymentRule = PaymentRule.partial;
         _validUntilCtrl.clear();
+      } else if (type == DueType.multiMonth) {
+        _amountCtrl.text = '';
+        _periodType = DuePeriodType.monthly;
+        _paymentRule = PaymentRule.full;
+        _periodCtrl.text = _selectedYear.toString();
+        _dueDateCtrl.text = '$_selectedYear-01-10';
+        _validUntilCtrl.clear();
       } else {
         _amountCtrl.text = '';
         _validUntilCtrl.clear();
@@ -511,25 +515,31 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
       errors.add('Nominal harus angka yang valid.');
     } else if (_dueType == DueType.voluntary && amount < 0) {
       errors.add('Nominal sumbangan sukarela harus nol atau lebih.');
-    } else if (_dueType == DueType.regular && amount <= 0) {
+    } else if (_dueType != DueType.voluntary && amount <= 0) {
       errors.add('Nominal harus lebih besar dari 0.');
     }
 
-    final period = _periodCtrl.text.trim();
-    if (period.isEmpty) {
-      errors.add('Periode harus diisi.');
+    if (_dueType == DueType.multiMonth) {
+      if (_selectedYear < 2000 || _selectedYear > 2100) {
+        errors.add('Tahun tagihan harus antara 2000 dan 2100.');
+      }
     } else {
-      final validPeriod = switch (_periodType) {
-        DuePeriodType.monthly => RegExp(r'^\d{4}-\d{2}$').hasMatch(period),
-        DuePeriodType.yearly => RegExp(r'^\d{4}$').hasMatch(period),
-        DuePeriodType.oneTime => RegExp(r'^\d{4}-\d{2}$').hasMatch(period),
-      };
-      if (!validPeriod) errors.add('Format periode tidak sesuai frekuensi.');
-    }
+      final period = _periodCtrl.text.trim();
+      if (period.isEmpty) {
+        errors.add('Periode harus diisi.');
+      } else {
+        final validPeriod = switch (_periodType) {
+          DuePeriodType.monthly => RegExp(r'^\d{4}-\d{2}$').hasMatch(period),
+          DuePeriodType.yearly => RegExp(r'^\d{4}$').hasMatch(period),
+          DuePeriodType.oneTime => RegExp(r'^\d{4}-\d{2}$').hasMatch(period),
+        };
+        if (!validPeriod) errors.add('Format periode tidak sesuai frekuensi.');
+      }
 
-    if (DateTime.tryParse(_dueDateCtrl.text.trim()) == null ||
-        !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(_dueDateCtrl.text.trim())) {
-      errors.add('Tanggal jatuh tempo harus berformat YYYY-MM-DD.');
+      if (DateTime.tryParse(_dueDateCtrl.text.trim()) == null ||
+          !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(_dueDateCtrl.text.trim())) {
+        errors.add('Tanggal jatuh tempo harus berformat YYYY-MM-DD.');
+      }
     }
 
     setState(() => _validationErrors = errors);
@@ -559,11 +569,15 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
           .createDue(
             name: _nameCtrl.text.trim(),
             amount: amount,
-            periodType: _periodType,
+            periodType: _dueType == DueType.multiMonth
+                ? DuePeriodType.monthly
+                : _periodType,
             paymentRule: _dueType == DueType.voluntary
                 ? PaymentRule.partial
                 : _paymentRule,
             isVoluntary: _dueType == DueType.voluntary,
+            dueType: _dueType,
+            year: _dueType == DueType.multiMonth ? _selectedYear : null,
             validUntil: _dueType == DueType.voluntary &&
                     _validUntilCtrl.text.isNotEmpty
                 ? _validUntilCtrl.text.trim()
@@ -571,14 +585,18 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
           );
 
       _dueCreated = true;
-      final generated = await ref
-          .read(iuranRepositoryProvider)
-          .generateBills(
-            dueId: due.id,
-            period: _periodCtrl.text.trim(),
-            dueDate: _dueDateCtrl.text.trim(),
-            idempotencyKey: _generateOperationKey(due.id),
-          );
+      int generatedCount = 12;
+      if (_dueType != DueType.multiMonth) {
+        final generated = await ref
+            .read(iuranRepositoryProvider)
+            .generateBills(
+              dueId: due.id,
+              period: _periodCtrl.text.trim(),
+              dueDate: _dueDateCtrl.text.trim(),
+              idempotencyKey: _generateOperationKey(due.id),
+            );
+        generatedCount = generated.generatedCount;
+      }
 
       await Future.wait([
         ref.read(duesProvider.notifier).refresh(),
@@ -589,9 +607,11 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              generated.generatedCount == 0
-                  ? 'Iuran berhasil disimpan. Belum ada tagihan baru yang dibuat.'
-                  : 'Iuran dan ${generated.generatedCount} tagihan berhasil dibuat.',
+              _dueType == DueType.multiMonth
+                  ? 'Iuran Multi-Bulan tahun $_selectedYear berhasil dibuat.'
+                  : (generatedCount == 0
+                      ? 'Iuran berhasil disimpan. Belum ada tagihan baru yang dibuat.'
+                      : 'Iuran dan $generatedCount tagihan berhasil dibuat.'),
             ),
             backgroundColor: AppColors.success,
           ),
@@ -925,6 +945,47 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  // Multi-Bulan badge
+                  GestureDetector(
+                    onTap: _saving
+                        ? null
+                        : () => _switchDueType(DueType.multiMonth),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _dueType == DueType.multiMonth
+                            ? AppColors.accent.withValues(
+                                alpha: isDark ? 0.20 : 0.12,
+                              )
+                            : Colors.transparent,
+                        border: Border.all(
+                          color: _dueType == DueType.multiMonth
+                              ? AppColors.accent
+                              : (isDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder),
+                          width: 1,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Multi-Bulan',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _dueType == DueType.multiMonth
+                              ? AppColors.accent
+                              : (isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -947,7 +1008,9 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Nominal${_dueType == DueType.regular ? '' : ' (opsional, default Rp0)'}',
+                    _dueType == DueType.multiMonth
+                        ? 'Nominal per Bulan'
+                        : 'Nominal${_dueType == DueType.regular ? '' : ' (opsional, default Rp0)'}',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -986,43 +1049,6 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Info sukarela
-              if (_dueType == DueType.voluntary)
-                Container(
-                  width: double.maxFinite,
-                  padding: const EdgeInsets.all(AppSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: AppColors.info.withValues(
-                      alpha: isDark ? 0.15 : 0.08,
-                    ),
-                    border: Border.all(
-                      color: AppColors.info.withValues(
-                        alpha: isDark ? 0.3 : 0.2,
-                      ),
-                    ),
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.info_outline, size: 16, color: AppColors.info),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          'Iuran sukarela bersifat opsional. Tidak ada tunggakan atau penalti jika tidak berkontribusi.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: isDark
-                                ? AppColors.darkTextMuted
-                                : AppColors.lightTextMuted,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (_dueType == DueType.voluntary)
-                const SizedBox(height: AppSpacing.lg),
-
               // Tanggal berlaku sampai — sukarela only
               if (_dueType == DueType.voluntary)
                 AppTextField(
@@ -1042,58 +1068,128 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
               if (_dueType == DueType.voluntary)
                 const SizedBox(height: AppSpacing.lg),
 
-              // Frekuensi
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Frekuensi',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+              // Multi-Bulan Tahun & Info
+              if (_dueType == DueType.multiMonth) ...[
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tahun Tagihan',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
+                    const SizedBox(height: AppSpacing.sm),
+                    DropdownButtonFormField<int>(
+                      value: _selectedYear,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
+                      ),
+                      items: [
+                        DateTime.now().year - 1,
+                        DateTime.now().year,
+                        DateTime.now().year + 1,
+                        DateTime.now().year + 2,
+                      ].map((y) => DropdownMenuItem(value: y, child: Text(y.toString()))).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedYear = val;
+                            _periodCtrl.text = val.toString();
+                            _dueDateCtrl.text = '$val-01-10';
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Container(
+                  width: double.maxFinite,
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withValues(alpha: isDark ? 0.15 : 0.08),
+                    border: Border.all(
+                      color: AppColors.accent.withValues(alpha: isDark ? 0.3 : 0.2),
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  SegmentedButton<DuePeriodType>(
-                    segments: [
-                      ButtonSegment(
-                        value: DuePeriodType.monthly,
-                        label: const Text('Bulanan'),
-                        icon: const Icon(Icons.calendar_month, size: 16),
-                      ),
-                      ButtonSegment(
-                        value: DuePeriodType.yearly,
-                        label: const Text('Tahunan'),
-                        icon: const Icon(Icons.calendar_today, size: 16),
-                      ),
-                      ButtonSegment(
-                        value: DuePeriodType.oneTime,
-                        label: const Text('Sekali'),
-                        icon: const Icon(Icons.event_note, size: 16),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, color: AppColors.accent, size: 20),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Iuran Multi-Bulan akan otomatis membuat 12 tagihan bulanan (Januari - Desember $_selectedYear) untuk semua hunian aktif.',
+                          style: theme.textTheme.bodySmall?.copyWith(color: AppColors.accent),
+                        ),
                       ),
                     ],
-                    selected: {_periodType},
-                    onSelectionChanged: (selected) {
-                      setState(() {
-                        _periodType = selected.first;
-                        _setPeriodForType(_periodType);
-                      });
-                    },
-                    style: SegmentedButton.styleFrom(
-                      backgroundColor: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurface,
-                      foregroundColor: isDark
-                          ? AppColors.darkText
-                          : AppColors.lightText,
-                      selectedForegroundColor: AppColors.accent,
-                      selectedBackgroundColor: AppColors.accentSoftColor(
-                        context,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
+
+              // Frekuensi — only for reguler & sukarela
+              if (_dueType != DueType.multiMonth) ...[
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Frekuensi',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
+                    const SizedBox(height: AppSpacing.sm),
+                    SegmentedButton<DuePeriodType>(
+                      segments: [
+                        ButtonSegment(
+                          value: DuePeriodType.monthly,
+                          label: const Text('Bulanan'),
+                          icon: const Icon(Icons.calendar_month, size: 16),
+                        ),
+                        ButtonSegment(
+                          value: DuePeriodType.yearly,
+                          label: const Text('Tahunan'),
+                          icon: const Icon(Icons.calendar_today, size: 16),
+                        ),
+                        ButtonSegment(
+                          value: DuePeriodType.oneTime,
+                          label: const Text('Sekali'),
+                          icon: const Icon(Icons.event_note, size: 16),
+                        ),
+                      ],
+                      selected: {_periodType},
+                      onSelectionChanged: (selected) {
+                        setState(() {
+                          _periodType = selected.first;
+                          _setPeriodForType(_periodType);
+                        });
+                      },
+                      style: SegmentedButton.styleFrom(
+                        backgroundColor: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                        foregroundColor: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                        selectedForegroundColor: AppColors.accent,
+                        selectedBackgroundColor: AppColors.accentSoftColor(
+                          context,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
 
               // Rule Pembayaran — only for reguler
               if (_dueType == DueType.regular) ...[
@@ -1142,31 +1238,72 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                 const SizedBox(height: AppSpacing.lg),
               ],
 
-              // Periode
-              AppTextField(
-                controller: _periodCtrl,
-                label: 'Periode',
-                hintText: 'YYYY-MM, YYYY, atau YYYY-MM-DD',
-                readOnly: true,
-                onTap: _pickPeriod,
-                suffixIcon: const Icon(Icons.calendar_month, size: 20),
-                onChanged: (_) {
-                  if (_validationErrors.isNotEmpty) {
-                    setState(() => _validationErrors = []);
-                  }
-                },
-              ),
+              // Periode — only for reguler & sukarela
+              if (_dueType != DueType.multiMonth) ...[
+                AppTextField(
+                  controller: _periodCtrl,
+                  label: 'Periode',
+                  hintText: 'YYYY-MM, YYYY, atau YYYY-MM-DD',
+                  readOnly: true,
+                  onTap: _pickPeriod,
+                  suffixIcon: const Icon(Icons.calendar_month, size: 20),
+                  onChanged: (_) {
+                    if (_validationErrors.isNotEmpty) {
+                      setState(() => _validationErrors = []);
+                    }
+                  },
+                ),
+                const SizedBox(height: AppSpacing.lg),
+
+                // Tanggal jatuh tempo
+                AppTextField(
+                  controller: _dueDateCtrl,
+                  label: 'Tanggal Jatuh Tempo',
+                  hintText: 'YYYY-MM-DD',
+                  readOnly: true,
+                  onTap: _pickDueDate,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
               const SizedBox(height: AppSpacing.lg),
 
-              // Tanggal jatuh tempo
-              AppTextField(
-                controller: _dueDateCtrl,
-                label: 'Tanggal Jatuh Tempo',
-                hintText: 'YYYY-MM-DD',
-                readOnly: true,
-                onTap: _pickDueDate,
-              ),
-              const SizedBox(height: AppSpacing.xxl),
+              // Info sukarela — pindah ke bawah Tanggal Jatuh Tempo
+              if (_dueType == DueType.voluntary)
+                Container(
+                  width: double.maxFinite,
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(
+                      alpha: isDark ? 0.15 : 0.08,
+                    ),
+                    border: Border.all(
+                      color: AppColors.info.withValues(
+                        alpha: isDark ? 0.3 : 0.2,
+                      ),
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: AppColors.info),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Iuran sukarela bersifat opsional. Tidak ada tunggakan atau penalti jika tidak berkontribusi.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: isDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_dueType == DueType.voluntary)
+                const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.sm),
 
               // Horizontal buttons: Simpan + Batal (neon style)
               Row(

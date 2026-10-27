@@ -1101,6 +1101,9 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		if notes := r.FormValue("notes"); notes != "" {
 			in.Notes = &notes
 		}
+		if ard := strings.TrimSpace(r.FormValue("actual_received_date")); ard != "" {
+			in.ActualReceivedDate = &ard
+		}
 		if err := in.Validate(); err != nil {
 			httpx.WriteValidationError(targetW, err.Error(), nil)
 			return
@@ -1244,6 +1247,12 @@ func (h *Handler) CreateMultiPeriodPayment(w http.ResponseWriter, r *http.Reques
 		in.Method = PaymentMethod(r.FormValue("method"))
 		if notes := r.FormValue("notes"); notes != "" {
 			in.Notes = &notes
+		}
+		if amt := strings.TrimSpace(r.FormValue("amount")); amt != "" {
+			in.Amount = &amt
+		}
+		if ard := strings.TrimSpace(r.FormValue("actual_received_date")); ard != "" {
+			in.ActualReceivedDate = &ard
 		}
 
 		file, header, err := r.FormFile("file")

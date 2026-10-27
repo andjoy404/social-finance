@@ -38,6 +38,27 @@ enum CategoryType { income, expense }
 
 enum DuePeriodType { monthly, yearly, oneTime }
 
+enum DueType { regular, voluntary, multiMonth }
+
+DueType parseDueType(String? value, {bool isVoluntary = false}) {
+  switch (value) {
+    case 'multi_month':
+      return DueType.multiMonth;
+    case 'voluntary':
+      return DueType.voluntary;
+    case 'regular':
+      return DueType.regular;
+    default:
+      return isVoluntary ? DueType.voluntary : DueType.regular;
+  }
+}
+
+String dueTypeToApi(DueType type) => switch (type) {
+  DueType.regular => 'regular',
+  DueType.voluntary => 'voluntary',
+  DueType.multiMonth => 'multi_month',
+};
+
 enum PaymentRule { full, partial }
 
 enum BillStatus { unpaid, partial, paid, cancelled }
@@ -117,6 +138,8 @@ class BackendDue {
   final PaymentRule paymentRule;
   final bool isVoluntary;
   final bool isActive;
+  final DueType dueType;
+  final int? year;
 
   /// Optional last valid date in YYYY-MM-DD (voluntary dues only).
   final String? validUntil;
@@ -132,12 +155,15 @@ class BackendDue {
     required this.paymentRule,
     required this.isVoluntary,
     required this.isActive,
+    this.dueType = DueType.regular,
+    this.year,
     this.validUntil,
     this.createdAt,
     this.updatedAt,
   });
 
   factory BackendDue.fromJson(Map<String, dynamic> json) {
+    final isVol = json['is_voluntary'] as bool? ?? false;
     return BackendDue(
       id: json['id'] as String? ?? '',
       rtId: json['rt_id'] as String? ?? '',
@@ -145,8 +171,10 @@ class BackendDue {
       amount: json['amount'] as String? ?? '',
       periodType: _parseDuePeriodType(json['period_type'] as String?),
       paymentRule: _parsePaymentRule(json['payment_rule'] as String?),
-      isVoluntary: json['is_voluntary'] as bool? ?? false,
+      isVoluntary: isVol,
       isActive: json['is_active'] as bool? ?? true,
+      dueType: parseDueType(json['due_type'] as String?, isVoluntary: isVol),
+      year: json['year'] as int?,
       validUntil: json['valid_until'] as String?,
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
@@ -199,6 +227,8 @@ class BackendBill {
   final String? houseNumber;
   final String? headName;
   final bool isVoluntary;
+  final DueType dueType;
+  final int? year;
   final String? paidAmount;
   final String? pendingAmount;
 
@@ -218,11 +248,14 @@ class BackendBill {
     this.houseNumber,
     this.headName,
     this.isVoluntary = false,
+    this.dueType = DueType.regular,
+    this.year,
     this.paidAmount,
     this.pendingAmount,
   });
 
   factory BackendBill.fromJson(Map<String, dynamic> json) {
+    final isVol = json['is_voluntary'] as bool? ?? false;
     return BackendBill(
       id: json['id'] as String? ?? '',
       rtId: json['rt_id'] as String? ?? '',
@@ -238,7 +271,9 @@ class BackendBill {
       dueIsActive: json['due_is_active'] as bool?,
       houseNumber: json['house_number'] as String?,
       headName: json['head_name'] as String?,
-      isVoluntary: json['is_voluntary'] as bool? ?? false,
+      isVoluntary: isVol,
+      dueType: parseDueType(json['due_type'] as String?, isVoluntary: isVol),
+      year: json['due_year'] as int? ?? json['year'] as int?,
       paidAmount: json['paid_amount'] as String?,
       pendingAmount: json['pending_amount'] as String?,
     );

@@ -28,7 +28,7 @@ import {
 import { DueCreate } from './DueCreate'
 import { IuranDetail } from './IuranDetail'
 import { IuranPayment } from './IuranPayment'
-import type { IuranBill, IuranStatus } from './iuranTypes'
+import type { IuranBill, IuranStatus, DueType } from './iuranTypes'
 import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiTriggerWasteTruckArrival, type ApiBill, type ApiDue, getSessionPair } from '@/app/api'
 
 type FilterType = 'semua' | 'status' | 'pembayaran' | 'periode' | 'jenis'
@@ -56,20 +56,6 @@ const statusFilterOptions: { value: FilterType; label: string }[] = [
   { value: 'periode', label: 'Periode' },
   { value: 'jenis', label: 'Jenis Iuran' },
 ]
-
-const colStyles = {
-  no: { width: 40, minWidth: 40, maxWidth: 40, textAlign: 'center' as const },
-  name: { minWidth: 160, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  rt: { width: 70, minWidth: 70, maxWidth: 70, textAlign: 'center' as const },
-  type: { minWidth: 130, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  periode: { width: 90, minWidth: 90, maxWidth: 90, textAlign: 'center' as const },
-  nominal: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
-  paid: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
-  pending: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
-  status: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'center' as const },
-  validUntil: { width: 130, minWidth: 130, maxWidth: 130, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
-  action: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const },
-}
 
 export function IuranList() {
   const [loading, setLoading] = useState(true)
@@ -107,6 +93,14 @@ export function IuranList() {
   // Iuran Tab Access Control
   // ═══════════════════════════════════════════════════
 
+  function isWarga(u: {
+    systemRole?: string | null
+    role?: string
+  }): boolean {
+    if (u.systemRole === 'super_admin') return false
+    return u.role === 'warga'
+  }
+
   function canAccessIuranTabs(u: {
     systemRole?: string | null
     role?: string
@@ -131,6 +125,7 @@ export function IuranList() {
     }
   }
 
+  const isWargaUser = user ? isWarga(user) : false
   const hasIuranAccess = user ? canAccessIuranTabs(user) : false
 
   // Force default tab for users without Iuran access
@@ -292,6 +287,8 @@ export function IuranList() {
       status,
       isVoluntary,
       dueId: b.due_id,
+      dueType: (b.due_type as DueType) ?? (isVoluntary ? 'voluntary' : 'regular'),
+      year: b.due_year ?? undefined,
       payments: [],
     }
   }, [])
@@ -904,8 +901,9 @@ export function IuranList() {
         </div>
 
         {/* Tab Navigation: Iuran Saya → Iuran Warga → Kelola Iuran */}
-        {hasIuranAccess && (
-          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '16px' }}>
+        {/* Hidden for warga — they only see their own bills directly */}
+        {hasIuranAccess && !isWargaUser && (
+          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '0px' }}>
             <button
               type="button"
               onClick={() => { setActiveTab('tagihan'); setPage(1); }}
@@ -1217,23 +1215,22 @@ export function IuranList() {
 
             {/* Bill Table */}
             {!loading && filteredBills.length > 0 && (
-              <div className="table-wrapper">
-                <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
+              <div className="table-wrapper sf-auto-layout-wrapper" style={{ overflowX: 'auto' }}>
+                <table className="sf-auto-layout-table">
                   <thead>
                     <tr>
-                      <th style={colStyles.no}>No</th>
-                      <th style={colStyles.name}>NAMA WARGA</th>
-                      <th style={colStyles.rt}>RT</th>
-                      <th style={colStyles.type}>JENIS IURAN</th>
-                      <th style={colStyles.periode}>PERIODE</th>
-                      <th style={colStyles.nominal}>NOMINAL</th>
-                      <th style={colStyles.paid}>DIBAYAR</th>
-                      <th style={colStyles.pending}>TERTUNDA</th>
-                      <th style={colStyles.status}>STATUS</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>NAMA WARGA</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '50px' }}>RT</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '120px' }}>JENIS IURAN</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '120px' }}>PERIODE</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '120px' }}>NOMINAL</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '120px' }}>DIBAYAR</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '120px' }}>TERTUNDA</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '130px' }}>STATUS</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedBills.map((bill, idx) => {
+                    {paginatedBills.map((bill, _idx) => {
                       const hasPending = (bill.pendingAmount ?? 0) > 0
 
                       return (
@@ -1250,30 +1247,32 @@ export function IuranList() {
                             }
                           }}
                         >
-                          <td style={colStyles.no}>
-                            {(page - 1) * pageSize + idx + 1}
-                          </td>
-                          <td style={colStyles.name}>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
                             <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
                           </td>
-                          <td style={colStyles.rt}>
+                          <td style={{ textAlign: 'center' }}>
                             {bill.rt}
                           </td>
-                          <td style={colStyles.type}>
-                            {bill.iuranType}
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span>{bill.iuranType}</span>
+                              {bill.dueType === 'multi_month' && (
+                                <Badge variant="violet">Multi-Bulan</Badge>
+                              )}
+                            </div>
                           </td>
-                          <td style={colStyles.periode}>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                             {bill.periode.includes('-') ? formatPeriodeLabel(bill.periode) : bill.periode}
                           </td>
-                          <td style={colStyles.nominal}>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                             {formatRupiah(bill.nominal)}
                           </td>
-                          <td style={colStyles.paid}>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                             <span style={{ color: (bill.paidAmount ?? 0) > 0 ? 'var(--sf-success)' : undefined, fontWeight: (bill.paidAmount ?? 0) > 0 ? 600 : 400 }}>
                               {formatRupiah(bill.paidAmount)}
                             </span>
                           </td>
-                          <td style={colStyles.pending}>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                             {hasPending ? (
                               <span style={{ color: 'var(--sf-warning)', fontWeight: 600 }}>
                                 {formatRupiah(bill.pendingAmount)}
@@ -1282,7 +1281,7 @@ export function IuranList() {
                               '—'
                             )}
                           </td>
-                          <td style={colStyles.status}>
+                          <td style={{ textAlign: 'center' }}>
                             <Badge variant={getStatusVariant(bill.status)}>
                               {getStatusLabel(bill.status)}
                             </Badge>
@@ -1336,17 +1335,18 @@ export function IuranList() {
 
             {/* Dues Table — row click opens Edit Due modal */}
             {!duesLoading && filteredDues.length > 0 && (
-              <div className="table-wrapper">
-                <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
+              <div className="table-wrapper sf-auto-layout-wrapper" style={{ overflowX: 'auto' }}>
+                <table className="sf-auto-layout-table" style={{ tableLayout: 'auto' }}>
                   <thead>
                     <tr>
-                      <th style={{ ...colStyles.name, minWidth: 200, textAlign: 'left' }}>NAMA IURAN</th>
-                      <th style={{ width: 130, minWidth: 130, textAlign: 'right', fontFamily: 'monospace' }}>NOMINAL</th>
-                      <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>FREKUENSI</th>
-                      <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>ATURAN</th>
-                      <th style={{ width: 110, minWidth: 110, textAlign: 'center' }}>TIPE</th>
-                      <th style={colStyles.validUntil}>BERLAKU SAMPAI</th>
-                      <th style={{ width: 120, minWidth: 120, textAlign: 'center' }}>STATUS</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>NAMA IURAN</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '120px' }}>NOMINAL</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '100px' }}>PERIODE</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '90px' }}>FREKUENSI</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '90px' }}>ATURAN</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '90px' }}>TIPE</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '120px' }}>BERLAKU SAMPAI</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '120px' }}>STATUS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1371,47 +1371,52 @@ export function IuranList() {
                             }
                           }}
                         >
-                          <td style={colStyles.name}>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
                             <span style={{ fontWeight: 600 }}>{due.name}</span>
                           </td>
-                          <td style={colStyles.nominal}>
+                          <td style={{ textAlign: 'right', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                             {isVoluntary ? (
                               <span style={{ color: 'var(--sf-info)' }}>Sukarela</span>
                             ) : (
-                              formatRupiah(parseMoney(due.amount))
-                            )}
-                          </td>
-                          <td style={{ textAlign: 'left' }}>
-                            {periodLabel}
-                          </td>
-                          <td style={{ textAlign: 'left' }}>
-                            {ruleLabel}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            {isVoluntary ? (
-                              <Badge variant="blue">Sukarela</Badge>
-                            ) : (
-                              <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                padding: '0 8px',
-                                fontSize: '11px',
-                                fontWeight: 400,
-                                borderRadius: '5px',
-                                border: '1px solid rgba(16, 185, 129, 0.30)',
-                                background: 'rgba(16, 185, 129, 0.08)',
-                                color: '#059669',
-                                lineHeight: 1.2,
-                                height: '22px',
-                                boxSizing: 'border-box',
-                                boxShadow: '0 0 8px rgba(16, 185, 129, 0.08)',
-                                fontFamily: 'inherit',
-                              }}>
-                                Reguler
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {formatRupiah(parseMoney(due.amount))}
                               </span>
                             )}
                           </td>
-                          <td style={colStyles.validUntil}>
+                          <td style={{ textAlign: 'left', fontSize: '12px', lineHeight: 1.4, whiteSpace: 'nowrap' }}>
+                            {due.periods && due.periods.length > 0 ? (
+                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {due.periods.slice(0, 2).map((p) =>
+                                  p.includes('-') ? formatPeriodeLabel(p) : p
+                                ).join(', ')}
+                                {due.periods.length > 2 && (
+                                  <div style={{ color: 'var(--sf-text-muted)', fontSize: '10px', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    +{due.periods.length - 2} lainnya
+                                  </div>
+                                )}
+                              </div>
+                            ) : (due as any).period ? (
+                              ((due as any).period.includes('-') ? formatPeriodeLabel((due as any).period) : (due as any).period)
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+                            {periodLabel}
+                          </td>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+                            {ruleLabel}
+                          </td>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            {due.due_type === 'multi_month' ? (
+                              <Badge variant="violet">Multi-Bulan</Badge>
+                            ) : isVoluntary ? (
+                              <Badge variant="blue">Sukarela</Badge>
+                            ) : (
+                              <Badge variant="green">Reguler</Badge>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                             {isVoluntary
                               ? (due.valid_until ? dayjs(due.valid_until).format('DD/MM/YYYY') : 'Tanpa batas')
                               : '—'}

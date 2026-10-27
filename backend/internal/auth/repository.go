@@ -357,10 +357,10 @@ func CreateMembership(ctx context.Context, tx *sql.Tx, userID, rtID string, role
 // CreateRefreshToken stores a new refresh token hash.
 // membershipID is *string: nil for system-only tokens (SQL NULL),
 // non-nil for member tokens (actual user_rt_memberships.id).
-func CreateRefreshToken(ctx context.Context, tx *sql.Tx, userID string, membershipID *string, tokenHash string, expiresAt time.Time) error {
+func CreateRefreshToken(ctx context.Context, tx *sql.Tx, userID string, membershipID *string, tokenHash string, expiresAt time.Time, deviceID string) error {
 	_, err := tx.ExecContext(ctx,
-		`INSERT INTO refresh_tokens (user_id, membership_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
-		userID, membershipID, tokenHash, expiresAt,
+		`INSERT INTO refresh_tokens (user_id, membership_id, token_hash, expires_at, device_id) VALUES ($1, $2, $3, $4, $5)`,
+		userID, membershipID, tokenHash, expiresAt, deviceID,
 	)
 	if err != nil {
 		return fmt.Errorf("create refresh token: %w", err)
@@ -371,27 +371,33 @@ func CreateRefreshToken(ctx context.Context, tx *sql.Tx, userID string, membersh
 // FindRefreshTokenByHash looks up a refresh token by its hash.
 // Returns membershipID as *string: nil for system-only tokens (SQL NULL),
 // non-nil for member tokens (actual user_rt_memberships.id).
-func FindRefreshTokenByHash(ctx context.Context, tx *sql.Tx, tokenHash string) (userID string, membershipID *string, expiresAt time.Time, revoked bool, err error) {
+// Also returns the device_id that created this token.
+func FindRefreshTokenByHash(ctx context.Context, tx *sql.Tx, tokenHash string) (userID string, membershipID *string, expiresAt time.Time, revoked bool, deviceID string, err error) {
 	var rawMembershipID sql.NullString
+	var rawDeviceID sql.NullString
 	query := `
 		SELECT user_id, membership_id, expires_at,
-			CASE WHEN revoked_at IS NOT NULL THEN true ELSE false END
+			CASE WHEN revoked_at IS NOT NULL THEN true ELSE false END,
+			device_id
 		FROM refresh_tokens
 		WHERE token_hash = $1
 		LIMIT 1
 	`
-	err = tx.QueryRowContext(ctx, query, tokenHash).Scan(&userID, &rawMembershipID, &expiresAt, &revoked)
+	err = tx.QueryRowContext(ctx, query, tokenHash).Scan(&userID, &rawMembershipID, &expiresAt, &revoked, &rawDeviceID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", nil, time.Time{}, false, sql.ErrNoRows
+			return "", nil, time.Time{}, false, "", sql.ErrNoRows
 		}
-		return "", nil, time.Time{}, false, fmt.Errorf("find refresh token: %w", err)
+		return "", nil, time.Time{}, false, "", fmt.Errorf("find refresh token: %w", err)
 	}
 	if rawMembershipID.Valid {
 		mid := rawMembershipID.String
-		return userID, &mid, expiresAt, revoked, nil
+		return userID, &mid, expiresAt, revoked, mid, nil
 	}
-	return userID, nil, expiresAt, revoked, nil
+	if rawDeviceID.Valid {
+		deviceID = rawDeviceID.String
+	}
+	return userID, nil, expiresAt, revoked, deviceID, nil
 }
 
 // RevokeRefreshTokenByHash marks a refresh token as revoked.

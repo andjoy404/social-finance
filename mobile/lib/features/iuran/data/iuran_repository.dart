@@ -33,6 +33,8 @@ class IuranRepository {
     PaymentRule? paymentRule,
     bool? isVoluntary,
     String? validUntil,
+    DueType? dueType,
+    int? year,
   }) async {
     return apiClient.createDue(
       name: name,
@@ -41,6 +43,8 @@ class IuranRepository {
       paymentRule: paymentRule,
       isVoluntary: isVoluntary,
       validUntil: validUntil,
+      dueType: dueType,
+      year: year,
     );
   }
 
@@ -175,6 +179,9 @@ class IuranRepository {
           dueRtCode: null,
           dueIsVoluntary: isVol,
           dueIsActive: isActive,
+          householdOccupancyId: bill.householdOccupancyId,
+          dueType: bill.dueType,
+          year: bill.year,
         ),
       );
     }
@@ -279,6 +286,10 @@ class IuranRepository {
       duePeriodType: null,
       dueRtCode: null,
       dueIsVoluntary: isVol,
+      dueIsActive: bill.dueIsActive ?? true,
+      householdOccupancyId: bill.householdOccupancyId,
+      dueType: bill.dueType,
+      year: bill.year,
     );
   }
 
@@ -323,6 +334,30 @@ class IuranRepository {
     );
   }
 
+  Future<BackendMultiPeriodPaymentResult> createMultiPeriodPayment({
+    required List<String> billIds,
+    required List<Map<String, String>> allocations,
+    required int amount, // total rupiah in int
+    required PaymentMethod method,
+    String? proofPath,
+    String? notes,
+    String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
+  }) async {
+    return apiClient.createMultiPeriodPayment(
+      billIds: billIds,
+      allocations: allocations,
+      amount: _formatMoney(amount),
+      method: method,
+      proofPath: proofPath,
+      notes: notes,
+      idempotencyKey: idempotencyKey,
+      fileBytes: fileBytes,
+      filename: filename,
+    );
+  }
+
   Future<BackendPayment> createDonation({
     required String dueId,
     required int amount,
@@ -364,6 +399,7 @@ class IuranRepository {
     String? rejectionReason,
     String? officerNotes,
     String? locationId,
+    String? actualReceivedDate,
   }) async {
     return apiClient.verifyPayment(
       paymentId,
@@ -371,6 +407,7 @@ class IuranRepository {
       rejectionReason: rejectionReason,
       officerNotes: officerNotes,
       locationId: locationId,
+      actualReceivedDate: actualReceivedDate,
     );
   }
 

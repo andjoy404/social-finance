@@ -55,11 +55,10 @@ export function Sidebar() {
 
   if (allowedRT) {
     items.push(
-      { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+      { to: '/kas', label: 'Kas', icon: <DollarOutlined />, id: 'kas' },
       { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
-      { to: '/kas', label: 'KAS', icon: <DollarOutlined />, id: 'kas' },
     )
-    if (user?.role !== 'warga' && !isSuperAdmin) {
+    if (user?.role !== 'warga') {
       items.push({
         to: '/lokasi-dana',
         label: 'Lokasi Dana',
@@ -67,6 +66,9 @@ export function Sidebar() {
         id: 'lokasi-dana',
       })
     }
+    items.push(
+      { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+    )
   }
 
   if (isSuperAdmin) {

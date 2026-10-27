@@ -4,6 +4,7 @@
 /// auth token injection, and single-flight refresh token handling.
 /// No duplication of auth/interceptor behavior.
 
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -73,6 +74,8 @@ class IuranApiClient {
     PaymentRule? paymentRule,
     bool? isVoluntary,
     String? validUntil,
+    DueType? dueType,
+    int? year,
   }) async {
     final Map<String, dynamic> body = {
       'name': name,
@@ -84,6 +87,12 @@ class IuranApiClient {
     }
     if (isVoluntary != null) {
       body['is_voluntary'] = isVoluntary;
+    }
+    if (dueType != null) {
+      body['due_type'] = dueTypeToApi(dueType);
+    }
+    if (year != null) {
+      body['year'] = year;
     }
     // Send valid_until only for voluntary dues (non-null values).
     // Regular dues never carry a valid_until; omitting the field lets the
@@ -338,6 +347,63 @@ class IuranApiClient {
     return BackendPayment.fromJson(data.cast<String, dynamic>());
   }
 
+  /// POST /api/v1/payments/multi-period — with Idempotency-Key
+  Future<BackendMultiPeriodPaymentResult> createMultiPeriodPayment({
+    required List<String> billIds,
+    required List<Map<String, String>> allocations,
+    required String amount,
+    required PaymentMethod method,
+    String? notes,
+    String? proofPath,
+    String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
+  }) async {
+    final key = idempotencyKey ?? _generateUuid();
+    Response response;
+
+    if (fileBytes != null && fileBytes.isNotEmpty) {
+      final formData = FormData.fromMap({
+        'bill_ids': jsonEncode(billIds),
+        'allocations': jsonEncode(allocations),
+        'amount': amount,
+        'method': _serializePaymentMethod(method),
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        'file': MultipartFile.fromBytes(
+          fileBytes,
+          filename: filename ?? 'bukti_pembayaran.jpg',
+        ),
+      });
+
+      response = await dio.post(
+        '/api/v1/payments/multi-period',
+        data: formData,
+        options: Options(
+          headers: {'Idempotency-Key': key},
+        ),
+      );
+    } else {
+      response = await dio.post(
+        '/api/v1/payments/multi-period',
+        data: {
+          'bill_ids': billIds,
+          'allocations': allocations,
+          'amount': amount,
+          'method': _serializePaymentMethod(method),
+          if (notes != null && notes.isNotEmpty) 'notes': notes,
+          if (proofPath != null && proofPath.isNotEmpty) 'proof_path': proofPath,
+        },
+        options: Options(
+          headers: {'Idempotency-Key': key},
+        ),
+      );
+    }
+
+    final data = response.data;
+    if (data is! Map) throw const FormatException('Unexpected response');
+    return BackendMultiPeriodPaymentResult.fromJson(data.cast<String, dynamic>());
+  }
+
   /// POST /api/v1/payments/{id}/verify
   Future<BackendPayment> verifyPayment(
     String paymentId, {
@@ -345,11 +411,14 @@ class IuranApiClient {
     String? rejectionReason,
     String? officerNotes,
     String? locationId,
+    String? actualReceivedDate,
   }) async {
     final response = await dio.post(
       '/api/v1/payments/$paymentId/verify',
       data: {
         'action': action,
+        if (actualReceivedDate != null && actualReceivedDate.isNotEmpty)
+          'actual_received_date': actualReceivedDate,
         if (rejectionReason != null && rejectionReason.isNotEmpty)
           'rejection_reason': rejectionReason,
         if (officerNotes != null && officerNotes.isNotEmpty)

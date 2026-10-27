@@ -30,9 +30,7 @@ import 'package:social_finance/features/iuran/presentation/screens/iuran_form_sc
 
 import '../features/iuran/presentation/screens/iuran_detail_screen.dart';
 import '../features/iuran/presentation/screens/iuran_payment_screen.dart';
-import '../features/iuran/presentation/screens/iuran_arrears_screen.dart';
 import '../features/iuran/presentation/screens/iuran_report_screen.dart';
-import '../features/iuran/presentation/screens/iuran_management_screen.dart';
 import '../features/iuran/data/iuran_access.dart';
 import '../features/kas/presentation/screens/kas_screen.dart';
 import '../features/kas/presentation/screens/kas_detail_screen.dart';
@@ -405,9 +403,7 @@ class _AppState extends ConsumerState<App> {
             if (billId == null || billId.isEmpty) return '/home/iuran';
             if (billId == 'tunggakan') return '/home/iuran/tunggakan';
             if (billId == 'tagihan') return '/home/iuran';
-            if (billId == 'warga') return '/home/iuran/warga';
             if (billId == 'kelola') return '/home/iuran/kelola';
-            if (billId == 'list') return '/home/iuran/list';
             if (billId == 'laporan') return '/home/iuran/laporan';
             if (billId == 'form') return '/home/iuran/form';
             if (billId == 'detail') return '/home/iuran';
@@ -423,195 +419,162 @@ class _AppState extends ConsumerState<App> {
               path: '/home',
               name: 'home',
               builder: (context, state) => const DashboardScreen(),
+            ),
+            GoRoute(
+              path: '/home/cash',
+              name: 'cash',
+              builder: (context, state) => const CashScreen(),
+            ),
+            GoRoute(
+              path: '/home/dues',
+              name: 'dues',
+              builder: (context, state) => const DuesScreen(),
+            ),
+            GoRoute(
+              path: '/home/iuran',
+              name: 'iuran',
+              builder: (context, state) => const IuranScreen(),
               routes: [
                 GoRoute(
-                  path: 'cash',
-                  name: 'cash',
-                  builder: (context, state) => const CashScreen(),
+                  path: 'detail/:billId',
+                  name: 'iuran_detail',
+                  builder: (context, state) {
+                    final billId = state.pathParameters['billId']!;
+                    final paymentId =
+                        state.uri.queryParameters['payment_id'];
+                    return IuranDetailScreen(
+                      billId: billId,
+                      initialPaymentId: paymentId,
+                    );
+                  },
                 ),
                 GoRoute(
-                  path: 'dues',
-                  name: 'dues',
-                  builder: (context, state) => const DuesScreen(),
+                  path: 'pembayaran/:billId',
+                  name: 'iuran_payment',
+                  builder: (context, state) {
+                    final billId = state.pathParameters['billId']!;
+                    return IuranPaymentScreen(billId: billId);
+                  },
                 ),
                 GoRoute(
-                  path: 'iuran',
-                  name: 'iuran',
-                  builder: (context, state) => const IuranArrearsScreen(),
-                  routes: [
-                    GoRoute(
-                      path: 'list',
-                      name: 'iuran_list',
-                      redirect: (context, state) => '/home/iuran/warga',
-                    ),
-                    GoRoute(
-                      path: 'warga',
-                      name: 'iuran_warga',
-                      builder: (context, state) => const IuranScreen(),
-                    ),
-                    GoRoute(
-                      path: 'tagihan',
-                      name: 'iuran_tagihan',
-                      redirect: (context, state) => '/home/iuran',
-                    ),
-                    GoRoute(
-                      path: 'kelola',
-                      name: 'iuran_kelola',
-                      builder: (context, state) =>
-                          const IuranManagementScreen(),
-                    ),
-                    GoRoute(
-                      path: 'detail/:billId',
-                      name: 'iuran_detail',
-                      builder: (context, state) {
-                        final billId = state.pathParameters['billId']!;
-                        final paymentId =
-                            state.uri.queryParameters['payment_id'];
-                        return IuranDetailScreen(
-                          billId: billId,
-                          initialPaymentId: paymentId,
-                        );
-                      },
-                    ),
-                    GoRoute(
-                      path: 'pembayaran/:billId',
-                      name: 'iuran_payment',
-                      builder: (context, state) {
-                        final billId = state.pathParameters['billId']!;
-                        return IuranPaymentScreen(billId: billId);
-                      },
-                    ),
-                    GoRoute(
-                      path: 'tunggakan',
-                      name: 'iuran_arrears',
-                      redirect: (context, state) => '/home/iuran',
-                    ),
-                    GoRoute(
-                      path: 'laporan',
-                      name: 'iuran_report',
-                      builder: (context, state) => const IuranReportScreen(),
-                    ),
-                    GoRoute(
-                      path: 'form',
-                      name: 'iuran_form',
-                      builder: (context, state) => const IuranFormScreen(),
-                    ),
-                  ],
+                  path: 'laporan',
+                  name: 'iuran_report',
+                  builder: (context, state) => const IuranReportScreen(),
                 ),
                 GoRoute(
-                  path: 'kas',
-                  name: 'kas',
-                  builder: (context, state) => const KasScreen(),
-                  routes: [
-                    GoRoute(
-                      path: 'masuk',
-                      name: 'kas_masuk',
-                      builder: (context, state) => const KasMasukScreen(),
-                    ),
-                    GoRoute(
-                      path: 'keluar',
-                      name: 'kas_keluar',
-                      builder: (context, state) => const KasKeluarScreen(),
-                    ),
-                    GoRoute(
-                      path: 'detail/:id',
-                      name: 'kas_detail_prefixed',
-                      builder: (context, state) {
-                        final txId = state.pathParameters['id']!;
-                        return KasDetailScreen(transactionId: txId);
-                      },
-                    ),
-                    GoRoute(
-                      path: ':id',
-                      name: 'kas_detail',
-                      builder: (context, state) {
-                        final txId = state.pathParameters['id']!;
-                        return KasDetailScreen(transactionId: txId);
-                      },
-                    ),
-                    GoRoute(
-                      path: 'laporan',
-                      name: 'kas_report',
-                      builder: (context, state) => const KasReportScreen(),
-                    ),
-                    GoRoute(
-                      path: 'lokasi-dana',
-                      name: 'kas_lokasi_dana',
-                      redirect: (context, state) => '/home/lokasi-dana',
-                    ),
-                  ],
-                ),
-                GoRoute(
-                  path: 'lokasi-dana',
-                  name: 'lokasi_dana',
-                  builder: (context, state) => const FundLocationScreen(),
-                ),
-                GoRoute(
-                  path: 'warga',
-                  name: 'warga',
-                  builder: (context, state) => const WargaScreen(),
-                  routes: [
-                    GoRoute(
-                      path: 'baru',
-                      name: 'warga_baru',
-                      builder: (context, state) {
-                        final authState = ref.read(authRepositoryProvider);
-                        final systemRole =
-                            authState?.valueOrNull?['system_role'] as String?;
-                        return HouseholdCreateScreen(
-                          isSuperAdmin: systemRole == 'super_admin',
-                        );
-                      },
-                    ),
-                    GoRoute(
-                      path: 'edit/household/:householdId',
-                      name: 'warga_edit',
-                      builder: (context, state) {
-                        final householdId =
-                            state.pathParameters['householdId']!;
-                        return HouseholdEditScreen(householdId: householdId);
-                      },
-                    ),
-                    GoRoute(
-                      path: 'baru/petugas',
-                      name: 'warga_petugas_baru',
-                      builder: (context, state) {
-                        final authState = ref.read(authRepositoryProvider);
-                        final systemRole =
-                            authState?.valueOrNull?['system_role'] as String?;
-                        return SpecialResidentCreateScreen(
-                          isSuperAdmin: systemRole == 'super_admin',
-                        );
-                      },
-                    ),
-                    GoRoute(
-                      path: 'edit/petugas/:residentId',
-                      name: 'warga_resident_edit',
-                      builder: (context, state) {
-                        final residentId = state.pathParameters['residentId']!;
-                        return SpecialResidentEditScreen(
-                          residentId: residentId,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                GoRoute(
-                  path: 'reports',
-                  name: 'reports',
-                  builder: (context, state) => const ReportsScreen(),
-                ),
-                GoRoute(
-                  path: 'profile',
-                  name: 'profile',
-                  builder: (context, state) => const ProfileScreen(),
-                ),
-                GoRoute(
-                  path: 'rw',
-                  name: 'rw',
-                  builder: (context, state) => const RwListScreen(),
+                  path: 'form',
+                  name: 'iuran_form',
+                  builder: (context, state) => const IuranFormScreen(),
                 ),
               ],
+            ),
+            GoRoute(
+              path: '/home/kas',
+              name: 'kas',
+              builder: (context, state) => const KasScreen(),
+              routes: [
+                GoRoute(
+                  path: 'masuk',
+                  name: 'kas_masuk',
+                  builder: (context, state) => const KasMasukScreen(),
+                ),
+                GoRoute(
+                  path: 'keluar',
+                  name: 'kas_keluar',
+                  builder: (context, state) => const KasKeluarScreen(),
+                ),
+                GoRoute(
+                  path: 'detail/:id',
+                  name: 'kas_detail_prefixed',
+                  builder: (context, state) {
+                    final txId = state.pathParameters['id']!;
+                    return KasDetailScreen(transactionId: txId);
+                  },
+                ),
+                GoRoute(
+                  path: ':id',
+                  name: 'kas_detail',
+                  builder: (context, state) {
+                    final txId = state.pathParameters['id']!;
+                    return KasDetailScreen(transactionId: txId);
+                  },
+                ),
+                GoRoute(
+                  path: 'laporan',
+                  name: 'kas_report',
+                  builder: (context, state) => const KasReportScreen(),
+                ),
+              ],
+            ),
+            GoRoute(
+              path: '/home/lokasi-dana',
+              name: 'lokasi_dana',
+              builder: (context, state) => const FundLocationScreen(),
+            ),
+            GoRoute(
+              path: '/home/warga',
+              name: 'warga',
+              builder: (context, state) => const WargaScreen(),
+              routes: [
+                GoRoute(
+                  path: 'baru',
+                  name: 'warga_baru',
+                  builder: (context, state) {
+                    final authState = ref.read(authRepositoryProvider);
+                    final systemRole =
+                        authState?.valueOrNull?['system_role'] as String?;
+                    return HouseholdCreateScreen(
+                      isSuperAdmin: systemRole == 'super_admin',
+                    );
+                  },
+                ),
+                GoRoute(
+                  path: 'edit/household/:householdId',
+                  name: 'warga_edit',
+                  builder: (context, state) {
+                    final householdId =
+                        state.pathParameters['householdId']!;
+                    return HouseholdEditScreen(householdId: householdId);
+                  },
+                ),
+                GoRoute(
+                  path: 'baru/petugas',
+                  name: 'warga_petugas_baru',
+                  builder: (context, state) {
+                    final authState = ref.read(authRepositoryProvider);
+                    final systemRole =
+                        authState?.valueOrNull?['system_role'] as String?;
+                    return SpecialResidentCreateScreen(
+                      isSuperAdmin: systemRole == 'super_admin',
+                    );
+                  },
+                ),
+                GoRoute(
+                  path: 'edit/petugas/:residentId',
+                  name: 'warga_resident_edit',
+                  builder: (context, state) {
+                    final residentId = state.pathParameters['residentId']!;
+                    return SpecialResidentEditScreen(
+                      residentId: residentId,
+                    );
+                  },
+                ),
+              ],
+            ),
+            GoRoute(
+              path: '/home/reports',
+              name: 'reports',
+              builder: (context, state) => const ReportsScreen(),
+            ),
+            GoRoute(
+              path: '/home/profile',
+              name: 'profile',
+              builder: (context, state) => const ProfileScreen(),
+            ),
+            GoRoute(
+              path: '/home/rw',
+              name: 'rw',
+              builder: (context, state) => const RwListScreen(),
             ),
           ],
         ),

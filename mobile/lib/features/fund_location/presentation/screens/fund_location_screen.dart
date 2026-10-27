@@ -161,10 +161,21 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         horizontal: 16,
                         vertical: 8,
                       ),
-                      child: Icon(
-                        Icons.add,
-                        size: 20,
-                        color: AppColors.accent,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.add,
+                            size: 20,
+                            color: AppColors.accent,
+                          ),
+                          SizedBox(width: 4),
+                          Icon(
+                            Icons.account_balance,
+                            size: 18,
+                            color: AppColors.accent,
+                          ),
+                        ],
                       ),
                     ),
                   ),

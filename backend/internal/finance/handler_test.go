@@ -272,6 +272,7 @@ func setupFinanceRouter(pool *database.Pool, storageMock ...storage.Service) htt
 		r.Post("/api/v1/bills/generate", finH.GenerateBills)
 		r.Delete("/api/v1/bills/{id}", finH.CancelBill)
 		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
+		r.Post("/api/v1/payments/{id}/reverse", finH.ReversePayment)
 		r.Post("/api/v1/transactions", finH.CreateTransaction)
 		r.Post("/api/v1/transactions/{id}/reverse", finH.ReverseTransaction)
 		r.Put("/api/v1/reports/balance/opening/{period}", finH.UpdateOpeningBalance)
@@ -531,7 +532,7 @@ func TestBillsAndPaymentsFlowWithLedgerIntegration(t *testing.T) {
 
 	// Verify payment by Bendahara -> approves payment -> bill marked paid -> income transaction posted
 	t.Run("Verify and approve payment", func(t *testing.T) {
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1196,7 +1197,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		}
 
 		// Now verify the pending payment
-		verifyBody := `{"action":"approve"}`
+		verifyBody := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+p.ID+"/verify", bytes.NewBufferString(verifyBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1476,7 +1477,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		json.Unmarshal(rec.Body.Bytes(), &p)
 
 		// Approve
-		verifyBody := `{"action":"approve"}`
+		verifyBody := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+p.ID+"/verify", bytes.NewBufferString(verifyBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1983,12 +1984,13 @@ func setupSystemOnlySuperAdmin(t *testing.T, pool *database.Pool, email, fullNam
 	db := pool.Raw()
 	ctx := context.Background()
 	c := atomic.AddInt64(&rtCounter, 1)
-	uniqueEmail := fmt.Sprintf("%d_%s", c, email)
+	uniqueEmail := fmt.Sprintf("%d_%d_%s", time.Now().UnixNano(), c, email)
+	uniquePhone := fmt.Sprintf("%d_%s", c, phone)
 	var userID string
 	err := db.QueryRowContext(ctx,
 		`INSERT INTO users (email, phone, password_hash, full_name, is_active)
 		 VALUES ($1, $2, 'dummyhash', $3, true) RETURNING id`,
-		uniqueEmail, phone, fullName,
+		uniqueEmail, uniquePhone, fullName,
 	).Scan(&userID)
 	if err != nil {
 		t.Fatalf("failed to insert system-only superadmin user: %v", err)

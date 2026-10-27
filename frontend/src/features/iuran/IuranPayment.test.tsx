@@ -339,4 +339,157 @@ describe('IuranPayment Regression Tests', () => {
     fireEvent.click(tutupErrorBtn)
     expect(onClose).toHaveBeenCalledTimes(2)
   })
+
+  it('11. Mendukung pemilihan multi-bulan (1-12) dan memanggil apiCreateMultiPeriodPayment saat > 1 bulan', async () => {
+    vi.spyOn(apiModule, 'apiGetBill').mockResolvedValue({
+      ...mockBillResponse,
+      id: 'bill-1',
+      due_type: 'multi_month',
+      period: '2026-10',
+      amount: '50000',
+    } as any)
+    vi.spyOn(apiModule, 'apiListPayments').mockResolvedValue(mockPaymentsResponse as any)
+    vi.spyOn(apiModule, 'apiListBills').mockResolvedValue({
+      data: [
+        { ...mockBillResponse, id: 'bill-1', due_type: 'multi_month', period: '2026-10', amount: '50000', status: 'unpaid' },
+        { ...mockBillResponse, id: 'bill-2', due_type: 'multi_month', period: '2026-11', amount: '50000', status: 'unpaid' },
+        { ...mockBillResponse, id: 'bill-3', due_type: 'multi_month', period: '2026-12', amount: '75000', status: 'unpaid' },
+      ],
+      pagination: { page: 1, page_size: 50, total: 3, total_pages: 1 },
+    } as any)
+
+    const multiPayMock = vi.spyOn(apiModule, 'apiCreateMultiPeriodPayment').mockResolvedValue({
+      payment: {
+        id: 'multi-pay-1',
+        amount: '175000',
+        method: 'TRANSFER',
+        status: 'PENDING',
+        created_at: '2026-10-27T00:00:00Z',
+      } as any,
+      allocations: [
+        { id: 'al-1', payment_id: 'multi-pay-1', bill_id: 'bill-1', amount: '50000.00' },
+        { id: 'al-2', payment_id: 'multi-pay-1', bill_id: 'bill-2', amount: '50000.00' },
+        { id: 'al-3', payment_id: 'multi-pay-1', bill_id: 'bill-3', amount: '75000.00' },
+      ],
+    })
+
+    render(
+      <MemoryRouter>
+        <IuranPayment billId="bill-1" open={true} />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Pembayaran Iuran')).toBeInTheDocument()
+    })
+
+    // Dropdown jumlah bulan harus muncul
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Jumlah Bulan yang Dibayar/i)).toBeInTheDocument()
+    })
+
+    // Saat awal (0 bulan), tombol Bayar disabled dan helper note tampil
+    const bayarBtn = screen.getByRole('button', { name: 'Bayar' })
+    expect(bayarBtn).toBeDisabled()
+    expect(screen.getByText(/Silakan pilih jumlah bulan yang ingin dibayar/i)).toBeInTheDocument()
+
+    // Pilih 3 bulan
+    const monthSelect = screen.getByLabelText(/Jumlah Bulan yang Dibayar/i)
+    fireEvent.change(monthSelect, { target: { value: '3' } })
+
+    // Notice FIFO harus ada
+    expect(
+      screen.getByText(/Pembayaran 3 bulan diproses berurutan sesuai aturan FIFO/i)
+    ).toBeInTheDocument()
+
+    // Nominal terhitung otomatis = 50.000 + 50.000 + 75.000 = 175.000
+    const amountInput = screen.getByLabelText(/Nominal Pembayaran/i)
+    expect(amountInput).toHaveValue('175.000')
+
+    // Teks alokasi menampilkan 3 bulan
+    expect(screen.getByText(/Rincian Tagihan yang Dibayar \(3 Bulan\)/i)).toBeInTheDocument()
+    expect(screen.getByDisplayValue(/2026-10 s\/d 2026-12/i)).toBeInTheDocument()
+
+    // Tombol Bayar sekarang enabled
+    expect(bayarBtn).not.toBeDisabled()
+
+    // Pilih Transfer
+    const transferBtn = screen.getByRole('button', { name: 'Transfer' })
+    fireEvent.click(transferBtn)
+
+    // Klik Bayar
+    fireEvent.click(bayarBtn)
+
+    await waitFor(() => {
+      expect(multiPayMock).toHaveBeenCalledTimes(1)
+    })
+
+    expect(multiPayMock).toHaveBeenCalledWith('test-token', expect.objectContaining({
+      bill_ids: ['bill-1', 'bill-2', 'bill-3'],
+      amount: '175000',
+      method: 'TRANSFER',
+      allocations: [
+        { bill_id: 'bill-1', amount: '50000' },
+        { bill_id: 'bill-2', amount: '50000' },
+        { bill_id: 'bill-3', amount: '75000' },
+      ],
+    }))
+  })
+
+  it('12. Sukarela tidak menampilkan pilihan multi-bulan dan tetap input nominal bebas', async () => {
+    vi.spyOn(apiModule, 'apiGetBill').mockResolvedValue({
+      ...mockBillResponse,
+      due_name: 'Sumbangan Kebersihan',
+      due_type: 'voluntary',
+      amount: '0',
+      is_voluntary: true,
+    } as any)
+    vi.spyOn(apiModule, 'apiListPayments').mockResolvedValue(mockPaymentsResponse as any)
+
+    render(
+      <MemoryRouter>
+        <IuranPayment billId="bill-vol-1" open={true} />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Pembayaran Iuran')).toBeInTheDocument()
+    })
+
+    // Tidak ada dropdown jumlah bulan
+    expect(screen.queryByLabelText(/Jumlah Bulan/i)).not.toBeInTheDocument()
+    // Sisa Tagihan bertuliskan Sukarela
+    expect(screen.getByDisplayValue('Sukarela')).toBeInTheDocument()
+  })
+
+  it('13. Multi-Bulan dengan 0 tagihan tersisa menampilkan pesan informatif dan disable submit', async () => {
+    vi.spyOn(apiModule, 'apiGetBill').mockResolvedValue({
+      ...mockBillResponse,
+      id: 'bill-paid-1',
+      due_type: 'multi_month',
+      period: '2026-10',
+      amount: '50000',
+      status: 'paid',
+    } as any)
+    vi.spyOn(apiModule, 'apiListPayments').mockResolvedValue(mockPaymentsResponse as any)
+    vi.spyOn(apiModule, 'apiListBills').mockResolvedValue({
+      data: [],
+      pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 },
+    } as any)
+
+    render(
+      <MemoryRouter>
+        <IuranPayment billId="bill-paid-1" open={true} />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Pembayaran Iuran')).toBeInTheDocument()
+    })
+
+    // Pesan empty state tampil
+    expect(screen.getByText(/Semua tagihan untuk iuran ini telah lunas/i)).toBeInTheDocument()
+    const bayarBtn = screen.getByRole('button', { name: 'Bayar' })
+    expect(bayarBtn).toBeDisabled()
+  })
 })

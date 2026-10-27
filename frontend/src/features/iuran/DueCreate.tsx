@@ -13,11 +13,9 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { PlusOutlined } from '@ant-design/icons'
 import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
-import { DUE_PERIOD_TYPE_OPTIONS, type DuePeriodType, PAYMENT_RULE_OPTIONS, type PaymentRuleType } from './iuranTypes'
+import { DUE_PERIOD_TYPE_OPTIONS, type DuePeriodType, type DueType, formatRupiah, PAYMENT_RULE_OPTIONS, type PaymentRuleType } from './iuranTypes'
 
 /* ── Form shape ─────────────────────────────────────────────────────── */
-
-type DueType = 'regular' | 'voluntary'
 
 interface DueFormState {
   name: string
@@ -25,8 +23,11 @@ interface DueFormState {
   period_type: DuePeriodType
   payment_rule: PaymentRuleType
   due_type: DueType
+  year: number
   valid_until: string
 }
+
+const currentYear = new Date().getFullYear()
 
 const emptyForm: DueFormState = {
   name: '',
@@ -34,6 +35,7 @@ const emptyForm: DueFormState = {
   period_type: 'monthly',
   payment_rule: 'full',
   due_type: 'regular',
+  year: currentYear,
   valid_until: '',
 }
 
@@ -126,6 +128,22 @@ function DueTypeBadge({
       >
         Sukarela
       </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected === 'multi_month'}
+        tabIndex={selected === 'multi_month' ? 0 : -1}
+        onClick={() => onSelect('multi_month')}
+        onKeyDown={(e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault()
+            onSelect('multi_month')
+          }
+        }}
+        style={style('multi_month')}
+      >
+        Multi-Bulan
+      </button>
     </div>
   )
 }
@@ -166,28 +184,66 @@ function DueFormFields({
           type="text"
           value={form.name}
           onChange={(e) => onChange('name', e.target.value)}
-          placeholder="Contoh: Iuran Keamanan Bulanan"
+          placeholder={form.due_type === 'multi_month' ? "Contoh: Iuran Kebersihan 2027" : "Contoh: Iuran Keamanan Bulanan"}
           required
           disabled={disabled}
           autoFocus
         />
       </div>
 
+      {/* Tahun Tagihan — Multi-Bulan only */}
+      {form.due_type === 'multi_month' && (
+        <div className="sf-form-field">
+          <label className="sf-form-label" htmlFor="df-year">
+            Tahun Tagihan Kalender <span style={{ color: 'var(--sf-danger)' }}>*</span>
+          </label>
+          <select
+            id="df-year"
+            className="sf-form-select"
+            value={form.year}
+            onChange={(e) => onChange('year', e.target.value)}
+            disabled={disabled}
+          >
+            {[currentYear - 1, currentYear, currentYear + 1, currentYear + 2].map((y) => (
+              <option key={y} value={y}>
+                Tahun {y} (Januari - Desember {y})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Informasi Multi-Bulan */}
+      {form.due_type === 'multi_month' && (
+        <div style={{
+          padding: '10px 14px',
+          background: 'var(--sf-info-soft, rgba(37,99,235,0.08))',
+          border: '1px solid var(--sf-info, #2563eb)',
+          borderRadius: 'var(--sf-radius-sm, 6px)',
+          fontSize: '12px',
+          color: 'var(--sf-text)',
+          marginBottom: '12px',
+        }}>
+          Sistem akan otomatis menerbitkan 12 tagihan bulanan (Januari s/d Desember {form.year}) untuk seluruh warga yang memenuhi syarat.
+        </div>
+      )}
+
       {/* Nominal */}
       <div className="sf-form-field">
         <label className="sf-form-label" htmlFor="df-amount">
-          Nominal {form.due_type === 'voluntary' ? '' : <span style={{ color: 'var(--sf-danger)' }}>*</span>}
+          {form.due_type === 'multi_month' ? 'Nominal per Bulan' : 'Nominal'} {form.due_type === 'voluntary' ? '' : <span style={{ color: 'var(--sf-danger)' }}>*</span>}
         </label>
         <input
           id="df-amount"
           className="sf-form-input"
-          type="number"
-          value={form.amount}
-          onChange={(e) => onChange('amount', e.target.value)}
+          type="text"
+          value={form.due_type === 'voluntary' ? 'Rp0' : (form.amount ? formatRupiah(Number(form.amount)) : 'Rp0')}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/\D/g, '')
+            onChange('amount', raw)
+          }}
           placeholder={form.due_type === 'voluntary' ? 'Contoh: 0 untuk sumbangan sukarela' : 'Contoh: 50000'}
           required={form.due_type !== 'voluntary'}
-          min={form.due_type === 'voluntary' ? '0' : '1'}
-          inputMode="numeric"
           disabled={disabled}
         />
       </div>
@@ -231,25 +287,27 @@ function DueFormFields({
         </div>
       )}
 
-      {/* Frekuensi */}
-      <div className="sf-form-field">
-        <label className="sf-form-label" htmlFor="df-period">
-          Frekuensi <span style={{ color: 'var(--sf-danger)' }}>*</span>
-        </label>
-        <select
-          id="df-period"
-          className="sf-form-select"
-          value={form.period_type}
-          onChange={(e) => onChange('period_type', e.target.value)}
-          disabled={disabled}
-        >
-          {DUE_PERIOD_TYPE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Frekuensi — only for regular & voluntary */}
+      {form.due_type !== 'multi_month' && (
+        <div className="sf-form-field">
+          <label className="sf-form-label" htmlFor="df-period">
+            Frekuensi <span style={{ color: 'var(--sf-danger)' }}>*</span>
+          </label>
+          <select
+            id="df-period"
+            className="sf-form-select"
+            value={form.period_type}
+            onChange={(e) => onChange('period_type', e.target.value)}
+            disabled={disabled}
+          >
+            {DUE_PERIOD_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Rule Pembayaran — only for reguler */}
       {form.due_type === 'regular' && (
@@ -338,9 +396,14 @@ export function DueCreate({
       }
     }
 
-    if (!form.period_type) errs.push('Frekuensi harus dipilih.')
-    if (!period || !/^\d{4}(-\d{2})?$/.test(period)) errs.push('Periode harus YYYY-MM atau YYYY.')
-    if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) errs.push('Tanggal jatuh tempo harus YYYY-MM-DD.')
+    if (form.due_type !== 'multi_month') {
+      if (!form.period_type) errs.push('Frekuensi harus dipilih.')
+      if (!period || !/^\d{4}(-\d{2})?$/.test(period)) errs.push('Periode harus YYYY-MM atau YYYY.')
+      if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) errs.push('Tanggal jatuh tempo harus YYYY-MM-DD.')
+    } else {
+      if (!form.year || form.year < 2000 || form.year > 2100) errs.push('Tahun tagihan harus antara 2000 dan 2100.')
+    }
+
     if (form.due_type === 'voluntary' && form.valid_until && !/^\d{4}-\d{2}-\d{2}$/.test(form.valid_until)) {
       errs.push('Tanggal berlaku harus YYYY-MM-DD.')
     }
@@ -362,19 +425,24 @@ export function DueCreate({
         return
       }
 
+      const effectivePeriod = form.due_type === 'multi_month' ? String(form.year) : period
+      const effectiveDueDate = dueDate || (form.due_type === 'multi_month' ? `${form.year}-01-10` : '')
+
       const body: ApiCreateDueBody = {
         name: form.name.trim(),
         amount: form.due_type === 'voluntary' ? '0' : (form.amount || '0'),
-        period_type: form.period_type,
+        period_type: form.due_type === 'multi_month' ? 'monthly' : form.period_type,
         payment_rule: form.due_type === 'voluntary' ? 'partial' : form.payment_rule,
         is_voluntary: form.due_type === 'voluntary',
+        due_type: form.due_type,
+        ...(form.due_type === 'multi_month' ? { year: form.year, due_date: effectiveDueDate } : {}),
         ...(form.due_type === 'voluntary' && form.valid_until
           ? { valid_until: form.valid_until }
           : {}),
       }
 
       const due = await apiCreateDue(pair.accessToken, body)
-      await apiGenerateBills(pair.accessToken, { due_id: due.id, period, due_date: dueDate }, crypto.randomUUID())
+      await apiGenerateBills(pair.accessToken, { due_id: due.id, period: effectivePeriod, due_date: effectiveDueDate }, crypto.randomUUID())
       handleSave()
       handleClose()
     } catch (err) {

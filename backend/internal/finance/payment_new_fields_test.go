@@ -125,7 +125,7 @@ func TestPaymentNewFieldsOfficerNotesApprove(t *testing.T) {
 	// Approve with officer_notes
 	{
 		officerNotes := "Pembayaran sesuai"
-		body := fmt.Sprintf(`{"action":"approve","officer_notes":"%s"}`, officerNotes)
+		body := fmt.Sprintf(`{"action":"approve","actual_received_date":"2026-10-20","officer_notes":"%s"}`, officerNotes)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -493,7 +493,7 @@ func TestPaymentNewFieldsVerifiedByName(t *testing.T) {
 
 	// Approve — verified_by_name should be bendahara's full_name
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -608,7 +608,7 @@ func TestPaymentNewFieldsPaymentNoNew(t *testing.T) {
 
 	// Approve — payment_no should now be set
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -726,7 +726,7 @@ func TestPaymentNewFieldsPaymentNoStable(t *testing.T) {
 
 	// Verify (approve)
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")

@@ -388,7 +388,7 @@ func TestVoluntaryDuesZeroAmount(t *testing.T) {
 		json.Unmarshal(recPay.Body.Bytes(), &p1)
 
 		// 2. Approve voluntary payment as Bendahara
-		bodyVerify := `{"action":"approve"}`
+		bodyVerify := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		reqVerify := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+p1.ID+"/verify", bytes.NewBufferString(bodyVerify))
 		reqVerify.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		reqVerify.Header.Set("Content-Type", "application/json")

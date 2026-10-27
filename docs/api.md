@@ -118,9 +118,10 @@ Access tokens include:
 ### 4.2 Token Lifecycle
 
 - **Access tokens**: 15-minute lifetime, stateless JWT, HS256 or RS256.
-- **Refresh tokens**: Opaque random strings (32 bytes, URL-safe base64), 7-day lifetime.
+- **Refresh tokens**: Opaque random strings (32 bytes, URL-safe base64), 90-day lifetime.
 - **Rotation**: Each refresh generates new access + refresh tokens; old refresh token revoked.
 - **Revocation**: Logout or password change invalidates the refresh token.
+- **Device binding**: Each refresh token is associated with a `device_id` from the client. Login and refresh requests should include `device_id` in the request body for session tracking.
 
 ---
 

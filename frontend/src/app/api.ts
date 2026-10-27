@@ -937,8 +937,11 @@ export interface ApiDue {
   period_type: 'monthly' | 'yearly' | 'one_time'
   payment_rule?: 'full' | 'partial'
   is_voluntary?: boolean
+  due_type?: 'regular' | 'voluntary' | 'multi_month'
+  year?: number | null
   is_active: boolean
   valid_until?: string | null
+  periods?: string[]
   created_at: string
   updated_at: string
 }
@@ -949,6 +952,9 @@ export interface ApiCreateDueBody {
   period_type: 'monthly' | 'yearly' | 'one_time'
   payment_rule?: 'full' | 'partial'
   is_voluntary?: boolean
+  due_type?: 'regular' | 'voluntary' | 'multi_month'
+  year?: number
+  due_date?: string
   valid_until?: string
 }
 
@@ -1076,6 +1082,8 @@ export interface ApiBill {
   updated_at: string
   due_name?: string | null
   due_is_active?: boolean | null
+  due_type?: 'regular' | 'voluntary' | 'multi_month' | null
+  due_year?: number | null
   house_number?: string | null
   head_name?: string | null
   is_voluntary?: boolean
@@ -1108,6 +1116,7 @@ export interface ApiPayment {
   officer_notes?: string | null
   verified_by_name?: string | null
   payment_no?: string | null
+  actual_received_date?: string | null
   created_at: string
   updated_at: string
 }
@@ -1268,6 +1277,92 @@ export async function apiCreatePayment(
   return data as ApiPayment
 }
 
+export interface ApiPaymentAllocation {
+  id: string
+  payment_id: string
+  bill_id: string
+  amount: string
+  created_at?: string
+}
+
+export interface ApiMultiPeriodPaymentResult {
+  payment: ApiPayment
+  allocations: ApiPaymentAllocation[]
+}
+
+export interface ApiCreateMultiPeriodPaymentBody {
+  bill_ids: string[]
+  allocations: { bill_id: string; amount: string }[]
+  amount?: string
+  method: 'CASH' | 'TRANSFER'
+  notes?: string
+  proof_path?: string
+  file?: File
+}
+
+export async function apiCreateMultiPeriodPayment(
+  token: string,
+  body: ApiCreateMultiPeriodPaymentBody,
+  idempotencyKey: string = crypto.randomUUID(),
+): Promise<ApiMultiPeriodPaymentResult> {
+  if (!body.bill_ids || body.bill_ids.length === 0) {
+    throw new ApiError('validation_error', 'Pilih minimal satu tagihan untuk pembayaran multi-bulan.')
+  }
+  if (body.bill_ids.length > 12) {
+    throw new ApiError('validation_error', 'Maksimal 12 tagihan dalam satu transaksi pembayaran.')
+  }
+  let res: Response
+  if (body.file) {
+    const formData = new FormData()
+    formData.append('bill_ids', JSON.stringify(body.bill_ids))
+    formData.append('allocations', JSON.stringify(body.allocations))
+    if (body.amount) formData.append('amount', body.amount)
+    formData.append('method', body.method)
+    if (body.notes) formData.append('notes', body.notes)
+    formData.append('file', body.file)
+
+    res = await authenticatedApiRequest(BASE + '/payments/multi-period', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: formData,
+      ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    })
+  } else {
+    res = await authenticatedApiRequest(BASE + '/payments/multi-period', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify({
+        bill_ids: body.bill_ids,
+        allocations: body.allocations,
+        amount: body.amount,
+        method: body.method,
+        notes: body.notes,
+        proof_path: body.proof_path,
+      }),
+      ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    })
+  }
+
+  const data = await json<unknown>(res)
+  if (!res.ok || !data || typeof data !== 'object' || !('payment' in data)) {
+    const bodyErr = data && typeof data === 'object' && 'error' in data
+      ? (data as { error?: ApiError }).error
+      : undefined
+    if (res.status >= 400 && bodyErr?.code) {
+      throw new ApiError(bodyErr.code, bodyErr.message)
+    }
+    throw new ApiError('unexpected', 'Unexpected response')
+  }
+  return data as ApiMultiPeriodPaymentResult
+}
+
 export async function apiUploadPaymentProof(
   token: string,
   paymentId: string,
@@ -1325,7 +1420,7 @@ export async function apiVerifyPayment(
   token: string,
   paymentId: string,
   action: 'approve' | 'reject',
-  options?: { rejectionReason?: string; officerNotes?: string; locationId?: string },
+  options?: { rejectionReason?: string; officerNotes?: string; locationId?: string; actualReceivedDate?: string },
 ): Promise<ApiPayment> {
   const res = await authenticatedApiRequest(BASE + '/payments/' + paymentId + '/verify', {
     method: 'POST',
@@ -1335,6 +1430,7 @@ export async function apiVerifyPayment(
     },
     body: JSON.stringify({
       action,
+      ...(options?.actualReceivedDate ? { actual_received_date: options.actualReceivedDate } : {}),
       ...(options?.rejectionReason ? { rejection_reason: options.rejectionReason } : {}),
       ...(options?.officerNotes ? { officer_notes: options.officerNotes } : {}),
       ...(options?.locationId ? { location_id: options.locationId } : {}),

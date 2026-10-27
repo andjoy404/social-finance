@@ -189,6 +189,12 @@ class KasRepository {
                   : bt.paymentId)
             : (bt.reversesTransactionId != null ? 'Reversal' : null));
 
+    // If this is a reversal, replace description with the original transaction's reference number
+    String description = bt.description;
+    if (bt.reversesTransactionId != null && bt.reversesTransactionId!.isNotEmpty) {
+      description = 'Reversal: ${ref}';
+    }
+
     return KasTransaction(
       id: bt.id,
       tanggal: bt.occurredAt != null
@@ -196,7 +202,7 @@ class KasRepository {
           : DateTime.now(),
       jenis: jenis,
       kategori: kategori,
-      keterangan: bt.description,
+      keterangan: description,
       referensi: ref,
       dueName: bt.dueName,
       citizenName: bt.citizenName,
@@ -206,6 +212,7 @@ class KasRepository {
       createdAt: bt.createdAt != null ? DateTime.tryParse(bt.createdAt!) : null,
       nominal: bt.amount,
       saldo: '0', // Balance is computed server-side, not per-transaction
+      reversesTransactionId: bt.reversesTransactionId,
     );
   }
 

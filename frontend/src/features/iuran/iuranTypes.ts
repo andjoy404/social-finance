@@ -39,6 +39,7 @@ export interface IuranPaymentRecord {
   verifiedByName?: string
   officerNotes?: string
   paymentNo?: string
+  actualReceivedDate?: string
   status?: PaymentStatusDisplay
   method?: 'CASH' | 'TRANSFER'
   submitterName?: string
@@ -66,7 +67,11 @@ export interface IuranBill {
   isVoluntary?: boolean
   dueId?: string
   dueIsActive?: boolean
+  dueType?: DueType
+  year?: number
 }
+
+export type DueType = 'regular' | 'voluntary' | 'multi_month'
 
 export type IuranType = 'Keamanan' | 'Kebersihan' | 'Pembangunan'
 

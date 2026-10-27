@@ -1209,7 +1209,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Detail Pembayaran',
+                      'Verifikasi Pembayaran',
                       style: dialogTheme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),

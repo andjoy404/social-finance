@@ -67,6 +67,13 @@ const (
 	DuePeriodOneTime DuePeriodType = "one_time"
 )
 
+// DueType constants
+const (
+	DueTypeRegular    = "regular"
+	DueTypeVoluntary  = "voluntary"
+	DueTypeMultiMonth = "multi_month"
+)
+
 // PaymentRule represents how payment amounts are handled for a due type.
 type PaymentRule string
 
@@ -85,6 +92,8 @@ type Due struct {
 	PeriodType  DuePeriodType `json:"period_type"`
 	PaymentRule PaymentRule   `json:"payment_rule"`
 	IsVoluntary bool          `json:"is_voluntary"`
+	DueType     string        `json:"due_type"`
+	Year        *int          `json:"year,omitempty"`
 	IsActive    bool          `json:"is_active"`
 	ValidUntil  *string       `json:"valid_until"`
 	Periods     []string      `json:"periods"` // Distinct bill periods for this due
@@ -98,6 +107,9 @@ type CreateDueInput struct {
 	PeriodType  DuePeriodType `json:"period_type"`
 	PaymentRule PaymentRule   `json:"payment_rule"` // defaults to "full"
 	IsVoluntary bool          `json:"is_voluntary"`
+	DueType     string        `json:"due_type,omitempty"`
+	Year        *int          `json:"year,omitempty"`
+	DueDate     string        `json:"due_date,omitempty"` // For initial bill generation if multi_month
 	ValidUntil  *string       `json:"valid_until,omitempty"`
 }
 
@@ -107,6 +119,8 @@ type UpdateDueInput struct {
 	PeriodType  *DuePeriodType `json:"period_type"`
 	PaymentRule *PaymentRule   `json:"payment_rule,omitempty"`
 	IsVoluntary *bool          `json:"is_voluntary,omitempty"`
+	DueType     *string        `json:"due_type,omitempty"`
+	Year        *int           `json:"year,omitempty"`
 	IsActive    *bool          `json:"is_active"`
 	ValidUntil  *string        `json:"valid_until,omitempty"`
 }
@@ -138,6 +152,8 @@ type Bill struct {
 	// Enriched fields from JOIN queries
 	DueName       *string `json:"due_name,omitempty"`
 	DueIsActive   *bool   `json:"due_is_active,omitempty"`
+	DueType       *string `json:"due_type,omitempty"`
+	DueYear       *int    `json:"due_year,omitempty"`
 	HouseNumber   *string `json:"house_number,omitempty"`
 	HeadName      *string `json:"head_name,omitempty"`
 	IsVoluntary   bool    `json:"is_voluntary"`
@@ -463,6 +479,31 @@ func (d *CreateDueInput) Validate() error {
 	if d.Name == "" {
 		return errors.New("dues name is required")
 	}
+	d.DueType = strings.TrimSpace(d.DueType)
+	if d.DueType == "" {
+		if d.IsVoluntary {
+			d.DueType = DueTypeVoluntary
+		} else {
+			d.DueType = DueTypeRegular
+		}
+	}
+	if d.DueType != DueTypeRegular && d.DueType != DueTypeVoluntary && d.DueType != DueTypeMultiMonth {
+		return errors.New("invalid due_type: must be regular, voluntary, or multi_month")
+	}
+	if d.DueType == DueTypeVoluntary {
+		d.IsVoluntary = true
+	} else if d.DueType == DueTypeMultiMonth {
+		d.IsVoluntary = false
+		if d.PeriodType == "" {
+			d.PeriodType = DuePeriodMonthly
+		}
+		if d.Year == nil || *d.Year < 2000 || *d.Year > 2100 {
+			return errors.New("year is required and must be between 2000 and 2100 for multi_month due")
+		}
+	} else {
+		d.IsVoluntary = false
+	}
+
 	cents, canon, err := ParseMoney(d.Amount)
 	if err != nil {
 		return ErrInvalidAmount

@@ -12,22 +12,28 @@ import (
 // Service implements login, token refresh, logout, and profile lookup.
 type Service struct {
 	refreshLifetime time.Duration
+	deviceIDHeader  string
 }
 
 // ServiceOptions configures the Service.
 type ServiceOptions struct {
 	RefreshLifetime time.Duration
+	DeviceIDHeader  string
 }
 
 // NewService creates an auth service with the given options.
 func NewService(opts ...ServiceOptions) *Service {
-	lifetime := 7 * 24 * time.Hour // default 7 days
+	lifetime := 90 * 24 * time.Hour // default 90 days
+	var deviceIDHeader string
 	for _, o := range opts {
 		if o.RefreshLifetime > 0 {
 			lifetime = o.RefreshLifetime
 		}
+		if o.DeviceIDHeader != "" {
+			deviceIDHeader = o.DeviceIDHeader
+		}
 	}
-	return &Service{refreshLifetime: lifetime}
+	return &Service{refreshLifetime: lifetime, deviceIDHeader: deviceIDHeader}
 }
 
 // LoginResult holds the tokens and user info returned after successful login.
@@ -35,6 +41,7 @@ type LoginResult struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
 	ExpiresIn    int       `json:"expires_in"`
+	DeviceID     string    `json:"device_id,omitempty"`
 	User         *UserInfo `json:"user"`
 }
 
@@ -71,7 +78,7 @@ type RTInfo struct {
 // For users with multiple active memberships:
 //
 //	ErrMultipleMemberships is returned.
-func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword string) (*LoginResult, error) {
+func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword, deviceID string) (*LoginResult, error) {
 	// Step 1 -- find user by identifier (email or phone).
 	user, err := UsersFindByIdentifier(ctx, tx, identifier)
 	if err != nil {
@@ -146,7 +153,7 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 		refreshHash := refreshToken
 		expiresAt := time.Now().Add(s.refreshLifetime)
 
-		if err := CreateRefreshToken(ctx, tx, user.ID, &m.ID, refreshHash, expiresAt); err != nil {
+		if err := CreateRefreshToken(ctx, tx, user.ID, &m.ID, refreshHash, expiresAt, deviceID); err != nil {
 			return nil, fmt.Errorf("create refresh token: %w", err)
 		}
 
@@ -186,7 +193,7 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 	refreshHash := refreshToken
 	expiresAt := time.Now().Add(s.refreshLifetime)
 
-	if err := CreateRefreshToken(ctx, tx, user.ID, nil, refreshHash, expiresAt); err != nil {
+	if err := CreateRefreshToken(ctx, tx, user.ID, nil, refreshHash, expiresAt, deviceID); err != nil {
 		return nil, fmt.Errorf("create refresh token: %w", err)
 	}
 
@@ -207,9 +214,9 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 // RefreshRotates a refresh token: verifies it, revokes the old token,
 // creates a new access token + refresh token, and returns both.
 // The old token is immediately invalid (rotation).
-func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*LoginResult, error) {
+func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID string) (*LoginResult, error) {
 	hash := rawToken // raw token is looked up by its stored hash (caller hashes before passing)
-	userID, membershipIDPtr, expiresAt, revoked, err := FindRefreshTokenByHash(ctx, tx, hash)
+	userID, membershipIDPtr, expiresAt, revoked, _, err := FindRefreshTokenByHash(ctx, tx, hash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrInvalidRefreshToken
@@ -257,7 +264,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 		// Update replaced_by pointer on the old token (best-effort).
 		tx.ExecContext(ctx, `UPDATE refresh_tokens SET replaced_by_hash = $1 WHERE token_hash = $2`, newHash, hash)
 
-		if err := CreateRefreshToken(ctx, tx, userID, nil, newHash, newExpires); err != nil {
+		if err := CreateRefreshToken(ctx, tx, userID, nil, newHash, newExpires, deviceID); err != nil {
 			return nil, fmt.Errorf("create new refresh token: %w", err)
 		}
 
@@ -265,6 +272,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 			AccessToken:  accessToken,
 			RefreshToken: newToken,
 			ExpiresIn:    int(DefaultAccessTokenLifetime.Seconds()),
+			DeviceID:     deviceID,
 			User: &UserInfo{
 				ID:         userID,
 				Name:       user.Fullname,
@@ -322,7 +330,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 		newHash, hash,
 	)
 
-	if err := CreateRefreshToken(ctx, tx, m.UserID, &m.ID, newHash, newExpires); err != nil {
+	if err := CreateRefreshToken(ctx, tx, m.UserID, &m.ID, newHash, newExpires, deviceID); err != nil {
 		return nil, fmt.Errorf("create new refresh token: %w", err)
 	}
 
@@ -336,6 +344,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken string) (*Lo
 		AccessToken:  accessToken,
 		RefreshToken: newToken,
 		ExpiresIn:    int(DefaultAccessTokenLifetime.Seconds()),
+		DeviceID:     deviceID,
 		User: &UserInfo{
 			ID:         m.UserID,
 			Name:       "",

@@ -124,6 +124,7 @@ class LoginResponse {
   final String refreshToken;
   final String tokenType;
   final int expiresIn;
+  final String? deviceId;
   final AuthUser user;
 
   const LoginResponse({
@@ -131,6 +132,7 @@ class LoginResponse {
     required this.refreshToken,
     required this.tokenType,
     required this.expiresIn,
+    this.deviceId,
     required this.user,
   });
 
@@ -156,6 +158,7 @@ class LoginResponse {
       refreshToken: json['refresh_token'] as String? ?? '',
       tokenType: json['token_type'] as String? ?? 'Bearer',
       expiresIn: (json['expires_in'] as num?)?.toInt() ?? 0,
+      deviceId: json['device_id'] as String?,
       user: AuthUser.fromJson(userMap),
     );
   }
@@ -165,6 +168,7 @@ class LoginResponse {
     'refresh_token': refreshToken,
     'token_type': tokenType,
     'expires_in': expiresIn,
+    if (deviceId != null) 'device_id': deviceId,
     'user': user.toJson(),
   };
 }

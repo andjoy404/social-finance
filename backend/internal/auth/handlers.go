@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ type LoginRequest struct {
 	Phone      string `json:"phone,omitempty"`
 	Identifier string `json:"identifier,omitempty"`
 	Password   string `json:"password"`
+	DeviceID   string `json:"device_id,omitempty"`
 }
 
 // LoginResponse is the body of a login 200 response.
@@ -29,12 +31,14 @@ type LoginResponse struct {
 	RefreshToken string   `json:"refresh_token"`
 	TokenType    string   `json:"token_type"`
 	ExpiresIn    int      `json:"expires_in"`
+	DeviceID     string   `json:"device_id,omitempty"`
 	User         UserInfo `json:"user"`
 }
 
 // refreshRequest is the body of a refresh POST request.
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
+	DeviceID   string `json:"device_id,omitempty"`
 }
 
 // logoutRequest is the body of a logout POST request.
@@ -136,8 +140,9 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	result, err := h.svc.Login(ctx, tx, identifier, req.Password)
+	result, err := h.svc.Login(ctx, tx, identifier, req.Password, req.DeviceID)
 	if err != nil {
+		slog.Error("login failed", "error", err, "identifier", identifier, "has_password", req.Password != "")
 		switch err {
 		case ErrInvalidPassword, ErrUserNotFound:
 			httpx.ErrorJSON(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
@@ -187,7 +192,7 @@ func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	result, err := h.svc.Refresh(ctx, tx, req.RefreshToken)
+	result, err := h.svc.Refresh(ctx, tx, req.RefreshToken, req.DeviceID)
 	if err != nil {
 		switch err {
 		case ErrInvalidRefreshToken:

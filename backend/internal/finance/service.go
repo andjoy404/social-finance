@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -215,6 +216,18 @@ func (s *Service) CreateDue(ctx context.Context, tx *sql.Tx, rtID, userID string
 	if err != nil {
 		return nil, err
 	}
+
+	if due.DueType == DueTypeMultiMonth && in.Year != nil {
+		dueDate := in.DueDate
+		if dueDate == "" {
+			dueDate = fmt.Sprintf("%04d-01-10", *in.Year)
+		}
+		_, err = s.generateMultiMonthBills(ctx, tx, rtID, userID, due, *in.Year, dueDate)
+		if err != nil {
+			return nil, fmt.Errorf("generate multi-month bills: %w", err)
+		}
+	}
+
 	auditPayload, _ := json.Marshal(due)
 	_ = AuditLogInsert(ctx, tx, AuditLog{
 		RTID:       rtID,
@@ -311,6 +324,68 @@ func (s *Service) DeactivateDue(ctx context.Context, tx *sql.Tx, id, rtID, userI
 
 // --- Bills ---
 
+func (s *Service) generateMultiMonthBills(ctx context.Context, tx *sql.Tx, rtID, userID string, due *Due, year int, dueDateStr string) ([]*Bill, error) {
+	targetDay := 10
+	if parsedDueDate, err := time.Parse("2006-01-02", dueDateStr); err == nil {
+		targetDay = parsedDueDate.Day()
+	}
+
+	occupancies, err := GetActiveOccupanciesWithDates(ctx, tx, rtID)
+	if err != nil {
+		return nil, err
+	}
+
+	var generated []*Bill
+	for m := 1; m <= 12; m++ {
+		period := fmt.Sprintf("%04d-%02d", year, m)
+		lastDay := time.Date(year, time.Month(m+1), 0, 0, 0, 0, 0, time.UTC).Day()
+		day := targetDay
+		if day > lastDay {
+			day = lastDay
+		}
+		monthDueDate := fmt.Sprintf("%04d-%02d-%02d", year, m, day)
+		periodStart := period + "-01"
+		periodEnd := fmt.Sprintf("%s-%02d", period, lastDay)
+
+		for _, occ := range occupancies {
+			if occ.StartDate != nil && *occ.StartDate > periodEnd {
+				continue
+			}
+			if occ.EndDate != nil && *occ.EndDate < periodStart {
+				continue
+			}
+
+			createInput := CreateBillInput{
+				HouseholdOccupancyID: occ.ID,
+				DueID:                due.ID,
+				Amount:               due.Amount,
+				Period:               period,
+				DueDate:              monthDueDate,
+			}
+			bill, err := BillCreate(ctx, tx, rtID, createInput)
+			if err != nil {
+				return nil, err
+			}
+			if bill == nil {
+				// ON CONFLICT DO NOTHING — already exists
+				continue
+			}
+			generated = append(generated, bill)
+		}
+	}
+
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &userID,
+		Action:     "generate_multi_month_bills",
+		EntityType: "bill",
+		EntityID:   fmt.Sprintf("%d", year),
+		NewValues:  json.RawMessage(fmt.Sprintf(`{"due_id":"%s","year":%d,"count":%d}`, due.ID, year, len(generated))),
+	})
+
+	return generated, nil
+}
+
 func (s *Service) GenerateBills(ctx context.Context, tx *sql.Tx, rtID, userID string, in GenerateBillsInput) ([]*Bill, error) {
 	due, err := DueGetByIDForUpdate(ctx, tx, in.DueID, rtID)
 	if err != nil {
@@ -321,6 +396,26 @@ func (s *Service) GenerateBills(ctx context.Context, tx *sql.Tx, rtID, userID st
 	}
 	if err := ensureVoluntaryDueNotExpired(due, s.clockNow()); err != nil {
 		return nil, fmt.Errorf("cannot generate bills for expired voluntary due: %w", err)
+	}
+
+	if due.DueType == DueTypeMultiMonth {
+		year := 0
+		if due.Year != nil {
+			year = *due.Year
+		}
+		periodTrimmed := strings.TrimSpace(in.Period)
+		if len(periodTrimmed) == 4 {
+			if y, err := strconv.Atoi(periodTrimmed); err == nil && y >= 2000 {
+				year = y
+			}
+		}
+		if year > 0 {
+			dueDate := in.DueDate
+			if strings.TrimSpace(dueDate) == "" {
+				dueDate = fmt.Sprintf("%04d-01-10", year)
+			}
+			return s.generateMultiMonthBills(ctx, tx, rtID, userID, due, year, dueDate)
+		}
 	}
 
 	if strings.TrimSpace(in.Period) == "" {
@@ -414,10 +509,19 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	var status PaymentStatus
 	var verifiedBy *string
 	var verifiedAt *time.Time
+	var actualRecDate *string
+	var occurredAt time.Time
 
 	if userRole == "warga" {
 		origin = PaymentOriginSelfSubmitted
 		status = PaymentStatusPending
+		if in.ActualReceivedDate != nil && strings.TrimSpace(*in.ActualReceivedDate) != "" {
+			_, canon, err := ParseActualReceivedDate(*in.ActualReceivedDate, s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			actualRecDate = &canon
+		}
 	} else {
 		// Staff recorded by pengurus or bendahara -> immediately approved
 		origin = PaymentOriginStaffRecorded
@@ -425,6 +529,25 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		verifiedBy = &userID
 		now := time.Now()
 		verifiedAt = &now
+		if in.ActualReceivedDate != nil && strings.TrimSpace(*in.ActualReceivedDate) != "" {
+			t, canon, err := ParseActualReceivedDate(*in.ActualReceivedDate, s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			occurredAt = t
+			actualRecDate = &canon
+		} else {
+			todayWIB, err := JakartaDate(s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			t, canon, err := ParseActualReceivedDate(todayWIB, s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			occurredAt = t
+			actualRecDate = &canon
+		}
 	}
 	in.SubmittedBy = &userID
 
@@ -456,12 +579,12 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 			}
 		}
 
-		payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
+		payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt, actualRecDate)
 		if err != nil {
 			return nil, fmt.Errorf("create donation: %w", err)
 		}
 		if status == PaymentStatusApproved {
-			if err := postPaymentIncome(ctx, tx, rtID, payment, fmt.Sprintf("Voluntary donation for due %s", due.Name)); err != nil {
+			if err := postPaymentIncome(ctx, tx, rtID, payment, fmt.Sprintf("Voluntary donation for due %s", due.Name), occurredAt); err != nil {
 				return nil, err
 			}
 		}
@@ -560,7 +683,7 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		}
 
 		// Insert payment NOW (validation passed)
-		payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
+		payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt, actualRecDate)
 		if err != nil {
 			return nil, fmt.Errorf("create payment: %w", err)
 		}
@@ -596,7 +719,6 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		if isVoluntary {
 			desc = fmt.Sprintf("Iuran Sukarela: %s - Periode %s%s", due.Name, bill.Period, pNo)
 		}
-		now := time.Now()
 		payMethod := string(payment.Method)
 		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 			CategoryID:    catID,
@@ -604,7 +726,7 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 			Type:          TransactionTypeIncome,
 			Description:   desc,
 			PaymentMethod: &payMethod,
-		}, TransactionStatusPosted, nil, &payment.ID, &userID, now)
+		}, TransactionStatusPosted, nil, &payment.ID, &userID, occurredAt)
 		if err != nil {
 			return nil, fmt.Errorf("post ledger transaction for payment: %w", err)
 		}
@@ -654,7 +776,7 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		}
 	}
 
-	payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt)
+	payment, err := PaymentCreate(ctx, tx, rtID, in, origin, status, verifiedBy, verifiedAt, actualRecDate)
 	if err != nil {
 		return nil, err
 	}
@@ -739,7 +861,7 @@ func validatePaymentLocation(ctx context.Context, tx *sql.Tx, rtID string, payme
 	return nil
 }
 
-func postPaymentIncome(ctx context.Context, tx *sql.Tx, rtID string, payment *Payment, description string, verifierID ...string) error {
+func postPaymentIncome(ctx context.Context, tx *sql.Tx, rtID string, payment *Payment, description string, occurredAt time.Time, verifierID ...string) error {
 	catID, err := FindOrCreateDefaultIncomeCategory(ctx, tx, rtID, "Iuran Warga")
 	if err != nil {
 		return err
@@ -755,7 +877,7 @@ func postPaymentIncome(ctx context.Context, tx *sql.Tx, rtID string, payment *Pa
 	payMethod := string(payment.Method)
 	_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 		CategoryID: catID, Amount: payment.Amount, Type: TransactionTypeIncome, Description: description, PaymentMethod: &payMethod, LocationID: locID,
-	}, TransactionStatusPosted, nil, &payment.ID, createdBy, time.Now())
+	}, TransactionStatusPosted, nil, &payment.ID, createdBy, occurredAt)
 	if err != nil {
 		return fmt.Errorf("post ledger transaction for payment: %w", err)
 	}
@@ -793,12 +915,17 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 			officerNotes = strings.TrimSpace(*in.OfficerNotes)
 		}
 
-		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusRejected, reason, officerNotes)
+		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusRejected, reason, officerNotes, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		if payment.BillID != nil {
+		allocs, errAllocs := PaymentAllocationsByPaymentID(ctx, tx, paymentID)
+		if errAllocs == nil && len(allocs) > 0 {
+			for _, a := range allocs {
+				_ = reconcileBillStatus(ctx, tx, a.BillID, rtID)
+			}
+		} else if payment.BillID != nil {
 			_ = reconcileBillStatus(ctx, tx, *payment.BillID, rtID)
 		}
 
@@ -816,6 +943,14 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 	}
 
 	// action == "approve"
+	if in.ActualReceivedDate == nil || strings.TrimSpace(*in.ActualReceivedDate) == "" {
+		return nil, errors.New("tanggal penerimaan aktual (actual_received_date) wajib diisi untuk persetujuan pembayaran")
+	}
+	occurredAt, canonDate, err := ParseActualReceivedDate(*in.ActualReceivedDate, s.clockNow())
+	if err != nil {
+		return nil, err
+	}
+
 	if err := validatePaymentLocation(ctx, tx, rtID, payment.Method, in.LocationID); err != nil {
 		return nil, err
 	}
@@ -835,7 +970,7 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		if in.OfficerNotes != nil {
 			officerNotes = strings.TrimSpace(*in.OfficerNotes)
 		}
-		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes)
+		verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes, &canonDate)
 		if err != nil {
 			return nil, fmt.Errorf("approve donation: %w", err)
 		}
@@ -843,7 +978,7 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 		if in.LocationID != nil {
 			locArg = strings.TrimSpace(*in.LocationID)
 		}
-		if err := postPaymentIncome(ctx, tx, rtID, verifiedPayment, fmt.Sprintf("Voluntary donation for due %s", due.Name), verifierID, locArg); err != nil {
+		if err := postPaymentIncome(ctx, tx, rtID, verifiedPayment, fmt.Sprintf("Voluntary donation for due %s", due.Name), occurredAt, verifierID, locArg); err != nil {
 			return nil, err
 		}
 		auditPayload, _ := json.Marshal(verifiedPayment)
@@ -862,15 +997,15 @@ func (s *Service) VerifyPayment(ctx context.Context, tx *sql.Tx, rtID, verifierI
 
 	if len(allocs) == 0 {
 		// ── Single-period payment (legacy path) ────────────────────────
-		return s.verifySinglePayment(ctx, tx, paymentID, rtID, verifierID, payment, in)
+		return s.verifySinglePayment(ctx, tx, paymentID, rtID, verifierID, payment, in, canonDate, occurredAt)
 	}
 
 	// ── Multi-period payment approval ────────────────────────────────
-	return s.verifyMultiPeriodPayment(ctx, tx, paymentID, rtID, verifierID, payment, allocs, in)
+	return s.verifyMultiPeriodPayment(ctx, tx, paymentID, rtID, verifierID, payment, allocs, in, canonDate, occurredAt)
 }
 
 // verifySinglePayment handles legacy single-bill payment approval.
-func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID, rtID, verifierID string, payment *Payment, in VerifyPaymentInput) (*VerifyPaymentResult, error) {
+func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID, rtID, verifierID string, payment *Payment, in VerifyPaymentInput, canonDate string, occurredAt time.Time) (*VerifyPaymentResult, error) {
 	if payment.BillID == nil {
 		return nil, errors.New("bill payment has no bill target")
 	}
@@ -926,7 +1061,7 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 			if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
 				officerNotes = strings.TrimSpace(*in.OfficerNotes)
 			}
-			verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusRejected, rejectionReason, officerNotes)
+			verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusRejected, rejectionReason, officerNotes, nil)
 			if err != nil {
 				return nil, fmt.Errorf("reject overpayment: %w", err)
 			}
@@ -953,7 +1088,7 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 	if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
 		officerNotes = strings.TrimSpace(*in.OfficerNotes)
 	}
-	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes)
+	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes, &canonDate)
 	if err != nil {
 		return nil, fmt.Errorf("approve payment: %w", err)
 	}
@@ -989,7 +1124,6 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 	if isVoluntary {
 		desc = fmt.Sprintf("Iuran Sukarela: %s - Periode %s%s", due.Name, bill.Period, pNo)
 	}
-	now := time.Now()
 	payMethod := string(verifiedPayment.Method)
 	var locID *string
 	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
@@ -1003,7 +1137,7 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 		Description:   desc,
 		PaymentMethod: &payMethod,
 		LocationID:    locID,
-	}, TransactionStatusPosted, nil, &verifiedPayment.ID, &verifierID, now)
+	}, TransactionStatusPosted, nil, &verifiedPayment.ID, &verifierID, occurredAt)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for approved payment: %w", err)
 	}
@@ -1023,7 +1157,7 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 
 // verifyMultiPeriodPayment handles approval for payments spanning multiple bills.
 // All bills are validated before any state changes; ONE KAS transaction is posted.
-func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paymentID, rtID, verifierID string, payment *Payment, allocs []*PaymentAllocation, in VerifyPaymentInput) (*VerifyPaymentResult, error) {
+func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paymentID, rtID, verifierID string, payment *Payment, allocs []*PaymentAllocation, in VerifyPaymentInput, canonDate string, occurredAt time.Time) (*VerifyPaymentResult, error) {
 	// Step 1: Lock and cache bill info for all allocated bills.
 	// Sort bill IDs deterministically to prevent deadlocks when multiple
 	// concurrent transactions try to lock overlapping sets of bills.
@@ -1095,7 +1229,7 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 	if in.OfficerNotes != nil && strings.TrimSpace(*in.OfficerNotes) != "" {
 		officerNotes = strings.TrimSpace(*in.OfficerNotes)
 	}
-	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes)
+	verifiedPayment, err := PaymentVerify(ctx, tx, paymentID, rtID, verifierID, PaymentStatusApproved, "", officerNotes, &canonDate)
 	if err != nil {
 		return nil, fmt.Errorf("approve payment: %w", err)
 	}
@@ -1134,7 +1268,6 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 		mPNo = " (" + *verifiedPayment.PaymentNo + ")"
 	}
 	desc := fmt.Sprintf("Pembayaran Multi-Periode (%s)%s", strings.Join(periods, ", "), mPNo)
-	now := time.Now()
 	mPayMethod := string(verifiedPayment.Method)
 	var locID *string
 	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
@@ -1148,7 +1281,7 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 		Description:   desc,
 		PaymentMethod: &mPayMethod,
 		LocationID:    locID,
-	}, TransactionStatusPosted, nil, &payment.ID, &verifierID, now)
+	}, TransactionStatusPosted, nil, &payment.ID, &verifierID, occurredAt)
 	if err != nil {
 		return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
 	}
@@ -1435,6 +1568,9 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 	if len(in.BillIDs) == 0 {
 		return nil, errors.New("at least one bill must be selected")
 	}
+	if len(in.BillIDs) > 12 {
+		return nil, errors.New("maximum 12 bills allowed per multi-period payment")
+	}
 	if len(in.Allocations) == 0 {
 		return nil, errors.New("at least one allocation must be specified")
 	}
@@ -1442,7 +1578,16 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		return nil, errors.New("allocations count must match bill IDs count")
 	}
 
-	// Build allocation lookup
+	// Check for duplicate BillIDs
+	seenBillIDs := make(map[string]struct{})
+	for _, id := range in.BillIDs {
+		if _, exists := seenBillIDs[id]; exists {
+			return nil, fmt.Errorf("duplicate bill_id in bill_ids: %s", id)
+		}
+		seenBillIDs[id] = struct{}{}
+	}
+
+	// Check for duplicate BillIDs in allocations and build allocation lookup
 	allocMap := make(map[string]string) // billID → amount
 	for _, a := range in.Allocations {
 		if strings.TrimSpace(a.BillID) == "" {
@@ -1451,7 +1596,26 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		if strings.TrimSpace(a.Amount) == "" {
 			return nil, fmt.Errorf("allocation amount for bill %s is required", a.BillID)
 		}
+		if _, exists := allocMap[a.BillID]; exists {
+			return nil, fmt.Errorf("duplicate allocation for bill_id: %s", a.BillID)
+		}
 		allocMap[a.BillID] = a.Amount
+	}
+
+	// Validate that allocations match bill_ids exactly (no extra, no missing)
+	if len(allocMap) != len(in.Allocations) {
+		// Duplicates detected above already returned; this is a safety net
+		return nil, errors.New("allocation bill_ids must be unique")
+	}
+	for billID := range seenBillIDs {
+		if _, exists := allocMap[billID]; !exists {
+			return nil, fmt.Errorf("bill_id %s has no matching allocation", billID)
+		}
+	}
+	for aBillID := range allocMap {
+		if _, exists := seenBillIDs[aBillID]; !exists {
+			return nil, fmt.Errorf("allocation references unrequested bill_id: %s", aBillID)
+		}
 	}
 
 	// Compute total allocation
@@ -1464,6 +1628,17 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		totalCents += cents
 	}
 	totalCanon := FormatMoney(totalCents)
+
+	if in.Amount != nil {
+		trimmed := strings.TrimSpace(*in.Amount)
+		if trimmed == "" {
+			return nil, errors.New("nominal pembayaran tidak sesuai total tagihan yang dipilih")
+		}
+		reqCents, _, err := ParseMoney(trimmed)
+		if err != nil || reqCents <= 0 || reqCents != totalCents {
+			return nil, errors.New("nominal pembayaran tidak sesuai total tagihan yang dipilih")
+		}
+	}
 
 	// ── 2. Lock and validate all bills ─────────────────────────────────
 	// Sort bill IDs deterministically to prevent deadlocks when multiple
@@ -1543,10 +1718,20 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		}
 	}
 
+	// Ensure all bills belong to the same household
+	var targetOccID string
+	for _, info := range infos {
+		if targetOccID == "" {
+			targetOccID = info.bill.HouseholdOccupancyID
+		} else if info.bill.HouseholdOccupancyID != targetOccID {
+			return nil, errors.New("all bills in a multi-period payment must belong to the same household")
+		}
+	}
+
 	// ── 2b. FIFO enforcement (non-voluntary iuran only) ─────────────────
-	// Group bills by (occID, dueID).  For each group enforce FIFO: the
-	// earliest-period bill in the allocation must be the oldest unpaid
-	// bill for that household/due combination.
+	// Group bills by (occID, dueID). For each group enforce FIFO: the
+	// bills requested must exactly match the consecutive oldest unpaid
+	// bills for that household/due combination without skipping any periods.
 	type occDueKey struct {
 		occID string
 		dueID string
@@ -1569,15 +1754,20 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		if first.due.IsVoluntary {
 			continue
 		}
-		oldestID, err := GetOldestUnpaidBillID(ctx, tx, k.occID, k.dueID)
+		oldestIDs, err := GetOldestUnpaidBillIDs(ctx, tx, k.occID, k.dueID, len(bills))
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return nil, errors.New("semua tagihan untuk iuran ini sudah lunas")
 			}
 			return nil, fmt.Errorf("check FIFO queue: %w", err)
 		}
-		if oldestID != first.bill.ID {
+		if len(oldestIDs) < len(bills) {
 			return nil, errors.New("tagihan sebelumnya belum lunas — pembayaran harus mengikuti urutan FIFO")
+		}
+		for i, b := range bills {
+			if b.bill.ID != oldestIDs[i] {
+				return nil, errors.New("tagihan sebelumnya belum lunas — pembayaran harus mengikuti urutan FIFO")
+			}
 		}
 	}
 
@@ -1632,16 +1822,44 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 	var status PaymentStatus
 	var verifiedBy *string
 	var verifiedAt *time.Time
+	var actualRecDate *string
+	var occurredAt time.Time
 
 	if userRole == "warga" {
 		origin = PaymentOriginSelfSubmitted
 		status = PaymentStatusPending
+		if in.ActualReceivedDate != nil && strings.TrimSpace(*in.ActualReceivedDate) != "" {
+			_, canon, err := ParseActualReceivedDate(*in.ActualReceivedDate, s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			actualRecDate = &canon
+		}
 	} else {
 		origin = PaymentOriginStaffRecorded
 		status = PaymentStatusApproved
 		verifiedBy = &userID
 		now := time.Now()
 		verifiedAt = &now
+		if in.ActualReceivedDate != nil && strings.TrimSpace(*in.ActualReceivedDate) != "" {
+			t, canon, err := ParseActualReceivedDate(*in.ActualReceivedDate, s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			occurredAt = t
+			actualRecDate = &canon
+		} else {
+			todayWIB, err := JakartaDate(s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			t, canon, err := ParseActualReceivedDate(todayWIB, s.clockNow())
+			if err != nil {
+				return nil, err
+			}
+			occurredAt = t
+			actualRecDate = &canon
+		}
 	}
 
 	// ── 6. Create payment row ──────────────────────────────────────────
@@ -1649,20 +1867,21 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 	// multi-period total exceeds any single bill's remaining).
 	// All validation already passed in steps 1-5.
 	var payment Payment
+	var scannedActualRecDate sql.NullString
 	var err error
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO payments (rt_id, bill_id, due_id, submitted_by, amount, method, origin, status,
 		 proof_path, notes, proof_original_name, proof_mime_type, proof_size_bytes,
-		 proof_uploaded_by, verified_by, verified_at)
-		 VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		 proof_uploaded_by, verified_by, verified_at, actual_received_date)
+		 VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		 RETURNING id, rt_id, bill_id, due_id, submitted_by, amount::text, method, origin, status, proof_path, paid_at,
 		          verified_by, verified_at, verified_by_name, rejection_reason, notes, officer_notes,
 		          created_at, updated_at, proof_original_name, proof_mime_type, proof_size_bytes,
-		          proof_uploaded_at, proof_uploaded_by, payment_no`,
+		          proof_uploaded_at, proof_uploaded_by, payment_no, actual_received_date::text`,
 		rtID, in.Allocations[0].BillID, userID, totalCanon, in.Method, origin, status,
 		in.ProofPath, in.Notes,
 		in.ProofOriginalName, in.ProofMimeType, in.ProofSizeBytes, in.ProofUploadedBy,
-		verifiedBy, verifiedAt,
+		verifiedBy, verifiedAt, actualRecDate,
 	).Scan(&payment.ID, &payment.RTID, &payment.BillID, &payment.DueID, &payment.SubmittedBy, &payment.Amount,
 		&payment.Method, &payment.Origin, &payment.Status,
 		&payment.ProofPath, &payment.PaidAt,
@@ -1670,10 +1889,13 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		&payment.RejectionReason, &payment.Notes, &payment.OfficerNotes,
 		&payment.CreatedAt, &payment.UpdatedAt,
 		&payment.ProofOriginalName, &payment.ProofMimeType, &payment.ProofSizeBytes,
-		&payment.ProofUploadedAt, &payment.ProofUploadedBy, &payment.PaymentNo,
+		&payment.ProofUploadedAt, &payment.ProofUploadedBy, &payment.PaymentNo, &scannedActualRecDate,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create payment: %w", err)
+	}
+	if scannedActualRecDate.Valid && scannedActualRecDate.String != "" {
+		payment.ActualReceivedDate = &scannedActualRecDate.String
 	}
 
 	// ── 7. Create allocations ──────────────────────────────────────────
@@ -1720,7 +1942,6 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 			pNo = " (" + *payment.PaymentNo + ")"
 		}
 		desc := fmt.Sprintf("Pembayaran Multi-Periode (%s)%s", strings.Join(periods, ", "), pNo)
-		now := time.Now()
 		mpMethod := string(payment.Method)
 		_, err = TransactionCreate(ctx, tx, rtID, CreateTransactionInput{
 			CategoryID:    catID,
@@ -1728,7 +1949,7 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 			Type:          TransactionTypeIncome,
 			Description:   desc,
 			PaymentMethod: &mpMethod,
-		}, TransactionStatusPosted, nil, &payment.ID, &userID, now)
+		}, TransactionStatusPosted, nil, &payment.ID, &userID, occurredAt)
 		if err != nil {
 			return nil, fmt.Errorf("post ledger transaction for multi-period payment: %w", err)
 		}

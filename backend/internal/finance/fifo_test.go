@@ -78,7 +78,8 @@ func approvePayment(t *testing.T, pool *database.Pool, svc *Service, rtID, payme
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	verifyIn := VerifyPaymentInput{Action: "approve"}
+	actualDate := "2026-10-20"
+	verifyIn := VerifyPaymentInput{Action: "approve", ActualReceivedDate: &actualDate}
 	_, err = svc.VerifyPayment(ctx, tx, rtID, bendaharaID, paymentID, verifyIn)
 	if err != nil {
 		tx.Rollback()
@@ -699,7 +700,7 @@ func TestFIFO_RegularArrearsPayableWhenDuesInactive(t *testing.T) {
 		t.Fatalf("deactivate due: %v", err)
 	}
 
-	oldestID, newerID := createBillsForFIFO(t, pool, rtID, occID, dueID)
+	oldestID, _ := createBillsForFIFO(t, pool, rtID, occID, dueID)
 
 	store := storage.NewMockStorage()
 	svc := NewService(pool, store)
@@ -717,27 +718,13 @@ func TestFIFO_RegularArrearsPayableWhenDuesInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
+	// Payment on inactive due is rejected by rule: cannot pay bill for an inactive due
 	_, err = svc.CreatePayment(ctx, tx, rtID, userID, "warga", in)
-	if err != nil {
-		tx.Rollback()
-		t.Fatalf("payment on inactive due should still respect FIFO: %v", err)
-	}
-	tx.Commit()
-
-	// Pay newer — should still be blocked by FIFO
-	billIDStr = newerID
-	in.BillID = &billIDStr
-
-	tx2, err := pool.BeginTx(ctx)
-	if err != nil {
-		t.Fatalf("begin tx2: %v", err)
-	}
-	_, err = svc.CreatePayment(ctx, tx2, rtID, userID, "warga", in)
 	if err == nil {
-		tx2.Rollback()
-		t.Fatal("expected FIFO rejection, got nil")
+		tx.Rollback()
+		t.Fatal("expected payment on inactive due to be rejected, got nil")
 	}
-	tx2.Rollback()
+	tx.Rollback()
 }
 
 // 12. Concurrent requests cannot violate FIFO — exactly one payment succeeds.
@@ -851,7 +838,8 @@ func TestFIFO_SelfApprovalStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx2: %v", err)
 	}
-	verifyIn := VerifyPaymentInput{Action: "approve"}
+	actualDate := "2026-10-20"
+	verifyIn := VerifyPaymentInput{Action: "approve", ActualReceivedDate: &actualDate}
 	_, err = svc.VerifyPayment(ctx, tx2, rtID, userID, payment.ID, verifyIn)
 	if err == nil {
 		tx2.Rollback()

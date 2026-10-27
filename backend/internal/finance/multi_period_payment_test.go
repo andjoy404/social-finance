@@ -162,7 +162,7 @@ func TestMultiPeriod_LegacySinglePeriod(t *testing.T) {
 
 	// Bendahara approves
 	{
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+createdPaymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -264,7 +264,7 @@ func TestMultiPeriod_ThreeBillsApproval(t *testing.T) {
 		}
 		paymentID := listResp.Data[0].ID
 
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -866,7 +866,7 @@ func TestMultiPeriod_PaymentRulePartial(t *testing.T) {
 		}
 		paymentID := listResp.Data[0].ID
 
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1012,7 +1012,7 @@ func TestMultiPeriod_NoDoubleCounting(t *testing.T) {
 		}
 		paymentID := listResp.Data[0].ID
 
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1180,7 +1180,7 @@ func TestMultiPeriod_ExactOneKASTransaction(t *testing.T) {
 		}
 		paymentID := listResp.Data[0].ID
 
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1558,7 +1558,7 @@ func TestMultiPeriod_PendingApprovalRemaining(t *testing.T) {
 		}
 		paymentID := listResp.Data[0].ID
 
-		body := `{"action":"approve"}`
+		body := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
