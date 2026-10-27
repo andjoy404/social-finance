@@ -9,23 +9,23 @@ import (
 )
 
 var (
-	ErrNotFound             = errors.New("resource not found")
-	ErrDuplicateCategory    = errors.New("category with this name already exists in RT")
-	ErrDuplicateBill        = errors.New("bill already exists for this occupancy, due, and period")
-	ErrBillAlreadyPaid      = errors.New("bill is already paid")
-	ErrBillCancelled        = errors.New("bill is cancelled")
-	ErrBillCannotCancel     = errors.New("bill cannot be cancelled: has approved payments")
-	ErrInvalidStatus        = errors.New("invalid status transition")
-	ErrTransactionPosted    = errors.New("transaction is already posted and immutable")
-	ErrAlreadyReversed      = errors.New("transaction is already reversed")
-	ErrCannotReverseNonPost = errors.New("cannot reverse a non-posted transaction")
-	ErrInvalidDuePeriod     = errors.New("invalid period_type: must be monthly, yearly, or one_time")
-	ErrInvalidCategoryType  = errors.New("invalid category type: must be income or expense")
-	ErrInvalidAmount        = errors.New("amount must be greater than zero")
-	ErrOverpayment          = errors.New("payment amount exceeds remaining balance")
-	ErrInsufficientFunds    = errors.New("insufficient funds in source location")
-	ErrInsufficientReversalBalance = errors.New("insufficient balance in location for reversal")
-	ErrPaymentAlreadyReversed      = errors.New("payment has already been reversed")
+	ErrNotFound                        = errors.New("resource not found")
+	ErrDuplicateCategory               = errors.New("category with this name already exists in RT")
+	ErrDuplicateBill                   = errors.New("bill already exists for this occupancy, due, and period")
+	ErrBillAlreadyPaid                 = errors.New("bill is already paid")
+	ErrBillCancelled                   = errors.New("bill is cancelled")
+	ErrBillCannotCancel                = errors.New("bill cannot be cancelled: has approved payments")
+	ErrInvalidStatus                   = errors.New("invalid status transition")
+	ErrTransactionPosted               = errors.New("transaction is already posted and immutable")
+	ErrAlreadyReversed                 = errors.New("transaction is already reversed")
+	ErrCannotReverseNonPost            = errors.New("cannot reverse a non-posted transaction")
+	ErrInvalidDuePeriod                = errors.New("invalid period_type: must be monthly, yearly, or one_time")
+	ErrInvalidCategoryType             = errors.New("invalid category type: must be income or expense")
+	ErrInvalidAmount                   = errors.New("amount must be greater than zero")
+	ErrOverpayment                     = errors.New("payment amount exceeds remaining balance")
+	ErrInsufficientFunds               = errors.New("insufficient funds in source location")
+	ErrInsufficientReversalBalance     = errors.New("insufficient balance in location for reversal")
+	ErrPaymentAlreadyReversed          = errors.New("payment has already been reversed")
 	ErrCannotReverseNonApprovedPayment = errors.New("cannot reverse a non-approved payment")
 )
 
@@ -87,6 +87,7 @@ type Due struct {
 	IsVoluntary bool          `json:"is_voluntary"`
 	IsActive    bool          `json:"is_active"`
 	ValidUntil  *string       `json:"valid_until"`
+	Periods     []string      `json:"periods"` // Distinct bill periods for this due
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
 }
@@ -214,27 +215,35 @@ type Payment struct {
 	ProofSizeBytes    *int64        `json:"proof_size_bytes,omitempty"`
 	ProofUploadedAt   *time.Time    `json:"proof_uploaded_at,omitempty"`
 	ProofUploadedBy   *string       `json:"proof_uploaded_by,omitempty"`
+	ActualReceivedDate *string      `json:"actual_received_date,omitempty"` // YYYY-MM-DD
+
+	// Enriched fields from JOIN queries (not stored directly)
+	Period         *string `json:"period,omitempty"`
+	LocationID     *string `json:"location_id,omitempty"`
+	LocationName   *string `json:"location_name,omitempty"`
 }
 
 type CreatePaymentInput struct {
-	BillID            *string       `json:"bill_id,omitempty"`
-	DueID             *string       `json:"due_id,omitempty"`
-	SubmittedBy       *string       `json:"-"`
-	Amount            string        `json:"amount"`
-	Method            PaymentMethod `json:"method"`
-	ProofPath         *string       `json:"proof_path,omitempty"`
-	Notes             *string       `json:"notes,omitempty"`
-	ProofOriginalName *string       `json:"proof_original_name,omitempty"`
-	ProofMimeType     *string       `json:"proof_mime_type,omitempty"`
-	ProofSizeBytes    *int64        `json:"proof_size_bytes,omitempty"`
-	ProofUploadedBy   *string       `json:"proof_uploaded_by,omitempty"`
+	BillID             *string       `json:"bill_id,omitempty"`
+	DueID              *string       `json:"due_id,omitempty"`
+	SubmittedBy        *string       `json:"-"`
+	Amount             string        `json:"amount"`
+	Method             PaymentMethod `json:"method"`
+	ProofPath          *string       `json:"proof_path,omitempty"`
+	Notes              *string       `json:"notes,omitempty"`
+	ProofOriginalName  *string       `json:"proof_original_name,omitempty"`
+	ProofMimeType      *string       `json:"proof_mime_type,omitempty"`
+	ProofSizeBytes     *int64        `json:"proof_size_bytes,omitempty"`
+	ProofUploadedBy    *string       `json:"proof_uploaded_by,omitempty"`
+	ActualReceivedDate *string       `json:"actual_received_date,omitempty"` // YYYY-MM-DD
 }
 
 type VerifyPaymentInput struct {
-	Action          string  `json:"action"` // "approve" or "reject"
-	RejectionReason *string `json:"rejection_reason,omitempty"`
-	OfficerNotes    *string `json:"officer_notes,omitempty"`
-	LocationID      *string `json:"location_id,omitempty"`
+	Action             string  `json:"action"` // "approve" or "reject"
+	RejectionReason    *string `json:"rejection_reason,omitempty"`
+	OfficerNotes       *string `json:"officer_notes,omitempty"`
+	LocationID         *string `json:"location_id,omitempty"`
+	ActualReceivedDate *string `json:"actual_received_date,omitempty"` // YYYY-MM-DD (required when Action == "approve")
 }
 
 type ReversePaymentInput struct {
@@ -264,6 +273,7 @@ type PaymentAllocation struct {
 type CreateMultiPeriodPaymentInput struct {
 	BillIDs           []string          `json:"bill_ids"`
 	Allocations       []AllocationEntry `json:"allocations"`
+	Amount            *string           `json:"amount,omitempty"`
 	Method            PaymentMethod     `json:"method"`
 	ProofPath         *string           `json:"proof_path,omitempty"`
 	Notes             *string           `json:"notes,omitempty"`
@@ -271,6 +281,7 @@ type CreateMultiPeriodPaymentInput struct {
 	ProofMimeType     *string           `json:"proof_mime_type,omitempty"`
 	ProofSizeBytes    *int64            `json:"proof_size_bytes,omitempty"`
 	ProofUploadedBy   *string           `json:"proof_uploaded_by,omitempty"`
+	ActualReceivedDate *string          `json:"actual_received_date,omitempty"` // YYYY-MM-DD
 }
 
 // AllocationEntry maps a bill to its allocated amount within a multi-period payment.

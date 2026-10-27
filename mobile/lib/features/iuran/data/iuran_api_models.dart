@@ -288,8 +288,14 @@ class BackendPayment {
   final String? officerNotes;
   final String? notes;
   final String? paymentNo;
+  final String? actualReceivedDate;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  // Enriched fields from backend JOIN queries
+  final String? period;
+  final String? locationId;
+  final String? locationName;
 
   const BackendPayment({
     required this.id,
@@ -316,8 +322,12 @@ class BackendPayment {
     this.officerNotes,
     this.notes,
     this.paymentNo,
+    this.actualReceivedDate,
     this.createdAt,
     this.updatedAt,
+    this.period,
+    this.locationId,
+    this.locationName,
   });
 
   factory BackendPayment.fromJson(Map<String, dynamic> json) {
@@ -346,8 +356,12 @@ class BackendPayment {
       officerNotes: json['officer_notes'] as String?,
       notes: json['notes'] as String?,
       paymentNo: json['payment_no'] as String?,
+      actualReceivedDate: json['actual_received_date'] as String?,
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
+      period: json['period'] as String?,
+      locationId: json['location_id'] as String?,
+      locationName: json['location_name'] as String?,
     );
   }
 }
@@ -493,4 +507,54 @@ String formatPeriod(String period) {
   ];
   if (monthIndex < 1 || monthIndex > months.length) return period;
   return '${months[monthIndex - 1]} $year';
+}
+
+class BackendPaymentAllocation {
+  final String id;
+  final String paymentId;
+  final String billId;
+  final String amount;
+  final String? createdAt;
+
+  const BackendPaymentAllocation({
+    required this.id,
+    required this.paymentId,
+    required this.billId,
+    required this.amount,
+    this.createdAt,
+  });
+
+  factory BackendPaymentAllocation.fromJson(Map<String, dynamic> json) {
+    return BackendPaymentAllocation(
+      id: json['id'] as String? ?? '',
+      paymentId: json['payment_id'] as String? ?? '',
+      billId: json['bill_id'] as String? ?? '',
+      amount: json['amount'] as String? ?? '0',
+      createdAt: json['created_at'] as String?,
+    );
+  }
+}
+
+class BackendMultiPeriodPaymentResult {
+  final BackendPayment payment;
+  final List<BackendPaymentAllocation> allocations;
+
+  const BackendMultiPeriodPaymentResult({
+    required this.payment,
+    required this.allocations,
+  });
+
+  factory BackendMultiPeriodPaymentResult.fromJson(Map<String, dynamic> json) {
+    final rawPayment = json['payment'] as Map<String, dynamic>? ?? {};
+    final rawAllocations = json['allocations'] as List<dynamic>?;
+    return BackendMultiPeriodPaymentResult(
+      payment: BackendPayment.fromJson(rawPayment),
+      allocations: rawAllocations != null
+          ? rawAllocations
+              .whereType<Map>()
+              .map((e) => BackendPaymentAllocation.fromJson(e.cast<String, dynamic>()))
+              .toList()
+          : [],
+    );
+  }
 }

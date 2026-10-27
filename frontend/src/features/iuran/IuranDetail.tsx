@@ -870,6 +870,29 @@ function PaymentDetailModal({
           </div>
         </div>
 
+        {/* Tanggal Uang Diterima (O-12) */}
+        {payment.actualReceivedDate && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '4px',
+            }}>
+              Tanggal Uang Diterima
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: 'var(--sf-text)',
+              fontWeight: 600,
+            }}>
+              {formatDate(payment.actualReceivedDate)}
+            </div>
+          </div>
+        )}
+
         {/* Catatan Warga */}
         {payment.catatan && (
           <div style={{ marginBottom: '16px' }}>
@@ -1175,6 +1198,7 @@ export function IuranDetail({
         verifiedByName: p.verified_by_name ?? undefined,
         officerNotes: p.officer_notes ?? undefined,
         paymentNo: p.payment_no ?? undefined,
+        actualReceivedDate: p.actual_received_date ?? undefined,
         status: p.status as PaymentStatusDisplay,
         method: p.method,
         proofPath: p.proof_path,
@@ -1212,7 +1236,7 @@ export function IuranDetail({
 
   // ── Verification handlers ────────────────────────────────────────
 
-  async function handleApprove(paymentId: string, locationId?: string) {
+  async function handleApprove(paymentId: string, locationId?: string, actualReceivedDate?: string) {
     if (!window.confirm('Terima pembayaran ini?')) return
     setVerifyingId(paymentId)
     setRejectError('')
@@ -1222,7 +1246,11 @@ export function IuranDetail({
         setError('Sesi telah berakhir. Silakan login ulang.')
         return
       }
-      await apiVerifyPayment(token, paymentId, 'approve', { officerNotes: officerNotes.trim() || undefined, locationId })
+      await apiVerifyPayment(token, paymentId, 'approve', {
+        officerNotes: officerNotes.trim() || undefined,
+        locationId,
+        actualReceivedDate,
+      })
       setOfficerNotes('')
       setVerifyingPayment(null)
       await loadBill()
@@ -1410,7 +1438,7 @@ export function IuranDetail({
                 {(remaining > 0 || bill.isVoluntary || bill.nominal === 0) && (
                   <button
                     type="button"
-                    onClick={() => !bill.dueIsActive && onPayment(bill.id)}
+                    onClick={() => onPayment(bill.id)}
                     disabled={!bill.dueIsActive}
                     style={{
                       padding: '8px 20px',
@@ -1722,8 +1750,14 @@ function VerificationDialog({
   onNotesChange: (notes: string) => void
   onPreviewProof: (paymentId: string) => void
   onReject: (paymentId: string) => void
-  onApprove: (paymentId: string, locationId?: string) => void
+  onApprove: (paymentId: string, locationId?: string, actualReceivedDate?: string) => void
 }) {
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const [actualReceivedDate, setActualReceivedDate] = useState<string>(() => {
+    return new Date().toISOString().slice(0, 10)
+  })
+  const isDateInvalid = !actualReceivedDate || actualReceivedDate > todayStr
+
   const eligibleLocations = useMemo(() => {
     const method = verifyingPayment.method?.toUpperCase() || 'CASH'
     if (method === 'CASH') {
@@ -1984,6 +2018,49 @@ function VerificationDialog({
             </div>
           )}
 
+          {/* Tanggal Uang Diterima (O-12) */}
+          {canApprove && (
+            <div style={{ marginBottom: '16px' }}>
+              <label
+                htmlFor="verification-actual-received-date"
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--sf-text)',
+                  marginBottom: '6px',
+                  display: 'block',
+                }}
+              >
+                Tanggal Uang Diterima <span style={{ color: 'var(--sf-danger)' }}>*</span>
+              </label>
+              <input
+                id="verification-actual-received-date"
+                type="date"
+                value={actualReceivedDate}
+                max={todayStr}
+                onChange={(e) => setActualReceivedDate(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  fontSize: '13px',
+                  color: 'var(--sf-text)',
+                  background: 'var(--sf-surface)',
+                  border: isDateInvalid ? '1px solid var(--sf-danger)' : '1px solid var(--sf-border)',
+                  borderRadius: 'var(--sf-radius-sm)',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <div style={{ fontSize: '11px', color: 'var(--sf-text-muted)', marginTop: '4px' }}>
+                Tanggal riil dana masuk ke rekening/kas RT. Tanggal ini akan dicatat sebagai tanggal transaksi KAS.
+              </div>
+              {actualReceivedDate > todayStr && (
+                <div style={{ fontSize: '11px', color: 'var(--sf-danger)', marginTop: '2px' }}>
+                  Tanggal penerimaan tidak boleh di masa depan.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Officer notes */}
           {canApprove && (
             <div style={{ marginBottom: '16px' }}>
@@ -2103,8 +2180,8 @@ function VerificationDialog({
               </button>
               <button
                 type="button"
-                onClick={() => onApprove(verifyingPayment.id, selectedLocationId || undefined)}
-                disabled={verifyingId === verifyingPayment.id || eligibleLocations.length === 0 || !selectedLocationId}
+                onClick={() => onApprove(verifyingPayment.id, selectedLocationId || undefined, actualReceivedDate)}
+                disabled={verifyingId === verifyingPayment.id || eligibleLocations.length === 0 || !selectedLocationId || isDateInvalid}
                 style={{
                   padding: '8px 16px',
                   fontSize: '13px',
@@ -2113,7 +2190,7 @@ function VerificationDialog({
                   background: 'var(--sf-success-soft)',
                   border: '1px solid rgba(46,204,113,0.3)',
                   borderRadius: 'var(--sf-radius-sm)',
-                  cursor: (verifyingId === verifyingPayment.id || eligibleLocations.length === 0 || !selectedLocationId) ? 'not-allowed' : 'pointer',
+                  cursor: (verifyingId === verifyingPayment.id || eligibleLocations.length === 0 || !selectedLocationId || isDateInvalid) ? 'not-allowed' : 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
