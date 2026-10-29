@@ -262,7 +262,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                // Month grid
+                // Month grid — langsung return tanpa tombol OK
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -276,7 +276,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   itemBuilder: (_, i) {
                     final isSelected = i + 1 == selMonth;
                     return InkWell(
-                      onTap: () => setModalState(() => selMonth = i + 1),
+                      onTap: () => Navigator.of(ctx).pop((selYear, i + 1)),
                       borderRadius: BorderRadius.circular(AppRadius.base),
                       child: Container(
                         decoration: BoxDecoration(
@@ -300,29 +300,6 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       ),
                     );
                   },
-                ),
-                const SizedBox(height: AppSpacing.md),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.accent,
-                      side: const BorderSide(color: AppColors.accent, width: 2),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    onPressed: () => Navigator.of(ctx).pop((selYear, selMonth)),
-                    child: const Text(
-                      'OK',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -400,6 +377,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
+                // Month grid — langsung return tanpa tombol OK
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -413,7 +391,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                   itemBuilder: (_, i) {
                     final isSelected = i + 1 == selMonth;
                     return InkWell(
-                      onTap: () => setModalState(() => selMonth = i + 1),
+                      onTap: () => Navigator.of(ctx).pop((selYear, i + 1)),
                       borderRadius: BorderRadius.circular(AppRadius.base),
                       child: Container(
                         decoration: BoxDecoration(
@@ -437,32 +415,6 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       ),
                     );
                   },
-                ),
-                const SizedBox(height: AppSpacing.md),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.accent,
-                      side: const BorderSide(color: AppColors.accent, width: 2),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    onPressed: () {
-                      final date = DateTime(selYear, selMonth, 1);
-                      Navigator.of(ctx).pop(date);
-                    },
-                    child: const Text(
-                      'OK',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                  ),
                 ),
               ],
             ),

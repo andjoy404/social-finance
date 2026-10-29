@@ -154,10 +154,18 @@ function DueFormFields({
   form,
   onChange,
   disabled,
+  period,
+  dueDate,
+  onPeriodChange,
+  onDueDateChange,
 }: {
   form: DueFormState
   onChange: (field: string, value: string) => void
   disabled: boolean
+  period: string
+  dueDate: string
+  onPeriodChange: (value: string) => void
+  onDueDateChange: (value: string) => void
 }) {
   return (
     <>
@@ -213,21 +221,6 @@ function DueFormFields({
         </div>
       )}
 
-      {/* Informasi Multi-Bulan */}
-      {form.due_type === 'multi_month' && (
-        <div style={{
-          padding: '10px 14px',
-          background: 'var(--sf-info-soft, rgba(37,99,235,0.08))',
-          border: '1px solid var(--sf-info, #2563eb)',
-          borderRadius: 'var(--sf-radius-sm, 6px)',
-          fontSize: '12px',
-          color: 'var(--sf-text)',
-          marginBottom: '12px',
-        }}>
-          Sistem akan otomatis menerbitkan 12 tagihan bulanan (Januari s/d Desember {form.year}) untuk seluruh warga yang memenuhi syarat.
-        </div>
-      )}
-
       {/* Nominal */}
       <div className="sf-form-field">
         <label className="sf-form-label" htmlFor="df-amount">
@@ -248,18 +241,20 @@ function DueFormFields({
         />
       </div>
 
-      {/* Informasi Sukarela */}
-      {form.due_type === 'voluntary' && (
+
+
+      {/* Informasi Multi-Bulan — after Nominal Per Bulan */}
+      {form.due_type === 'multi_month' && (
         <div style={{
           padding: '10px 14px',
-          background: 'var(--sf-info-soft)',
-          border: '1px solid var(--sf-info)',
-          borderRadius: 'var(--sf-radius-sm)',
+          background: 'var(--sf-info-soft, rgba(37,99,235,0.08))',
+          border: '1px solid var(--sf-info, #2563eb)',
+          borderRadius: 'var(--sf-radius-sm, 6px)',
           fontSize: '12px',
           color: 'var(--sf-text)',
-          marginBottom: '0',
+          marginBottom: '12px',
         }}>
-          Iuran sukarela bersifat opsional. Tidak ada tunggakan atau penalti jika tidak berkontribusi.
+          Sistem akan otomatis menerbitkan 12 tagihan bulanan (Januari s/d Desember {form.year}) untuk seluruh warga yang memenuhi syarat.
         </div>
       )}
 
@@ -330,6 +325,57 @@ function DueFormFields({
           </select>
         </div>
       )}
+
+      {/* Periode — only for regular & voluntary (NOT multi_month) */}
+      {form.due_type !== 'multi_month' && (
+        <div className="sf-form-field">
+          <label className="sf-form-label" htmlFor="df-period-value">Periode</label>
+          <DatePicker
+            id="df-period-value"
+            picker="month"
+            format="MMMM YYYY"
+            value={period ? dayjs(period, 'YYYY-MM') : null}
+            onChange={(date) => onPeriodChange(date?.format('YYYY-MM') || '')}
+            allowClear={false}
+            placeholder="Bulan dan Tahun"
+            disabled={disabled}
+            style={{ width: '100%' }}
+          />
+        </div>
+      )}
+
+      {/* Tanggal Jatuh Tempo — only for regular & voluntary (NOT multi_month) */}
+      {form.due_type !== 'multi_month' && (
+        <div className="sf-form-field">
+          <label className="sf-form-label" htmlFor="df-due-date">Tanggal Jatuh Tempo</label>
+          <DatePicker
+            id="df-due-date"
+            picker="date"
+            value={dueDate ? dayjs(dueDate) : null}
+            onChange={(date) => onDueDateChange(date?.format('YYYY-MM-DD') || '')}
+            allowClear={false}
+            placeholder="DD/MM/YYYY"
+            format="DD/MM/YYYY"
+            disabled={disabled}
+            style={{ width: '100%' }}
+          />
+        </div>
+      )}
+
+      {/* Informasi Sukarela — after Tanggal Jatuh Tempo */}
+      {form.due_type === 'voluntary' && (
+        <div style={{
+          padding: '10px 14px',
+          background: 'var(--sf-info-soft)',
+          border: '1px solid var(--sf-info)',
+          borderRadius: 'var(--sf-radius-sm)',
+          fontSize: '12px',
+          color: 'var(--sf-text)',
+          marginBottom: '0',
+        }}>
+          Iuran sukarela bersifat opsional. Tidak ada tunggakan atau penalti jika tidak berkontribusi.
+        </div>
+      )}
     </>
   )
 }
@@ -358,6 +404,8 @@ export function DueCreate({
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const [period, setPeriod] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const handlePeriodChange = (value: string) => setPeriod(value)
+  const handleDueDateChange = (value: string) => setDueDate(value)
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => {
@@ -396,11 +444,7 @@ export function DueCreate({
       }
     }
 
-    if (form.due_type !== 'multi_month') {
-      if (!form.period_type) errs.push('Frekuensi harus dipilih.')
-      if (!period || !/^\d{4}(-\d{2})?$/.test(period)) errs.push('Periode harus YYYY-MM atau YYYY.')
-      if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) errs.push('Tanggal jatuh tempo harus YYYY-MM-DD.')
-    } else {
+    if (form.due_type === 'multi_month') {
       if (!form.year || form.year < 2000 || form.year > 2100) errs.push('Tahun tagihan harus antara 2000 dan 2100.')
     }
 
@@ -413,6 +457,7 @@ export function DueCreate({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
     setValidationErrors([])
     setError(null)
     if (!validate()) return
@@ -426,7 +471,7 @@ export function DueCreate({
       }
 
       const effectivePeriod = form.due_type === 'multi_month' ? String(form.year) : period
-      const effectiveDueDate = dueDate || (form.due_type === 'multi_month' ? `${form.year}-01-10` : '')
+      const effectiveDueDate = form.due_type === 'multi_month' ? `${form.year}-01-10` : (dueDate || '')
 
       const body: ApiCreateDueBody = {
         name: form.name.trim(),
@@ -441,8 +486,10 @@ export function DueCreate({
           : {}),
       }
 
-      const due = await apiCreateDue(pair.accessToken, body)
-      await apiGenerateBills(pair.accessToken, { due_id: due.id, period: effectivePeriod, due_date: effectiveDueDate }, crypto.randomUUID())
+      const due = await apiCreateDue(pair.accessToken, body, crypto.randomUUID())
+      if (form.due_type !== 'multi_month') {
+        await apiGenerateBills(pair.accessToken, { due_id: due.id, period: effectivePeriod, due_date: effectiveDueDate }, crypto.randomUUID())
+      }
       handleSave()
       handleClose()
     } catch (err) {
@@ -498,35 +545,15 @@ export function DueCreate({
               {error.message}
             </div>
           )}
-          <DueFormFields form={form} onChange={handleChange} disabled={loading} />
-          <div className="sf-form-field">
-            <label className="sf-form-label" htmlFor="df-period-value">Periode</label>
-            <DatePicker
-              id="df-period-value"
-              picker="month"
-              format="MMMM YYYY"
-              value={period ? dayjs(period, 'YYYY-MM') : null}
-              onChange={(date) => setPeriod(date?.format('YYYY-MM') || '')}
-              allowClear={false}
-              placeholder="Bulan dan Tahun"
-              disabled={loading}
-              style={{ width: '100%' }}
-            />
-          </div>
-          <div className="sf-form-field">
-            <label className="sf-form-label" htmlFor="df-due-date">Tanggal Jatuh Tempo</label>
-            <DatePicker
-              id="df-due-date"
-              picker="date"
-              value={dueDate ? dayjs(dueDate) : null}
-              onChange={(date) => setDueDate(date?.format('YYYY-MM-DD') || '')}
-              allowClear={false}
-              placeholder="DD/MM/YYYY"
-              format="DD/MM/YYYY"
-              disabled={loading}
-              style={{ width: '100%' }}
-            />
-          </div>
+          <DueFormFields
+            form={form}
+            onChange={handleChange}
+            disabled={loading}
+            period={period}
+            dueDate={dueDate}
+            onPeriodChange={handlePeriodChange}
+            onDueDateChange={handleDueDateChange}
+          />
         </ModalBody>
         <ModalFooter>
           <button type="button" className="sf-btn-ghost" onClick={handleClose} disabled={loading}>

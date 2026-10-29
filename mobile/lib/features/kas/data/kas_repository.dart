@@ -63,6 +63,8 @@ class KasRepository {
     KasJenis? jenis,
     String? status,
     String? period,
+    String? startDate,
+    String? endDate,
   }) async {
     final allTransactions = <KasTransaction>[];
     int currentPage = 1;
@@ -73,6 +75,8 @@ class KasRepository {
         jenis: jenis,
         status: status,
         period: period,
+        startDate: startDate,
+        endDate: endDate,
         page: currentPage,
         pageSize: 100,
       );
@@ -105,6 +109,8 @@ class KasRepository {
   Future<List<BackendTransaction>> fetchAllBackendTransactions({
     String? status,
     String? period,
+    String? startDate,
+    String? endDate,
   }) async {
     final all = <BackendTransaction>[];
     var page = 1;
@@ -113,6 +119,8 @@ class KasRepository {
       final response = await apiClient.listTransactions(
         status: status,
         period: period,
+        startDate: startDate,
+        endDate: endDate,
         page: page,
         pageSize: 100,
       );
@@ -158,8 +166,16 @@ class KasRepository {
   // ─── Balance ────────────────────────────────────────────────────────
 
   /// Fetch current balance summary from the reports endpoint.
-  Future<BackendBalance> fetchBalance({String? period}) async {
-    return apiClient.getBalance(period: period);
+  Future<BackendBalance> fetchBalance({
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
+    return apiClient.getBalance(
+      period: period,
+      startDate: startDate,
+      endDate: endDate,
+    );
   }
 
   // ─── Categories ─────────────────────────────────────────────────────

@@ -238,6 +238,7 @@ func setupFinanceRouter(pool *database.Pool, storageMock ...storage.Service) htt
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/categories", finH.ListCategories)
 		r.Get("/api/v1/dues", finH.ListDues)
+		r.Get("/api/v1/dues/{id}/months", finH.GetDueMonths)
 		r.Get("/api/v1/bills", finH.ListBills)
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)
@@ -267,8 +268,10 @@ func setupFinanceRouter(pool *database.Pool, storageMock ...storage.Service) htt
 		r.Use(auth.RequireRole(auth.RoleBendahara, auth.RolePengurus))
 		r.Post("/api/v1/dues", finH.CreateDue)
 		r.Patch("/api/v1/dues/{id}", finH.UpdateDue)
+		r.Patch("/api/v1/dues/{id}/periods/{period}/status", finH.UpdateDuePeriodStatus)
 		r.Delete("/api/v1/dues/{id}", finH.DeactivateDue)
 		r.Post("/api/v1/bills", finH.CreateBill)
+		r.Patch("/api/v1/bills/{id}/status", finH.UpdateBillStatus)
 		r.Post("/api/v1/bills/generate", finH.GenerateBills)
 		r.Delete("/api/v1/bills/{id}", finH.CancelBill)
 		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
@@ -3598,4 +3601,64 @@ func TestPeriodBalanceAndOpeningBalanceCorrection(t *testing.T) {
 			t.Fatalf("expected 0 transactions in April, got %v", pag["total"])
 		}
 	})
+}
+
+func TestListBillsOrderUnpaidFirst(t *testing.T) {
+	pool := testPool(t)
+	defer pool.Close()
+	router := setupFinanceRouter(pool)
+
+	rtID := setupTestRT(t, pool, "Finance RT Bills Order", 1, "FBO")
+	defer cleanupTestRT(t, pool, rtID)
+
+	userB, midB := setupTestUserWithMembership(t, pool, "bendahara_order@social.test", "Bendahara Order", "+62811999901", rtID, "bendahara")
+	tokenBendahara := makeToken(t, auth.TokenClaims{
+		UserID: userB,
+		MID:    midB,
+		RTID:   rtID,
+		Role:   string(auth.RoleBendahara),
+	})
+
+	occID := setupTestOccupancy(t, pool, rtID)
+	dueID := createTestDue(t, pool, rtID, "IPL Test Order", "50000", false)
+
+	// Create 3 bills: 2026-01 (unpaid), 2026-02 (paid), 2026-03 (unpaid)
+	createTestBill(t, pool, rtID, occID, dueID, "2026-01", "50000", "unpaid")
+	createTestBill(t, pool, rtID, occID, dueID, "2026-02", "50000", "paid")
+	createTestBill(t, pool, rtID, occID, dueID, "2026-03", "50000", "unpaid")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bills?order=unpaid_first", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenBendahara)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Period string `json:"period"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp.Data) < 3 {
+		t.Fatalf("expected at least 3 bills, got %d", len(resp.Data))
+	}
+
+	// 2026-01 (unpaid), 2026-03 (unpaid), 2026-02 (paid)
+	if resp.Data[0].Period != "2026-01" || resp.Data[0].Status != "unpaid" {
+		t.Errorf("expected first bill to be 2026-01 unpaid, got %s %s", resp.Data[0].Period, resp.Data[0].Status)
+	}
+	if resp.Data[1].Period != "2026-03" || resp.Data[1].Status != "unpaid" {
+		t.Errorf("expected second bill to be 2026-03 unpaid, got %s %s", resp.Data[1].Period, resp.Data[1].Status)
+	}
+	if resp.Data[2].Period != "2026-02" || resp.Data[2].Status != "paid" {
+		t.Errorf("expected third bill to be 2026-02 paid, got %s %s", resp.Data[2].Period, resp.Data[2].Status)
+	}
 }

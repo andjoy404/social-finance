@@ -380,21 +380,40 @@ func (f *FCMProvider) Send(ctx context.Context, token string, title, body string
 	}
 	destURL := fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", projectID)
 
+	notifBlock := map[string]string{
+		"title": title,
+		"body":  body,
+	}
+	androidNotifBlock := map[string]any{
+		"channel_id":            "social_finance_notifications",
+		"sound":                 "default",
+		"notification_priority": "PRIORITY_MAX",
+	}
+	if rawImg := strings.TrimSpace(data["image_url"]); rawImg != "" {
+		resolvedImg := rawImg
+		if strings.HasPrefix(resolvedImg, "/") {
+			pubBase := strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL"))
+			if pubBase == "" {
+				pubBase = strings.TrimSpace(os.Getenv("API_PUBLIC_URL"))
+			}
+			if pubBase != "" {
+				resolvedImg = strings.TrimRight(pubBase, "/") + resolvedImg
+			}
+		}
+		if (strings.HasPrefix(resolvedImg, "http://") || strings.HasPrefix(resolvedImg, "https://")) && !strings.Contains(resolvedImg, "..") {
+			notifBlock["image"] = resolvedImg
+			androidNotifBlock["image"] = resolvedImg
+		}
+	}
+
 	messagePayload := map[string]any{
 		"message": map[string]any{
-			"token": token,
-			"notification": map[string]string{
-				"title": title,
-				"body":  body,
-			},
-			"data": data,
+			"token":        token,
+			"notification": notifBlock,
+			"data":         data,
 			"android": map[string]any{
-				"priority": "HIGH",
-				"notification": map[string]any{
-					"channel_id":            "social_finance_notifications",
-					"sound":                 "default",
-					"notification_priority": "PRIORITY_MAX",
-				},
+				"priority":     "HIGH",
+				"notification": androidNotifBlock,
 			},
 		},
 	}

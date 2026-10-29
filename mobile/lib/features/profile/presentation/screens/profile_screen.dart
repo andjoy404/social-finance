@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -9,6 +10,7 @@ import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/notification/data/models/notification_models.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -126,6 +128,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     rawPhone,
                   ),
                 ),
+                if (canUserAccessNotificationMenu(user))
+                  _ProfileItemData(
+                    icon: Icons.notifications_active_outlined,
+                    title: 'Kelola Notifikasi',
+                    subtitle: 'Template & Pengaturan Push Notifikasi',
+                    onTap: () => context.push('/home/notifikasi'),
+                  ),
                 _ProfileItemData(
                   icon: Icons.security,
                   title: 'Keamanan',

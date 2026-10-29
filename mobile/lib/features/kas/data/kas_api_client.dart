@@ -174,10 +174,20 @@ class KasApiClient {
   // ─── Balance ────────────────────────────────────────────────────────
 
   /// GET /api/v1/reports/balance
-  Future<BackendBalance> getBalance({String? period}) async {
+  Future<BackendBalance> getBalance({
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
     final query = <String, dynamic>{};
     if (period != null && period.isNotEmpty) {
       query['period'] = period;
+    }
+    if (startDate != null && startDate.isNotEmpty) {
+      query['start_date'] = startDate;
+    }
+    if (endDate != null && endDate.isNotEmpty) {
+      query['end_date'] = endDate;
     }
     final response = await dio.get(
       '/api/v1/reports/balance',

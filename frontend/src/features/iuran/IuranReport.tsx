@@ -15,15 +15,18 @@ import {
   formatFullPeriodeLabel,
   getStatusVariant,
   getStatusLabel,
+  getDueTypeLabel,
+  getDueTypeVariant,
   type IuranBill,
 } from './iuranTypes'
 
 const colStyles = {
   no: { width: 40, minWidth: 40, maxWidth: 40, textAlign: 'center' as const },
   household: { minWidth: 160, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  type: { minWidth: 120, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  periode: { width: 100, minWidth: 100, maxWidth: 100, textAlign: 'center' as const },
-  amount: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'right' as const, fontFamily: 'monospace' },
+  jenis: { width: 100, minWidth: 100, maxWidth: 100, textAlign: 'center' as const },
+  nama: { minWidth: 130, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  periode: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'center' as const },
+  amount: { width: 160, minWidth: 160, maxWidth: 160, textAlign: 'right' as const, fontFamily: 'monospace' },
   status: { width: 110, minWidth: 110, maxWidth: 110, textAlign: 'center' as const },
 }
 
@@ -211,7 +214,8 @@ export function IuranReport() {
                   <tr>
                     <th style={colStyles.no}>No</th>
                     <th style={colStyles.household}>WARGA/KK</th>
-                    <th style={colStyles.type}>JENIS IURAN</th>
+                    <th style={colStyles.nama}>NAMA IURAN</th>
+                    <th style={colStyles.jenis}>JENIS IURAN</th>
                     <th style={colStyles.periode}>PERIODE</th>
                     <th style={colStyles.amount}>TAGIHAN</th>
                     <th style={{ ...colStyles.amount, textAlign: 'right' }}>DIBAYAR</th>
@@ -225,7 +229,12 @@ export function IuranReport() {
                         <td style={colStyles.household}>
                           <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
                         </td>
-                        <td style={colStyles.type}>{bill.iuranType}</td>
+                        <td style={colStyles.nama}>{bill.iuranType}</td>
+                        <td style={colStyles.jenis}>
+                          <Badge variant={bill.dueType ? getDueTypeVariant(bill.dueType) : 'green'}>
+                            {getDueTypeLabel(bill.dueType)}
+                          </Badge>
+                        </td>
                         <td style={colStyles.periode}>{formatPeriodeLabel(bill.periode)}</td>
                         <td style={{ ...colStyles.amount, textAlign: 'right' }}>
                           {formatRupiah(bill.nominal)}

@@ -335,6 +335,9 @@ func (s *Service) generateMultiMonthBills(ctx context.Context, tx *sql.Tx, rtID,
 		return nil, err
 	}
 
+	yearStart := fmt.Sprintf("%04d-01-01", year)
+	yearEnd := fmt.Sprintf("%04d-12-31", year)
+
 	var generated []*Bill
 	for m := 1; m <= 12; m++ {
 		period := fmt.Sprintf("%04d-%02d", year, m)
@@ -344,14 +347,14 @@ func (s *Service) generateMultiMonthBills(ctx context.Context, tx *sql.Tx, rtID,
 			day = lastDay
 		}
 		monthDueDate := fmt.Sprintf("%04d-%02d-%02d", year, m, day)
-		periodStart := period + "-01"
-		periodEnd := fmt.Sprintf("%s-%02d", period, lastDay)
 
 		for _, occ := range occupancies {
-			if occ.StartDate != nil && *occ.StartDate > periodEnd {
+			// A household occupancy active in the RT is eligible for all 12 calendar-year bills,
+			// unless their occupancy strictly started after this calendar year or ended before it.
+			if occ.StartDate != nil && *occ.StartDate > yearEnd {
 				continue
 			}
-			if occ.EndDate != nil && *occ.EndDate < periodStart {
+			if occ.EndDate != nil && *occ.EndDate < yearStart {
 				continue
 			}
 
@@ -498,6 +501,104 @@ func (s *Service) CreateBill(ctx context.Context, tx *sql.Tx, rtID, userID strin
 	return bill, nil
 }
 
+func (s *Service) UpdateBillStatus(ctx context.Context, tx *sql.Tx, rtID, userID, id string, in UpdateBillStatusInput) (*Bill, error) {
+	bill, err := BillGetByIDForUpdate(ctx, tx, id, rtID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !in.IsActive {
+		if bill.Status == BillStatusPaid {
+			return nil, errors.New("tagihan yang sudah lunas tidak dapat dinonaktifkan")
+		}
+		approvedTotal, err := GetApprovedPaymentTotal(ctx, tx, bill.ID)
+		if err == nil {
+			billCents, _, _ := ParseMoney(bill.Amount)
+			approvedCents, _, _ := ParseMoney(approvedTotal)
+			if approvedCents >= billCents && billCents > 0 {
+				return nil, errors.New("tagihan yang sudah lunas tidak dapat dinonaktifkan")
+			}
+		}
+	}
+
+	if err := BillUpdateActiveStatus(ctx, tx, id, rtID, in.IsActive); err != nil {
+		return nil, err
+	}
+
+	bill.IsActive = in.IsActive
+	auditPayload, _ := json.Marshal(map[string]interface{}{
+		"bill_id":   id,
+		"is_active": in.IsActive,
+	})
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &userID,
+		Action:     "update_bill_status",
+		EntityType: "bill",
+		EntityID:   id,
+		NewValues:  auditPayload,
+	})
+
+	return bill, nil
+}
+
+func (s *Service) GetDueMonths(ctx context.Context, tx *sql.Tx, dueID, rtID string) ([]DueMonthSummary, error) {
+	due, err := DueGetByID(ctx, tx, dueID, rtID)
+	if err != nil {
+		return nil, err
+	}
+	year := time.Now().Year()
+	if due.Year != nil && *due.Year > 0 {
+		year = *due.Year
+	}
+	return DueGetMonths(ctx, tx, dueID, rtID, year)
+}
+
+func (s *Service) UpdateDuePeriodStatus(ctx context.Context, tx *sql.Tx, rtID, userID, dueID, period string, in UpdateBillStatusInput) ([]DueMonthSummary, error) {
+	due, err := DueGetByID(ctx, tx, dueID, rtID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !in.IsActive {
+		// Check if all bills in this period are already paid
+		var totalInPeriod, paidInPeriod int
+		err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*), COUNT(CASE WHEN status = 'paid' THEN 1 END)
+			 FROM bills WHERE due_id = $1 AND rt_id = $2 AND period = $3`,
+			dueID, rtID, period,
+		).Scan(&totalInPeriod, &paidInPeriod)
+		if err == nil && totalInPeriod > 0 && totalInPeriod == paidInPeriod {
+			return nil, errors.New("semua tagihan pada periode ini sudah lunas dan tidak dapat dinonaktifkan")
+		}
+	}
+
+	_, err = DueUpdatePeriodActiveStatus(ctx, tx, dueID, rtID, period, in.IsActive)
+	if err != nil {
+		return nil, err
+	}
+
+	auditPayload, _ := json.Marshal(map[string]interface{}{
+		"due_id":    dueID,
+		"period":    period,
+		"is_active": in.IsActive,
+	})
+	_ = AuditLogInsert(ctx, tx, AuditLog{
+		RTID:       rtID,
+		UserID:     &userID,
+		Action:     "update_due_period_status",
+		EntityType: "due_period",
+		EntityID:   fmt.Sprintf("%s:%s", dueID, period),
+		NewValues:  auditPayload,
+	})
+
+	year := time.Now().Year()
+	if due.Year != nil && *due.Year > 0 {
+		year = *due.Year
+	}
+	return DueGetMonths(ctx, tx, dueID, rtID, year)
+}
+
 // --- Payments ---
 
 func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, userRole string, in CreatePaymentInput) (*Payment, error) {
@@ -608,6 +709,10 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	}
 	isVoluntary := due.IsVoluntary
 
+	if !bill.IsActive {
+		return nil, errors.New("cannot pay an inactive bill (tagihan tidak aktif)")
+	}
+
 	if !isVoluntary && !due.IsActive {
 		return nil, errors.New("cannot pay bill for an inactive due (iuran tidak aktif)")
 	}
@@ -617,6 +722,9 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	}
 	if bill.Status == BillStatusCancelled {
 		return nil, ErrBillCancelled
+	}
+	if !bill.IsActive {
+		return nil, errors.New("cannot approve payment: bill is inactive (tagihan tidak aktif)")
 	}
 
 	if userRole == "warga" {
@@ -1026,6 +1134,9 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 	if bill.Status == BillStatusCancelled {
 		return nil, ErrBillCancelled
 	}
+	if !bill.IsActive {
+		return nil, errors.New("cannot approve payment: bill is inactive (tagihan tidak aktif)")
+	}
 
 	// Validate overpayment BEFORE approving payment.
 	// approved_total_before does NOT include this payment yet (still PENDING).
@@ -1189,6 +1300,9 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 		}
 		if bill.Status == BillStatusCancelled {
 			return nil, fmt.Errorf("bill %s is cancelled", billID)
+		}
+		if !bill.IsActive {
+			return nil, fmt.Errorf("bill %s is inactive (tagihan tidak aktif)", billID)
 		}
 
 		billCents, _, err := ParseMoney(bill.Amount)
@@ -1667,6 +1781,9 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		}
 		if bill.Status == BillStatusCancelled {
 			return nil, fmt.Errorf("bill %s is cancelled", billID)
+		}
+		if !bill.IsActive {
+			return nil, fmt.Errorf("bill %s is inactive (tagihan tidak aktif)", billID)
 		}
 
 		due, err := DueGetByID(ctx, tx, bill.DueID, rtID)

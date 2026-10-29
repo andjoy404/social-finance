@@ -39,6 +39,7 @@ AppRole mapStringToAppRole(String? roleStr, {String? systemRoleStr}) {
 /// and secure persistence.
 class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   static const _profileReady = 'ready';
+  static const _profileStale = 'stale';
   static const _profileLoading = 'loading';
   static const _profileError = 'error';
   static const _profilePermissionsUnavailable = 'permissions_unavailable';
@@ -49,6 +50,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   final SecureAuthStorage secureAuthStorage;
 
   Map<String, dynamic>? _currentUser;
+  Future<void>? _profileReloadFuture;
   Future<void> Function()? onBeforeLogout;
 
   AuthRepository({
@@ -66,49 +68,88 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   Future<LoginResponse?> _refreshTokens(String refreshToken) async {
     try {
       final response = await authService.refreshToken(refreshToken);
+      final newRefreshToken = response.refreshToken.isNotEmpty
+          ? response.refreshToken
+          : refreshToken;
+      apiClient.setToken(response.accessToken);
+      apiClient.setRefreshToken(newRefreshToken);
+
+      // Persist rotated tokens IMMEDIATELY before any follow-up request (/auth/me)
+      // and even when _currentUser is still null (e.g. during restoreSession()).
+      // Backend refresh tokens are single-use rotated, so failing to save the
+      // new refresh token immediately would leave a revoked token on disk.
+      final stored = await secureAuthStorage.getSession();
+      if (stored != null) {
+        await secureAuthStorage.saveSession(
+          accessToken: response.accessToken,
+          refreshToken: newRefreshToken,
+          serverUrl: stored.serverUrl.isNotEmpty
+              ? stored.serverUrl
+              : apiClient.baseUrl,
+          userData: stored.userData,
+        );
+      }
+
       if (_currentUser != null) {
+        final previousPermissions =
+            (_currentUser!['effective_permissions'] as List?)?.cast<String>() ??
+            <String>[];
+
         _currentUser = {
           ..._currentUser!,
-          'effective_permissions': <String>[],
-          'profile_status': _profileLoading,
           'access_token': response.accessToken,
         };
         state = AsyncData(_currentUser);
         try {
-          _setCurrentUser(await authService.getMe(), response.accessToken);
-          // Update tokens in secure storage if session was remembered
-          final stored = await secureAuthStorage.getSession();
+          final freshUser = await authService.getMe();
+          _setCurrentUser(freshUser, response.accessToken);
           if (stored != null) {
             await secureAuthStorage.saveSession(
               accessToken: response.accessToken,
-              refreshToken: response.refreshToken.isNotEmpty
-                  ? response.refreshToken
-                  : stored.refreshToken,
-              serverUrl: stored.serverUrl,
-              userData: _currentUser!,
+              refreshToken: newRefreshToken,
+              serverUrl: stored.serverUrl.isNotEmpty
+                  ? stored.serverUrl
+                  : apiClient.baseUrl,
+              userData: freshUser.toJson(),
             );
           }
-        } catch (_, stackTrace) {
-          _currentUser = {
-            ..._currentUser!,
-            'effective_permissions': <String>[],
-            'profile_status': _profileError,
-          };
+        } catch (meErr, stackTrace) {
+          if (ApiClient.isTransientNetworkOrServerError(meErr)) {
+            _currentUser = {
+              ..._currentUser!,
+              'effective_permissions': previousPermissions,
+              'profile_status': _profileStale,
+              'access_token': response.accessToken,
+            };
+          } else {
+            _currentUser = {
+              ..._currentUser!,
+              'effective_permissions': <String>[],
+              'profile_status': _profileError,
+              'access_token': response.accessToken,
+            };
+          }
           state = AsyncData(_currentUser);
           developer.log(
-            'Profile refresh failed; access remains blocked until profile reload.',
+            'Profile refresh failed after token rotation.',
             name: 'AuthRepository',
             stackTrace: stackTrace,
           );
         }
       }
       return response;
-    } catch (_, stackTrace) {
+    } catch (e, stackTrace) {
       developer.log(
         'Token refresh failed.',
         name: 'AuthRepository',
         stackTrace: stackTrace,
       );
+      if (ApiClient.isTransientNetworkOrServerError(e)) {
+        // Rethrow transient network/server errors so ApiClient keeps the
+        // refresh token and active session intact for retry.
+        rethrow;
+      }
+      await secureAuthStorage.clearSession();
       return null;
     }
   }
@@ -116,6 +157,28 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   void _handleUnauthorized() {
     _currentUser = null;
     state = null;
+    secureAuthStorage.clearSession();
+  }
+
+  bool _restoreCachedUserIfAvailable(StoredSession stored) {
+    if (stored.userData.isEmpty) {
+      return false;
+    }
+    try {
+      final cachedUser = AuthUser.fromJson(stored.userData);
+      if (cachedUser.id.isEmpty && cachedUser.email.isEmpty) {
+        return false;
+      }
+      final activeToken = apiClient.token ?? stored.accessToken;
+      _setCurrentUser(
+        cachedUser,
+        activeToken,
+        profileStatusOverride: _profileStale,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Restores session on app startup if "Ingat Saya" was active.
@@ -129,7 +192,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         final lastSavedUrl = await preferencesStorage.getLastApiUrl();
         if (lastSavedUrl != null && lastSavedUrl.isNotEmpty) {
           if (UrlUtils.validateUrl(lastSavedUrl) == null) {
-            currentUrl = lastSavedUrl;
+            currentUrl = UrlUtils.normalizeUrl(lastSavedUrl);
             apiClient.setBaseUrl(currentUrl);
           }
         }
@@ -143,49 +206,86 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       }
 
       final stored = await secureAuthStorage.getSession();
-      if (stored == null || stored.accessToken.isEmpty) {
+      if (stored == null ||
+          (stored.accessToken.isEmpty && stored.refreshToken.isEmpty)) {
         return false;
       }
 
       // If server changed, do NOT send old server tokens to new server!
       if (currentUrl.isNotEmpty &&
           stored.serverUrl.isNotEmpty &&
-          currentUrl != stored.serverUrl) {
+          UrlUtils.normalizeUrl(currentUrl) !=
+              UrlUtils.normalizeUrl(stored.serverUrl)) {
         await secureAuthStorage.clearSession();
         return false;
       }
 
-      apiClient.setToken(stored.accessToken);
+      if (currentUrl.isEmpty && stored.serverUrl.isNotEmpty) {
+        currentUrl = UrlUtils.normalizeUrl(stored.serverUrl);
+        apiClient.setBaseUrl(currentUrl);
+      }
+
+      if (stored.accessToken.isNotEmpty) {
+        apiClient.setToken(stored.accessToken);
+      }
       if (stored.refreshToken.isNotEmpty) {
         apiClient.setRefreshToken(stored.refreshToken);
       }
 
       try {
         final user = await authService.getMe();
-        _setCurrentUser(user, stored.accessToken);
+        final activeAccessToken = apiClient.token ?? stored.accessToken;
+        final activeRefreshToken =
+            apiClient.refreshToken ?? stored.refreshToken;
+        _setCurrentUser(user, activeAccessToken);
+        await secureAuthStorage.saveSession(
+          accessToken: activeAccessToken,
+          refreshToken: activeRefreshToken,
+          serverUrl: currentUrl.isNotEmpty ? currentUrl : stored.serverUrl,
+          userData: user.toJson(),
+        );
         return true;
-      } catch (_) {
-        // Access token might be expired, try refresh token
-        if (stored.refreshToken.isNotEmpty) {
-          try {
-            final refreshed = await authService.refreshToken(
-              stored.refreshToken,
-            );
-            final user = await authService.getMe();
-            _setCurrentUser(user, refreshed.accessToken);
-            await secureAuthStorage.saveSession(
-              accessToken: refreshed.accessToken,
-              refreshToken: refreshed.refreshToken.isNotEmpty
-                  ? refreshed.refreshToken
-                  : stored.refreshToken,
-              serverUrl: stored.serverUrl,
-              userData: user.toJson(),
-            );
-            return true;
-          } catch (_) {}
+      } catch (meError) {
+        // If getMe() failed due to a transient network/server error, do NOT
+        // wipe stored credentials or force re-login. Restore from cached
+        // user profile if available and keep tokens for retry.
+        if (ApiClient.isTransientNetworkOrServerError(meError)) {
+          return _restoreCachedUserIfAvailable(stored);
         }
 
-        // Restore failed, clear tokens and stored session
+        // Only attempt manual refresh if the 401 interceptor did not already
+        // consume and clear apiClient.refreshToken.
+        final remainingRefreshToken = apiClient.refreshToken;
+        if (remainingRefreshToken != null && remainingRefreshToken.isNotEmpty) {
+          try {
+            final refreshed = await _refreshTokens(remainingRefreshToken);
+            if (refreshed != null) {
+              final user = await authService.getMe();
+              final activeAccessToken =
+                  apiClient.token ?? refreshed.accessToken;
+              final activeRefreshToken =
+                  apiClient.refreshToken ??
+                  (refreshed.refreshToken.isNotEmpty
+                      ? refreshed.refreshToken
+                      : remainingRefreshToken);
+              _setCurrentUser(user, activeAccessToken);
+              await secureAuthStorage.saveSession(
+                accessToken: activeAccessToken,
+                refreshToken: activeRefreshToken,
+                serverUrl:
+                    currentUrl.isNotEmpty ? currentUrl : stored.serverUrl,
+                userData: user.toJson(),
+              );
+              return true;
+            }
+          } catch (refreshErr) {
+            if (ApiClient.isTransientNetworkOrServerError(refreshErr)) {
+              return _restoreCachedUserIfAvailable(stored);
+            }
+          }
+        }
+
+        // Permanent authentication failure (revoked/expired refresh token):
         apiClient.clearAllTokens();
         await secureAuthStorage.clearSession();
         _currentUser = null;
@@ -383,7 +483,11 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     }
   }
 
-  void _setCurrentUser(AuthUser user, String accessToken) {
+  void _setCurrentUser(
+    AuthUser user,
+    String accessToken, {
+    String? profileStatusOverride,
+  }) {
     _currentUser = {
       'id': user.id,
       'email': user.email,
@@ -394,9 +498,10 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       'jabatan': user.jabatan,
       'house_number': user.houseNumber,
       'effective_permissions': user.effectivePermissions,
-      'profile_status': user.effectivePermissionsAvailable
-          ? _profileReady
-          : _profilePermissionsUnavailable,
+      'profile_status': profileStatusOverride ??
+          (user.effectivePermissionsAvailable
+              ? _profileReady
+              : _profilePermissionsUnavailable),
       'rt_id': user.rtId,
       'rt': user.rtCode,
       'rt_name': user.rtName,
@@ -409,32 +514,87 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
     state = AsyncData(_currentUser);
   }
 
-  Future<void> reloadProfile() async {
+  Future<void> reloadProfile() {
+    if (_profileReloadFuture != null) {
+      return _profileReloadFuture!;
+    }
+    final future = _doReloadProfile();
+    _profileReloadFuture = future;
+    return future.whenComplete(() {
+      if (identical(_profileReloadFuture, future)) {
+        _profileReloadFuture = null;
+      }
+    });
+  }
+
+  Future<void> _doReloadProfile() async {
     final currentUser = _currentUser;
     final accessToken = apiClient.token;
     if (currentUser == null || accessToken == null) return;
 
+    final previousPermissions =
+        (currentUser['effective_permissions'] as List?)?.cast<String>() ??
+        <String>[];
+    final previousStatus =
+        currentUser['profile_status'] as String? ?? _profileReady;
+
     _currentUser = {
       ...currentUser,
-      'effective_permissions': <String>[],
+      'effective_permissions': previousPermissions,
       'profile_status': _profileLoading,
     };
     state = AsyncData(_currentUser);
 
     try {
-      _setCurrentUser(await authService.getMe(), accessToken);
-    } catch (_, stackTrace) {
-      _currentUser = {
-        ..._currentUser!,
-        'effective_permissions': <String>[],
-        'profile_status': _profileError,
-      };
-      state = AsyncData(_currentUser);
-      developer.log(
-        'Profile reload failed; access remains blocked.',
-        name: 'AuthRepository',
-        stackTrace: stackTrace,
-      );
+      final freshUser = await authService.getMe();
+      final activeAccessToken = apiClient.token ?? accessToken;
+      _setCurrentUser(freshUser, activeAccessToken);
+      final stored = await secureAuthStorage.getSession();
+      if (stored != null) {
+        final activeRefreshToken =
+            apiClient.refreshToken ?? stored.refreshToken;
+        await secureAuthStorage.saveSession(
+          accessToken: activeAccessToken,
+          refreshToken: activeRefreshToken,
+          serverUrl: stored.serverUrl.isNotEmpty
+              ? stored.serverUrl
+              : apiClient.baseUrl,
+          userData: freshUser.toJson(),
+        );
+      }
+    } catch (err, stackTrace) {
+      if (_currentUser == null) {
+        // Session was cleared permanently (e.g. 401 refresh failure triggered
+        // _handleUnauthorized). Do not resurrect _currentUser.
+        return;
+      }
+      if (ApiClient.isTransientNetworkOrServerError(err)) {
+        _currentUser = {
+          ..._currentUser!,
+          'effective_permissions': previousPermissions,
+          'profile_status': previousStatus == _profileError
+              ? _profileError
+              : _profileStale,
+        };
+        state = AsyncData(_currentUser);
+        developer.log(
+          'Profile reload failed due to transient network error; cached profile retained as stale.',
+          name: 'AuthRepository',
+          stackTrace: stackTrace,
+        );
+      } else {
+        _currentUser = {
+          ..._currentUser!,
+          'effective_permissions': <String>[],
+          'profile_status': _profileError,
+        };
+        state = AsyncData(_currentUser);
+        developer.log(
+          'Profile reload failed; access remains blocked.',
+          name: 'AuthRepository',
+          stackTrace: stackTrace,
+        );
+      }
     }
   }
 

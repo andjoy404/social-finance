@@ -34,6 +34,8 @@ services:
       - FCM_CREDENTIALS_FILE=/run/secrets/fcm-service-account.json
       - FCM_PROJECT_ID=${FCM_PROJECT_ID:-social-finance-urena}
       - FCM_CREDENTIALS=${FCM_CREDENTIALS:-}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
+      - API_PUBLIC_URL=${API_PUBLIC_URL:-}
       - TZ=Asia/Jakarta
     depends_on:
       postgres:
@@ -84,6 +86,8 @@ services:
       - FCM_CREDENTIALS_FILE=/run/secrets/fcm-service-account.json
       - FCM_PROJECT_ID=${FCM_PROJECT_ID:-social-finance-urena}
       - FCM_CREDENTIALS=${FCM_CREDENTIALS:-}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
+      - API_PUBLIC_URL=${API_PUBLIC_URL:-}
       - TZ=Asia/Jakarta
     depends_on:
       postgres:

@@ -1222,7 +1222,7 @@ func ResidentCreate(ctx context.Context, tx *sql.Tx, in CreateResidentInput, rtI
 }
 
 // ResidentGetByID finds an active resident by UUID within the given RT,
-// projecting current household and relationship.
+// projecting current household and occupancy.
 func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Resident, error) {
 	var item Resident
 	var hhID, userID, jabatanStr, occStatusStr, houseNumStr sql.NullString

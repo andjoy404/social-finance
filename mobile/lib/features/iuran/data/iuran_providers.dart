@@ -59,6 +59,9 @@ final iuranSelectedStatusProvider = StateProvider<String>((ref) => '');
 /// Selected payment status filter ('', 'pending', 'approved', 'rejected').
 final iuranSelectedPaymentStatusProvider = StateProvider<String>((ref) => '');
 
+/// Filter expanded state per tab index (0=Iuran Saya, 1=Iuran Warga).
+final iuranFilterExpandedProvider = StateProvider.family<bool, int>((ref, index) => false);
+
 // ─── Pending Payments (for verification) ────────────────────────────
 
 /// Loads all PENDING payments for verification by bendahara/pengurus.

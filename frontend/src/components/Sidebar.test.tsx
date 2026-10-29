@@ -212,12 +212,12 @@ describe('Sidebar — navigation items', () => {
     expect(buttons.length).toBe(1) // pin toggle
   })
 
-  it('has exactly 6 nav items for SuperAdmin: Beranda, Warga, Iuran, KAS, Kelola RT, Kelola RW', () => {
+  it('has exactly 8 nav items for SuperAdmin: Beranda, Warga, Iuran, KAS, Lokasi Dana, Notifikasi, Kelola RT, Kelola RW', () => {
     renderSidebar(mockSuperAdminUser)
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(6) // Beranda, Warga, Iuran, KAS, Kelola RT, Kelola RW
+    expect(links.length).toBe(8) // Beranda, Warga, Iuran, KAS, Lokasi Dana, Notifikasi, Kelola RT, Kelola RW
     expect(buttons.length).toBe(1) // pin toggle
   })
 

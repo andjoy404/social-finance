@@ -310,30 +310,42 @@ func (h *Handler) CreateDue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	handled, rec, idem := HandleIdempotentRequest(r.Context(), h.pool, ac.RTID, ac.UserID, w, r)
+	if handled {
+		return
+	}
+	defer idem.Finish()
+
+	targetW := w
+	if rec != nil {
+		targetW = rec
+	}
+
 	var in CreateDueInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		httpx.WriteValidationError(w, "invalid request body", nil)
+		httpx.WriteValidationError(targetW, "invalid request body", nil)
 		return
 	}
 
 	tx, err := h.pool.BeginTx(r.Context())
 	if err != nil {
-		httpx.WriteInternalServerError(w, "transaction error")
+		httpx.WriteInternalServerError(targetW, "transaction error")
 		return
 	}
 	defer tx.Rollback()
 
 	due, err := h.svc.CreateDue(r.Context(), tx, ac.RTID, ac.UserID, in)
 	if err != nil {
-		httpx.WriteValidationError(w, err.Error(), nil)
+		httpx.WriteValidationError(targetW, err.Error(), nil)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		httpx.WriteInternalServerError(w, "commit error")
+		httpx.WriteInternalServerError(targetW, "commit error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, due)
+
+	writeJSON(targetW, http.StatusCreated, due)
 }
 
 func (h *Handler) UpdateDue(w http.ResponseWriter, r *http.Request) {
@@ -421,6 +433,92 @@ func (h *Handler) DeactivateDue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) GetDueMonths(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	months, err := h.svc.GetDueMonths(r.Context(), tx, id, ac.RTID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "due not found")
+			return
+		}
+		httpx.WriteInternalServerError(w, err.Error())
+		return
+	}
+
+	_ = tx.Commit()
+	writeJSON(w, http.StatusOK, map[string]any{"data": months})
+}
+
+func (h *Handler) UpdateDuePeriodStatus(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	period := chi.URLParam(r, "period")
+	if id == "" || period == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id and period are required")
+		return
+	}
+
+	var in UpdateBillStatusInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	months, err := h.svc.UpdateDuePeriodStatus(r.Context(), tx, ac.RTID, ac.UserID, id, period, in)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "due not found")
+			return
+		}
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteInternalServerError(w, "commit error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": months})
 }
 
 // hasStaffFinancePermission determines whether the authenticated user has staff-level
@@ -514,6 +612,12 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		if dn := r.URL.Query().Get("due_name"); dn != "" {
 			dueName = &dn
 		}
+		var isActive *bool
+		if ia := r.URL.Query().Get("is_active"); ia != "" {
+			if v, err := strconv.ParseBool(ia); err == nil {
+				isActive = &v
+			}
+		}
 
 		tx, err := h.pool.BeginTx(r.Context())
 		if err != nil {
@@ -533,14 +637,16 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		var total int
 		var bills []*Bill
 
+		order := r.URL.Query().Get("order")
+
 		if rtQuery != "" {
 			// Tenant-scoped query for specific RT (cross-tenant admin filtering)
-			total, err = BillCount(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName)
+			total, err = BillCount(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
-			bills, err = BillList(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, offset, pageSize)
+			bills, err = BillList(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive, offset, pageSize, order)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
@@ -552,7 +658,7 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
-			bills, err = BillListAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName, offset, pageSize)
+			bills, err = BillListAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName, offset, pageSize, order)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
@@ -591,11 +697,14 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var occupancyID *string
-	// If not staff (ordinary citizen) or explicit ?my_bills=true, restrict strictly to user's own active household occupancy!
-	if !isStaff || r.URL.Query().Get("my_bills") == "true" {
+	myBillsOnly := r.URL.Query().Get("my_bills") == "true"
+	// All warga are restricted to their own household occupancy.
+	// Staff (bendahara, ketua) can see all bills in the RT, but when
+	// ?my_bills=true they also want to see only their own household bills.
+	if !isStaff || myBillsOnly {
 		occID, err := GetOccupancyIDForUser(r.Context(), tx, ac.RTID, ac.UserID)
 		if err != nil || occID == "" {
-			// No occupancy tied to warga -> empty collection
+			// No occupancy tied to user -> empty collection
 			writeJSON(w, http.StatusOK, map[string]any{
 				"data": []*Bill{},
 				"pagination": map[string]any{
@@ -606,7 +715,7 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		}
 		occupancyID = &occID
 	} else if o := r.URL.Query().Get("household_occupancy_id"); o != "" {
-		occupancyID = &o
+		occupancyID = &o // Staff management: filter to specific household_occupancy_id
 	}
 
 	var dueID *string
@@ -636,17 +745,28 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	if dn := r.URL.Query().Get("due_name"); dn != "" {
 		dueName = &dn
 	}
+	var isActive *bool
+	if ia := r.URL.Query().Get("is_active"); ia != "" {
+		if v, err := strconv.ParseBool(ia); err == nil {
+			isActive = &v
+		}
+	} else if myBillsOnly {
+		activeTrue := true
+		isActive = &activeTrue
+	}
 
 	page, pageSize := parsePagination(r)
 	offset := (page - 1) * pageSize
 
-	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName)
+	order := r.URL.Query().Get("order")
+
+	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
 
-	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, offset, pageSize)
+	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive, offset, pageSize, order)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
@@ -728,6 +848,53 @@ func (h *Handler) GetBill(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	writeJSON(w, http.StatusOK, bill)
+}
+
+func (h *Handler) UpdateBillStatus(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !requireTenantContext(ac, w) {
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+
+	var in UpdateBillStatusInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	tx, err := h.pool.BeginTx(r.Context())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	bill, err := h.svc.UpdateBillStatus(r.Context(), tx, ac.RTID, ac.UserID, id, in)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			httpx.WriteNotFound(w, "bill not found")
+			return
+		}
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteInternalServerError(w, "commit error")
+		return
+	}
 	writeJSON(w, http.StatusOK, bill)
 }
 

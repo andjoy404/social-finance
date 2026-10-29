@@ -151,6 +151,41 @@ class IuranApiClient {
     await dio.delete('/api/v1/dues/$id');
   }
 
+  /// GET /api/v1/dues/{id}/months
+  Future<List<DueMonthSummary>> getDueMonths(String dueId) async {
+    final response = await dio.get('/api/v1/dues/$dueId/months');
+    final data = response.data;
+    if (data is! Map || data['data'] is! List) {
+      throw const FormatException('Unexpected due months response');
+    }
+    final list = data['data'] as List;
+    return list
+        .whereType<Map>()
+        .map((item) => DueMonthSummary.fromJson(item.cast<String, dynamic>()))
+        .toList();
+  }
+
+  /// PATCH /api/v1/dues/{id}/periods/{period}/status
+  Future<List<DueMonthSummary>> updateDuePeriodStatus(
+    String dueId,
+    String period, {
+    required bool isActive,
+  }) async {
+    final response = await dio.patch(
+      '/api/v1/dues/$dueId/periods/$period/status',
+      data: {'is_active': isActive},
+    );
+    final data = response.data;
+    if (data is! Map || data['data'] is! List) {
+      throw const FormatException('Unexpected due months status update response');
+    }
+    final list = data['data'] as List;
+    return list
+        .whereType<Map>()
+        .map((item) => DueMonthSummary.fromJson(item.cast<String, dynamic>()))
+        .toList();
+  }
+
   // ─── Bills ──────────────────────────────────────────────────────────
 
   /// GET /api/v1/bills

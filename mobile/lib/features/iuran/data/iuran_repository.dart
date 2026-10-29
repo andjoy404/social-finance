@@ -84,6 +84,18 @@ class IuranRepository {
     );
   }
 
+  Future<List<DueMonthSummary>> fetchDueMonths(String dueId) async {
+    return apiClient.getDueMonths(dueId);
+  }
+
+  Future<List<DueMonthSummary>> updateDuePeriodStatus(
+    String dueId,
+    String period, {
+    required bool isActive,
+  }) async {
+    return apiClient.updateDuePeriodStatus(dueId, period, isActive: isActive);
+  }
+
   /// Fetch paginated bills with computed paidAmount per bill.
   ///
   /// paidAmount is computed from approved payments (NOT a backend field).

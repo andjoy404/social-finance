@@ -8,7 +8,8 @@ class AuthService {
   final ApiClient client;
   final DeviceIdService deviceIdService;
 
-  AuthService(this.client, this.deviceIdService);
+  AuthService(this.client, [DeviceIdService? deviceIdService])
+    : deviceIdService = deviceIdService ?? DeviceIdService();
 
   /// Authenticates using email or phone number.
   Future<LoginResponse> login({

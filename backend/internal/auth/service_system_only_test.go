@@ -47,7 +47,7 @@ func TestSystemOnlyLogin_ReturnsRefreshToken(t *testing.T) {
 	}
 	defer tx2.Rollback()
 
-	result, err := svc.Login(ctx, tx2, email, "TestUser123!")
+	result, err := svc.Login(ctx, tx2, email, "TestUser123!", "")
 	if err != nil {
 		t.Fatalf("Login returned error: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSystemOnlyLogin_TokenStoredWithNullMembership(t *testing.T) {
 	}
 	defer tx2.Rollback()
 
-	result, err := svc.Login(ctx, tx2, email, "TestUser123!")
+	result, err := svc.Login(ctx, tx2, email, "TestUser123!", "")
 	if err != nil {
 		t.Fatalf("Login returned error: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestSystemOnlyRefresh_Success(t *testing.T) {
 	}
 	defer tx1.Rollback()
 
-	loginResult, err := svc.Login(ctx, tx1, email, "TestUser123!")
+	loginResult, err := svc.Login(ctx, tx1, email, "TestUser123!", "")
 	if err != nil {
 		t.Fatalf("Login returned error: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestSystemOnlyRefresh_Success(t *testing.T) {
 	}
 	defer tx2.Rollback()
 
-	refreshResult, err := svc.Refresh(ctx, tx2, loginResult.RefreshToken)
+	refreshResult, err := svc.Refresh(ctx, tx2, loginResult.RefreshToken, "")
 	if err != nil {
 		t.Fatalf("Refresh returned error: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestSystemOnlyRefresh_OldTokenRejected(t *testing.T) {
 	}
 	defer tx1.Rollback()
 
-	loginResult, err := svc.Login(ctx, tx1, email, "TestUser123!")
+	loginResult, err := svc.Login(ctx, tx1, email, "TestUser123!", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestSystemOnlyRefresh_OldTokenRejected(t *testing.T) {
 	}
 	defer tx2.Rollback()
 
-	if _, err := svc.Refresh(ctx, tx2, loginResult.RefreshToken); err != nil {
+	if _, err := svc.Refresh(ctx, tx2, loginResult.RefreshToken, ""); err != nil {
 		t.Fatalf("first refresh: %v", err)
 	}
 	if err := tx2.Commit(); err != nil {
@@ -315,7 +315,7 @@ func TestSystemOnlyRefresh_OldTokenRejected(t *testing.T) {
 	}
 	defer tx3.Rollback()
 
-	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken)
+	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken, "")
 	if err == nil {
 		t.Fatal("expected error when reusing old refresh token")
 	}
@@ -364,7 +364,7 @@ func TestSystemOnlyRefresh_InactiveUserRejected(t *testing.T) {
 	}
 	defer tx1.Rollback()
 
-	loginResult, err := svc.Login(ctx, tx1, email, "TestUser123!")
+	loginResult, err := svc.Login(ctx, tx1, email, "TestUser123!", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestSystemOnlyRefresh_InactiveUserRejected(t *testing.T) {
 	}
 	defer tx3.Rollback()
 
-	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken)
+	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken, "")
 	if err == nil {
 		t.Fatal("expected error when refreshing with inactive user")
 	}
@@ -436,7 +436,7 @@ func TestSystemOnlyRefresh_RotatedTokenStoredAsNULL(t *testing.T) {
 	}
 	defer tx1.Rollback()
 
-	loginResult, err := svc.Login(ctx, tx1, email, "TestUser123!")
+	loginResult, err := svc.Login(ctx, tx1, email, "TestUser123!", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestSystemOnlyRefresh_RotatedTokenStoredAsNULL(t *testing.T) {
 	}
 	defer tx2.Rollback()
 
-	refreshResult, err := svc.Refresh(ctx, tx2, loginResult.RefreshToken)
+	refreshResult, err := svc.Refresh(ctx, tx2, loginResult.RefreshToken, "")
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestSystemOnlyLogout_RevsAllTokens(t *testing.T) {
 	}
 	defer tx1.Rollback()
 
-	loginResult, err := svc.Login(ctx, tx1, sysEmail, "TestUser123!")
+	loginResult, err := svc.Login(ctx, tx1, sysEmail, "TestUser123!", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -597,7 +597,7 @@ func TestSystemOnlyLogout_RevsAllTokens(t *testing.T) {
 	}
 	defer tx3.Rollback()
 
-	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken)
+	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken, "")
 	if err == nil {
 		t.Fatal("expected error when refreshing revoked token")
 	}
@@ -665,7 +665,7 @@ func TestMemberLogout_Unaffected(t *testing.T) {
 	}
 	defer tx1.Rollback()
 
-	loginResult, err := svc.Login(ctx, tx1, memberEmail, "TestUser123!")
+	loginResult, err := svc.Login(ctx, tx1, memberEmail, "TestUser123!", "")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
@@ -708,7 +708,7 @@ func TestMemberLogout_Unaffected(t *testing.T) {
 	}
 	defer tx3.Rollback()
 
-	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken)
+	_, err = svc.Refresh(ctx, tx3, loginResult.RefreshToken, "")
 	if err == nil {
 		t.Fatal("expected error when refreshing revoked token")
 	}

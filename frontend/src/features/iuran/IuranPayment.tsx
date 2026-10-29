@@ -849,6 +849,7 @@ export function IuranPayment({
           isVoluntary,
           dueId: apiBill.due_id,
           dueIsActive: apiBill.due_is_active ?? true,
+          isActive: apiBill.is_active ?? true,
           dueType: (apiBill.due_type as DueType) ?? (isVoluntary ? 'voluntary' : 'regular'),
           year: apiBill.due_year ?? undefined,
           payments: [],
@@ -894,6 +895,7 @@ export function IuranPayment({
                 household_occupancy_id: apiBill.household_occupancy_id,
                 due_id: apiBill.due_id,
                 status: 'unpaid',
+                is_active: true,
                 page_size: 50,
               })
               if (!cancelled && listRes?.data) {
@@ -901,9 +903,10 @@ export function IuranPayment({
                   (b) =>
                     b.household_occupancy_id === apiBill.household_occupancy_id &&
                     b.due_id === apiBill.due_id &&
-                    b.status === 'unpaid'
+                    b.status === 'unpaid' &&
+                    b.is_active !== false
                 )
-                if (apiBill.status === 'unpaid' && !matched.some((b) => b.id === apiBill.id)) {
+                if (apiBill.status === 'unpaid' && apiBill.is_active !== false && !matched.some((b) => b.id === apiBill.id)) {
                   matched.push(apiBill)
                 }
                 matched.sort((a, b) => a.period.localeCompare(b.period))

@@ -1,4 +1,4 @@
-export type IuranStatus = 'belum_bayar' | 'sebagian' | 'lunas' | 'dibatalkan' | 'sukarela'
+export type IuranStatus = 'belum_bayar' | 'menunggu_verifikasi' | 'sebagian' | 'lunas' | 'dibatalkan' | 'sukarela'
 
 // Backend BillStatus → Frontend IuranStatus mapping
 export const BACKEND_STATUS_MAP: Record<string, IuranStatus> = {
@@ -13,6 +13,8 @@ export function getStatusVariant(status: IuranStatus): 'red' | 'amber' | 'green'
   switch (status) {
     case 'belum_bayar':
       return 'red'
+    case 'menunggu_verifikasi':
+      return 'amber'
     case 'sebagian':
       return 'amber'
     case 'lunas':
@@ -67,8 +69,30 @@ export interface IuranBill {
   isVoluntary?: boolean
   dueId?: string
   dueIsActive?: boolean
+  isActive?: boolean
   dueType?: DueType
   year?: number
+}
+
+// Due type → frontend badge label
+export function getDueTypeLabel(dueType?: DueType | null): string {
+  switch (dueType) {
+    case 'multi_month': return 'Multi-Bulan'
+    case 'voluntary': return 'Sukarela'
+    case 'regular':
+    default: return 'Reguler'
+  }
+}
+
+const DUE_TYPE_VARIANTS: Record<DueType, 'green' | 'blue' | 'violet'> = {
+  regular: 'green',
+  voluntary: 'blue',
+  multi_month: 'violet',
+}
+
+// Due type → frontend badge variant
+export function getDueTypeVariant(dueType?: DueType | null): 'green' | 'blue' | 'violet' {
+  return (dueType && DUE_TYPE_VARIANTS[dueType]) ?? 'green'
 }
 
 export type DueType = 'regular' | 'voluntary' | 'multi_month'

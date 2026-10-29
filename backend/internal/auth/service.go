@@ -112,7 +112,19 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 	} else if len(memberships) == 1 {
 		m = &memberships[0]
 	} else {
-		return nil, ErrMultipleMemberships
+		if user.SystemRole == SystemRoleSuperAdmin {
+			for i := range memberships {
+				if memberships[i].RTID == "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b" {
+					m = &memberships[i]
+					break
+				}
+			}
+			if m == nil {
+				m = &memberships[0]
+			}
+		} else {
+			return nil, ErrMultipleMemberships
+		}
 	}
 
 	// --- Case: member login ---

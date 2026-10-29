@@ -58,6 +58,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.person_outline,
     activeIcon: Icons.person,
   );
+  static const _notifikasiTab = _NavRoute(
+    path: '/home/notifikasi',
+    label: 'Notifikasi',
+    icon: Icons.notifications_outlined,
+    activeIcon: Icons.notifications,
+  );
 
   bool _canAccessLokasiDana(Map<String, dynamic>? user) {
     if (user == null) return false;
@@ -71,21 +77,31 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         jabatan == 'bendahara';
   }
 
+  bool _canAccessNotifikasi(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final systemRole = user['system_role'] as String?;
+    final jabatan = (user['jabatan'] ?? '').toString().toLowerCase();
+    return systemRole == 'super_admin' || jabatan == 'ketua';
+  }
+
   List<_NavRoute> _getActiveTabs() {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     if (isAllowedRT(user)) {
-      if (_canAccessLokasiDana(user)) {
-        return const [
-          _homeTab,
-          _kasTab,
-          _lokasiTab,
-          _iuranTab,
-          _wargaTab,
-          _profileTab,
-        ];
+      final canLokasiDana = _canAccessLokasiDana(user);
+      final canNotifikasi = _canAccessNotifikasi(user);
+      final tabs = <_NavRoute>[
+        _homeTab,
+        _kasTab,
+        if (canLokasiDana) _lokasiTab,
+        _iuranTab,
+        _wargaTab,
+      ];
+      if (canNotifikasi) {
+        tabs.insert(tabs.length - 1, _notifikasiTab);
       }
-      return const [_homeTab, _kasTab, _iuranTab, _wargaTab, _profileTab];
+      tabs.add(_profileTab);
+      return tabs;
     }
     return const [_homeTab, _profileTab];
   }
@@ -139,13 +155,72 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
 
     _currentMatch = currentMatch;
 
+    final user = ref.watch(authRepositoryProvider)?.valueOrNull;
+    final profileStatus = user?['profile_status'] as String?;
+    final showOfflineSyncBanner =
+        profileStatus == 'stale' || profileStatus == 'error';
+
     return DoubleBackExitScope(
       allowPop: !_isDirectlyOnTopLevelTab(location, tabs),
       child: Scaffold(
         key: _scaffoldKey,
         body: SafeArea(
           bottom: false,
-          child: widget.child,
+          child: Column(
+            children: [
+              if (showOfflineSyncBanner)
+                Material(
+                  color: AppColors.warning.withValues(alpha: 0.14),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.cloud_off_outlined,
+                          size: 16,
+                          color: AppColors.warning,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            profileStatus == 'stale'
+                                ? 'Menampilkan profil tersimpan (koneksi belum stabil).'
+                                : 'Sinkronisasi profil tertunda. Periksa koneksi Anda.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: const Size(0, 28),
+                          ),
+                          onPressed: () {
+                            ref
+                                .read(authRepositoryProvider.notifier)
+                                .reloadProfile();
+                          },
+                          child: const Text(
+                            'Segarkan',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              Expanded(child: widget.child),
+            ],
+          ),
         ),
         bottomNavigationBar: BottomAppBar(
           child: Row(

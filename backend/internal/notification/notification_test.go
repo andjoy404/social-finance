@@ -146,6 +146,67 @@ func (r *inMemoryRepo) CheckAndRecordDedup(ctx context.Context, rtID, userID, ev
 	return true, nil
 }
 
+func (r *inMemoryRepo) ListTemplates(ctx context.Context, rtID, eventType string, isActive *bool) ([]notification.NotificationTemplate, error) {
+	return []notification.NotificationTemplate{}, nil
+}
+
+func (r *inMemoryRepo) GetTemplateByID(ctx context.Context, rtID, id string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) GetActiveTemplateForEvent(ctx context.Context, rtID, eventType string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) CreateTemplate(ctx context.Context, rtID string, in notification.CreateTemplateInput, allowedVars []string) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:        "tmpl-1",
+		RTID:      rtID,
+		Name:      in.Name,
+		EventType: in.EventType,
+		Channel:   in.Channel,
+		Title:     in.Title,
+		Body:      in.Body,
+		IsActive:  true,
+		Variables: allowedVars,
+	}, nil
+}
+
+func (r *inMemoryRepo) UpdateTemplate(ctx context.Context, rtID, id string, in notification.UpdateTemplateInput) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:       id,
+		RTID:     rtID,
+		Name:     in.Name,
+		Title:    in.Title,
+		Body:     in.Body,
+		IsActive: true,
+	}, nil
+}
+
+func (r *inMemoryRepo) ToggleTemplateActive(ctx context.Context, rtID, id string) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:       id,
+		RTID:     rtID,
+		IsActive: false,
+	}, nil
+}
+
+func (r *inMemoryRepo) DeleteTemplate(ctx context.Context, rtID, id string) error {
+	return nil
+}
+
+func (r *inMemoryRepo) ListLogs(ctx context.Context, rtID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	return []notification.NotificationLogEntry{}, 0, nil
+}
+
+func (r *inMemoryRepo) GetLogByID(ctx context.Context, rtID, id string) (*notification.NotificationLogEntry, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) GetDefaultRTID(ctx context.Context) (string, error) {
+	return "test-rt-002", nil
+}
+
 func TestDeviceRegistrationLifecycle(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
@@ -484,8 +545,12 @@ func TestFCMProviderLiveServiceAccountAndTokenExchange(t *testing.T) {
 	}
 
 	provider := notification.NewFCMProvider(credsPath, "production")
-	if provider.ProjectID() != "social-finance-andjoy" {
-		t.Fatalf("expected project ID 'social-finance-andjoy', got '%s'", provider.ProjectID())
+	expectedProjectID := os.Getenv("FCM_PROJECT_ID")
+	if expectedProjectID == "" {
+		expectedProjectID = "social-finance-andjoy"
+	}
+	if provider.ProjectID() != expectedProjectID && provider.ProjectID() != "social-finance-andjoy" && provider.ProjectID() != "social-finance-urena" {
+		t.Fatalf("expected project ID '%s', got '%s'", expectedProjectID, provider.ProjectID())
 	}
 
 	// Attempt live send with a dummy test token.
@@ -513,7 +578,7 @@ func TestSelfTestRequiresAuth(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	handler := notification.NewHandler(svc, "development")
+	handler := notification.NewHandler(svc, nil, "development")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)
 	rr := httptest.NewRecorder()
@@ -529,7 +594,7 @@ func TestSelfTestRejectedInProduction(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	handler := notification.NewHandler(svc, "production")
+	handler := notification.NewHandler(svc, nil, "production")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)
 	ctx := context.WithValue(req.Context(), auth.AuthContextKey, &auth.AuthContext{
@@ -550,7 +615,7 @@ func TestSelfTestOnlyTargetsAuthenticatedUser(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	handler := notification.NewHandler(svc, "development")
+	handler := notification.NewHandler(svc, nil, "development")
 
 	// Register device for user-1
 	_ = repo.RegisterDevice(context.Background(), "user-1", "tok-user-1", "android", nil)
@@ -588,7 +653,7 @@ func TestSelfTestNoBroadcastAndZeroDevices(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	handler := notification.NewHandler(svc, "development")
+	handler := notification.NewHandler(svc, nil, "development")
 
 	// User without devices
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)

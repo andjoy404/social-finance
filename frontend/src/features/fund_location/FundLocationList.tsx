@@ -46,13 +46,14 @@ import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
 
 export function FundLocationList() {
   const { user } = useAuth()
-  const isBendahara = user?.role === 'bendahara' || user?.jabatan === 'bendahara'
+  const isBendahara = user?.role === 'bendahara' || user?.jabatan === 'bendahara' || user?.systemRole === 'super_admin'
   const isPengurusOrBendahara = user?.role === 'bendahara' || user?.role === 'pengurus' || user?.systemRole === 'super_admin'
 
   const [activeTab, setActiveTab] = useState<'locations' | 'transfers'>('locations')
   const [locations, setLocations] = useState<FundLocation[]>([])
   const [transfers, setTransfers] = useState<FundTransfer[]>([])
   const [reconciliation, setReconciliation] = useState<ReconciliationReport | null>(null)
+  const [reconciliationError, setReconciliationError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -119,11 +120,14 @@ export function FundLocationList() {
     if (!token) return
     setLoading(true)
     setError(null)
+    setReconciliationError(null)
     loadErrorRef.current = false
     try {
       const [locs, rec, trans] = await Promise.all([
         apiListFundLocations(token),
-        apiGetFundLocationReconciliation(token).catch(() => null),
+        apiGetFundLocationReconciliation(token)
+          .then((data) => { setReconciliationError(null); return data })
+          .catch((err: any) => { setReconciliationError(err?.message || 'Gagal memuat rekonsiliasi kas'); return null }),
         apiListFundTransfers(token, { page: 1, page_size: 50 }).catch(() => ({ data: [], pagination: {} })),
       ])
       setLocations(locs)
@@ -539,6 +543,22 @@ export function FundLocationList() {
       </div>
 
       {/* Reconciliation Card */}
+      {reconciliationError && !reconciliation && (
+        <div style={{
+          background: 'rgba(242, 73, 92, 0.1)',
+          border: '1px solid var(--sf-danger)',
+          borderRadius: 8,
+          padding: 16,
+          marginBottom: 8,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <WarningOutlined style={{ color: 'var(--sf-danger)' }} />
+            <span style={{ color: 'var(--sf-danger)', fontSize: 12, fontWeight: 600 }}>
+              {reconciliationError}
+            </span>
+          </div>
+        </div>
+      )}
       {reconciliation && (
         <div style={{
           background: 'color-mix(in srgb, var(--sf-accent) 6%, var(--sf-bg))',
@@ -550,7 +570,7 @@ export function FundLocationList() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontWeight: 600, fontSize: 14 }}>Status Rekonsiliasi Kas:</span>
-              {reconciliation.status === 'MATCHED' && (
+              {reconciliation.status === 'MATCH' && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(115, 191, 105, 0.15)', color: 'var(--sf-success)', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
                   <CheckCircleOutlined /> Cocok Sempurna (100% Teralokasi)
                 </span>
@@ -560,7 +580,7 @@ export function FundLocationList() {
                   <InfoCircleOutlined /> Cocok dengan Catatan (Ada Kas Historis Belum Teralokasi)
                 </span>
               )}
-              {reconciliation.status === 'DISCREPANCY' && (
+              {reconciliation.status === 'DISCREPANCY_ANOMALY' && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(242, 73, 92, 0.15)', color: 'var(--sf-danger)', padding: '2px 8px', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
                   <WarningOutlined /> Selisih Ditemukan
                 </span>

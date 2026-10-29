@@ -63,7 +63,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final systemRole = user?['system_role'] as String?;
-    if (systemRole == 'super_admin') return false; // Super admin is read-only
+    if (systemRole == 'super_admin') return true;
     final role = user?['role'] as AppRole?;
     final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
     return role == AppRole.bendahara ||
@@ -75,6 +75,8 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
   bool _isBendahara(WidgetRef ref) {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
+    final systemRole = user?['system_role'] as String?;
+    if (systemRole == 'super_admin') return true;
     final role = user?['role'] as AppRole?;
     final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
     return role == AppRole.bendahara || jabatan == 'bendahara';

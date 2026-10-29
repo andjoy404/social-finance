@@ -69,8 +69,8 @@ func (h *Handler) resolveRTID(r *http.Request, ac *auth.AuthContext) string {
 }
 
 func (h *Handler) checkWriteAccess(ac *auth.AuthContext) error {
-	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
-		return ErrSuperAdminWriteBlocked
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return nil
 	}
 	if ac.TenantRole == auth.RoleWarga && ac.Jabatan == "" {
 		return ErrWargaBlocked
@@ -79,8 +79,8 @@ func (h *Handler) checkWriteAccess(ac *auth.AuthContext) error {
 }
 
 func (h *Handler) checkBendaharaAccess(ac *auth.AuthContext) error {
-	if ac.SystemRole == auth.SystemRoleSuperAdmin && ac.RTID == "" {
-		return ErrSuperAdminWriteBlocked
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return nil
 	}
 	if ac.TenantRole != auth.RoleBendahara && ac.Jabatan != auth.JabatanBendahara {
 		return errors.New("only bendahara can execute or reverse fund transfers")

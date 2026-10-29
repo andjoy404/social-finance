@@ -36,11 +36,11 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 	if summary1.ResidencyPeriodsCount != 12 {
 		t.Errorf("expected 12 residency periods, got %d", summary1.ResidencyPeriodsCount)
 	}
-	if summary1.UsersCount != 9 {
-		t.Errorf("expected 9 users, got %d", summary1.UsersCount)
+	if summary1.UsersCount != 8 {
+		t.Errorf("expected 8 users, got %d", summary1.UsersCount)
 	}
-	if summary1.MembershipsCount != 9 {
-		t.Errorf("expected 9 memberships, got %d", summary1.MembershipsCount)
+	if summary1.MembershipsCount != 8 {
+		t.Errorf("expected 8 memberships, got %d", summary1.MembershipsCount)
 	}
 
 	if summary1.PositionUsersCount != 16 {

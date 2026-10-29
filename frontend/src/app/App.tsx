@@ -18,6 +18,7 @@ import { HouseholdEdit } from '@/features/warga/HouseholdEdit'
 import { HouseholdMove } from '@/features/warga/HouseholdMove'
 import { SpecialResidentCreate } from '@/features/warga/SpecialResidentCreate'
 import { SpecialResidentEdit } from '@/features/warga/SpecialResidentEdit'
+import { NotificationScreen } from '@/features/notification/NotificationScreen'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -44,6 +45,19 @@ function AllowedRTRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
   if (!isAllowedRT(user)) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+function NotificationAdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  const isSuperAdmin = user?.systemRole === 'super_admin'
+  const isKetuaRT = user?.jabatan?.toLowerCase() === 'ketua'
+  if (!isSuperAdmin && !isKetuaRT) {
     return <Navigate to="/" replace />
   }
   return <>{children}</>
@@ -161,6 +175,14 @@ export function App() {
             <AllowedRTRoute>
               <FundLocationRoutes />
             </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="notifikasi"
+          element={
+            <NotificationAdminRoute>
+              <NotificationScreen />
+            </NotificationAdminRoute>
           }
         />
       </Route>

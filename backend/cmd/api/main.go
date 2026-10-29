@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -272,65 +273,56 @@ func runBootstrap() error {
 
 	}
 
-	// Check if a super_admin user already exists (users.system_role).
-
-	checkQ := `SELECT COUNT(*) > 0 FROM users WHERE system_role = 'super_admin' LIMIT 1`
-
-	var exists bool
-
-	if err := pool.Raw().QueryRowContext(context.Background(), checkQ).Scan(&exists); err != nil {
-
-		return fmt.Errorf("check existing admin: %w", err)
-
-	}
-
-	if exists {
-
-		slog.Info("bootstrap: super admin already exists, skipping")
-
-		return nil
-
-	}
-
-	// Hash the password.
-
-	hashed, err := auth.Hash(password)
-
-	if err != nil {
-
-		return fmt.Errorf("hash password: %w", err)
-
-	}
-
-	// Create user with system_role=super_admin (no fake membership).
-
 	tx, err := pool.BeginTx(context.Background())
-
 	if err != nil {
-
 		return fmt.Errorf("begin tx: %w", err)
-
 	}
-
 	defer tx.Rollback()
 
-	phone := "" // no phone for bootstrap user
+	// Check if a super_admin user with this email already exists.
+	var userID string
+	err = tx.QueryRowContext(context.Background(),
+		`SELECT id FROM users WHERE system_role = 'super_admin' AND email = $1 LIMIT 1`, email).Scan(&userID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("check existing admin: %w", err)
+	}
 
-	userID, err := auth.CreateNewUser(context.Background(), tx, email, &phone, hashed, name, "super_admin")
+	if userID == "" {
+		// Hash the password and create user.
+		hashed, err := auth.Hash(password)
+		if err != nil {
+			return fmt.Errorf("hash password: %w", err)
+		}
+		phone := ""
+		userID, err = auth.CreateNewUser(context.Background(), tx, email, &phone, hashed, name, "super_admin")
+		if err != nil {
+			return fmt.Errorf("create user: %w", err)
+		}
+		slog.Info("bootstrap: super admin user created", "user_id", userID, "email", email)
+	} else {
+		slog.Info("bootstrap: super admin already exists", "user_id", userID)
+	}
 
-	if err != nil {
-
-		return fmt.Errorf("create user: %w", err)
-
+	// Ensure membership in canonical RT 002 if it exists in database.
+	rt002ID, errRT := devseed.ResolveCanonicalUrenaRT(context.Background(), tx)
+	if errRT != nil && !errors.Is(errRT, sql.ErrNoRows) {
+		return fmt.Errorf("resolve canonical rt 002 for super admin: %w", errRT)
+	}
+	if rt002ID != "" {
+		_, errMem := tx.ExecContext(context.Background(), `
+			INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
+			VALUES (gen_random_uuid(), $1, $2, 'pengurus', true)
+			ON CONFLICT (user_id, rt_id) WHERE is_active = true DO NOTHING
+		`, userID, rt002ID)
+		if errMem != nil {
+			return fmt.Errorf("link super admin to canonical rt 002: %w", errMem)
+		}
+		slog.Info("bootstrap: super admin linked to canonical RT 002", "user_id", userID, "rt_id", rt002ID)
 	}
 
 	if err := tx.Commit(); err != nil {
-
 		return fmt.Errorf("commit bootstrap tx: %w", err)
-
 	}
-
-	slog.Info("bootstrap: super admin user created", "user_id", userID, "email", email)
 
 	return nil
 
@@ -654,6 +646,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/categories", finH.ListCategories)
 		r.Get("/api/v1/dues", finH.ListDues)
+		r.Get("/api/v1/dues/{id}/months", finH.GetDueMonths)
 		r.Get("/api/v1/bills", finH.ListBills)
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)
@@ -702,8 +695,10 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		))
 		r.Post("/api/v1/dues", finH.CreateDue)
 		r.Patch("/api/v1/dues/{id}", finH.UpdateDue)
+		r.Patch("/api/v1/dues/{id}/periods/{period}/status", finH.UpdateDuePeriodStatus)
 		r.Delete("/api/v1/dues/{id}", finH.DeactivateDue)
 		r.Post("/api/v1/bills", finH.CreateBill)
+		r.Patch("/api/v1/bills/{id}/status", finH.UpdateBillStatus)
 		r.Post("/api/v1/bills/generate", finH.GenerateBills)
 		r.Delete("/api/v1/bills/{id}", finH.CancelBill)
 		r.Post("/api/v1/payments/{id}/verify", finH.VerifyPayment)
@@ -751,10 +746,13 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	notifProvider := notification.NewFCMProvider(fcmCreds, appEnv)
 	notifProvider.SetProjectID(fcmProject)
 	notifSvc := notification.NewService(notifRepo, notifProvider)
-	notifH := notification.NewHandler(notifSvc, appEnv)
+	notifH := notification.NewHandler(notifSvc, store, appEnv)
 
 	// Wire notification into finance service
 	finSvc.SetNotifier(notifSvc)
+
+	// Public notification image streaming
+	r.Get("/api/v1/notifications/images/*", notifH.GetImage)
 
 	// Notification device token management (supports both /notifications/devices and /devices)
 	r.Group(func(r chi.Router) {
@@ -763,17 +761,35 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Delete("/api/v1/notifications/devices", notifH.UnregisterDevice)
 		r.Post("/api/v1/devices", notifH.RegisterDevice)
 		r.Delete("/api/v1/devices", notifH.UnregisterDevice)
+		r.Get("/api/v1/notifications/detail/{id}", notifH.GetNotificationDetail)
 		if appEnv != "production" {
 			r.Post("/api/v1/notifications/test-self", notifH.TestSelf)
 		}
 	})
 
-	// Waste truck arrival manual trigger: pengurus or security
+	// Waste truck arrival and manual push: pengurus or security
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/notifications/waste-truck", notifH.TriggerWasteTruckArrival)
+		r.Post("/api/v1/notifications/manual", notifH.TriggerManualPush)
+	})
+
+	// Notification Management: SUPER_ADMIN and Ketua RT only
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireNotificationAdmin())
+		r.Get("/api/v1/notifications/system-types", notifH.GetSystemTypes)
+		r.Get("/api/v1/notifications/templates", notifH.ListTemplates)
+		r.Post("/api/v1/notifications/templates", notifH.CreateTemplate)
+		r.Get("/api/v1/notifications/templates/{id}", notifH.GetTemplate)
+		r.Put("/api/v1/notifications/templates/{id}", notifH.UpdateTemplate)
+		r.Patch("/api/v1/notifications/templates/{id}/toggle-active", notifH.ToggleTemplateActive)
+		r.Delete("/api/v1/notifications/templates/{id}", notifH.DeleteTemplate)
+		r.Get("/api/v1/notifications/logs", notifH.ListLogs)
+		r.Post("/api/v1/notifications/upload-image", notifH.UploadImage)
+		r.Post("/api/v1/notifications/test-push", notifH.TestPush)
 	})
 
 	return r

@@ -543,7 +543,7 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
                                         Icons.edit_outlined,
                                         size: 20,
                                       ),
-                                      tooltip: 'Edit Iuran',
+                                      tooltip: 'Ubah Iuran',
                                       visualDensity: VisualDensity.compact,
                                       onPressed: () =>
                                           _showEditDialog(context, ref, due),
@@ -907,7 +907,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     final theme = Theme.of(context);
 
     return AlertDialog(
-      title: const Text('Edit Iuran'),
+      title: const Text('Ubah Iuran'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,

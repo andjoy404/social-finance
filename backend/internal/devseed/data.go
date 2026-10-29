@@ -117,51 +117,7 @@ type SpecialPositionResidentSeed struct {
 	Email    *string
 }
 
-// FinancialCategorySeed defines data for seeding financial categories.
-type FinancialCategorySeed struct {
-	ID       string
-	RTID     string
-	Name     string
-	Type     string // "income" or "expense"
-	IsActive bool
-}
 
-// DueSeed defines data for seeding dues.
-type DueSeed struct {
-	ID         string
-	RTID       string
-	Name       string
-	Amount     string // string decimal, e.g. "50000.00"
-	PeriodType string // "monthly", "yearly", "one_time"
-	IsActive   bool
-}
-
-// BillSeed defines data for seeding bills.
-type BillSeed struct {
-	ID                   string
-	RTID                 string
-	HouseholdOccupancyID string
-	DueID                string
-	Amount               string // string decimal
-	Period               string // e.g. "2026-10"
-	DueDate              string // YYYY-MM-DD
-	Status               string // "unpaid", "partial", "paid"
-}
-
-// PaymentSeed defines data for seeding payments.
-type PaymentSeed struct {
-	ID              string
-	RTID            string
-	BillID          string
-	Amount          string // string decimal
-	Method          string // "CASH" or "TRANSFER"
-	Origin          string // "STAFF_RECORDED" or "SELF_SUBMITTED"
-	Status          string // "PENDING", "APPROVED", "REJECTED"
-	VerifiedBy      string // bendahara user ID
-	VerifiedAt      string // RFC3339 timestamp
-	RejectionReason *string
-	Notes           *string
-}
 
 // positionResidentData contains the derived resident records for position users
 // who are eligible (ketua, wakil_ketua, sekretaris, bendahara, sosial).
@@ -172,18 +128,6 @@ var positionResidentData []PositionResidentSeed
 // These are special residents: linked to their user account, assigned to their RT,
 // but WITHOUT household/occupancy/residency chain.
 var specialPositionResidentData []SpecialPositionResidentSeed
-
-// CanonicalFinancialCategories contains 2 categories per RT (income + expense).
-var CanonicalFinancialCategories []FinancialCategorySeed
-
-// CanonicalDues contains 3 dues per RT (Kebersihan, Keamanan, Kas RT).
-var CanonicalDues []DueSeed
-
-// CanonicalBills contains bill samples linked to existing occupancies + dues.
-var CanonicalBills []BillSeed
-
-// CanonicalPayments contains payment samples linked to bills.
-var CanonicalPayments []PaymentSeed
 
 // CanonicalRTs contains the operational RTs (RT 001 and RT 002).
 var CanonicalRTs = []RTSeed{
@@ -511,87 +455,7 @@ func init() {
 	}
 }
 
-// financialPositions maps RT index to bendahara user ID for payment approval.
-// Bendahara is position index 3 within each RT's position users.
-var financialPositionRTs []string
-var financialBendaharaUIDs map[string]string // rtID -> bendahara user ID
-
-// Financial category IDs: 0=income, 1=expense
-// Due IDs: 0=Kebersihan, 1=Keamanan, 2=Kas RT
-// Occupancy slots: house numbers 01 and 03 (first and third per RT)
-
 func init() {
-	// Financial seed needs RT IDs and bendahara user IDs
-	financialPositionRTs = make([]string, len(positionRTs))
-	copy(financialPositionRTs, positionRTs)
-
-	// Filter financial seed to only RT 002 and RT 001
-	// Position seed still runs for all 5 RTs (org data), but financial data
-	// (categories, dues, bills, payments) is restricted to 2 RTs.
-	{
-		filtered := financialPositionRTs[:0]
-		for _, rtID := range financialPositionRTs {
-			if rtID == "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b" || // RT 002
-				rtID == "8dfa1e36-6727-45be-8fea-24d958efc155" { // RT 001
-				filtered = append(filtered, rtID)
-			}
-		}
-		financialPositionRTs = filtered
-	}
-
-	financialBendaharaUIDs = make(map[string]string)
-
-	// Find bendahara user IDs from CanonicalPositionUsers
-	for _, ps := range CanonicalPositionUsers {
-		if ps.Jabatan == "bendahara" {
-			financialBendaharaUIDs[ps.RTID] = ps.ID
-		}
-	}
-
-	// --- CanonicalFinancialCategories ---
-	// 2 categories per RT: income + expense
-	for rtIdx, rtID := range financialPositionRTs {
-		// Income category
-		incomeID := fmt.Sprintf("%08x-0000-3000-8000-000000000001", (8000+rtIdx)<<16|(8000+0))
-		CanonicalFinancialCategories = append(CanonicalFinancialCategories, FinancialCategorySeed{
-			ID:       incomeID,
-			RTID:     rtID,
-			Name:     "Iuran Warga",
-			Type:     "income",
-			IsActive: true,
-		})
-		// Expense category
-		expenseID := fmt.Sprintf("%08x-0000-3000-8000-000000000002", (8000+rtIdx)<<16|(8000+1))
-		CanonicalFinancialCategories = append(CanonicalFinancialCategories, FinancialCategorySeed{
-			ID:       expenseID,
-			RTID:     rtID,
-			Name:     "Operasional RT",
-			Type:     "expense",
-			IsActive: true,
-		})
-	}
-
-	// --- CanonicalDues ---
-	// 3 dues per RT: Kebersihan (50k), Keamanan (100k), Kas RT (25k)
-	for rtIdx, rtID := range financialPositionRTs {
-		dueName := []string{"Iuran Kebersihan", "Iuran Keamanan", "Iuran Kas RT"}
-		dueAmount := []string{"50000.00", "100000.00", "25000.00"}
-		duePeriodType := []string{"monthly", "monthly", "monthly"}
-
-		for i := 0; i < 3; i++ {
-			dueID := fmt.Sprintf("%08x-0000-3100-8000-00000000000%d", (8000+rtIdx)<<16|(8000+i), i+1)
-			CanonicalDues = append(CanonicalDues, DueSeed{
-				ID:         dueID,
-				RTID:       rtID,
-				Name:       dueName[i],
-				Amount:     dueAmount[i],
-				PeriodType: duePeriodType[i],
-				IsActive:   true,
-			})
-		}
-	}
-
-	// CanonicalBills and CanonicalPayments are intentionally empty.
-	// On fresh install / seed, transactional data must be 0:
-	// bills = 0, payments = 0, payment_allocations = 0, transactions = 0.
+	// No financial seed data — all categories, dues, bills, and payments
+	// must be created via the application.
 }

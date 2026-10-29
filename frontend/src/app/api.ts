@@ -261,9 +261,11 @@ async function authenticatedApiRequest(
 ): Promise<Response> {
   const method = (opts.method || 'GET').toUpperCase()
   const isGet = method === 'GET'
+  const activeRT = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sf_active_rt_id') : null
   const headers: Record<string, string> = {
     ...(opts.headers as Record<string, string> || {}),
     ...(isGet ? { 'Cache-Control': 'no-store', Pragma: 'no-cache', Expires: '0' } : {}),
+    ...(activeRT && !(opts.headers as Record<string, string>)?.['X-RT-ID'] ? { 'X-RT-ID': activeRT } : {}),
   }
   const fetchOpts: RequestInit = {
     ...opts,
@@ -977,10 +979,18 @@ export async function apiListDues(
 export async function apiCreateDue(
   token: string,
   body: ApiCreateDueBody,
+  idempotencyKey?: string,
 ): Promise<ApiDue> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  }
+  if (idempotencyKey) {
+    headers['Idempotency-Key'] = idempotencyKey
+  }
   const res = await authenticatedApiRequest(BASE + '/dues', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers,
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
@@ -1030,10 +1040,66 @@ export async function apiDeactivateDue(
   }
 }
 
+export interface DueMonthSummary {
+  period: string
+  month: number
+  year: number
+  total_bills: number
+  active_bills: number
+  paid_bills: number
+  unpaid_bills: number
+  is_active: boolean
+  can_deactivate: boolean
+}
+
+export async function apiGetDueMonths(
+  token: string,
+  dueId: string,
+): Promise<DueMonthSummary[]> {
+  const res = await authenticatedApiRequest(BASE + `/dues/${dueId}/months`, {
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const jsonResp = await json<{ data: DueMonthSummary[] }>(res)
+  return jsonResp?.data ?? []
+}
+
+export async function apiUpdateDuePeriodStatus(
+  token: string,
+  dueId: string,
+  period: string,
+  isActive: boolean,
+): Promise<DueMonthSummary[]> {
+  const res = await authenticatedApiRequest(BASE + `/dues/${dueId}/periods/${period}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ is_active: isActive }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const jsonResp = await json<{ data: DueMonthSummary[] }>(res)
+  return jsonResp?.data ?? []
+}
+
+export async function apiUpdateBillStatus(
+  token: string,
+  billId: string,
+  isActive: boolean,
+): Promise<ApiBill> {
+  const res = await authenticatedApiRequest(BASE + `/bills/${billId}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ is_active: isActive }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiBill>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
 export interface ApiGenerateBillsBody {
   due_id: string
-  period: string
-  due_date: string
+  period?: string
+  due_date?: string
 }
 
 export interface ApiGenerateBillsResponse {
@@ -1078,6 +1144,7 @@ export interface ApiBill {
   period: string
   due_date: string
   status: 'unpaid' | 'partial' | 'paid' | 'cancelled'
+  is_active?: boolean
   created_at: string
   updated_at: string
   due_name?: string | null
@@ -1144,6 +1211,10 @@ export async function apiListBills(
     due_name?: string
     my_bills?: boolean
     payment_status?: string
+    is_active?: boolean
+    // Backend-supported ordering: 'unpaid_first' → unpaid/partial oldest-first,
+    // then paid newest-first (see docs/api.md).
+    order?: string
   },
 ): Promise<ApiPaginated<ApiBill>> {
   const q = new URLSearchParams()
@@ -1157,6 +1228,8 @@ export async function apiListBills(
   if (params?.search) q.set('search', params.search)
   if (params?.due_name) q.set('due_name', params.due_name)
   if (params?.my_bills) q.set('my_bills', 'true')
+  if (params?.is_active != null) q.set('is_active', String(params.is_active))
+  if (params?.order) q.set('order', params.order)
   const res = await authenticatedApiRequest(BASE + '/bills?' + q.toString(), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
@@ -1544,6 +1617,281 @@ export async function apiTriggerWasteTruckArrival(
     throw new ApiError('unexpected', 'Failed to trigger waste truck arrival notification')
   }
   return data
+}
+
+// --- Notification Management API ---
+
+export interface ApiSystemNotificationType {
+  event_type: string
+  name: string
+  trigger: string
+  channel: string
+  recipients_rule: string
+  default_title: string
+  default_body: string
+  allowed_variables: string[]
+  is_configurable: boolean
+  supports_image?: boolean
+  supports_test?: boolean
+}
+
+export interface ApiNotificationTemplate {
+  id: string
+  rt_id: string
+  name: string
+  event_type: string
+  channel: string
+  title: string
+  body: string
+  image_url?: string | null
+  is_active: boolean
+  variables: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiCreateNotificationTemplateInput {
+  name: string
+  event_type: string
+  title: string
+  body: string
+  channel?: string
+  image_url?: string | null
+}
+
+export interface ApiUpdateNotificationTemplateInput {
+  name?: string
+  title?: string
+  body?: string
+  image_url?: string | null
+  is_active?: boolean
+}
+
+export interface ApiNotificationLog {
+  id: string
+  rt_id: string
+  user_id?: string | null
+  event_type: string
+  dedup_key: string
+  title: string
+  body: string
+  image_url?: string | null
+  status: string
+  created_at: string
+}
+
+export async function apiGetNotificationSystemTypes(token: string): Promise<ApiSystemNotificationType[]> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/system-types', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ data: ApiSystemNotificationType[] }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load system notification types')
+  }
+  return body.data ?? []
+}
+
+export async function apiGetNotificationTemplates(
+  token: string,
+  eventType?: string,
+  isActive?: boolean,
+): Promise<ApiNotificationTemplate[]> {
+  const params = new URLSearchParams()
+  if (eventType) params.set('event_type', eventType)
+  if (isActive !== undefined) params.set('is_active', String(isActive))
+  const qs = params.toString() ? `?${params.toString()}` : ''
+
+  const res = await authenticatedApiRequest(BASE + `/notifications/templates${qs}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ data: ApiNotificationTemplate[] }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load notification templates')
+  }
+  return body.data ?? []
+}
+
+export async function apiCreateNotificationTemplate(
+  token: string,
+  input: ApiCreateNotificationTemplateInput,
+): Promise<ApiNotificationTemplate> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/templates', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<ApiNotificationTemplate>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to create notification template')
+  }
+  return body
+}
+
+export async function apiGetNotificationTemplate(token: string, id: string): Promise<ApiNotificationTemplate> {
+  const res = await authenticatedApiRequest(BASE + `/notifications/templates/${id}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<ApiNotificationTemplate>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to get notification template')
+  }
+  return body
+}
+
+export async function apiUpdateNotificationTemplate(
+  token: string,
+  id: string,
+  input: ApiUpdateNotificationTemplateInput,
+): Promise<ApiNotificationTemplate> {
+  const res = await authenticatedApiRequest(BASE + `/notifications/templates/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<ApiNotificationTemplate>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to update notification template')
+  }
+  return body
+}
+
+export async function apiToggleNotificationTemplateActive(
+  token: string,
+  id: string,
+): Promise<ApiNotificationTemplate> {
+  const res = await authenticatedApiRequest(BASE + `/notifications/templates/${id}/toggle-active`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<ApiNotificationTemplate>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to toggle notification template status')
+  }
+  return body
+}
+
+export async function apiDeleteNotificationTemplate(token: string, id: string): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + `/notifications/templates/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok && res.status !== 204) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to delete notification template')
+  }
+}
+
+export async function apiGetNotificationLogs(
+  token: string,
+  page = 1,
+  pageSize = 20,
+  eventType?: string,
+): Promise<{ data: ApiNotificationLog[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  if (eventType) params.set('event_type', eventType)
+
+  const res = await authenticatedApiRequest(BASE + `/notifications/logs?${params.toString()}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ data: ApiNotificationLog[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load notification logs')
+  }
+  return body
+}
+
+export async function apiUploadNotificationImage(
+  token: string,
+  eventType: string,
+  file: File,
+): Promise<{ status: string; image_url: string; key: string }> {
+  const formData = new FormData()
+  formData.append('event_type', eventType)
+  formData.append('file', file)
+
+  const res = await authenticatedApiRequest(BASE + '/notifications/upload-image', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+  })
+  const body = await json<{ status: string; image_url: string; key: string }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal mengunggah gambar notifikasi')
+  }
+  return body
+}
+
+export async function apiTriggerManualPush(
+  token: string,
+  input: { title: string; body: string; image_url?: string; deep_link?: string },
+): Promise<{ status: string; message: string }> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/manual', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ status: string; message: string }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal mengirim notifikasi manual')
+  }
+  return body
+}
+
+export async function apiTestPush(
+  token: string,
+  input: { event_type: string; title: string; body: string; image_url?: string },
+): Promise<{ status: string; message: string; dispatched_count: number }> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/test-push', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ status: string; message: string; dispatched_count: number }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal mengirim uji notifikasi')
+  }
+  return body
 }
 
 // --- KAS / Transaction API ---
@@ -2031,7 +2379,7 @@ export interface ReconciliationReport {
   total_allocated_balance: string
   unallocated_balance: string
   discrepancy: string
-  status: 'MATCHED' | 'MATCH_WITH_NOTES' | 'DISCREPANCY'
+  status: 'MATCH' | 'MATCH_WITH_NOTES' | 'DISCREPANCY_ANOMALY'
   status_label: string
   locations_summary: Array<{
     category: string

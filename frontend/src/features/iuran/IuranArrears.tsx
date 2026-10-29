@@ -13,6 +13,8 @@ import {
   formatRupiah,
   formatPeriodeLabel,
   getStatusLabel,
+  getDueTypeLabel,
+  getDueTypeVariant,
 } from './iuranTypes'
 import type { IuranBill } from './iuranTypes'
 
@@ -20,9 +22,10 @@ const colStyles = {
   no: { width: 40, minWidth: 40, maxWidth: 40, textAlign: 'center' as const },
   name: { minWidth: 160, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
   rt: { width: 70, minWidth: 70, maxWidth: 70, textAlign: 'center' as const },
-  type: { minWidth: 130, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  periode: { width: 90, minWidth: 90, maxWidth: 90, textAlign: 'center' as const },
-  amount: { width: 140, minWidth: 140, maxWidth: 140, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
+  jenis: { width: 100, minWidth: 100, maxWidth: 100, textAlign: 'center' as const },
+  nama: { minWidth: 130, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
+  periode: { width: 110, minWidth: 110, maxWidth: 110, textAlign: 'center' as const },
+  amount: { width: 160, minWidth: 160, maxWidth: 160, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
   months: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'center' as const },
 }
 
@@ -285,7 +288,8 @@ export function IuranArrears() {
                   <th style={colStyles.no}>No</th>
                   <th style={colStyles.name}>WARGA/KK</th>
                   <th style={colStyles.rt}>RT</th>
-                  <th style={colStyles.type}>JENIS IURAN</th>
+                  <th style={colStyles.jenis}>JENIS IURAN</th>
+                  <th style={colStyles.nama}>NAMA IURAN</th>
                   <th style={colStyles.periode}>PERIODE</th>
                   <th style={colStyles.amount}>NOMINAL TERTUNGGAK</th>
                   <th style={{ ...colStyles.months, textAlign: 'center' }}>STATUS</th>
@@ -301,7 +305,12 @@ export function IuranArrears() {
                         <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
                       </td>
                       <td style={colStyles.rt}>{bill.rt}</td>
-                      <td style={colStyles.type}>{bill.iuranType}</td>
+                      <td style={colStyles.nama}>{bill.iuranType}</td>
+                      <td style={colStyles.jenis}>
+                        <Badge variant={bill.dueType ? getDueTypeVariant(bill.dueType) : 'green'}>
+                          {getDueTypeLabel(bill.dueType)}
+                        </Badge>
+                      </td>
                       <td style={colStyles.periode}>{formatPeriodeLabel(bill.periode)}</td>
                       <td style={{ ...colStyles.amount, color: 'var(--sf-danger)', fontWeight: 600 }}>
                         {formatRupiah(sisa)}

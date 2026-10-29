@@ -27,9 +27,11 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 class PushNotificationService {
   static const MethodChannel _nativeChannel =
       MethodChannel('com.example.social_finance/notifications');
+  static bool _firebaseCoreUnavailable = false;
 
   final DeviceService _deviceService;
   bool _isInitialized = false;
+  Future<void>? _initInFlight;
   bool _isUserLoggedIn = false;
   String? _registeredToken;
   StreamSubscription<String>? _tokenRefreshSub;
@@ -41,6 +43,8 @@ class PushNotificationService {
       StreamController<RemoteMessage>.broadcast();
   final StreamController<String> _nativeTappedController =
       StreamController<String>.broadcast();
+  final StreamController<Map<String, dynamic>> _nativePayloadTappedController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final Set<String> _processedMessageIds = <String>{};
 
   PushNotificationService(this._deviceService);
@@ -51,6 +55,29 @@ class PushNotificationService {
   Stream<RemoteMessage> get onForegroundMessage => _foregroundMessageController.stream;
   Stream<RemoteMessage> get onMessageOpenedApp => _messageOpenedController.stream;
   Stream<String> get onNativeNotificationTapped => _nativeTappedController.stream;
+  Stream<Map<String, dynamic>> get onNativeNotificationPayloadTapped =>
+      _nativePayloadTappedController.stream;
+
+  void _registerNativeMethodHandler() {
+    _nativeChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onNotificationTapped') {
+        if (call.arguments is Map) {
+          final map = Map<String, dynamic>.from(call.arguments as Map);
+          _nativePayloadTappedController.add(map);
+          final link = map['deep_link'] as String?;
+          if (link != null && link.isNotEmpty) {
+            _nativeTappedController.add(link);
+          }
+        } else if (call.arguments is String) {
+          final link = call.arguments as String;
+          if (link.isNotEmpty) {
+            _nativePayloadTappedController.add({'deep_link': link});
+            _nativeTappedController.add(link);
+          }
+        }
+      }
+    });
+  }
 
   /// Initializes Firebase and FCM listeners.
   /// Gracefully catches failures if Firebase/Google Play services are unavailable.
@@ -58,10 +85,34 @@ class PushNotificationService {
     FirebaseMessaging? messagingInstance,
     bool requestPermissionOnStartup = true,
   }) async {
+    _registerNativeMethodHandler();
     if (_isInitialized) return;
+    if (_initInFlight != null) {
+      return _initInFlight!;
+    }
+
+    final future = _doInitialize(
+      messagingInstance: messagingInstance,
+      requestPermissionOnStartup: requestPermissionOnStartup,
+    );
+    _initInFlight = future;
+    try {
+      await future;
+    } finally {
+      _initInFlight = null;
+    }
+  }
+
+  Future<void> _doInitialize({
+    FirebaseMessaging? messagingInstance,
+    bool requestPermissionOnStartup = true,
+  }) async {
+    if (messagingInstance == null && _firebaseCoreUnavailable) {
+      return;
+    }
 
     try {
-      if (Firebase.apps.isEmpty) {
+      if (messagingInstance == null && Firebase.apps.isEmpty) {
         await Firebase.initializeApp();
       }
 
@@ -85,52 +136,13 @@ class PushNotificationService {
       // Register background handler
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-      // Listen for native notification tap callbacks
-      _nativeChannel.setMethodCallHandler((call) async {
-        if (call.method == 'onNotificationTapped') {
-          final link = call.arguments is Map ? call.arguments['deep_link'] as String? : null;
-          if (link != null && link.isNotEmpty) {
-            _nativeTappedController.add(link);
-          }
-        }
-      });
-
       // Listen for token updates from FCM
       _tokenRefreshSub = messaging.onTokenRefresh.listen((newToken) {
         _onTokenRefreshed(newToken);
       });
 
       // Listen for foreground messages with deduplication and delay logging
-      _foregroundSub = FirebaseMessaging.onMessage.listen((message) {
-        if (message.messageId != null) {
-          if (_processedMessageIds.contains(message.messageId)) {
-            if (kDebugMode) {
-              debugPrint('FCM foreground message duplicate suppressed: ${message.messageId}');
-            }
-            return;
-          }
-          _processedMessageIds.add(message.messageId!);
-          if (_processedMessageIds.length > 100) {
-            _processedMessageIds.clear();
-          }
-        }
-
-        // Delay audit
-        final receivedAt = DateTime.now().toUtc();
-        final sentAtStr = message.data['sent_at'] as String?;
-        if (sentAtStr != null) {
-          final sentAt = DateTime.tryParse(sentAtStr);
-          if (sentAt != null) {
-            final diffMs = receivedAt.difference(sentAt).inMilliseconds;
-            debugPrint('FCM delivery delay: ${diffMs}ms (sent: $sentAtStr, received: ${receivedAt.toIso8601String()})');
-          }
-        }
-
-        if (kDebugMode) {
-          debugPrint('FCM foreground message: ${message.messageId} - ${message.notification?.title}');
-        }
-        _foregroundMessageController.add(message);
-      });
+      _foregroundSub = FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
 
       // Listen for message opened app interactions
       _messageOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -142,6 +154,9 @@ class PushNotificationService {
 
       _isInitialized = true;
     } catch (e) {
+      if (messagingInstance == null && Firebase.apps.isEmpty) {
+        _firebaseCoreUnavailable = true;
+      }
       if (kDebugMode) {
         debugPrint('PushNotificationService initialization deferred/unavailable: $e');
       }
@@ -149,11 +164,58 @@ class PushNotificationService {
     }
   }
 
+  void _handleForegroundMessage(RemoteMessage message) {
+    if (message.messageId != null) {
+      if (_processedMessageIds.contains(message.messageId)) {
+        if (kDebugMode) {
+          debugPrint('FCM foreground message duplicate suppressed: ${message.messageId}');
+        }
+        return;
+      }
+      _processedMessageIds.add(message.messageId!);
+      if (_processedMessageIds.length > 100) {
+        _processedMessageIds.clear();
+      }
+    }
+
+    // Delay audit
+    final receivedAt = DateTime.now().toUtc();
+    final sentAtStr = message.data['sent_at'] as String?;
+    if (sentAtStr != null) {
+      final sentAt = DateTime.tryParse(sentAtStr);
+      if (sentAt != null) {
+        final diffMs = receivedAt.difference(sentAt).inMilliseconds;
+        debugPrint('FCM delivery delay: ${diffMs}ms (sent: $sentAtStr, received: ${receivedAt.toIso8601String()})');
+      }
+    }
+
+    if (kDebugMode) {
+      debugPrint('FCM foreground message: ${message.messageId} - ${message.notification?.title}');
+    }
+    _foregroundMessageController.add(message);
+  }
+
+  /// Test helper to emit a simulated foreground FCM message through deduplication.
+  @visibleForTesting
+  void simulateForegroundMessage(RemoteMessage message) {
+    _handleForegroundMessage(message);
+  }
+
+  /// Test helper to emit a simulated notification tap from FCM background.
+  @visibleForTesting
+  void simulateMessageOpenedApp(RemoteMessage message) {
+    _messageOpenedController.add(message);
+  }
+
   /// Posts a native Android heads-up notification banner at the top of the screen.
   Future<void> showHeadsUpNotification({
     required String title,
     required String body,
     required String deepLink,
+    String? imageUrl,
+    String? notificationId,
+    String? type,
+    String? sentAt,
     int? id,
   }) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
@@ -162,6 +224,11 @@ class PushNotificationService {
         'title': title,
         'body': body,
         'deep_link': deepLink,
+        'image_url': imageUrl,
+        if (notificationId != null && notificationId.isNotEmpty)
+          'notification_id': notificationId,
+        if (type != null && type.isNotEmpty) 'type': type,
+        if (sentAt != null && sentAt.isNotEmpty) 'sent_at': sentAt,
         'id': id ?? (DateTime.now().millisecondsSinceEpoch % 100000),
       });
     } catch (e) {
@@ -180,6 +247,22 @@ class PushNotificationService {
     } catch (e) {
       return null;
     }
+  }
+
+  /// Gets the full initial notification payload if the app was launched from a native notification tap.
+  Future<Map<String, dynamic>?> getInitialNativeNotificationPayload() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
+    try {
+      final raw = await _nativeChannel.invokeMethod<dynamic>('getInitialNotificationPayload');
+      if (raw is Map && raw.isNotEmpty) {
+        return Map<String, dynamic>.from(raw);
+      }
+    } catch (_) {}
+    final link = await getInitialNativeDeepLink();
+    if (link != null && link.isNotEmpty) {
+      return {'deep_link': link};
+    }
+    return null;
   }
 
   /// Gets the initial message if the app was launched by tapping a notification from terminated state.
@@ -307,6 +390,7 @@ class PushNotificationService {
     _foregroundMessageController.close();
     _messageOpenedController.close();
     _nativeTappedController.close();
+    _nativePayloadTappedController.close();
   }
 }
 

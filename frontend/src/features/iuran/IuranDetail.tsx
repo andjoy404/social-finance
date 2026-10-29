@@ -65,7 +65,14 @@ function formatDate(iso: string): string {
    Status badge (modal header)
    ───────────────────────────────────────────── */
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, isActive }: { status: string; isActive?: boolean }) {
+  if (isActive === false) {
+    return (
+      <Badge variant="gray" style={{ fontSize: '12px', padding: '0 12px', height: '26px', fontWeight: 600 }}>
+        Tidak Aktif
+      </Badge>
+    )
+  }
   const typed = status as unknown as IuranStatus
   const variant = getStatusVariant(typed)
   return (
@@ -1163,6 +1170,7 @@ export function IuranDetail({
         isVoluntary,
         dueId: apiBill.due_id,
         dueIsActive: apiBill.due_is_active ?? true,
+        isActive: apiBill.is_active ?? true,
         payments: [], // will be loaded separately
       }
 
@@ -1394,7 +1402,7 @@ export function IuranDetail({
                       {bill.iuranType} · {formatFullPeriodeLabel(bill.periode)}
                     </div>
                   </div>
-                  <StatusBadge status={bill.status} />
+                  <StatusBadge status={bill.status} isActive={bill.isActive} />
                 </div>
 
                 <DetailContent
@@ -1633,7 +1641,7 @@ export function IuranDetail({
                 {bill.iuranType} · {formatFullPeriodeLabel(bill.periode)}
               </div>
             </div>
-            <StatusBadge status={bill.status} />
+            <StatusBadge status={bill.status} isActive={bill.isActive} />
           </div>
 
           <DetailContent

@@ -35,6 +35,11 @@ export function isAllowedRT(user: AuthUser | null): boolean {
 function mapUser(raw: ApiUser): AuthUser {
   const rtCode = raw.rt_rt ?? (raw.rt as { rt?: string } | null)?.rt ?? null
   const rtId = raw.rt_id ?? raw.rt?.id ?? null
+  if (rtId && typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.setItem('sf_active_rt_id', rtId)
+    } catch { /* ignore */ }
+  }
   return {
     id: raw.id,
     name: raw.full_name,
@@ -81,6 +86,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearAll = useCallback(() => {
     setUser(null)
     clearSessionPair()
+    try {
+      sessionStorage.removeItem('sf_active_rt_id')
+    } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -19,7 +18,7 @@ import 'package:social_finance/features/iuran/data/iuran_repository.dart';
 
 /// The body widget for the Kelola Iuran tab (to be used inside TabBarView).
 class KelolaIuranTabBody extends ConsumerStatefulWidget {
-  const KelolaIuranTabBody();
+  const KelolaIuranTabBody({super.key});
 
   @override
   ConsumerState<KelolaIuranTabBody> createState() =>
@@ -34,9 +33,10 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
 
   late final TextEditingController _searchController;
   DateTime _activeDate = DateTime.now();
-  bool _isAllPeriods = true;
   String _filterJenis = 'all';
   String _filterFrekuensi = 'all';
+  bool _filtersExpanded = false;
+  bool _isYearFilterActive = false; // Track if "Semua Bulan" is active
 
   @override
   void initState() {
@@ -54,36 +54,201 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
       '${_monthNames[dt.month - 1]} ${dt.year}';
 
   void _prevMonth() => setState(() {
-        _isAllPeriods = false;
         _activeDate = DateTime(_activeDate.year, _activeDate.month - 1, 1);
       });
 
   void _nextMonth() => setState(() {
-        _isAllPeriods = false;
         _activeDate = DateTime(_activeDate.year, _activeDate.month + 1, 1);
       });
 
   Future<void> _pickMonth() async {
-    final picked = await showDatePicker(
+    final currentYear = DateTime.now().year;
+    int selYear = _activeDate.year;
+    int selMonth = _activeDate.month;
+
+    return await showModalBottomSheet<void>(
       context: context,
-      initialDate: _activeDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-      initialDatePickerMode: DatePickerMode.year,
-      helpText: 'PILIH PERIODE BULAN',
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final months = ['Semua Bulan', ...List.generate(12, (i) => _monthNames[i])];
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Bulan',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 2.5,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: 13,
+                  itemBuilder: (_, i) {
+                    final isAll = i == 0;
+                    final isSelected = isAll ? _isYearFilterActive : (i == selMonth && !_isYearFilterActive);
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          if (isAll) {
+                            _isYearFilterActive = true;
+                            // Clear all month filters to show all data
+                            _filterJenis = 'all';
+                            _filterFrekuensi = 'all';
+                          } else {
+                            _isYearFilterActive = false;
+                            _activeDate = DateTime(selYear, i + 1, 1);
+                          }
+                        });
+                        ref.read(billsProvider.notifier).refresh();
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                      },
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
+                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          border: Border.all(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          months[i],
+                          style: TextStyle(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
-    if (picked != null) {
-      setState(() {
-        _isAllPeriods = false;
-        _activeDate = DateTime(picked.year, picked.month, 1);
-      });
-    }
+  }
+
+  Future<void> _pickYear() async {
+    final currentYear = DateTime.now().year;
+    int selYear = _activeDate.year;
+
+    return await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final years = List.generate(15, (i) => currentYear - 7 + i);
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Tahun',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 2.0,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: years.length,
+                  itemBuilder: (_, i) {
+                    final year = years[i];
+                    final isSelected = year == selYear;
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          selYear = year;
+                          _activeDate = DateTime(year, _isYearFilterActive ? 1 : _activeDate.month, 1);
+                        });
+                        if (_isYearFilterActive) {
+                          // Keep "Semua Bulan" — just update year
+                          _filterJenis = 'all';
+                          _filterFrekuensi = 'all';
+                        }
+                        ref.read(billsProvider.notifier).refresh();
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                      },
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
+                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          border: Border.all(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          year.toString(),
+                          style: TextStyle(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   void _resetFilters() {
     setState(() {
       _searchController.clear();
-      _isAllPeriods = true;
       _filterJenis = 'all';
       _filterFrekuensi = 'all';
     });
@@ -91,7 +256,6 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
 
   bool get _hasActiveFilter =>
       _searchController.text.trim().isNotEmpty ||
-      !_isAllPeriods ||
       _filterJenis != 'all' ||
       _filterFrekuensi != 'all';
 
@@ -107,19 +271,23 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
       if (_filterJenis == 'sukarela' && !due.isVoluntary) return false;
       if (_filterFrekuensi != 'all') {
         if (_filterFrekuensi == 'monthly' &&
-            due.periodType != DuePeriodType.monthly) return false;
-        if (_filterFrekuensi == 'yearly' &&
-            due.periodType != DuePeriodType.yearly) return false;
-        if (_filterFrekuensi == 'one_time' &&
-            due.periodType != DuePeriodType.oneTime) return false;
-      }
-      if (!_isAllPeriods) {
-        final refDate = due.createdAt ?? due.updatedAt;
-        if (refDate != null &&
-            (refDate.year != _activeDate.year ||
-                refDate.month != _activeDate.month)) {
+            due.periodType != DuePeriodType.monthly) {
           return false;
         }
+        if (_filterFrekuensi == 'yearly' &&
+            due.periodType != DuePeriodType.yearly) {
+          return false;
+        }
+        if (_filterFrekuensi == 'one_time' &&
+            due.periodType != DuePeriodType.oneTime) {
+          return false;
+        }
+      }
+      final refDate = due.createdAt ?? due.updatedAt;
+      if (!_isYearFilterActive && refDate != null &&
+          (refDate.year != _activeDate.year ||
+              refDate.month != _activeDate.month)) {
+        return false;
       }
       return true;
     }).toList();
@@ -155,211 +323,339 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
         children: [
           const SizedBox(height: AppSpacing.sm),
 
-          // Row 1: Month/Periode Navigator
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-            decoration: BoxDecoration(
-              color: theme.scaffoldBackgroundColor,
-              borderRadius: BorderRadius.circular(AppRadius.base),
-              border: Border.all(
-                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
-            ),
-            height: 38,
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
-            child: Row(
+          // ── FILTER COLLAPSIBLE ──
+          InkWell(
+            onTap: () {
+              setState(() {
+                _filtersExpanded = !_filtersExpanded;
+              });
+            },
+            borderRadius: BorderRadius.circular(AppRadius.base),
+            child: Column(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: _isAllPeriods ? null : _prevMonth,
-                  tooltip: 'Bulan Sebelumnya',
-                  visualDensity: VisualDensity.compact,
-                ),
-                Expanded(
-                  child: InkWell(
-                    onTap: _isAllPeriods ? null : _pickMonth,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 4, horizontal: 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _isAllPeriods
-                                ? 'Semua Periode'
-                                : _formatMonthYear(_activeDate),
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: _isAllPeriods
-                                  ? theme.colorScheme.onSurfaceVariant
-                                  : AppColors.accent,
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.darkSurface
+                        : AppColors.lightSurface,
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(
+                      color: isDark
+                          ? AppColors.accent.withValues(alpha: 0.35)
+                          : AppColors.accent.withValues(alpha: 0.25),
+                      width: 1,
+                    ),
+                    boxShadow: isDark
+                        ? [
+                            BoxShadow(
+                              color: AppColors.accent.withValues(alpha: 0.12),
+                              blurRadius: 8,
+                              spreadRadius: 0,
                             ),
-                          ),
-                          if (!_isAllPeriods) ...[
-                            const SizedBox(width: 4),
-                            const Icon(Icons.arrow_drop_down,
-                                size: 20, color: AppColors.accent),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.tune,
+                        size: 18,
+                        color: isDark
+                            ? AppColors.darkText
+                            : AppColors.lightText,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Filter',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Spacer(),
+                      AnimatedRotation(
+                        turns: _filtersExpanded ? 0 : 0.5,
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(
+                          Icons.keyboard_arrow_down,
+                          size: 20,
+                          color: AppColors.accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.topCenter,
+                  child: _filtersExpanded
+                      ? Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(height: AppSpacing.sm),
+
+                            // ── Row 1: Bulan + Tahun ──
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.base),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: _pickMonth,
+                                      borderRadius:
+                                          BorderRadius.circular(AppRadius.base),
+                                      child: Container(
+                                        height: 38,
+                                        alignment: Alignment.centerLeft,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10),
+                                        decoration: BoxDecoration(
+                                          color: isDark
+                                              ? AppColors.darkSurface
+                                              : AppColors.lightSurface,
+                                          borderRadius: BorderRadius.circular(
+                                              AppRadius.base),
+                                          border: Border.all(
+                                            color: isDark
+                                                ? AppColors.accent.withValues(
+                                                    alpha: 0.35)
+                                                : AppColors.accent.withValues(
+                                                    alpha: 0.25),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          _isYearFilterActive ? 'Semua Bulan' : _monthNames[_activeDate.month - 1],
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: AppSpacing.sm),
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: _pickYear,
+                                      borderRadius:
+                                          BorderRadius.circular(AppRadius.base),
+                                      child: Container(
+                                        height: 38,
+                                        alignment: Alignment.centerLeft,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10),
+                                        decoration: BoxDecoration(
+                                          color: isDark
+                                              ? AppColors.darkSurface
+                                              : AppColors.lightSurface,
+                                          borderRadius: BorderRadius.circular(
+                                              AppRadius.base),
+                                          border: Border.all(
+                                            color: isDark
+                                                ? AppColors.accent.withValues(
+                                                    alpha: 0.35)
+                                                : AppColors.accent.withValues(
+                                                    alpha: 0.25),
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          _activeDate.year.toString(),
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: AppSpacing.xs),
+
+                            // ── Row 2: Jenis Iuran & Frekuensi Periode ──
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.base),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Container(
+                                      height: 38,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10),
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? AppColors.darkSurface
+                                            : AppColors.lightSurface,
+                                        borderRadius: BorderRadius.circular(
+                                            AppRadius.base),
+                                        border: Border.all(
+                                          color: isDark
+                                              ? AppColors.accent.withValues(
+                                                  alpha: 0.35)
+                                              : AppColors.accent.withValues(
+                                                  alpha: 0.25),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: DropdownButtonHideUnderline(
+                                        child: DropdownButton<String>(
+                                          key: const Key(
+                                              'kelola-iuran-jenis-filter'),
+                                          value: _filterJenis,
+                                          isExpanded: true,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                  fontWeight: FontWeight.w600),
+                                          dropdownColor: isDark
+                                              ? AppColors.darkSurface
+                                              : AppColors.lightSurface,
+                                          items: const [
+                                            DropdownMenuItem(
+                                                value: 'all',
+                                                child: Text(
+                                                    'Semua Jenis Iuran')),
+                                            DropdownMenuItem(
+                                                value: 'reguler',
+                                                child: Text('Reguler')),
+                                            DropdownMenuItem(
+                                                value: 'sukarela',
+                                                child: Text('Sukarela')),
+                                          ],
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setState(() => _filterJenis = val);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: AppSpacing.sm),
+                                  Expanded(
+                                    child: Container(
+                                      height: 38,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10),
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? AppColors.darkSurface
+                                            : AppColors.lightSurface,
+                                        borderRadius: BorderRadius.circular(
+                                            AppRadius.base),
+                                        border: Border.all(
+                                          color: isDark
+                                              ? AppColors.accent.withValues(
+                                                  alpha: 0.35)
+                                              : AppColors.accent.withValues(
+                                                  alpha: 0.25),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: DropdownButtonHideUnderline(
+                                        child: DropdownButton<String>(
+                                          key: const Key(
+                                              'kelola-iuran-periode-filter'),
+                                          value: _filterFrekuensi,
+                                          isExpanded: true,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                  fontWeight: FontWeight.w600),
+                                          dropdownColor: isDark
+                                              ? AppColors.darkSurface
+                                              : AppColors.lightSurface,
+                                          items: const [
+                                            DropdownMenuItem(
+                                                value: 'all',
+                                                child: Text(
+                                                    'Semua Frekuensi')),
+                                            DropdownMenuItem(
+                                                value: 'monthly',
+                                                child: Text('Bulanan')),
+                                            DropdownMenuItem(
+                                                value: 'yearly',
+                                                child: Text('Tahunan')),
+                                            DropdownMenuItem(
+                                                value: 'one_time',
+                                                child: Text('Sekali')),
+                                          ],
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setState(
+                                                  () => _filterFrekuensi = val);
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: AppSpacing.xs),
+
+                            // ── Row 3: Search ──
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.base),
+                              child: SizedBox(
+                                height: 38,
+                                child: AppTextField(
+                                  controller: _searchController,
+                                  hintText: 'Cari jenis iuran...',
+                                  isDense: true,
+                                  fillColor: isDark
+                                      ? AppColors.darkSurface
+                                      : AppColors.lightSurface,
+                                  textAlignVertical: TextAlignVertical.center,
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 0),
+                                  prefixIconConstraints:
+                                      const BoxConstraints(
+                                          minWidth: 36, minHeight: 38),
+                                  suffixIconConstraints:
+                                      const BoxConstraints(
+                                          minWidth: 36, minHeight: 38),
+                                  prefixIcon:
+                                      const Icon(Icons.search, size: 18),
+                                  suffixIcon:
+                                      _searchController.text.isNotEmpty
+                                          ? IconButton(
+                                              padding: EdgeInsets.zero,
+                                              icon: const Icon(
+                                                  Icons.clear, size: 18),
+                                              onPressed: () {
+                                                setState(() =>
+                                                    _searchController.clear());
+                                              },
+                                            )
+                                          : null,
+                                  onChanged: (_) => setState(() {}),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: AppSpacing.xs),
                           ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: _isAllPeriods ? null : _nextMonth,
-                  tooltip: 'Bulan Berikutnya',
-                  visualDensity: VisualDensity.compact,
-                ),
-                const SizedBox(width: 4),
-                SizedBox(
-                  height: 38,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: ChoiceChip(
-                      label: Text(
-                        _isAllPeriods ? 'Per Bulan' : 'Semua',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      selected: _isAllPeriods,
-                      visualDensity: VisualDensity.compact,
-                      onSelected: (_) {
-                        setState(() {
-                          _isAllPeriods = !_isAllPeriods;
-                        });
-                      },
-                    ),
-                  ),
+                        )
+                      : const SizedBox.shrink(),
                 ),
               ],
             ),
           ),
-
-          const SizedBox(height: AppSpacing.xs),
-
-          // Row 2: Jenis Iuran & Frekuensi Periode
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 38,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: theme.scaffoldBackgroundColor,
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      border: Border.all(
-                          color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        key: const Key('kelola-iuran-jenis-filter'),
-                        value: _filterJenis,
-                        isExpanded: true,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600),
-                        dropdownColor: theme.scaffoldBackgroundColor,
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'all',
-                              child: Text('Semua Jenis Iuran')),
-                          DropdownMenuItem(
-                              value: 'reguler', child: Text('Reguler')),
-                          DropdownMenuItem(
-                              value: 'sukarela', child: Text('Sukarela')),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) setState(() => _filterJenis = val);
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Container(
-                    height: 38,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: theme.scaffoldBackgroundColor,
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      border: Border.all(
-                          color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        key: const Key('kelola-iuran-periode-filter'),
-                        value: _filterFrekuensi,
-                        isExpanded: true,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600),
-                        dropdownColor: theme.scaffoldBackgroundColor,
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'all',
-                              child: Text('Semua Frekuensi')),
-                          DropdownMenuItem(
-                              value: 'monthly', child: Text('Bulanan')),
-                          DropdownMenuItem(
-                              value: 'yearly', child: Text('Tahunan')),
-                          DropdownMenuItem(
-                              value: 'one_time', child: Text('Sekali')),
-                        ],
-                        onChanged: (val) {
-                          if (val != null)
-                            setState(() => _filterFrekuensi = val);
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.xs),
-
-          // Row 3: Search Box
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-            child: SizedBox(
-              height: 38,
-              child: AppTextField(
-                controller: _searchController,
-                hintText: 'Cari jenis iuran...',
-                isDense: true,
-                fillColor: theme.scaffoldBackgroundColor,
-                textAlignVertical: TextAlignVertical.center,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-                prefixIconConstraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 38),
-                suffixIconConstraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 38),
-                prefixIcon: const Icon(Icons.search, size: 18),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        padding: EdgeInsets.zero,
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          setState(() => _searchController.clear());
-                        },
-                      )
-                    : null,
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-          ),
-
           const SizedBox(height: AppSpacing.sm),
 
           // Content: Dues list
@@ -459,7 +755,7 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                       Icons.edit_outlined,
                                       size: 20,
                                     ),
-                                    tooltip: 'Edit Iuran',
+                                    tooltip: 'Ubah Iuran',
                                     visualDensity: VisualDensity.compact,
                                     onPressed: () =>
                                         _showEditDialog(context, ref, due),
@@ -554,55 +850,6 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
     );
   }
 
-  Widget _buildFab(BuildContext context) {
-    final accentSoft = AppColors.accentSoftColor(context);
-    final button = Container(
-      key: const Key('kelola-iuran-create-btn'),
-      decoration: BoxDecoration(
-        color: accentSoft,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.accent, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 0),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        clipBehavior: Clip.none,
-        child: InkWell(
-          onTap: () => context.push('/home/iuran/form'),
-          borderRadius: BorderRadius.circular(24),
-          child: const SizedBox(
-            height: 44,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '+',
-                    style: TextStyle(
-                        color: AppColors.accent,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16),
-                  ),
-                  SizedBox(width: 6),
-                  Icon(Icons.receipt_long,
-                      size: 18, color: AppColors.accent),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    return Tooltip(message: 'Buat Iuran', child: button);
-  }
-
   Future<void> _showEditDialog(
       BuildContext context, WidgetRef ref, BackendDue due) async {
     final updated = await showDialog<bool>(
@@ -639,6 +886,21 @@ class _EditDueDialog extends ConsumerStatefulWidget {
 }
 
 class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
+  static const _monthNames = [
+    'Januari',
+    'Februari',
+    'Maret',
+    'April',
+    'Mei',
+    'Juni',
+    'Juli',
+    'Agustus',
+    'September',
+    'Oktober',
+    'November',
+    'Desember',
+  ];
+
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _amountController;
@@ -649,6 +911,12 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
   late bool _isActive;
   bool _loading = false;
   String? _errorMessage;
+
+  bool _syncingBills = false;
+  String? _syncSuccessMessage;
+  List<DueMonthSummary> _dueMonths = [];
+  final Map<String, bool> _stagedMonthActive = {};
+  bool _loadingMonths = false;
 
   @override
   void initState() {
@@ -662,6 +930,9 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     _paymentRule = widget.due.paymentRule;
     _isVoluntary = widget.due.isVoluntary;
     _isActive = widget.due.isActive;
+    if (widget.due.dueType == DueType.multiMonth) {
+      _loadMonths();
+    }
   }
 
   @override
@@ -670,6 +941,102 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     _amountController.dispose();
     _validUntilController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadMonths() async {
+    setState(() {
+      _loadingMonths = true;
+      _errorMessage = null;
+    });
+    try {
+      final months = await ref
+          .read(iuranRepositoryProvider)
+          .fetchDueMonths(widget.due.id);
+      if (mounted) {
+        setState(() {
+          _dueMonths = months;
+          _stagedMonthActive.clear();
+          for (final m in months) {
+            _stagedMonthActive[m.period] = m.isActive;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          final mapped = ref.read(iuranRepositoryProvider).mapDioError(e);
+          _errorMessage = 'Gagal memuat status bulan: ${mapped.message}';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingMonths = false);
+      }
+    }
+  }
+
+  Future<void> _handleSyncBills() async {
+    final year = widget.due.year ?? DateTime.now().year;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sinkronkan Tagihan Warga'),
+        content: Text(
+          'Sistem akan menerbitkan 12 tagihan ($year) '
+          'untuk setiap Warga yang belum memiliki tagihan pada iuran ini.\n\n'
+          'Tagihan lama dan riwayat pembayaran yang sudah ada tidak akan diubah.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Sinkronkan'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _syncingBills = true;
+      _errorMessage = null;
+      _syncSuccessMessage = null;
+    });
+
+    try {
+      final result = await ref.read(iuranRepositoryProvider).generateBills(
+        dueId: widget.due.id,
+        period: year.toString(),
+        dueDate: '$year-01-10',
+        idempotencyKey:
+            'sync-${widget.due.id}-$year-${DateTime.now().millisecondsSinceEpoch}',
+      );
+
+      if (mounted) {
+        setState(() {
+          _syncingBills = false;
+          _syncSuccessMessage = result.generatedCount > 0
+              ? 'Sinkronisasi berhasil: ${result.generatedCount} tagihan baru diterbitkan.'
+              : 'Sinkronisasi selesai: Semua Warga sudah memiliki tagihan.';
+        });
+        await ref.read(duesProvider.notifier).refresh();
+        await ref.read(billsProvider.notifier).refresh();
+        ref.invalidate(myBillsProvider);
+        await _loadMonths();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _syncingBills = false;
+          final mapped = ref.read(iuranRepositoryProvider).mapDioError(e);
+          _errorMessage = mapped.message;
+        });
+      }
+    }
   }
 
   Future<void> _handleSave() async {
@@ -702,8 +1069,60 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
             validUntil: validUntil,
           );
 
+      if (widget.due.dueType == DueType.multiMonth && _dueMonths.isNotEmpty) {
+        final changedMonths = _dueMonths.where((m) {
+          final staged = _stagedMonthActive[m.period];
+          return staged != null && staged != m.isActive;
+        }).toList();
+
+        if (changedMonths.isNotEmpty) {
+          int successCount = 0;
+          String? firstFailedPeriod;
+          dynamic firstError;
+
+          for (final m in changedMonths) {
+            final newActive = _stagedMonthActive[m.period]!;
+            try {
+              final updated = await ref
+                  .read(iuranRepositoryProvider)
+                  .updateDuePeriodStatus(
+                    widget.due.id,
+                    m.period,
+                    isActive: newActive,
+                  );
+              successCount++;
+              _dueMonths = updated;
+            } catch (e) {
+              firstFailedPeriod ??= m.period;
+              firstError ??= e;
+              // Revert staged value for the failed period to the server's current value
+              _stagedMonthActive[m.period] = m.isActive;
+            }
+          }
+
+          if (firstFailedPeriod != null) {
+            if (mounted) {
+              setState(() {
+                _loading = false;
+                final mapped =
+                    ref.read(iuranRepositoryProvider).mapDioError(firstError);
+                _errorMessage =
+                    'Gagal memperbarui status bulan $firstFailedPeriod: ${mapped.message}. '
+                    '$successCount/${changedMonths.length} periode berhasil disimpan.';
+              });
+            }
+            return;
+          }
+        }
+      }
+
       if (mounted) {
-        Navigator.of(context).pop(true);
+        await ref.read(duesProvider.notifier).refresh();
+        await ref.read(billsProvider.notifier).refresh();
+        ref.invalidate(myBillsProvider);
+        if (mounted) {
+          Navigator.of(context).pop(true);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -810,224 +1229,382 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     final theme = Theme.of(context);
 
     return AlertDialog(
-      title: const Text('Edit Iuran'),
-      content: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_errorMessage != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.danger.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    border: Border.all(
-                        color: AppColors.danger.withValues(alpha: 0.3)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+      contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+      title: const Text('Ubah Iuran'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 480,
+            maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+          ),
+          child: SingleChildScrollView(
+            clipBehavior: Clip.antiAlias,
+            padding: const EdgeInsets.only(top: 8, bottom: 8),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_errorMessage != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(
+                            color: AppColors.danger.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        _errorMessage!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.danger,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  TextFormField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama Iuran',
+                      hintText: 'Contoh: Iuran Kebersihan',
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Nama iuran wajib diisi.';
+                      }
+                      return null;
+                    },
+                    enabled: !_loading,
                   ),
-                  child: Text(
-                    _errorMessage!,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: AppColors.danger,
-                      fontWeight: FontWeight.w600,
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _amountController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters:
+                        [FilteringTextInputFormatter.digitsOnly],
+                    readOnly: _isVoluntary,
+                    decoration: InputDecoration(
+                      labelText: 'Nominal (Rp)',
+                      hintText: 'Contoh: 50000',
+                      enabled: !_isVoluntary && !_loading,
+                    ),
+                    validator: (val) {
+                      if (_isVoluntary) return null;
+                      final parsed = int.tryParse(val?.trim() ?? '');
+                      if (parsed == null || parsed <= 0) {
+                        return 'Nominal harus lebih dari 0.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<DuePeriodType>(
+                    isExpanded: true,
+                    value: _periodType,
+                    decoration:
+                        const InputDecoration(labelText: 'Frekuensi'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: DuePeriodType.monthly,
+                        child: Text('Bulanan'),
+                      ),
+                      DropdownMenuItem(
+                        value: DuePeriodType.yearly,
+                        child: Text('Tahunan'),
+                      ),
+                      DropdownMenuItem(
+                        value: DuePeriodType.oneTime,
+                        child: Text('Sekali'),
+                      ),
+                    ],
+                    onChanged: _loading
+                        ? null
+                        : (v) {
+                            if (v != null) setState(() => _periodType = v);
+                          },
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<PaymentRule>(
+                    isExpanded: true,
+                    value: _paymentRule,
+                    decoration: const InputDecoration(
+                      labelText: 'Aturan Pembayaran',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: PaymentRule.full,
+                        child: Text('Seluruh (Penuh)'),
+                      ),
+                      DropdownMenuItem(
+                        value: PaymentRule.partial,
+                        child: Text('Sebagian (Cicilan)'),
+                      ),
+                    ],
+                    onChanged: _loading
+                        ? null
+                        : (v) {
+                            if (v != null) setState(() => _paymentRule = v);
+                          },
+                  ),
+                  if (_isVoluntary) ...[
+                    const SizedBox(height: 14),
+                    ListTile(
+                      dense: true,
+                      title: const Text('Berlaku Sampai'),
+                      subtitle: Text(
+                        _validUntilController.text.isEmpty
+                            ? 'Tidak ada (selalu aktif)'
+                            : _validUntilController.text,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.calendar_today,
+                                size: 20),
+                            tooltip: 'Pilih tanggal',
+                            onPressed: _loading ? null : _pickValidUntil,
+                          ),
+                          if (_validUntilController.text.isNotEmpty)
+                            IconButton(
+                              icon: const Icon(Icons.clear, size: 20),
+                              tooltip: 'Hapus tanggal',
+                              onPressed: _loading ? null : _clearValidUntil,
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tanggal maksimum tagihan iuran sukarela dibuat. Kosongkan agar berlaku tanpa batas.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  GestureDetector(
+                    key: const ValueKey('edit-due-status'),
+                    onTap: _loading
+                        ? null
+                        : () => setState(() => _isActive = !_isActive),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        border:
+                            Border.all(color: theme.dividerColor),
+                        borderRadius:
+                            BorderRadius.circular(AppRadius.base),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Status',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          AppBadge(
+                            label: _isActive ? 'Aktif' : 'Tidak Aktif',
+                            backgroundColor: _isActive
+                                ? AppColors.success
+                                    .withValues(alpha: 0.12)
+                                : AppColors.danger
+                                    .withValues(alpha: 0.12),
+                            textColor: _isActive
+                                ? AppColors.success
+                                : AppColors.danger,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-              ],
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nama Iuran',
-                  hintText: 'Contoh: Iuran Kebersihan',
-                ),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Nama iuran wajib diisi.';
-                  }
-                  return null;
-                },
-                enabled: !_loading,
-              ),
-              const SizedBox(height: 14),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Iuran Sukarela',
-                  style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w500),
-                ),
-                subtitle: const Text(
-                  'Nominal fleksibel / sukarela',
-                  style: TextStyle(fontSize: 12),
-                ),
-                value: _isVoluntary,
-                onChanged: _loading
-                    ? null
-                    : (val) {
-                        setState(() {
-                          _isVoluntary = val;
-                          if (val) _amountController.text = '0';
-                        });
-                      },
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _amountController,
-                keyboardType: TextInputType.number,
-                inputFormatters:
-                    [FilteringTextInputFormatter.digitsOnly],
-                readOnly: _isVoluntary,
-                decoration: InputDecoration(
-                  labelText: 'Nominal (Rp)',
-                  hintText: 'Contoh: 50000',
-                  enabled: !_isVoluntary && !_loading,
-                ),
-                validator: (val) {
-                  if (_isVoluntary) return null;
-                  final parsed = int.tryParse(val?.trim() ?? '');
-                  if (parsed == null || parsed <= 0) {
-                    return 'Nominal harus lebih dari 0.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<DuePeriodType>(
-                value: _periodType,
-                decoration:
-                    const InputDecoration(labelText: 'Frekuensi'),
-                items: const [
-                  DropdownMenuItem(
-                    value: DuePeriodType.monthly,
-                    child: Text('Bulanan'),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Iuran tidak aktif tidak dapat menghasilkan tagihan baru. '
+                    'Tagihan dan pembayaran lama tetap tersimpan.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                  DropdownMenuItem(
-                    value: DuePeriodType.yearly,
-                    child: Text('Tahunan'),
-                  ),
-                  DropdownMenuItem(
-                    value: DuePeriodType.oneTime,
-                    child: Text('Sekali'),
-                  ),
-                ],
-                onChanged: _loading
-                    ? null
-                    : (v) {
-                        if (v != null) setState(() => _periodType = v);
-                      },
-              ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<PaymentRule>(
-                value: _paymentRule,
-                decoration: const InputDecoration(
-                  labelText: 'Aturan Pembayaran',
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: PaymentRule.full,
-                    child: Text('Seluruh (Penuh)'),
-                  ),
-                  DropdownMenuItem(
-                    value: PaymentRule.partial,
-                    child: Text('Sebagian (Cicilan)'),
-                  ),
-                ],
-                onChanged: _loading
-                    ? null
-                    : (v) {
-                        if (v != null) setState(() => _paymentRule = v);
-                      },
-              ),
-              if (_isVoluntary) ...[
-                const SizedBox(height: 14),
-                ListTile(
-                  dense: true,
-                  title: const Text('Berlaku Sampai'),
-                  subtitle: Text(
-                    _validUntilController.text.isEmpty
-                        ? 'Tidak ada (selalu aktif)'
-                        : _validUntilController.text,
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.calendar_today,
-                            size: 20),
-                        tooltip: 'Pilih tanggal',
-                        onPressed: _loading ? null : _pickValidUntil,
+                  if (widget.due.dueType == DueType.multiMonth) ...[
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Penerbitan Susulan Warga (${widget.due.year ?? DateTime.now().year})',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                      if (_validUntilController.text.isNotEmpty)
-                        IconButton(
-                          icon: const Icon(Icons.clear, size: 20),
-                          tooltip: 'Hapus tanggal',
-                          onPressed: _loading ? null : _clearValidUntil,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Terbitkan 12 tagihan untuk Warga yang baru didaftarkan setelah iuran ini dibuat. '
+                      'Tagihan yang sudah ada tidak akan diubah atau diduplikasi.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('btn-sync-bills'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          side: const BorderSide(
+                              color: AppColors.accent, width: 1.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(AppRadius.base),
+                          ),
                         ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Tanggal maksimum tagihan iuran sukarela dibuat. Kosongkan agar berlaku tanpa batas.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 14),
-              GestureDetector(
-                key: const ValueKey('edit-due-status'),
-                onTap: _loading
-                    ? null
-                    : () => setState(() => _isActive = !_isActive),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    border:
-                        Border.all(color: theme.dividerColor),
-                    borderRadius:
-                        BorderRadius.circular(AppRadius.base),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Status',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface,
+                        icon: _syncingBills
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              )
+                            : const Icon(Icons.sync,
+                                size: 18, color: AppColors.accent),
+                        label: Text(
+                          _syncingBills
+                              ? 'Menyinkronkan...'
+                              : 'Sinkronkan Tagihan Warga',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                        onPressed: (_syncingBills || _loading)
+                            ? null
+                            : _handleSyncBills,
+                      ),
+                    ),
+                    if (_syncSuccessMessage != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.success
+                              .withValues(alpha: 0.12),
+                          borderRadius:
+                              BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(
+                            color: AppColors.success
+                                .withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.check_circle_outline,
+                              size: 18,
+                              color: AppColors.success,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _syncSuccessMessage!,
+                                style:
+                                    theme.textTheme.bodySmall?.copyWith(
+                                  color: AppColors.success,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      AppBadge(
-                        label: _isActive ? 'Aktif' : 'Tidak Aktif',
-                        backgroundColor: _isActive
-                            ? AppColors.success
-                                .withValues(alpha: 0.12)
-                            : AppColors.danger
-                                .withValues(alpha: 0.12),
-                        textColor: _isActive
-                            ? AppColors.success
-                            : AppColors.danger,
-                      ),
                     ],
-                  ),
-                ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Status Tagihan per Bulan',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_loadingMonths)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    else if (_dueMonths.isEmpty)
+                      const Text(
+                        'Belum ada data status bulan.',
+                        style: TextStyle(fontSize: 12),
+                      )
+                    else
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: _dueMonths.map((m) {
+                          final isPaidAll = m.paidBills > 0 &&
+                              m.paidBills == m.totalBills;
+                          final currentActive =
+                              _stagedMonthActive[m.period] ?? m.isActive;
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              _monthNames[m.month - 1],
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: currentActive
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                                color: currentActive
+                                    ? null
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${m.activeBills}/${m.totalBills} tagihan'
+                              '${m.paidBills > 0 ? ', ${m.paidBills} lunas' : ''}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color:
+                                    theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            trailing: Switch(
+                              value: currentActive,
+                              onChanged: (_loading ||
+                                      _loadingMonths ||
+                                      isPaidAll ||
+                                      !m.canDeactivate)
+                                  ? null
+                                  : (val) {
+                                      setState(() {
+                                        _stagedMonthActive[m.period] =
+                                            val;
+                                      });
+                                    },
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Iuran tidak aktif tidak dapat menghasilkan tagihan baru. '
-                'Tagihan dan pembayaran lama tetap tersimpan.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

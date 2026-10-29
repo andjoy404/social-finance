@@ -27,7 +27,7 @@ func TestGetOccupancyIDForUser_PrefixAndEmailMatching(t *testing.T) {
 	// Test 1: User with phone 081298918220 and resident with +6281298918220
 	// RT 03 id from devseed
 	var rtID string
-	err = tx.QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' LIMIT 1`).Scan(&rtID)
+	err = tx.QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '001' LIMIT 1`).Scan(&rtID)
 	if err != nil {
 		t.Fatalf("get rt: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestGetDashboardSummary_NoAbortedTx(t *testing.T) {
 	defer tx.Rollback()
 
 	var rtID string
-	err = tx.QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' LIMIT 1`).Scan(&rtID)
+	err = tx.QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '001' LIMIT 1`).Scan(&rtID)
 	if err != nil {
 		t.Fatalf("get rt: %v", err)
 	}

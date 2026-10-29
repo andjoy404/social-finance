@@ -146,6 +146,7 @@ type Bill struct {
 	Period               string     `json:"period"` // e.g. "2026-09"
 	DueDate              string     `json:"due_date"`
 	Status               BillStatus `json:"status"`
+	IsActive             bool       `json:"is_active"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 
@@ -159,6 +160,22 @@ type Bill struct {
 	IsVoluntary   bool    `json:"is_voluntary"`
 	PaidAmount    *string `json:"paid_amount,omitempty"`
 	PendingAmount *string `json:"pending_amount,omitempty"`
+}
+
+type UpdateBillStatusInput struct {
+	IsActive bool `json:"is_active"`
+}
+
+type DueMonthSummary struct {
+	Period        string `json:"period"`
+	Month         int    `json:"month"`
+	Year          int    `json:"year"`
+	TotalBills    int    `json:"total_bills"`
+	ActiveBills   int    `json:"active_bills"`
+	PaidBills     int    `json:"paid_bills"`
+	UnpaidBills   int    `json:"unpaid_bills"`
+	IsActive      bool   `json:"is_active"`
+	CanDeactivate bool   `json:"can_deactivate"`
 }
 
 type CreateBillInput struct {

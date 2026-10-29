@@ -10,6 +10,7 @@ import {
   AccountBookOutlined,
   DollarOutlined,
   BankOutlined,
+  BellOutlined,
 } from '@ant-design/icons'
 
 function isActive(route: string, pathname: string): boolean {
@@ -69,6 +70,16 @@ export function Sidebar() {
     items.push(
       { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
     )
+  }
+
+  const canAccessNotifikasi = isSuperAdmin || user?.jabatan?.toLowerCase() === 'ketua'
+  if (canAccessNotifikasi) {
+    items.push({
+      to: '/notifikasi',
+      label: 'Notifikasi',
+      icon: <BellOutlined />,
+      id: 'notifikasi',
+    })
   }
 
   if (isSuperAdmin) {

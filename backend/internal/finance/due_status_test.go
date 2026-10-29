@@ -225,22 +225,11 @@ func TestDueActiveStatusLifecycle(t *testing.T) {
 		t.Fatalf("historical bill status changed: got %s", historical.Status)
 	}
 
-	// Existing arrears remain payable even though the due is inactive.
+	// Existing arrears cannot be paid while the due is inactive.
 	rec = doFinanceRequest(t, router, http.MethodPost, "/api/v1/payments", tokenBendahara,
 		fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, arrearsBillID))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("pay arrears bill for inactive due: expected 201, got %d: %s", rec.Code, rec.Body.String())
-	}
-	rec = doFinanceRequest(t, router, http.MethodGet, "/api/v1/bills/"+arrearsBillID, tokenBendahara, "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("read paid arrears bill: expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var arrearsBill Bill
-	if err := json.Unmarshal(rec.Body.Bytes(), &arrearsBill); err != nil {
-		t.Fatalf("unmarshal arrears bill: %v", err)
-	}
-	if arrearsBill.Status != BillStatusPaid {
-		t.Fatalf("arrears bill must become paid, got %s", arrearsBill.Status)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("pay arrears bill for inactive due: expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// Reactivation allows bill generation again.

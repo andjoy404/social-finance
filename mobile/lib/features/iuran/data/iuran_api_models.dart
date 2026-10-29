@@ -593,3 +593,53 @@ class BackendMultiPeriodPaymentResult {
     );
   }
 }
+
+class DueMonthSummary {
+  final String period;
+  final int month;
+  final int year;
+  final int totalBills;
+  final int activeBills;
+  final int paidBills;
+  final int unpaidBills;
+  final bool isActive;
+  final bool canDeactivate;
+
+  const DueMonthSummary({
+    required this.period,
+    required this.month,
+    required this.year,
+    required this.totalBills,
+    required this.activeBills,
+    required this.paidBills,
+    required this.unpaidBills,
+    required this.isActive,
+    required this.canDeactivate,
+  });
+
+  factory DueMonthSummary.fromJson(Map<String, dynamic> json) {
+    return DueMonthSummary(
+      period: json['period'] as String? ?? '',
+      month: json['month'] as int? ?? 0,
+      year: json['year'] as int? ?? 0,
+      totalBills: json['total_bills'] as int? ?? 0,
+      activeBills: json['active_bills'] as int? ?? 0,
+      paidBills: json['paid_bills'] as int? ?? 0,
+      unpaidBills: json['unpaid_bills'] as int? ?? 0,
+      isActive: json['is_active'] as bool? ?? false,
+      canDeactivate: json['can_deactivate'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'period': period,
+    'month': month,
+    'year': year,
+    'total_bills': totalBills,
+    'active_bills': activeBills,
+    'paid_bills': paidBills,
+    'unpaid_bills': unpaidBills,
+    'is_active': isActive,
+    'can_deactivate': canDeactivate,
+  };
+}
