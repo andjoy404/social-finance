@@ -52,6 +52,7 @@ type UserInfo struct {
 	Email      string  `json:"email"`
 	SystemRole string  `json:"system_role,omitempty"`
 	Role       Role    `json:"role"`
+	Jabatan    string  `json:"jabatan,omitempty"`
 	RT         *RTInfo `json:"rt,omitempty"`
 }
 
@@ -179,6 +180,7 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 				Email:      user.Email,
 				SystemRole: string(user.SystemRole),
 				Role:       m.Role,
+				Jabatan:    string(m.Jabatan),
 				RT: &RTInfo{
 					ID:   m.RTID,
 					Name: rtName,
@@ -363,6 +365,7 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID st
 			Email:      user.Email,
 			SystemRole: string(user.SystemRole),
 			Role:       m.Role,
+			Jabatan:    string(m.Jabatan),
 			RT: &RTInfo{
 				ID:   m.RTID,
 				Name: rtName,

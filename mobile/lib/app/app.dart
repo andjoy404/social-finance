@@ -40,6 +40,7 @@ import '../features/kas/presentation/screens/kas_masuk_screen.dart';
 import '../features/kas/presentation/screens/kas_keluar_screen.dart';
 import '../features/kas/presentation/screens/kas_report_screen.dart';
 import '../features/fund_location/presentation/screens/fund_location_screen.dart';
+import '../features/notification/data/models/notification_models.dart';
 import '../features/notification/presentation/screens/notification_detail_screen.dart';
 import '../features/notification/presentation/screens/notification_management_screen.dart';
 
@@ -282,10 +283,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   }
 
   bool _canUserAccessNotificationMenu(Map<String, dynamic>? user) {
-    if (user == null) return false;
-    final systemRole = user['system_role'] as String?;
-    final jabatan = (user['jabatan'] ?? '').toString().toLowerCase();
-    return systemRole == 'super_admin' || jabatan == 'ketua';
+    return canUserAccessNotificationMenu(user);
   }
 
   String _resolveAuthorizedTarget(

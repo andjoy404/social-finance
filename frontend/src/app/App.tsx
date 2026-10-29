@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth, isAllowedRT } from '@/app/AuthContext'
+import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationMenu } from '@/app/AuthContext'
 import { Login } from '@/features/auth/Login'
 import { Dashboard } from '@/features/dashboard/Dashboard'
 import { AppLayout } from '@/layouts/AppLayout'
@@ -33,7 +33,7 @@ function SuperAdminRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
-  if (!user || user.systemRole !== 'super_admin') {
+  if (!isSuperAdminUser(user)) {
     return <Navigate to="/" replace />
   }
   return <>{children}</>
@@ -55,9 +55,7 @@ function NotificationAdminRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
-  const isSuperAdmin = user?.systemRole === 'super_admin'
-  const isKetuaRT = user?.jabatan?.toLowerCase() === 'ketua'
-  if (!isSuperAdmin && !isKetuaRT) {
+  if (!canAccessNotificationMenu(user)) {
     return <Navigate to="/" replace />
   }
   return <>{children}</>

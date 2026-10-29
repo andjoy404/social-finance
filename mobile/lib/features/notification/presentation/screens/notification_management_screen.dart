@@ -118,130 +118,165 @@ class _NotificationManagementScreenState
     required String eventName,
     String? imageUrl,
   }) {
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: const Color(0xFF334155),
-                width: 1,
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) {
+          return Scaffold(
+            backgroundColor: const Color(0xFF0F172A),
+            appBar: AppBar(
+              backgroundColor: const Color(0xFF0F172A),
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                onPressed: () => Navigator.of(ctx).pop(),
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+              title: Text(
+                'Preview Notifikasi',
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              centerTitle: true,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Banner header
-                Row(
+            body: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Banner container
                     Container(
-                      width: 28,
-                      height: 28,
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppColors.accent,
-                        borderRadius: BorderRadius.circular(8),
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: const Color(0xFF334155),
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.5),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
                       ),
-                      child: const Icon(
-                        Icons.notifications_active,
-                        size: 16,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Banner header
+                          Row(
+                            children: [
+                              Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: AppColors.accent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.notifications_active,
+                                  size: 16,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Social Finance Urena',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Push Notification',
+                                      style: TextStyle(
+                                        color: Color(0xFF94A3B8),
+                                        fontSize: 10,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Text(
+                                'baru saja',
+                                style: TextStyle(
+                                  color: Color(0xFF64748B),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Content
                           Text(
-                            'Social Finance Urena',
-                            style: TextStyle(
+                            title,
+                            style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 12,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
+                          const SizedBox(height: 4),
                           Text(
-                            'Push Notification',
+                            body,
+                            style: const TextStyle(
+                              color: Color(0xFFCBD5E1),
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
+                          if (imageUrl != null && imageUrl.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                ApiConfig.resolveImageUrl(imageUrl) ?? imageUrl,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Label info
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.accent.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.info_outline, size: 16, color: AppColors.accent),
+                          const SizedBox(width: 8),
+                          Text(
+                            eventName,
                             style: TextStyle(
-                              color: Color(0xFF94A3B8),
-                              fontSize: 10,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.accent,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const Text(
-                      'baru saja',
-                      style: TextStyle(
-                        color: Color(0xFF64748B),
-                        fontSize: 11,
-                      ),
-                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                // Content
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  body,
-                  style: const TextStyle(
-                    color: Color(0xFFCBD5E1),
-                    fontSize: 13,
-                    height: 1.35,
-                  ),
-                ),
-                if (imageUrl != null && imageUrl.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      ApiConfig.resolveImageUrl(imageUrl) ?? imageUrl,
-                      height: 140,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.accent,
-                    ),
-                    child: const Text('Tutup'),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -759,14 +794,15 @@ class _NotificationManagementScreenState
 
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
-    final systemRole = user?['system_role'] as String?;
-    final isSuperAdmin = systemRole == 'super_admin';
+    final isSuperAdmin = isSuperAdminUser(user);
 
     final systemTypesAsync = ref.watch(notificationSystemTypesProvider);
     final templatesAsync = ref.watch(notificationTemplatesProvider);
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: Navigator.of(context).canPop(),
+        centerTitle: false,
         title: const MenuAppBarTitle(title: 'Kelola Notifikasi'),
         bottom: TabBar(
           controller: _tabController,
@@ -852,7 +888,8 @@ class _NotificationManagementScreenState
                               ),
                             ),
                             const SizedBox(height: 10),
-                            Expanded(
+                            SizedBox(
+                              width: double.infinity,
                               child: Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
@@ -862,7 +899,7 @@ class _NotificationManagementScreenState
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
                                     Text(
                                       'Penerima:',

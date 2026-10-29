@@ -4,11 +4,17 @@ import { MemoryRouter } from 'react-router-dom'
 import { NotificationScreen } from './NotificationScreen'
 import * as api from '@/app/api'
 
-vi.mock('@/app/AuthContext', () => ({
-  useAuth: vi.fn().mockReturnValue({
-    user: { id: 'usr-admin', email: 'admin@rt.local', systemRole: 'super_admin' },
-  }),
-}))
+import * as AuthModule from '@/app/AuthContext'
+
+vi.mock('@/app/AuthContext', async () => {
+  const actual = await vi.importActual<typeof AuthModule>('@/app/AuthContext')
+  return {
+    ...actual,
+    useAuth: vi.fn().mockReturnValue({
+      user: { id: 'usr-admin', email: 'admin@rt.local', systemRole: 'super_admin', role: 'pengurus', jabatan: null },
+    }),
+  }
+})
 
 vi.mock('@/app/api', async () => {
   const actual = await vi.importActual<typeof api>('@/app/api')
@@ -234,5 +240,41 @@ describe('NotificationScreen', () => {
       )
       expect(screen.getByText(/Notifikasi berhasil disiarkan ke seluruh warga RT!/i)).toBeInTheDocument()
     })
+  })
+
+  it('allows Ketua RT to manage templates and broadcast but hides SuperAdmin-only Test Notifikasi button', async () => {
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: {
+        id: 'usr-ketua',
+        name: 'Ketua RT 002',
+        email: 'ketua-002@local.com',
+        systemRole: null,
+        role: 'pengurus',
+        jabatan: 'ketua',
+        rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+        rtCode: '002',
+        rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter>
+        <NotificationScreen />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Kedatangan Mobil Sampah')).toBeInTheDocument()
+    })
+
+    // Ketua RT can broadcast and manage templates
+    expect(screen.getByRole('button', { name: /Kirim Notifikasi/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Tambah Template/i }).length).toBeGreaterThan(0)
+    // SuperAdmin-only test push button must NOT be shown to Ketua RT
+    expect(screen.queryByRole('button', { name: /Test Notifikasi/i })).not.toBeInTheDocument()
   })
 })

@@ -1,3 +1,5 @@
+import 'package:social_finance/core/models/role.dart';
+
 class SystemNotificationType {
   final String eventType;
   final String name;
@@ -224,13 +226,30 @@ class NotificationLogsResponse {
   }
 }
 
+/// Helper functions to check if the current user has Superadmin or Ketua RT
+/// access to Notification Management.
+bool isSuperAdminUser(Map<String, dynamic>? user) {
+  if (user == null) return false;
+  final systemRole =
+      (user['system_role'] ?? '').toString().trim().toLowerCase();
+  final role = user['role'];
+  final roleStr = (role ?? '').toString().trim().toLowerCase();
+  return systemRole == 'super_admin' ||
+      role == AppRole.superAdmin ||
+      roleStr == 'super_admin' ||
+      roleStr == 'approle.superadmin';
+}
+
+bool isKetuaRTUser(Map<String, dynamic>? user) {
+  if (user == null) return false;
+  final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+  return jabatan == 'ketua' || jabatan == 'ketua_rt' || jabatan == 'ketua rt';
+}
+
 /// Helper function to check if the current user has access to Notification Management.
 /// Permitted roles: super_admin or Ketua RT.
 bool canUserAccessNotificationMenu(Map<String, dynamic>? user) {
-  if (user == null) return false;
-  final systemRole = user['system_role'] as String?;
-  final jabatan = (user['jabatan'] ?? '').toString().toLowerCase();
-  return systemRole == 'super_admin' || jabatan == 'ketua';
+  return isSuperAdminUser(user) || isKetuaRTUser(user);
 }
 
 

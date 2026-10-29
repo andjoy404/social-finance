@@ -14,7 +14,7 @@ import {
   ExperimentOutlined,
   PictureOutlined,
 } from '@ant-design/icons'
-import { useAuth } from '@/app/AuthContext'
+import { useAuth, isSuperAdminUser } from '@/app/AuthContext'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
 import {
@@ -36,7 +36,7 @@ import {
 
 export function NotificationScreen() {
   const { user } = useAuth()
-  const isSuperAdmin = user?.systemRole === 'super_admin'
+  const isSuperAdmin = isSuperAdminUser(user)
 
   const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs'>('system')
 

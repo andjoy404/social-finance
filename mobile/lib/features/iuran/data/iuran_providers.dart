@@ -180,12 +180,30 @@ List<IuranBill> _filterBills(
     _ => <IuranBill>[],
   };
 
+  // Normalize periode filter: "2026-10" → [2026, 10], empty → null
+  int? filterYear, filterMonth;
+  if (periode.isNotEmpty) {
+    final parts = periode.split('-');
+    if (parts.length == 2) {
+      filterYear = int.tryParse(parts[0]);
+      filterMonth = int.tryParse(parts[1]);
+    }
+  }
+
   var filtered = bills.where((b) {
     final searchMatch =
         normalizedQuery.isEmpty ||
         b.householdName.toLowerCase().contains(normalizedQuery) ||
         b.iuranType.toLowerCase().contains(normalizedQuery);
-    final periodeMatch = periode.isEmpty || b.periode == periode;
+
+    // Period filter: match "Oktober 2026" OR "2026-10" formats
+    final periodMatch =
+        periode.isEmpty ||
+        b.periode == periode ||
+        (filterYear != null &&
+            filterMonth != null &&
+            _periodMatches(b.periode, filterYear, filterMonth));
+
     final statusMatch = status.isEmpty || b.status.name == status;
     final paymentStatusMatch = switch (paymentStatus.toLowerCase()) {
       'pending' => b.pendingAmount > 0,
@@ -193,7 +211,7 @@ List<IuranBill> _filterBills(
       'rejected' => b.rejectedAmount > 0,
       _ => true,
     };
-    return searchMatch && periodeMatch && statusMatch && paymentStatusMatch;
+    return searchMatch && periodMatch && statusMatch && paymentStatusMatch;
   }).toList();
 
   debugPrint(
@@ -243,6 +261,30 @@ List<int> _parsePeriodForSort(String period) {
   };
   final month = months[parts[0].toLowerCase()] ?? 0;
   return [year, month];
+}
+
+/// Check if a period string (e.g. "Oktober 2026") matches the given year & month.
+bool _periodMatches(String period, int year, int month) {
+  final parts = period.split(' ');
+  if (parts.length < 2) return false;
+  final yearStr = parts[1];
+  const monthNames = {
+    'januari': 1,
+    'februari': 2,
+    'maret': 3,
+    'april': 4,
+    'mei': 5,
+    'juni': 6,
+    'juli': 7,
+    'agustus': 8,
+    'september': 9,
+    'oktober': 10,
+    'november': 11,
+    'desember': 12,
+  };
+  final pYear = int.tryParse(yearStr);
+  final pMonth = monthNames[parts[0].toLowerCase()];
+  return pYear == year && pMonth == month;
 }
 
 // ─── Bill Detail (parameterized by ID) ────────────────────────────────

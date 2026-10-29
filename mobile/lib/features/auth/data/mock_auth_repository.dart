@@ -738,8 +738,14 @@ const allowedRTIds = {
 
 bool isAllowedRT(Map<String, dynamic>? user) {
   if (user == null) return false;
-  final systemRole = user['system_role'] as String?;
-  if (systemRole == 'super_admin') return true;
+  final role = user['role'];
+  final systemRole =
+      (user['system_role'] ?? '').toString().trim().toLowerCase();
+  if (role == AppRole.superAdmin ||
+      role == 'super_admin' ||
+      systemRole == 'super_admin') {
+    return true;
+  }
   final rtCode = user['rt'] as String?;
   if (rtCode != null && allowedRTCodes.contains(rtCode)) return true;
   final rtId = user['rt_id'] as String?;

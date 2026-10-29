@@ -145,20 +145,15 @@ void main() {
     await tester.tap(previewButtons.first);
     await tester.pumpAndSettle();
 
+    expect(find.text('Preview Notifikasi'), findsOneWidget);
     expect(find.text('Social Finance Urena'), findsOneWidget);
     expect(find.text('Push Notification'), findsOneWidget);
     expect(find.text('baru saja'), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byType(Dialog),
-        matching: find.text('Tagihan Iuran Baru Tersedia'),
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Tagihan Iuran Baru Tersedia'), findsWidgets);
 
-    await tester.tap(find.text('Tutup'));
+    await tester.tap(find.byIcon(Icons.arrow_back_ios_new));
     await tester.pumpAndSettle();
 
-    expect(find.text('Push Notification'), findsNothing);
+    expect(find.text('Preview Notifikasi'), findsNothing);
   });
 }

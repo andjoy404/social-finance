@@ -367,7 +367,7 @@ func RequireNotificationAdmin() func(http.Handler) http.Handler {
 				return
 			}
 			// Ketua RT position access
-			if ac.Jabatan == JabatanKetua {
+			if ac.Jabatan == JabatanKetua || strings.EqualFold(strings.TrimSpace(string(ac.Jabatan)), string(JabatanKetua)) {
 				next.ServeHTTP(w, r)
 				return
 			}

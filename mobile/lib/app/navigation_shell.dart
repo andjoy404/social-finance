@@ -6,6 +6,7 @@ import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/notification/data/models/notification_models.dart';
 
 class MainNavigationShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -67,43 +68,40 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
 
   bool _canAccessLokasiDana(Map<String, dynamic>? user) {
     if (user == null) return false;
-    final systemRole = user['system_role'] as String?;
-    if (systemRole == 'super_admin') return true;
+    if (isSuperAdminUser(user)) return true;
     final role = user['role'] as AppRole?;
-    final jabatan = (user['jabatan'] ?? '').toString().toLowerCase();
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
     return role == AppRole.bendahara ||
         role == AppRole.pengurus ||
-        jabatan == 'ketua' ||
+        isKetuaRTUser(user) ||
         jabatan == 'bendahara';
   }
 
   bool _canAccessNotifikasi(Map<String, dynamic>? user) {
-    if (user == null) return false;
-    final systemRole = user['system_role'] as String?;
-    final jabatan = (user['jabatan'] ?? '').toString().toLowerCase();
-    return systemRole == 'super_admin' || jabatan == 'ketua';
+    return canUserAccessNotificationMenu(user);
   }
 
   List<_NavRoute> _getActiveTabs() {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
+    final canNotifikasi = _canAccessNotifikasi(user);
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
-      final canNotifikasi = _canAccessNotifikasi(user);
-      final tabs = <_NavRoute>[
+      return [
         _homeTab,
         _kasTab,
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
         _wargaTab,
+        if (canNotifikasi) _notifikasiTab,
+        _profileTab,
       ];
-      if (canNotifikasi) {
-        tabs.insert(tabs.length - 1, _notifikasiTab);
-      }
-      tabs.add(_profileTab);
-      return tabs;
     }
-    return const [_homeTab, _profileTab];
+    return [
+      _homeTab,
+      if (canNotifikasi) _notifikasiTab,
+      _profileTab,
+    ];
   }
 
   int _resolveCurrentMatch(List<_NavRoute> tabs, String location) {
@@ -223,15 +221,18 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
           ),
         ),
         bottomNavigationBar: BottomAppBar(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(
               tabs.length,
-              (index) => _NavRailItem(
-                key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
-                tab: tabs[index],
-                isSelected: index == _currentMatch,
-                onTap: () => _onTabTapped(tabs, index, context),
+              (index) => Flexible(
+                child: _NavRailItem(
+                  key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
+                  tab: tabs[index],
+                  isSelected: index == _currentMatch,
+                  onTap: () => _onTabTapped(tabs, index, context),
+                ),
               ),
             ),
           ),

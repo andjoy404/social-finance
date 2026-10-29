@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAuth, isAllowedRT } from '@/app/AuthContext'
+import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationMenu } from '@/app/AuthContext'
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -47,7 +47,7 @@ export function Sidebar() {
     })
   }, [])
 
-  const isSuperAdmin = user?.systemRole === 'super_admin'
+  const isSuperAdmin = isSuperAdminUser(user)
   const allowedRT = isAllowedRT(user)
 
   const items: NavItem[] = [
@@ -72,7 +72,7 @@ export function Sidebar() {
     )
   }
 
-  const canAccessNotifikasi = isSuperAdmin || user?.jabatan?.toLowerCase() === 'ketua'
+  const canAccessNotifikasi = canAccessNotificationMenu(user)
   if (canAccessNotifikasi) {
     items.push({
       to: '/notifikasi',
