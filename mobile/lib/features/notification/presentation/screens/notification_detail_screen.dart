@@ -121,8 +121,9 @@ class _NotificationDetailScreenState
         case 500:
           return 'Server sedang mengalami gangguan. Coba lagi nanti.';
         default:
-          return error.message.isNotEmpty
-              ? error.message
+          final cleanMsg = error.message.trim();
+          return cleanMsg.isNotEmpty
+              ? cleanMsg
               : 'Terjadi kesalahan. Coba lagi nanti.';
       }
     }
