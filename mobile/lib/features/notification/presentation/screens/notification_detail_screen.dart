@@ -1,8 +1,10 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/config.dart';
+import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
@@ -86,21 +88,83 @@ class _NotificationDetailScreenState
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _fetchError = e.toString();
+        _fetchError = _mapErrorToUserMessage(e);
         _isLoading = false;
       });
     }
   }
 
-  bool _hasNotificationListInStack(GoRouter router) {
-    return router.routerDelegate.currentConfiguration.routes.any(
-      (route) => route is GoRoute && route.name == 'notifikasi',
-    );
+  static String _mapErrorToUserMessage(dynamic error) {
+    // Helper to classify HTTP status into categories
+    int? classifyStatusCode(int? code) {
+      if (code == null) return null;
+      if (code == 401) return 401;
+      if (code == 403) return 403;
+      if (code == 404) return 404;
+      if (code == 408 || code == 504) return 408;
+      if (code >= 500) return 500;
+      return null;
+    }
+
+    // Handle ServerException properly — use its .message property, not .toString()
+    if (error is ServerException) {
+      final classified = classifyStatusCode(error.statusCode);
+      switch (classified) {
+        case 401:
+          return 'Sesi Anda telah berakhir. Silakan login kembali.';
+        case 403:
+          return 'Anda tidak memiliki akses untuk melihat notifikasi ini.';
+        case 404:
+          return 'Detail notifikasi tidak ditemukan.';
+        case 408:
+          return 'Permintaan timeout. Periksa koneksi Anda dan coba lagi.';
+        case 500:
+          return 'Server sedang mengalami gangguan. Coba lagi nanti.';
+        default:
+          return error.message.isNotEmpty
+              ? error.message
+              : 'Terjadi kesalahan. Coba lagi nanti.';
+      }
+    }
+
+    // Handle DioException with HTTP status codes
+    if (error is DioException) {
+      final status = error.response?.statusCode;
+      final body = error.response?.data;
+      // Try to extract user-friendly message from backend error response
+      if (body is Map && body['error'] is Map) {
+        final msg = body['error']['message'] as String?;
+        if (msg != null && msg.isNotEmpty) {
+          return msg;
+        }
+      }
+      final classified = classifyStatusCode(status);
+      switch (classified) {
+        case 401:
+          return 'Sesi Anda telah berakhir. Silakan login kembali.';
+        case 403:
+          return 'Anda tidak memiliki akses untuk melihat notifikasi ini.';
+        case 404:
+          return 'Detail notifikasi tidak ditemukan.';
+        case 408:
+          return 'Permintaan timeout. Periksa koneksi Anda dan coba lagi.';
+        case 500:
+          return 'Server sedang mengalami gangguan. Coba lagi nanti.';
+        default:
+          return 'Gagal memuat detail notifikasi. Periksa koneksi Anda.';
+      }
+    }
+
+    // Generic fallback for unknown error types
+    if (error is AppWithMessageError) return error.message;
+    return 'Terjadi kesalahan tidak terduga. Silakan coba lagi.';
   }
 
   void _handleBack(BuildContext context) {
     final router = GoRouter.maybeOf(context);
+
     if (widget.openedFromNotificationList) {
+      // Case B: Detail opened from in-app notification list
       if (router != null) {
         if (_hasNotificationListInStack(router) && router.canPop()) {
           router.pop();
@@ -113,11 +177,18 @@ class _NotificationDetailScreenState
       return;
     }
 
+    // Case A/C: Detail opened from push notification or other external source
     if (router != null) {
       router.go('/home');
     } else if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
+  }
+
+  bool _hasNotificationListInStack(GoRouter router) {
+    return router.routerDelegate.currentConfiguration.routes.any(
+      (route) => route is GoRoute && route.name == 'notifikasi',
+    );
   }
 
   String _formatCategoryLabel(String? eventType) {
@@ -267,6 +338,7 @@ class _NotificationDetailScreenState
             return ErrorState(
               message: _fetchError!,
               onRetry: () => _maybeFetchDetail(force: true),
+              actionText: 'Coba Lagi',
             );
           }
 

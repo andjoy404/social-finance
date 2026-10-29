@@ -140,7 +140,7 @@ void main() {
       expect(canUserAccessNotificationMenu(user), isFalse);
     });
 
-    test('Pengurus non-ketua (sekretaris & wakil_ketua) does NOT have access', () {
+    test('Semua Pengurus (sekretaris, wakil_ketua, bendahara internal) has access', () {
       expect(
         canUserAccessNotificationMenu({
           'id': 'u-sekre',
@@ -148,7 +148,7 @@ void main() {
           'role': AppRole.pengurus,
           'jabatan': 'sekretaris',
         }),
-        isFalse,
+        isTrue,
       );
       expect(
         canUserAccessNotificationMenu({
@@ -157,7 +157,17 @@ void main() {
           'role': AppRole.pengurus,
           'jabatan': 'wakil_ketua',
         }),
-        isFalse,
+        isTrue,
+      );
+      // Ketua RT tetap memiliki akses
+      expect(
+        canUserAccessNotificationMenu({
+          'id': 'u-ketua2',
+          'system_role': null,
+          'role': AppRole.pengurus,
+          'jabatan': 'ketua',
+        }),
+        isTrue,
       );
     });
   });
@@ -234,7 +244,7 @@ void main() {
     );
 
     testWidgets(
-      'Unauthorized roles (Warga, Bendahara, Sekretaris) do NOT see Notifikasi tab in BottomAppBar',
+      'Unauthorized roles (Warga, Bendahara) do NOT see Notifikasi tab in BottomAppBar',
       (tester) async {
         for (final unauthorizedUser in [
           {
@@ -257,16 +267,6 @@ void main() {
             'rt': '002',
             'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
           },
-          {
-            'id': 'u-sekretaris',
-            'email': 'sekretaris-002@local.com',
-            'name': 'Sekretaris RT',
-            'role': AppRole.pengurus,
-            'system_role': null,
-            'jabatan': 'sekretaris',
-            'rt': '002',
-            'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
-          },
         ]) {
           await tester.pumpWidget(
             KeyedSubtree(
@@ -282,6 +282,38 @@ void main() {
             findsNothing,
           );
         }
+      },
+    );
+
+    testWidgets(
+      'Pengurus (sekretaris) sees Notifikasi tab in BottomAppBar and can open NotificationManagementScreen',
+      (tester) async {
+        final sekreUser = {
+          'id': 'u-sekre',
+          'email': 'sekretaris-002@local.com',
+          'name': 'Sekretaris RT',
+          'role': AppRole.pengurus,
+          'system_role': null,
+          'jabatan': 'sekretaris',
+          'rt': '002',
+          'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+        };
+
+        await tester.pumpWidget(_createApp(user: sekreUser));
+        await tester.pumpAndSettle();
+
+        final bottomNav = find.byType(BottomAppBar);
+        final notifTab = find.descendant(
+          of: bottomNav,
+          matching: find.text('Notifikasi'),
+        );
+        expect(notifTab, findsOneWidget);
+
+        await tester.tap(notifTab);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(NotificationManagementScreen), findsOneWidget);
+        expect(find.text('KELOLA NOTIFIKASI'), findsOneWidget);
       },
     );
   });

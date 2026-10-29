@@ -246,10 +246,19 @@ bool isKetuaRTUser(Map<String, dynamic>? user) {
   return jabatan == 'ketua' || jabatan == 'ketua_rt' || jabatan == 'ketua rt';
 }
 
+bool isPengurusUser(Map<String, dynamic>? user) {
+  if (user == null) return false;
+  final role = user['role'];
+  final roleStr = (role ?? '').toString().trim().toLowerCase();
+  return role == AppRole.pengurus || roleStr == 'pengurus';
+}
+
 /// Helper function to check if the current user has access to Notification Management.
-/// Permitted roles: super_admin or Ketua RT.
+/// Permitted roles: super_admin, pengurus, or Ketua RT.
 bool canUserAccessNotificationMenu(Map<String, dynamic>? user) {
-  return isSuperAdminUser(user) || isKetuaRTUser(user);
+  return isSuperAdminUser(user) ||
+      isKetuaRTUser(user) ||
+      isPengurusUser(user);
 }
 
 
