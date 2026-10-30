@@ -55,8 +55,18 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
   bool _isWarga(WidgetRef ref) {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
+    final systemRole = user?['system_role'] as String?;
+    if (systemRole == 'super_admin') return false;
     final role = user?['role'] as AppRole?;
-    return role == AppRole.warga;
+    if (role != AppRole.warga) return false;
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'bendahara' ||
+        jabatan == 'ketua' ||
+        jabatan == 'wakil_ketua' ||
+        jabatan == 'sekretaris') {
+      return false;
+    }
+    return true;
   }
 
   bool _canManage(WidgetRef ref) {

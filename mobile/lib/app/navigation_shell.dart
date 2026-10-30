@@ -74,7 +74,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     return role == AppRole.bendahara ||
         role == AppRole.pengurus ||
         isKetuaRTUser(user) ||
-        jabatan == 'bendahara';
+        jabatan == 'bendahara' ||
+        jabatan == 'ketua' ||
+        jabatan == 'wakil_ketua' ||
+        jabatan == 'sekretaris';
   }
 
   bool _canAccessNotifikasi(Map<String, dynamic>? user) {

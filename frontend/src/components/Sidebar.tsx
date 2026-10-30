@@ -54,23 +54,25 @@ export function Sidebar() {
     { to: '/', label: 'Beranda', icon: <DashboardOutlined />, id: 'dashboard' },
   ]
 
-  if (allowedRT) {
+    if (allowedRT) {
+    const canAccessLokasiDana =
+        user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== ''
     items.push(
-      { to: '/kas', label: 'Kas', icon: <DollarOutlined />, id: 'kas' },
-      { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
+        { to: '/kas', label: 'Kas', icon: <DollarOutlined />, id: 'kas' },
+        { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
     )
-    if (user?.role !== 'warga') {
-      items.push({
-        to: '/lokasi-dana',
-        label: 'Lokasi Dana',
-        icon: <BankOutlined />,
-        id: 'lokasi-dana',
-      })
+    if (canAccessLokasiDana) {
+        items.push({
+            to: '/lokasi-dana',
+            label: 'Lokasi Dana',
+            icon: <BankOutlined />,
+            id: 'lokasi-dana',
+        })
     }
     items.push(
-      { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+        { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
     )
-  }
+}
 
   const canAccessNotifikasi = canAccessNotificationMenu(user)
   if (canAccessNotifikasi) {
