@@ -151,13 +151,16 @@ export function Dashboard() {
             onClick={handlePrevMonth}
             disabled={isAllPeriods}
             style={{
-              padding: '6px 10px',
+              padding: '8px 20px',
               fontSize: 13,
+              fontWeight: 600,
+              lineHeight: '1.2',
               background: 'rgba(169, 112, 255, 0.06)',
               border: '1px solid rgba(169, 112, 255, 0.35)',
               color: 'var(--sf-accent)',
               borderRadius: 'var(--sf-radius-sm)',
               transition: 'all 0.25s ease',
+              boxSizing: 'border-box',
               opacity: isAllPeriods ? 0.5 : 1,
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
             }}
@@ -175,14 +178,16 @@ export function Dashboard() {
               setSelectedMonth(parseInt(e.target.value, 10))
             }}
             style={{
-              padding: '6px 12px',
+              padding: '8px 20px',
               fontSize: 13,
               fontWeight: 600,
+              lineHeight: '1.2',
               borderRadius: 'var(--sf-radius-sm)',
               border: '1px solid var(--sf-border)',
               background: 'var(--sf-bg)',
               color: 'var(--sf-text)',
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
+              boxSizing: 'border-box',
             }}
             aria-label="Pilih Bulan"
           >
@@ -201,14 +206,16 @@ export function Dashboard() {
               setSelectedYear(parseInt(e.target.value, 10))
             }}
             style={{
-              padding: '6px 12px',
+              padding: '8px 20px',
               fontSize: 13,
               fontWeight: 600,
+              lineHeight: '1.2',
               borderRadius: 'var(--sf-radius-sm)',
               border: '1px solid var(--sf-border)',
               background: 'var(--sf-bg)',
               color: 'var(--sf-text)',
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
+              boxSizing: 'border-box',
             }}
             aria-label="Pilih Tahun"
           >
@@ -225,13 +232,16 @@ export function Dashboard() {
             onClick={handleNextMonth}
             disabled={isAllPeriods}
             style={{
-              padding: '6px 10px',
+              padding: '8px 20px',
               fontSize: 13,
+              fontWeight: 600,
+              lineHeight: '1.2',
               background: 'rgba(169, 112, 255, 0.06)',
               border: '1px solid rgba(169, 112, 255, 0.35)',
               color: 'var(--sf-accent)',
               borderRadius: 'var(--sf-radius-sm)',
               transition: 'all 0.25s ease',
+              boxSizing: 'border-box',
               opacity: isAllPeriods ? 0.5 : 1,
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
             }}
@@ -249,8 +259,10 @@ export function Dashboard() {
             className={`sf-btn sf-kas-period-button ${isAllPeriods ? 'sf-btn-primary' : 'sf-btn-outline'}`}
             onClick={() => setIsAllPeriods(!isAllPeriods)}
             style={{
-              fontSize: 12,
-              padding: '6px 12px',
+              padding: '8px 20px',
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: '1.2',
               background: isAllPeriods
                 ? 'rgba(169, 112, 255, 0.14)'
                 : 'rgba(169, 112, 255, 0.06)',
@@ -260,6 +272,7 @@ export function Dashboard() {
               color: isAllPeriods ? 'var(--sf-accent)' : 'var(--sf-accent)',
               borderRadius: 'var(--sf-radius-sm)',
               transition: 'all 0.25s ease',
+              boxSizing: 'border-box',
               boxShadow: isAllPeriods
                 ? '0 0 12px rgba(169, 112, 255, 0.18)'
                 : '0 0 6px rgba(169, 112, 255, 0.06)',
