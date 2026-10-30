@@ -33,6 +33,8 @@ class IuranRepository {
     PaymentRule? paymentRule,
     bool? isVoluntary,
     String? validUntil,
+    DueType? dueType,
+    int? year,
   }) async {
     return apiClient.createDue(
       name: name,
@@ -41,6 +43,8 @@ class IuranRepository {
       paymentRule: paymentRule,
       isVoluntary: isVoluntary,
       validUntil: validUntil,
+      dueType: dueType,
+      year: year,
     );
   }
 
@@ -78,6 +82,18 @@ class IuranRepository {
       dueDate: dueDate,
       idempotencyKey: idempotencyKey,
     );
+  }
+
+  Future<List<DueMonthSummary>> fetchDueMonths(String dueId) async {
+    return apiClient.getDueMonths(dueId);
+  }
+
+  Future<List<DueMonthSummary>> updateDuePeriodStatus(
+    String dueId,
+    String period, {
+    required bool isActive,
+  }) async {
+    return apiClient.updateDuePeriodStatus(dueId, period, isActive: isActive);
   }
 
   /// Fetch paginated bills with computed paidAmount per bill.
@@ -155,6 +171,7 @@ class IuranRepository {
 
       final nominalVal = moneyToDisplayRupiah(bill.amount);
       final isVol = bill.isVoluntary;
+      final isActive = bill.dueIsActive ?? true;
       uiBills.add(
         IuranBill(
           id: bill.id,
@@ -173,6 +190,10 @@ class IuranRepository {
           duePeriodType: null,
           dueRtCode: null,
           dueIsVoluntary: isVol,
+          dueIsActive: isActive,
+          householdOccupancyId: bill.householdOccupancyId,
+          dueType: bill.dueType,
+          year: bill.year,
         ),
       );
     }
@@ -277,6 +298,10 @@ class IuranRepository {
       duePeriodType: null,
       dueRtCode: null,
       dueIsVoluntary: isVol,
+      dueIsActive: bill.dueIsActive ?? true,
+      householdOccupancyId: bill.householdOccupancyId,
+      dueType: bill.dueType,
+      year: bill.year,
     );
   }
 
@@ -321,6 +346,30 @@ class IuranRepository {
     );
   }
 
+  Future<BackendMultiPeriodPaymentResult> createMultiPeriodPayment({
+    required List<String> billIds,
+    required List<Map<String, String>> allocations,
+    required int amount, // total rupiah in int
+    required PaymentMethod method,
+    String? proofPath,
+    String? notes,
+    String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
+  }) async {
+    return apiClient.createMultiPeriodPayment(
+      billIds: billIds,
+      allocations: allocations,
+      amount: _formatMoney(amount),
+      method: method,
+      proofPath: proofPath,
+      notes: notes,
+      idempotencyKey: idempotencyKey,
+      fileBytes: fileBytes,
+      filename: filename,
+    );
+  }
+
   Future<BackendPayment> createDonation({
     required String dueId,
     required int amount,
@@ -361,12 +410,26 @@ class IuranRepository {
     required String action,
     String? rejectionReason,
     String? officerNotes,
+    String? locationId,
+    String? actualReceivedDate,
   }) async {
     return apiClient.verifyPayment(
       paymentId,
       action: action,
       rejectionReason: rejectionReason,
       officerNotes: officerNotes,
+      locationId: locationId,
+      actualReceivedDate: actualReceivedDate,
+    );
+  }
+
+  Future<BackendPayment> reversePayment(
+    String paymentId, {
+    required String reason,
+  }) async {
+    return apiClient.reversePayment(
+      paymentId,
+      reason: reason,
     );
   }
 

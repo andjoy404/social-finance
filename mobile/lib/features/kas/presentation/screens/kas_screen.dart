@@ -20,12 +20,6 @@ import 'package:social_finance/features/kas/data/kas_models.dart';
 import 'package:social_finance/features/kas/data/kas_repository.dart';
 import 'package:social_finance/features/kas/presentation/screens/kas_report_screen.dart';
 
-/// Convert current month to YYYY-MM period string.
-String? _activeMonthPeriod(DateTime date, bool isAllPeriods) {
-  if (isAllPeriods) return null;
-  return '${date.year}-${date.month.toString().padLeft(2, '0')}';
-}
-
 bool _hasKasWriteAccess(WidgetRef ref) {
   final authState = ref.read(authRepositoryProvider);
   final systemRole = authState?.valueOrNull?['system_role'] as String?;
@@ -85,7 +79,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
   ];
 
   DateTime _activeDate = DateTime.now();
-  bool _isAllPeriods = false;
+  int _selectedYear = DateTime.now().year;
+  bool _isYearFilterActive = false;
 
   // Filter states
   String _filterArus = 'all'; // 'all', 'masuk', 'keluar'
@@ -119,7 +114,6 @@ class _KasScreenState extends ConsumerState<KasScreen> {
 
   void _prevMonth() {
     setState(() {
-      _isAllPeriods = false;
       _activeDate = DateTime(_activeDate.year, _activeDate.month - 1, 1);
     });
     _loadData();
@@ -127,28 +121,239 @@ class _KasScreenState extends ConsumerState<KasScreen> {
 
   void _nextMonth() {
     setState(() {
-      _isAllPeriods = false;
       _activeDate = DateTime(_activeDate.year, _activeDate.month + 1, 1);
     });
     _loadData();
   }
 
-  Future<void> _pickMonth() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _activeDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-      initialDatePickerMode: DatePickerMode.year,
-      helpText: 'PILIH PERIODE BULAN',
-    );
-    if (picked != null) {
-      setState(() {
-        _isAllPeriods = false;
-        _activeDate = DateTime(picked.year, picked.month, 1);
-      });
-      _loadData();
+  void _prevYear() {
+    setState(() {
+      _selectedYear--;
+    });
+    _loadData();
+  }
+
+  void _nextYear() {
+    setState(() {
+      _selectedYear++;
+    });
+    _loadData();
+  }
+
+  List<DropdownMenuItem<String>> _buildPeriodDropdownItems() {
+    final items = <String, String>{};
+    final now = DateTime.now();
+    // Show 24 months from -6 months to +17 months
+    for (int i = -6; i < 18; i++) {
+      final d = DateTime(now.year, now.month + i, 1);
+      final key = '${_monthNames[d.month - 1]} ${d.year}';
+      items[key] = key;
     }
+    return items.entries.map((e) {
+      return DropdownMenuItem<String>(
+        value: e.value,
+        child: Text(
+          e.value,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+        ),
+      );
+    }).toList();
+  }
+
+  List<DropdownMenuItem<String>> _buildYearDropdownItems() {
+    final now = DateTime.now();
+    final items = List.generate(15, (i) => now.year - 7 + i);
+    return items.map((y) {
+      return DropdownMenuItem<String>(
+        value: y.toString(),
+        child: Text(
+          y.toString(),
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+        ),
+      );
+    }).toList();
+  }
+
+  Future<void> _pickMonth() async {
+    final months = [
+      'Semua Bulan', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    ];
+    final currentYear = DateTime.now().year;
+    int selYear = _activeDate.year;
+    int selMonth = _activeDate.month;
+
+    return await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Bulan',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 2.2,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: months.length,
+                  itemBuilder: (_, i) {
+                    final isAll = i == 0;
+                    final isSelected = isAll ? _isYearFilterActive : (i == selMonth && !_isYearFilterActive);
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          if (isAll) {
+                            _isYearFilterActive = true;
+                          } else {
+                            _activeDate = DateTime(selYear, i, 1);
+                            _isYearFilterActive = false;
+                          }
+                        });
+                        _loadData();
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                      },
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? AppColors.accent.withValues(alpha: 0.2)
+                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          border: Border.all(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          months[i],
+                          style: TextStyle(
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark ? AppColors.darkText : AppColors.lightText),
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _pickYear() async {
+    final currentYear = DateTime.now().year;
+    int selYear = _selectedYear;
+
+    return await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final years = List.generate(15, (i) => currentYear - 7 + i);
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Tahun',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 2.0,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: years.length,
+                  itemBuilder: (_, i) {
+                    final year = years[i];
+                    final isSelected = year == selYear;
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedYear = year;
+                          _isYearFilterActive = true;
+                        });
+                        _loadData();
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                      },
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
+                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          border: Border.all(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          year.toString(),
+                          style: TextStyle(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _loadData() async {
@@ -159,15 +364,31 @@ class _KasScreenState extends ConsumerState<KasScreen> {
     });
 
     final repository = ref.read(kasRepositoryProvider);
-    final periodParam = _isAllPeriods
-        ? null
-        : '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+    final String? periodParam;
+    final String? startDateParam;
+    final String? endDateParam;
+
+    if (_isYearFilterActive) {
+      periodParam = null;
+      startDateParam = '${_selectedYear}-01-01';
+      endDateParam = '${_selectedYear}-12-31';
+    } else {
+      periodParam = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+      startDateParam = null;
+      endDateParam = null;
+    }
 
     try {
       final futureTransactions = repository.fetchAllTransactions(
         period: periodParam,
+        startDate: startDateParam,
+        endDate: endDateParam,
       );
-      final futureBalance = repository.fetchBalance(period: periodParam);
+      final futureBalance = repository.fetchBalance(
+        period: periodParam,
+        startDate: startDateParam,
+        endDate: endDateParam,
+      );
 
       final results = await Future.wait([futureTransactions, futureBalance]);
 
@@ -198,15 +419,31 @@ class _KasScreenState extends ConsumerState<KasScreen> {
     if (!mounted) return;
 
     final repository = ref.read(kasRepositoryProvider);
-    final periodParam = _isAllPeriods
-        ? null
-        : '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+    final String? periodParam;
+    final String? startDateParam;
+    final String? endDateParam;
+
+    if (_isYearFilterActive) {
+      periodParam = null;
+      startDateParam = '${_selectedYear}-01-01';
+      endDateParam = '${_selectedYear}-12-31';
+    } else {
+      periodParam = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+      startDateParam = null;
+      endDateParam = null;
+    }
 
     try {
       final futureTransactions = repository.fetchAllTransactions(
         period: periodParam,
+        startDate: startDateParam,
+        endDate: endDateParam,
       );
-      final futureBalance = repository.fetchBalance(period: periodParam);
+      final futureBalance = repository.fetchBalance(
+        period: periodParam,
+        startDate: startDateParam,
+        endDate: endDateParam,
+      );
 
       final results = await Future.wait([futureTransactions, futureBalance]);
 
@@ -482,13 +719,29 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                 key: const Key('kas-report-btn'),
                 icon: const Icon(Icons.assessment_outlined),
                 tooltip: 'Laporan KAS',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => KasReportScreen(
-                      period: _activeMonthPeriod(_activeDate, _isAllPeriods),
+                onPressed: () {
+                  final String? period;
+                  final String? startDate;
+                  final String? endDate;
+                  if (_isYearFilterActive) {
+                    period = null;
+                    startDate = '${_selectedYear}-01-01';
+                    endDate = '${_selectedYear}-12-31';
+                  } else {
+                    period = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+                    startDate = null;
+                    endDate = null;
+                  }
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => KasReportScreen(
+                        period: period,
+                        startDate: startDate,
+                        endDate: endDate,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
           ],
         ),
@@ -568,13 +821,29 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                 key: const Key('kas-report-btn'),
                 icon: const Icon(Icons.assessment_outlined),
                 tooltip: 'Laporan KAS',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => KasReportScreen(
-                      period: _activeMonthPeriod(_activeDate, _isAllPeriods),
+                onPressed: () {
+                  final String? period;
+                  final String? startDate;
+                  final String? endDate;
+                  if (_isYearFilterActive) {
+                    period = null;
+                    startDate = '${_selectedYear}-01-01';
+                    endDate = '${_selectedYear}-12-31';
+                  } else {
+                    period = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+                    startDate = null;
+                    endDate = null;
+                  }
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => KasReportScreen(
+                        period: period,
+                        startDate: startDate,
+                        endDate: endDate,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
           ],
         ),
@@ -654,13 +923,26 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                         vertical: 10,
                       ),
                       decoration: BoxDecoration(
-                        color: theme.scaffoldBackgroundColor,
+                        color: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
                         borderRadius: BorderRadius.circular(AppRadius.base),
                         border: Border.all(
                           color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder,
+                              ? AppColors.accent.withValues(alpha: 0.35)
+                              : AppColors.accent.withValues(alpha: 0.25),
+                          width: 1,
                         ),
+                        boxShadow: isDark
+                            ? [
+                                BoxShadow(
+                                  color: AppColors.accent
+                                      .withValues(alpha: 0.12),
+                                  blurRadius: 8,
+                                  spreadRadius: 0,
+                                ),
+                              ]
+                            : null,
                       ),
                       child: Row(
                         children: [
@@ -698,88 +980,78 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                       child: _filtersExpanded
                           ? Column(
                               mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // Month Navigator & Filter Periode (Date / Semua)
-                                Container(
-                                  margin: const EdgeInsets.symmetric(horizontal: AppSpacing.base),
-                                  height: 38,
-                                  decoration: BoxDecoration(
-                                    color: theme.scaffoldBackgroundColor,
-                                    borderRadius: BorderRadius.circular(AppRadius.base),
-                                    border: Border.all(
-                                      color: isDark
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBorder,
-                                    ),
-                                  ),
+                                const SizedBox(height: 12),
+                                // Row 1: Periode + Tahun (same style as filters, opens picker)
+                                Padding(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.sm,
-                                    vertical: AppSpacing.xs,
+                                    horizontal: AppSpacing.base,
                                   ),
                                   child: Row(
                                     children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.chevron_left),
-                                        onPressed: _isAllPeriods ? null : _prevMonth,
-                                        tooltip: 'Bulan Sebelumnya',
-                                        visualDensity: VisualDensity.compact,
-                                      ),
                                       Expanded(
                                         child: InkWell(
-                                          onTap: _isAllPeriods ? null : _pickMonth,
-                                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 4,
-                                              horizontal: 8,
+                                          onTap: _pickMonth,
+                                          borderRadius: BorderRadius.circular(AppRadius.base),
+                                          child: Container(
+                                            height: 38,
+                                            alignment: Alignment.centerLeft,
+                                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                                            decoration: BoxDecoration(
+                                              color: isDark
+                                                  ? AppColors.darkSurface
+                                                  : AppColors.lightSurface,
+                                              borderRadius: BorderRadius.circular(AppRadius.base),
+                                              border: Border.all(
+                                                color: isDark
+                                                    ? AppColors.accent.withValues(alpha: 0.35)
+                                                    : AppColors.accent.withValues(alpha: 0.25),
+                                                width: 1,
+                                              ),
                                             ),
-                                            child: Row(
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                Text(
-                                                  _isAllPeriods
-                                                      ? 'Semua Periode'
-                                                      : _formatMonthYear(_activeDate),
-                                                  style: theme.textTheme.titleMedium?.copyWith(
-                                                    fontWeight: FontWeight.bold,
-                                                    color: _isAllPeriods
-                                                        ? theme.colorScheme.onSurfaceVariant
-                                                        : AppColors.accent,
-                                                  ),
-                                                ),
-                                                if (!_isAllPeriods) ...[
-                                                  const SizedBox(width: 4),
-                                                  const Icon(
-                                                    Icons.arrow_drop_down,
-                                                    size: 20,
-                                                    color: AppColors.accent,
-                                                  ),
-                                                ],
-                                              ],
+                                            child: Text(
+                                              _isYearFilterActive ? 'Semua Bulan' : _monthNames[_activeDate.month - 1],
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
                                         ),
                                       ),
-                                      IconButton(
-                                        icon: const Icon(Icons.chevron_right),
-                                        onPressed: _isAllPeriods ? null : _nextMonth,
-                                        tooltip: 'Bulan Berikutnya',
-                                        visualDensity: VisualDensity.compact,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      ChoiceChip(
-                                        label: Text(
-                                          _isAllPeriods ? 'Per Bulan' : 'Semua',
-                                          style: const TextStyle(fontSize: 11),
+                                      const SizedBox(width: AppSpacing.sm),
+                                      Expanded(
+                                        child: InkWell(
+                                          onTap: _pickYear,
+                                          borderRadius: BorderRadius.circular(AppRadius.base),
+                                          child: Container(
+                                            height: 38,
+                                            alignment: Alignment.centerLeft,
+                                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                                            decoration: BoxDecoration(
+                                              color: isDark
+                                                  ? AppColors.darkSurface
+                                                  : AppColors.lightSurface,
+                                              borderRadius: BorderRadius.circular(AppRadius.base),
+                                              border: Border.all(
+                                                color: isDark
+                                                    ? AppColors.accent.withValues(alpha: 0.35)
+                                                    : AppColors.accent.withValues(alpha: 0.25),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              _selectedYear.toString(),
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
                                         ),
-                                        selected: _isAllPeriods,
-                                        visualDensity: VisualDensity.compact,
-                                        onSelected: (val) {
-                                          setState(() {
-                                            _isAllPeriods = !_isAllPeriods;
-                                          });
-                                          _loadData();
-                                        },
                                       ),
                                     ],
                                   ),
@@ -787,7 +1059,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
 
                                 const SizedBox(height: AppSpacing.xs),
 
-                                // Arus Kas & Metode Filter Row
+                                // Row 2: Arus Kas + Metode (no change)
                                 Padding(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: AppSpacing.base,
@@ -799,12 +1071,15 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                           height: 38,
                                           padding: const EdgeInsets.symmetric(horizontal: 10),
                                           decoration: BoxDecoration(
-                                            color: theme.scaffoldBackgroundColor,
+                                            color: isDark
+                                                ? AppColors.darkSurface
+                                                : AppColors.lightSurface,
                                             borderRadius: BorderRadius.circular(AppRadius.base),
                                             border: Border.all(
                                               color: isDark
-                                                  ? AppColors.darkBorder
-                                                  : AppColors.lightBorder,
+                                                  ? AppColors.accent.withValues(alpha: 0.35)
+                                                  : AppColors.accent.withValues(alpha: 0.25),
+                                              width: 1,
                                             ),
                                           ),
                                           child: DropdownButtonHideUnderline(
@@ -845,12 +1120,15 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                           height: 38,
                                           padding: const EdgeInsets.symmetric(horizontal: 10),
                                           decoration: BoxDecoration(
-                                            color: theme.scaffoldBackgroundColor,
+                                            color: isDark
+                                                ? AppColors.darkSurface
+                                                : AppColors.lightSurface,
                                             borderRadius: BorderRadius.circular(AppRadius.base),
                                             border: Border.all(
                                               color: isDark
-                                                  ? AppColors.darkBorder
-                                                  : AppColors.lightBorder,
+                                                  ? AppColors.accent.withValues(alpha: 0.35)
+                                                  : AppColors.accent.withValues(alpha: 0.25),
+                                              width: 1,
                                             ),
                                           ),
                                           child: DropdownButtonHideUnderline(
@@ -902,7 +1180,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                       controller: _searchController,
                                       hintText: 'Cari transaksi...',
                                       isDense: true,
-                                      fillColor: theme.scaffoldBackgroundColor,
+                                      fillColor: isDark
+                                          ? AppColors.darkSurface
+                                          : AppColors.lightSurface,
                                       textAlignVertical: TextAlignVertical.center,
                                       contentPadding: const EdgeInsets.symmetric(
                                         horizontal: 12,
@@ -951,7 +1231,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             label: 'Saldo Awal',
                             value: RupiahFormatter.format(openingBalance),
                             color: theme.colorScheme.onSurface,
-                            isEditable: canWrite && !_isAllPeriods,
+                            isEditable: canWrite,
                             onEdit: () =>
                                 _showEditOpeningBalanceDialog(openingBalance),
                           ),

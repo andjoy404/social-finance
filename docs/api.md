@@ -118,9 +118,10 @@ Access tokens include:
 ### 4.2 Token Lifecycle
 
 - **Access tokens**: 15-minute lifetime, stateless JWT, HS256 or RS256.
-- **Refresh tokens**: Opaque random strings (32 bytes, URL-safe base64), 7-day lifetime.
+- **Refresh tokens**: Opaque random strings (32 bytes, URL-safe base64), 90-day lifetime.
 - **Rotation**: Each refresh generates new access + refresh tokens; old refresh token revoked.
 - **Revocation**: Logout or password change invalidates the refresh token.
+- **Device binding**: Each refresh token is associated with a `device_id` from the client. Login and refresh requests should include `device_id` in the request body for session tracking.
 
 ---
 
@@ -744,10 +745,13 @@ Voluntary expiry rule:
 
 ### 9.3 Bills
 
-- `GET /api/v1/bills`: List bills (Bendahara, Pengurus, Warga [scoped to own household occupancy]). Query parameters: `page`, `page_size`, `household_occupancy_id`, `due_id`, `status`, `period`, `search` / `q` (case-insensitive substring filter matching bill/due name).
+- `GET /api/v1/bills`: List bills (Bendahara, Pengurus, Warga [scoped to own household occupancy]). Query parameters: `page`, `page_size`, `household_occupancy_id`, `due_id`, `status`, `payment_status`, `is_active`, `period`, `search` / `q` (case-insensitive substring filter matching bill/due name), `order` (`unpaid_first` for unpaid/partial bills first chronologically, followed by paid bills in reverse chronological order).
 - `GET /api/v1/bills/{id}`: Get bill by ID.
 - `POST /api/v1/bills/generate`: Batch generate bills for a due & period across active occupancies (Bendahara, Pengurus).
 - `POST /api/v1/bills`: Create single bill (Bendahara, Pengurus).
+- `PATCH /api/v1/bills/{id}/status`: Update bill active status (`{"is_active": boolean}`) (Bendahara, Pengurus). Rejects deactivation if bill is already paid.
+- `GET /api/v1/dues/{id}/months`: Get 12-month calendar summary and bill counts for a Multi-Bulan due (Bendahara, Pengurus).
+- `PATCH /api/v1/dues/{id}/periods/{period}/status`: Update active status for all unpaid bills of this due in the specified period (`{"is_active": boolean}`) (Bendahara, Pengurus). Rejects deactivation if all bills in the period are already paid.
 
 ### 9.4 Payments
 
@@ -812,3 +816,62 @@ Voluntary expiry rule:
       "imported_residents": 12
     }
     ```
+
+---
+
+## 11. Notification Management Endpoints
+
+Accessible strictly to **SUPER_ADMIN** and **Ketua RT** (`jabatan: ketua`).
+
+### 11.1 List System Notification Types
+- `GET /api/v1/notifications/system-types`
+  - Returns inventory of supported system events, triggers, channels, and allowed variables.
+
+### 11.2 List Notification Templates
+- `GET /api/v1/notifications/templates?event_type=&is_active=`
+  - Returns list of configured templates for the tenant RT.
+
+### 11.3 Create Notification Template
+- `POST /api/v1/notifications/templates`
+  - Body: `{"name": "...", "event_type": "...", "title": "...", "body": "...", "image_url": "...", "channel": "push"}`
+  - Validation: `image_url` is only permitted for `waste_truck_arrival` and `manual_push`. Rejects image for Iuran events.
+
+### 11.4 Get Notification Template Detail
+- `GET /api/v1/notifications/templates/{id}`
+
+### 11.5 Update Notification Template
+- `PUT /api/v1/notifications/templates/{id}`
+  - Body: `{"name": "...", "title": "...", "body": "...", "image_url": "...", "is_active": true}`
+
+### 11.6 Toggle Notification Template Active Status
+- `PATCH /api/v1/notifications/templates/{id}/toggle-active`
+  - Toggles `is_active` flag.
+
+### 11.7 Delete Notification Template
+- `DELETE /api/v1/notifications/templates/{id}`
+
+### 11.8 List Notification Delivery Logs
+- `GET /api/v1/notifications/logs?page=1&page_size=20&event_type=`
+  - Returns paginated actual delivery records from `notification_logs`.
+
+### 11.9 Trigger Manual Push Broadcast
+- `POST /api/v1/notifications/manual`
+  - Body: `{"title": "...", "body": "...", "image_url": "..."}`
+  - Permitted: **SUPER_ADMIN** and **Ketua RT** (`jabatan: ketua`).
+  - Broadcasts to all active device tokens within the caller's tenant RT.
+
+### 11.10 Send Test Push Notification
+- `POST /api/v1/notifications/test-push`
+  - Body: `{"event_type": "...", "template_id": "...", "title": "...", "body": "...", "image_url": "..."}`
+  - Permitted: **SUPER_ADMIN** only (`system_role = super_admin`).
+  - Targets ONLY the active device tokens belonging to the caller Super Admin.
+
+### 11.11 Upload Notification Image
+- `POST /api/v1/notifications/upload-image`
+  - Multipart form file `image` and form field `event_type`.
+  - Permitted: **SUPER_ADMIN** and **Ketua RT**.
+  - Stores image in RustFS under `notifications/waste-truck/` or `notifications/manual/`. Returns public relative stream URL.
+
+### 11.12 Stream Notification Image
+- `GET /api/v1/notifications/images/*`
+  - Public read endpoint streaming notification images stored in RustFS.

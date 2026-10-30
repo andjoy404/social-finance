@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/notification/data/models/notification_models.dart';
 
 class MainNavigationShell extends ConsumerStatefulWidget {
   final Widget child;
@@ -32,6 +34,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.account_balance_wallet_outlined,
     activeIcon: Icons.account_balance_wallet,
   );
+  static const _lokasiTab = _NavRoute(
+    path: '/home/lokasi-dana',
+    label: 'Lokasi Dana',
+    icon: Icons.account_balance_outlined,
+    activeIcon: Icons.account_balance,
+  );
   static const _iuranTab = _NavRoute(
     path: '/home/iuran',
     label: 'Iuran',
@@ -51,14 +59,49 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.person_outline,
     activeIcon: Icons.person,
   );
+  static const _notifikasiTab = _NavRoute(
+    path: '/home/notifikasi',
+    label: 'Notifikasi',
+    icon: Icons.notifications_outlined,
+    activeIcon: Icons.notifications,
+  );
+
+  bool _canAccessLokasiDana(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    if (isSuperAdminUser(user)) return true;
+    final role = user['role'] as AppRole?;
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    return role == AppRole.bendahara ||
+        role == AppRole.pengurus ||
+        isKetuaRTUser(user) ||
+        jabatan == 'bendahara';
+  }
+
+  bool _canAccessNotifikasi(Map<String, dynamic>? user) {
+    return canUserAccessNotificationMenu(user);
+  }
 
   List<_NavRoute> _getActiveTabs() {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
+    final canNotifikasi = _canAccessNotifikasi(user);
     if (isAllowedRT(user)) {
-      return const [_homeTab, _kasTab, _iuranTab, _wargaTab, _profileTab];
+      final canLokasiDana = _canAccessLokasiDana(user);
+      return [
+        _homeTab,
+        _kasTab,
+        if (canLokasiDana) _lokasiTab,
+        _iuranTab,
+        _wargaTab,
+        if (canNotifikasi) _notifikasiTab,
+        _profileTab,
+      ];
     }
-    return const [_homeTab, _profileTab];
+    return [
+      _homeTab,
+      if (canNotifikasi) _notifikasiTab,
+      _profileTab,
+    ];
   }
 
   int _resolveCurrentMatch(List<_NavRoute> tabs, String location) {
@@ -110,24 +153,86 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
 
     _currentMatch = currentMatch;
 
+    final user = ref.watch(authRepositoryProvider)?.valueOrNull;
+    final profileStatus = user?['profile_status'] as String?;
+    final showOfflineSyncBanner =
+        profileStatus == 'stale' || profileStatus == 'error';
+
     return DoubleBackExitScope(
       allowPop: !_isDirectlyOnTopLevelTab(location, tabs),
       child: Scaffold(
         key: _scaffoldKey,
         body: SafeArea(
           bottom: false,
-          child: widget.child,
+          child: Column(
+            children: [
+              if (showOfflineSyncBanner)
+                Material(
+                  color: AppColors.warning.withValues(alpha: 0.14),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.cloud_off_outlined,
+                          size: 16,
+                          color: AppColors.warning,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            profileStatus == 'stale'
+                                ? 'Menampilkan profil tersimpan (koneksi belum stabil).'
+                                : 'Sinkronisasi profil tertunda. Periksa koneksi Anda.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: const Size(0, 28),
+                          ),
+                          onPressed: () {
+                            ref
+                                .read(authRepositoryProvider.notifier)
+                                .reloadProfile();
+                          },
+                          child: const Text(
+                            'Segarkan',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              Expanded(child: widget.child),
+            ],
+          ),
         ),
         bottomNavigationBar: BottomAppBar(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(
               tabs.length,
-              (index) => _NavRailItem(
-                key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
-                tab: tabs[index],
-                isSelected: index == _currentMatch,
-                onTap: () => _onTabTapped(tabs, index, context),
+              (index) => Flexible(
+                child: _NavRailItem(
+                  key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
+                  tab: tabs[index],
+                  isSelected: index == _currentMatch,
+                  onTap: () => _onTabTapped(tabs, index, context),
+                ),
               ),
             ),
           ),
@@ -195,7 +300,7 @@ class _NavRailItem extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: EdgeInsets.symmetric(
-          horizontal: isProminent ? 14 : 10,
+          horizontal: isProminent ? 10 : 5,
           vertical: isProminent ? 4 : 5,
         ),
         decoration: BoxDecoration(

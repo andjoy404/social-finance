@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ type LoginRequest struct {
 	Phone      string `json:"phone,omitempty"`
 	Identifier string `json:"identifier,omitempty"`
 	Password   string `json:"password"`
+	DeviceID   string `json:"device_id,omitempty"`
 }
 
 // LoginResponse is the body of a login 200 response.
@@ -29,12 +31,14 @@ type LoginResponse struct {
 	RefreshToken string   `json:"refresh_token"`
 	TokenType    string   `json:"token_type"`
 	ExpiresIn    int      `json:"expires_in"`
+	DeviceID     string   `json:"device_id,omitempty"`
 	User         UserInfo `json:"user"`
 }
 
 // refreshRequest is the body of a refresh POST request.
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
+	DeviceID   string `json:"device_id,omitempty"`
 }
 
 // logoutRequest is the body of a logout POST request.
@@ -136,8 +140,9 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	result, err := h.svc.Login(ctx, tx, identifier, req.Password)
+	result, err := h.svc.Login(ctx, tx, identifier, req.Password, req.DeviceID)
 	if err != nil {
+		slog.Error("login failed", "error", err, "identifier", identifier, "has_password", req.Password != "")
 		switch err {
 		case ErrInvalidPassword, ErrUserNotFound:
 			httpx.ErrorJSON(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
@@ -187,7 +192,7 @@ func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	result, err := h.svc.Refresh(ctx, tx, req.RefreshToken)
+	result, err := h.svc.Refresh(ctx, tx, req.RefreshToken, req.DeviceID)
 	if err != nil {
 		switch err {
 		case ErrInvalidRefreshToken:
@@ -275,6 +280,52 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 		profile, err = h.svc.GetProfile(ctx, tx, ac.UserID, ac.MembershipID)
 	} else {
 		profile, err = h.svc.GetSystemProfile(ctx, tx, ac.UserID)
+		if err == nil && profile != nil && profile.SystemRole == string(SystemRoleSuperAdmin) {
+			targetRTID := ac.RTID
+			var rtID, rtName, rtCode string
+			var rtRW int
+			var rwID, rwName sql.NullString
+			var errRT error
+
+			if targetRTID != "" {
+				errRT = tx.QueryRowContext(ctx, `
+					SELECT r.id, r.name, r.rw, r.rt, r.rw_id, w.name AS rw_name
+					FROM rts r
+					LEFT JOIN rws w ON w.id = r.rw_id
+					WHERE r.id = $1 AND r.is_active = true
+				`, targetRTID).Scan(&rtID, &rtName, &rtRW, &rtCode, &rwID, &rwName)
+			} else {
+				errRT = tx.QueryRowContext(ctx, `
+					SELECT r.id, r.name, r.rw, r.rt, r.rw_id, w.name AS rw_name
+					FROM rts r
+					LEFT JOIN rws w ON w.id = r.rw_id
+					WHERE r.is_active = true AND (r.id = 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b' OR lower(r.name) = 'urena' OR (r.name ILIKE '%urena%' AND r.rt = '002'))
+					ORDER BY
+						CASE
+							WHEN r.id = 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b' THEN 1
+							WHEN lower(r.name) = 'urena' AND r.rt = '002' THEN 2
+							WHEN lower(r.name) = 'urena' THEN 3
+							WHEN r.name ILIKE '%urena%' AND r.rt = '002' THEN 4
+							ELSE 5
+						END ASC
+					LIMIT 1
+				`).Scan(&rtID, &rtName, &rtRW, &rtCode, &rwID, &rwName)
+			}
+
+			if errRT == nil {
+				profile.RTID = rtID
+				profile.RTName = rtName
+				profile.RT_rw = rtRW
+				profile.RT_rt = rtCode
+				profile.TenantRole = Role(SystemRoleSuperAdmin)
+				if rwID.Valid {
+					profile.RWID = &rwID.String
+				}
+				if rwName.Valid {
+					profile.RWName = &rwName.String
+				}
+			}
+		}
 	}
 	if err != nil {
 		switch err {
@@ -341,6 +392,52 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		profile, err = h.svc.GetProfile(ctx, tx, ac.UserID, ac.MembershipID)
 	} else {
 		profile, err = h.svc.GetSystemProfile(ctx, tx, ac.UserID)
+		if err == nil && profile != nil && profile.SystemRole == string(SystemRoleSuperAdmin) {
+			targetRTID := ac.RTID
+			var rtID, rtName, rtCode string
+			var rtRW int
+			var rwID, rwName sql.NullString
+			var errRT error
+
+			if targetRTID != "" {
+				errRT = tx.QueryRowContext(ctx, `
+					SELECT r.id, r.name, r.rw, r.rt, r.rw_id, w.name AS rw_name
+					FROM rts r
+					LEFT JOIN rws w ON w.id = r.rw_id
+					WHERE r.id = $1 AND r.is_active = true
+				`, targetRTID).Scan(&rtID, &rtName, &rtRW, &rtCode, &rwID, &rwName)
+			} else {
+				errRT = tx.QueryRowContext(ctx, `
+					SELECT r.id, r.name, r.rw, r.rt, r.rw_id, w.name AS rw_name
+					FROM rts r
+					LEFT JOIN rws w ON w.id = r.rw_id
+					WHERE r.is_active = true AND (r.id = 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b' OR lower(r.name) = 'urena' OR (r.name ILIKE '%urena%' AND r.rt = '002'))
+					ORDER BY
+						CASE
+							WHEN r.id = 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b' THEN 1
+							WHEN lower(r.name) = 'urena' AND r.rt = '002' THEN 2
+							WHEN lower(r.name) = 'urena' THEN 3
+							WHEN r.name ILIKE '%urena%' AND r.rt = '002' THEN 4
+							ELSE 5
+						END ASC
+					LIMIT 1
+				`).Scan(&rtID, &rtName, &rtRW, &rtCode, &rwID, &rwName)
+			}
+
+			if errRT == nil {
+				profile.RTID = rtID
+				profile.RTName = rtName
+				profile.RT_rw = rtRW
+				profile.RT_rt = rtCode
+				profile.TenantRole = Role(SystemRoleSuperAdmin)
+				if rwID.Valid {
+					profile.RWID = &rwID.String
+				}
+				if rwName.Valid {
+					profile.RWName = &rwName.String
+				}
+			}
+		}
 	}
 	if err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to reload profile")

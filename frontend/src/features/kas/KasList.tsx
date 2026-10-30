@@ -389,7 +389,7 @@ export function KasList() {
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
           gap: 12,
           marginTop: 8,
-          marginBottom: 16,
+          marginBottom: 2,
         }}
       >
         {/* Card 1: Saldo Awal */}
@@ -508,10 +508,12 @@ export function KasList() {
         </div>
       </div>
 
-      {/* Toolbar & Filters */}
-      <div className="sf-list-toolbar" style={{ marginTop: 0, marginBottom: 0 }}>
-        {/* Row 1: Period Navigation & Filters (left), Period Action (right) */}
-        <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
+      {/* Main Table Content Surface */}
+      <div className="sf-content-surface">
+        {/* Toolbar & Filters */}
+        <div className="sf-list-toolbar">
+          {/* Row 1: Period Navigation & Filters (left), Period Action (right) */}
+          <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
           {/* Filter & Pencarian (default periode: bulan ini) */}
 
           {/* Filter Bulan */}
@@ -609,8 +611,6 @@ export function KasList() {
         </div>
       </div>
 
-      {/* Main Table Card */}
-      <div className="sf-card">
         {error && (
           <div className="sf-error-banner" role="alert">
             {error}

@@ -42,6 +42,42 @@ const mockSuperAdminUser: AuthUser = {
   rt: null,
 }
 
+const mockKetuaRTUser: AuthUser = {
+  id: 'user-ketua-002',
+  name: 'Position Ketua RT 002',
+  email: 'ketua-002@local.com',
+  systemRole: null,
+  role: 'pengurus',
+  jabatan: 'ketua',
+  rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+  rtCode: '002',
+  rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+}
+
+const mockBendaharaUser: AuthUser = {
+  id: 'user-bendahara-002',
+  name: 'Position Bendahara RT 002',
+  email: 'bendahara-002@local.com',
+  systemRole: null,
+  role: 'bendahara',
+  jabatan: 'bendahara',
+  rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+  rtCode: '002',
+  rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+}
+
+const mockSekretarisUser: AuthUser = {
+  id: 'user-sekretaris-002',
+  name: 'Position Sekretaris RT 002',
+  email: 'sekretaris-002@local.com',
+  systemRole: null,
+  role: 'pengurus',
+  jabatan: 'sekretaris',
+  rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+  rtCode: '002',
+  rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+}
+
 const mockNonAllowedUser: AuthUser = {
   id: 'user-4',
   name: 'Warga RT 004',
@@ -212,13 +248,40 @@ describe('Sidebar — navigation items', () => {
     expect(buttons.length).toBe(1) // pin toggle
   })
 
-  it('has exactly 6 nav items for SuperAdmin: Beranda, Warga, Iuran, KAS, Kelola RT, Kelola RW', () => {
+  it('has exactly 8 nav items for SuperAdmin: Beranda, Warga, Iuran, KAS, Lokasi Dana, Notifikasi, Kelola RT, Kelola RW', () => {
     renderSidebar(mockSuperAdminUser)
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(6) // Beranda, Warga, Iuran, KAS, Kelola RT, Kelola RW
+    expect(links.length).toBe(8) // Beranda, Warga, Iuran, KAS, Lokasi Dana, Notifikasi, Kelola RT, Kelola RW
     expect(buttons.length).toBe(1) // pin toggle
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+  })
+
+  it('shows Notifikasi menu for Ketua RT and links to /notifikasi', () => {
+    renderSidebar(mockKetuaRTUser)
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    const notifLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Notifikasi'))
+    expect(notifLink).toHaveAttribute('href', '/notifikasi')
+    expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show Notifikasi menu for unauthorized roles (warga, bendahara, sekretaris, pengurus without ketua jabatan)', () => {
+    const u1 = renderSidebar(mockWargaUser)
+    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
+    u1.unmount()
+
+    const u2 = renderSidebar(mockBendaharaUser)
+    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
+    u2.unmount()
+
+    const u3 = renderSidebar(mockSekretarisUser)
+    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
+    u3.unmount()
+
+    const u4 = renderSidebar(mockPengurusUser)
+    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
+    u4.unmount()
   })
 
   it('hides RT-scoped menus (Warga, Iuran, KAS) for non-allowed RTs (RT 004)', () => {

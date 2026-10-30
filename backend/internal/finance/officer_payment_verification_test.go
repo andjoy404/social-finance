@@ -251,7 +251,7 @@ func TestOfficerOwnPayment_NotificationsAndSelfApprovalGuard(t *testing.T) {
 
 	// ── 2. Officer cannot verify their own payment despite management role ──
 	t.Run("officer cannot verify own payment", func(t *testing.T) {
-		verifyBody := `{"action":"approve"}`
+		verifyBody := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+pendingPaymentID+"/verify", bytes.NewBufferString(verifyBody))
 		req.Header.Set("Authorization", "Bearer "+officerToken)
 		req.Header.Set("Content-Type", "application/json")
@@ -289,7 +289,7 @@ func TestOfficerOwnPayment_NotificationsAndSelfApprovalGuard(t *testing.T) {
 
 	// ── 3. A different authorized verifier can verify it ──
 	t.Run("different verifier approves officer payment", func(t *testing.T) {
-		verifyBody := `{"action":"approve"}`
+		verifyBody := `{"action":"approve","actual_received_date":"2026-10-20"}`
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+pendingPaymentID+"/verify", bytes.NewBufferString(verifyBody))
 		req.Header.Set("Authorization", "Bearer "+verifierToken)
 		req.Header.Set("Content-Type", "application/json")

@@ -112,6 +112,7 @@ func TestBootstrap_Idempotent_NoDuplicate(t *testing.T) {
 
 func TestBootstrap_SuperAdminHasCorrectRole(t *testing.T) {
 	setBootstrapEnv(t)
+	os.Setenv("BOOTSTRAP_EMAIL", "admin-role@test.local")
 
 	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
@@ -123,7 +124,7 @@ func TestBootstrap_SuperAdminHasCorrectRole(t *testing.T) {
 	// Verify the user has system_role='super_admin'
 	var sysRole string
 	err := pool.Raw().QueryRowContext(ctx,
-		`SELECT system_role FROM users WHERE email = 'admin@test.local'`,
+		`SELECT system_role FROM users WHERE email = 'admin-role@test.local'`,
 	).Scan(&sysRole)
 	if err != nil {
 		t.Fatalf("query super_admin role: %v", err)
@@ -135,13 +136,127 @@ func TestBootstrap_SuperAdminHasCorrectRole(t *testing.T) {
 	// Verify password via auth.Verify
 	var passwordHash string
 	err = pool.Raw().QueryRowContext(ctx,
-		`SELECT password_hash FROM users WHERE email = 'admin@test.local'`,
+		`SELECT password_hash FROM users WHERE email = 'admin-role@test.local'`,
 	).Scan(&passwordHash)
 	if err != nil {
 		t.Fatalf("find user hash: %v", err)
 	}
 	if err := auth.Verify("TestUser123!", passwordHash); err != nil {
 		t.Fatalf("bootstrap password verification failed: %v", err)
+	}
+
+	// Verify active membership in RT 002 exists and matches canonical Urena RT
+	var memCount int
+	var linkedRTID string
+	err = pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(MAX(urm.rt_id::text), '')
+		FROM user_rt_memberships urm
+		JOIN users u ON u.id = urm.user_id
+		JOIN rts r ON r.id = urm.rt_id
+		WHERE u.email = 'admin-role@test.local' AND r.rt = '002' AND urm.is_active = true
+	`).Scan(&memCount, &linkedRTID)
+	if err != nil {
+		t.Fatalf("query super_admin membership: %v", err)
+	}
+	if memCount != 1 {
+		t.Errorf("expected 1 active membership in RT 002, got %d", memCount)
+	}
+	if linkedRTID != devseed.CanonicalUrenaRTID {
+		t.Errorf("expected membership in canonical RT 002 (%s), got %s", devseed.CanonicalUrenaRTID, linkedRTID)
+	}
+}
+
+func TestBootstrap_MultiTenantSameRTNumberRegression(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ctx := context.Background()
+
+	// 1. Create a non-canonical fixture tenant with the same RT number "002"
+	fixtureRTID := "c1110002-9999-4a00-8000-000000000002"
+	_, err := pool.Raw().ExecContext(ctx, `
+		INSERT INTO rts (id, name, rw, rt, address, head_name, is_active)
+		VALUES ($1, 'Fixture RT 002 Other Tenant', 88, '002', 'Jalan Fixture Lain', 'Ketua Fixture', true)
+		ON CONFLICT (id) DO UPDATE SET is_active = true
+	`, fixtureRTID)
+	if err != nil {
+		t.Fatalf("create fixture RT 002: %v", err)
+	}
+
+	// 2. Ensure canonical RT 002 (Urena) exists
+	_, err = pool.Raw().ExecContext(ctx, `
+		INSERT INTO rts (id, name, rw, rt, address, head_name, is_active)
+		VALUES ($1, 'Urena', 16, '002', 'GNI Urena', 'Atom', true)
+		ON CONFLICT (id) DO UPDATE SET is_active = true
+	`, devseed.CanonicalUrenaRTID)
+	if err != nil {
+		t.Fatalf("ensure canonical RT 002: %v", err)
+	}
+
+	// 3. Configure bootstrap for a distinct regression test admin
+	regEmail := "admin-multi-rt-regression@test.local"
+	os.Setenv("DB_NAME", "social_finance_test")
+	os.Setenv("BOOTSTRAP_EMAIL", regEmail)
+	os.Setenv("BOOTSTRAP_PASSWORD", "TestUser123!")
+	os.Setenv("BOOTSTRAP_NAME", "Super Admin Regression")
+	defer func() {
+		os.Unsetenv("BOOTSTRAP_EMAIL")
+		os.Unsetenv("BOOTSTRAP_PASSWORD")
+		os.Unsetenv("BOOTSTRAP_NAME")
+	}()
+
+	// 4. Run bootstrap first time
+	if err := runBootstrap(); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	// 5. Run bootstrap second time (verify idempotency)
+	if err := runBootstrap(); err != nil {
+		t.Fatalf("second bootstrap failed: %v", err)
+	}
+
+	// 6. Verify:
+	// a) Total active memberships across all RTs for this admin is EXACTLY 1
+	var totalMemberships int
+	err = pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM user_rt_memberships urm
+		JOIN users u ON u.id = urm.user_id
+		WHERE u.email = $1 AND urm.is_active = true
+	`, regEmail).Scan(&totalMemberships)
+	if err != nil {
+		t.Fatalf("query total memberships: %v", err)
+	}
+	if totalMemberships != 1 {
+		t.Errorf("expected exactly 1 active membership, got %d", totalMemberships)
+	}
+
+	// b) The single active membership points to Canonical Urena RT, NOT the fixture RT
+	var actualRTID string
+	err = pool.Raw().QueryRowContext(ctx, `
+		SELECT urm.rt_id::text
+		FROM user_rt_memberships urm
+		JOIN users u ON u.id = urm.user_id
+		WHERE u.email = $1 AND urm.is_active = true
+	`, regEmail).Scan(&actualRTID)
+	if err != nil {
+		t.Fatalf("query actual rt_id: %v", err)
+	}
+	if actualRTID != devseed.CanonicalUrenaRTID {
+		t.Errorf("expected canonical RT %s, got %s", devseed.CanonicalUrenaRTID, actualRTID)
+	}
+
+	// c) The fixture RT 002 has ZERO memberships for this admin
+	var fixtureCount int
+	err = pool.Raw().QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM user_rt_memberships urm
+		JOIN users u ON u.id = urm.user_id
+		WHERE u.email = $1 AND urm.rt_id = $2
+	`, regEmail, fixtureRTID).Scan(&fixtureCount)
+	if err != nil {
+		t.Fatalf("query fixture rt count: %v", err)
+	}
+	if fixtureCount != 0 {
+		t.Errorf("expected 0 memberships in fixture RT, got %d", fixtureCount)
 	}
 }
 

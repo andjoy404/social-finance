@@ -41,19 +41,25 @@ func TestMeReturnsEffectiveFinancePermissions(t *testing.T) {
 		want        []string
 	}{
 		{
-			email:       "ketua-003@local.com",
+			email:       "ketua-001@local.com",
 			wantRole:    "pengurus",
 			wantJabatan: "ketua",
 			want:        []string{"finance.read", "finance.create", "finance.update", "finance.approve"},
 		},
 		{
-			email:       "wakil-ketua-003@local.com",
+			email:       "wakil-ketua-001@local.com",
 			wantRole:    "pengurus",
 			wantJabatan: "wakil_ketua",
-			want:        []string{"finance.read"},
+			want:        []string{"finance.read", "finance.create", "finance.update", "finance.approve"},
 		},
 		{
-			email:    "warga.rt03@local.com",
+			email:       "sekretaris-001@local.com",
+			wantRole:    "pengurus",
+			wantJabatan: "sekretaris",
+			want:        []string{"finance.read", "finance.create"},
+		},
+		{
+			email:    "warga.rt01@local.com",
 			wantRole: "warga",
 			want:     []string{"finance.read"},
 		},
@@ -139,8 +145,8 @@ func TestFinanceManagementPermissionMiddlewareRejectsReadOnlyPosition(t *testing
 		wantStatus  int
 		wantJabatan string
 	}{
-		{email: "ketua-003@local.com", wantStatus: http.StatusNoContent, wantJabatan: "ketua"},
-		{email: "wakil-ketua-003@local.com", wantStatus: http.StatusForbidden, wantJabatan: "wakil_ketua"},
+		{email: "ketua-001@local.com", wantStatus: http.StatusNoContent, wantJabatan: "ketua"},
+		{email: "sekretaris-001@local.com", wantStatus: http.StatusForbidden, wantJabatan: "sekretaris"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.email, func(t *testing.T) {

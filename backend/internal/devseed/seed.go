@@ -3,11 +3,10 @@ package devseed
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
-	"time"
 
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
@@ -16,7 +15,90 @@ import (
 const (
 	// DefaultSeedPassword is the single known password for all seeded mock users.
 	DefaultSeedPassword = "123qweasdzxc"
+	// CanonicalUrenaRTID is the deterministic UUID of RT 002 (Urena).
+	CanonicalUrenaRTID = "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"
 )
+
+// RTQueryExecutor abstracts *sql.Tx or *sql.DB for running queries.
+type RTQueryExecutor interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// ResolveCanonicalUrenaRT deterministically finds the canonical RT 002 (Urena) tenant ID.
+// Resolution priority:
+// 1. Exact canonical ID match: a95c1cb5-2f67-4ea5-9197-bfec537b6d7b (with is_active = true)
+// 2. Exact name 'Urena' and RT '002' (with is_active = true)
+// 3. Name ILIKE '%urena%' and RT '002' (with is_active = true)
+//
+// If multiple ambiguous active candidates exist at step 2 or 3, it returns an explicit
+// diagnostic error instead of arbitrarily choosing one.
+// If no matching RT exists (e.g. fresh database before migrations/seed), it returns ("", sql.ErrNoRows).
+func ResolveCanonicalUrenaRT(ctx context.Context, q RTQueryExecutor) (string, error) {
+	// 1. Prioritize stable canonical ID
+	var id string
+	err := q.QueryRowContext(ctx, `SELECT id FROM rts WHERE id = $1 AND is_active = true`, CanonicalUrenaRTID).Scan(&id)
+	if err == nil && id != "" {
+		return id, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("query canonical rt by id: %w", err)
+	}
+
+	// 2. Exact match: lower(name) = 'urena' AND rt = '002' AND is_active = true
+	rows, err := q.QueryContext(ctx, `SELECT id FROM rts WHERE lower(name) = 'urena' AND rt = '002' AND is_active = true`)
+	if err != nil {
+		return "", fmt.Errorf("query rt by name 'urena' and code '002': %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return "", fmt.Errorf("scan candidate rt: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("iterate candidate rts: %w", err)
+	}
+
+	if len(candidates) == 1 {
+		return candidates[0], nil
+	}
+	if len(candidates) > 1 {
+		return "", fmt.Errorf("ambiguous canonical tenant: found %d active RTs matching name 'urena' and rt '002': %v", len(candidates), candidates)
+	}
+
+	// 3. Pattern match: name ILIKE '%urena%' AND rt = '002' AND is_active = true
+	rows, err = q.QueryContext(ctx, `SELECT id FROM rts WHERE name ILIKE '%urena%' AND rt = '002' AND is_active = true`)
+	if err != nil {
+		return "", fmt.Errorf("query rt by pattern '%%urena%%' and code '002': %w", err)
+	}
+	defer rows.Close()
+
+	candidates = nil
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return "", fmt.Errorf("scan candidate rt: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("iterate candidate rts: %w", err)
+	}
+
+	if len(candidates) == 1 {
+		return candidates[0], nil
+	}
+	if len(candidates) > 1 {
+		return "", fmt.Errorf("ambiguous canonical tenant: found %d active RTs matching pattern '%%urena%%' and rt '002': %v", len(candidates), candidates)
+	}
+
+	return "", sql.ErrNoRows
+}
 
 // SeedSummary contains counts of all entities inserted/upserted by the seed operation.
 type SeedSummary struct {
@@ -33,8 +115,6 @@ type SeedSummary struct {
 	PositionResidentsCount    int
 	PermissionTypesCount      int
 	PositionPermissionsCount  int
-	FinancialCategoriesCount  int
-	DuesCount                 int
 	BillsCount                int
 	PaymentsCount             int
 }
@@ -75,10 +155,6 @@ func Run(ctx context.Context, pool *database.Pool, appEnv string) (*SeedSummary,
 		"position_residents", summary.PositionResidentsCount,
 		"permission_types", summary.PermissionTypesCount,
 		"position_permissions", summary.PositionPermissionsCount,
-		"financial_categories", summary.FinancialCategoriesCount,
-		"dues", summary.DuesCount,
-		"bills", summary.BillsCount,
-		"payments", summary.PaymentsCount,
 	)
 
 	return summary, nil
@@ -111,6 +187,31 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			return nil, fmt.Errorf("upsert rt %s: %w", rt.ID, err)
 		}
 		summary.RTsCount++
+	}
+
+	// NOTE: Super Admin creation moved to bootstrap (main.go --bootstrap).
+	// The admin account is created from BOOTSTRAP_EMAIL / BOOTSTRAP_PASSWORD
+	// in .env, keeping credentials out of source code.
+	// seed --seed-dev intentionally skips creating super_admin users.
+
+	// 1c. If a Super Admin user already exists, idempotently ensure active membership in canonical RT 002.
+	var saUserID string
+	errSA := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE system_role = 'super_admin' ORDER BY created_at ASC LIMIT 1`).Scan(&saUserID)
+	if errSA == nil && saUserID != "" {
+		rt002ID, errRT := ResolveCanonicalUrenaRT(ctx, tx)
+		if errRT != nil && !errors.Is(errRT, sql.ErrNoRows) {
+			return nil, fmt.Errorf("resolve canonical rt 002: %w", errRT)
+		}
+		if rt002ID != "" {
+			_, errMem := tx.ExecContext(ctx, `
+				INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
+				VALUES (gen_random_uuid(), $1, $2, 'pengurus', true)
+				ON CONFLICT (user_id, rt_id) WHERE is_active = true DO NOTHING
+			`, saUserID, rt002ID)
+			if errMem != nil {
+				return nil, fmt.Errorf("link super admin to canonical rt 002: %w", errMem)
+			}
+		}
 	}
 
 	// 2. Physical Houses
@@ -206,12 +307,14 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 	}
 
 	// 7. Users and Memberships
+	// Pre-hash the seed password once — all mock users share the same password.
 	passwordHash, err := auth.Hash(DefaultSeedPassword)
 	if err != nil {
 		return nil, fmt.Errorf("hash seed password: %w", err)
 	}
 
 	for _, u := range CanonicalUsers {
+
 		// HARD CONSTRAINT: Never allow super_admin to be seeded automatically
 		// Super Admin must be created solely via --bootstrap CLI
 		//
@@ -250,15 +353,16 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			// Seed ID matched an existing user — update it
 			updateQ := `
 				UPDATE users SET
-					phone = $2,
-					password_hash = $3,
-					full_name = $4,
+					email = $2,
+					phone = $3,
+					password_hash = $4,
+					full_name = $5,
 					is_active = true,
 					updated_at = now()
 				WHERE id = $1
 				RETURNING id
 			`
-			if err := tx.QueryRowContext(ctx, updateQ, u.ID, u.Phone, passwordHash, u.FullName).Scan(&userID); err != nil {
+			if err := tx.QueryRowContext(ctx, updateQ, u.ID, u.Email, u.Phone, passwordHash, u.FullName).Scan(&userID); err != nil {
 				return nil, fmt.Errorf("update user %s (%s): %w", u.Email, u.ID, err)
 			}
 
@@ -310,6 +414,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 	// 8. Position Users (jabatan)
 	// All position users get system_role=NULL and role="pengurus" with jabatan assigned.
 	// Idempotent via email conflict.
+	// Uses the same pre-hashed password as section 7.
 	for _, p := range CanonicalPositionUsers {
 		userQ := `
 			INSERT INTO users (id, email, phone, password_hash, full_name, is_active, system_role)
@@ -519,160 +624,5 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		}
 	}
 
-	// 11. Financial Seed — categories, dues, bills, payments
-	if err := seedFinancialData(ctx, tx, summary); err != nil {
-		return nil, fmt.Errorf("seed financial data: %w", err)
-	}
-
 	return summary, nil
-}
-
-// seedFinancialData seeds financial categories, dues, bills, and payments.
-// All entities use deterministic UUIDs for idempotent upserts.
-// Financial seed runs AFTER all organizational seed (RTs, households, occupants, users)
-// so that occupancy IDs and bendahara user IDs are available.
-func seedFinancialData(ctx context.Context, tx *sql.Tx, summary *SeedSummary) error {
-	// --- 11a. Financial Categories ---
-	for _, cat := range CanonicalFinancialCategories {
-		q := `
-			INSERT INTO financial_categories (id, rt_id, name, type, is_active)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (id) DO UPDATE SET
-				name = EXCLUDED.name,
-				type = EXCLUDED.type,
-				is_active = EXCLUDED.is_active,
-				updated_at = now()
-		`
-		if _, err := tx.ExecContext(ctx, q, cat.ID, cat.RTID, cat.Name, cat.Type, cat.IsActive); err != nil {
-			return fmt.Errorf("upsert financial_category %s: %w", cat.ID, err)
-		}
-	}
-	summary.FinancialCategoriesCount = len(CanonicalFinancialCategories)
-	slog.Info("seeded financial_categories", "count", summary.FinancialCategoriesCount)
-
-	// --- 11b. Dues ---
-	for _, due := range CanonicalDues {
-		q := `
-			INSERT INTO dues (id, rt_id, name, amount, period_type, is_active)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			ON CONFLICT (id) DO UPDATE SET
-				name = EXCLUDED.name,
-				amount = EXCLUDED.amount,
-				period_type = EXCLUDED.period_type,
-				is_active = EXCLUDED.is_active,
-				updated_at = now()
-		`
-		if _, err := tx.ExecContext(ctx, q, due.ID, due.RTID, due.Name, due.Amount, due.PeriodType, due.IsActive); err != nil {
-			return fmt.Errorf("upsert due %s: %w", due.ID, err)
-		}
-	}
-	summary.DuesCount = len(CanonicalDues)
-	slog.Info("seeded dues", "count", summary.DuesCount)
-
-	// --- 11c. Bills ---
-	for _, bill := range CanonicalBills {
-		q := `
-			INSERT INTO bills (id, rt_id, household_occupancy_id, due_id, amount, period, due_date, status)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (id) DO UPDATE SET
-				household_occupancy_id = EXCLUDED.household_occupancy_id,
-				due_id = EXCLUDED.due_id,
-				amount = EXCLUDED.amount,
-				period = EXCLUDED.period,
-				due_date = EXCLUDED.due_date,
-				status = EXCLUDED.status,
-				updated_at = now()
-		`
-		if _, err := tx.ExecContext(ctx, q, bill.ID, bill.RTID, bill.HouseholdOccupancyID,
-			bill.DueID, bill.Amount, bill.Period, bill.DueDate, bill.Status); err != nil {
-			return fmt.Errorf("upsert bill %s: %w", bill.ID, err)
-		}
-	}
-	summary.BillsCount = len(CanonicalBills)
-	slog.Info("seeded bills", "count", summary.BillsCount)
-
-	// --- 11d. Payments ---
-	for _, pay := range CanonicalPayments {
-		verifiedBy := &pay.VerifiedBy
-		if pay.VerifiedBy == "" {
-			verifiedBy = nil
-		}
-		var verificationReason, note *string
-		if pay.RejectionReason != nil && *pay.RejectionReason != "" {
-			verificationReason = pay.RejectionReason
-		}
-		if pay.Notes != nil && *pay.Notes != "" {
-			note = pay.Notes
-		}
-
-		q := `
-			INSERT INTO payments (id, rt_id, bill_id, amount, method, origin, status,
-			                     verified_by, verified_at, rejection_reason, notes)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-			ON CONFLICT (id) DO UPDATE SET
-				amount = EXCLUDED.amount,
-				method = EXCLUDED.method,
-				origin = EXCLUDED.origin,
-				status = EXCLUDED.status,
-				verified_by = EXCLUDED.verified_by,
-				verified_at = EXCLUDED.verified_at,
-				rejection_reason = EXCLUDED.rejection_reason,
-				notes = EXCLUDED.notes,
-				updated_at = now()
-		`
-		var verifiedAt *time.Time
-		if pay.VerifiedAt != "" {
-			t, err := time.Parse(time.RFC3339, pay.VerifiedAt)
-			if err != nil {
-				return fmt.Errorf("parse verified_at for payment %s: %w", pay.ID, err)
-			}
-			verifiedAt = &t
-		}
-
-		if _, err := tx.ExecContext(ctx, q, pay.ID, pay.RTID, pay.BillID,
-			pay.Amount, pay.Method, pay.Origin, pay.Status,
-			verifiedBy, verifiedAt, verificationReason, note); err != nil {
-			return fmt.Errorf("upsert payment %s: %w", pay.ID, err)
-		}
-	}
-	summary.PaymentsCount = len(CanonicalPayments)
-	slog.Info("seeded payments", "count", summary.PaymentsCount)
-
-	// No bills or payments are seeded; transactional data must be 0 on fresh install.
-	return nil
-}
-
-// compareMoney compares two numeric(15,2) string values.
-// Returns: -1 if a < b, 0 if a == b, 1 if a > b.
-// Parses to integer cents to avoid floating-point issues.
-func compareMoney(a, b string) int {
-	// Remove decimal point and parse as int64 (cents)
-	pa := parseMoneyCents(a)
-	pb := parseMoneyCents(b)
-	if pa < pb {
-		return -1
-	}
-	if pa > pb {
-		return 1
-	}
-	return 0
-}
-
-// parseMoneyCents parses a numeric(15,2) string into int64 cents.
-// e.g. "50000.00" → 5000000
-func parseMoneyCents(s string) int64 {
-	parts := strings.Split(s, ".")
-	if len(parts) == 1 {
-		v, _ := strconv.ParseInt(parts[0], 10, 64)
-		return v * 100
-	}
-	intPart, _ := strconv.ParseInt(parts[0], 10, 64)
-	decPart := parts[1]
-	// Pad or truncate to exactly 2 decimal digits
-	for len(decPart) < 2 {
-		decPart += "0"
-	}
-	decPart = decPart[:2]
-	dec, _ := strconv.ParseInt(decPart, 10, 64)
-	return intPart*100 + dec
 }

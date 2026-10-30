@@ -41,6 +41,8 @@ class _FakeCreateRepo extends IuranRepository {
     PaymentRule? paymentRule,
     bool? isVoluntary,
     String? validUntil,
+    DueType? dueType,
+    int? year,
   }) async {
     lastCall = CreateDueCall(
       name: name,
@@ -61,6 +63,8 @@ class _FakeCreateRepo extends IuranRepository {
       isVoluntary: isVoluntary ?? false,
       isActive: true,
       validUntil: validUntil,
+      dueType: dueType ?? (isVoluntary == true ? DueType.voluntary : DueType.regular),
+      year: year,
     );
   }
 
@@ -157,6 +161,8 @@ class _FakeUpdateRepo extends IuranRepository {
     PaymentRule? paymentRule,
     bool? isVoluntary,
     String? validUntil,
+    DueType? dueType,
+    int? year,
   }) async {
     return BackendDue(
       id: 'due-fake',
@@ -168,6 +174,8 @@ class _FakeUpdateRepo extends IuranRepository {
       isVoluntary: isVoluntary ?? false,
       isActive: true,
       validUntil: validUntil,
+      dueType: dueType ?? (isVoluntary == true ? DueType.voluntary : DueType.regular),
+      year: year,
     );
   }
 

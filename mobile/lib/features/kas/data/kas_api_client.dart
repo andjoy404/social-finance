@@ -99,6 +99,7 @@ class KasApiClient {
     required String description,
     DateTime? occurredAt,
     String? paymentMethod,
+    String? locationId,
     required String idempotencyKey,
   }) async {
     final Map<String, dynamic> body = {
@@ -108,6 +109,9 @@ class KasApiClient {
     };
     if (categoryId != null && categoryId.isNotEmpty) {
       body['category_id'] = categoryId;
+    }
+    if (locationId != null && locationId.isNotEmpty) {
+      body['location_id'] = locationId;
     }
     if (paymentMethod != null && paymentMethod.isNotEmpty) {
       body['payment_method'] = paymentMethod;
@@ -136,10 +140,14 @@ class KasApiClient {
     String? description,
     DateTime? occurredAt,
     String? paymentMethod,
+    String? locationId,
   }) async {
     final Map<String, dynamic> body = {};
     if (categoryId != null && categoryId.isNotEmpty) {
       body['category_id'] = categoryId;
+    }
+    if (locationId != null && locationId.isNotEmpty) {
+      body['location_id'] = locationId;
     }
     if (amount != null && amount.isNotEmpty) {
       body['amount'] = amount;
@@ -166,10 +174,20 @@ class KasApiClient {
   // ─── Balance ────────────────────────────────────────────────────────
 
   /// GET /api/v1/reports/balance
-  Future<BackendBalance> getBalance({String? period}) async {
+  Future<BackendBalance> getBalance({
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
     final query = <String, dynamic>{};
     if (period != null && period.isNotEmpty) {
       query['period'] = period;
+    }
+    if (startDate != null && startDate.isNotEmpty) {
+      query['start_date'] = startDate;
+    }
+    if (endDate != null && endDate.isNotEmpty) {
+      query['end_date'] = endDate;
     }
     final response = await dio.get(
       '/api/v1/reports/balance',

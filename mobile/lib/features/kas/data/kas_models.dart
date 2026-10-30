@@ -51,6 +51,7 @@ class KasTransaction {
   createdAt; // backend created_at, used as deterministic tie-breaker
   final String nominal;
   final String saldo;
+  final String? reversesTransactionId; // UUID of the transaction being reversed
 
   const KasTransaction({
     required this.id,
@@ -67,6 +68,7 @@ class KasTransaction {
     this.createdAt,
     required this.nominal,
     required this.saldo,
+    this.reversesTransactionId,
   });
 }
 

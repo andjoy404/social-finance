@@ -22,6 +22,22 @@ type Repository interface {
 	GetTokensForRT(ctx context.Context, rtID string) ([]string, error)
 	GetRecipientUserIDsForBill(ctx context.Context, rtID, billID string) ([]string, error)
 	CheckAndRecordDedup(ctx context.Context, rtID, userID, eventType, dedupKey, title, body string, payload map[string]string) (bool, error)
+
+	// Template management
+	ListTemplates(ctx context.Context, rtID, eventType string, isActive *bool) ([]NotificationTemplate, error)
+	GetTemplateByID(ctx context.Context, rtID, id string) (*NotificationTemplate, error)
+	GetActiveTemplateForEvent(ctx context.Context, rtID, eventType string) (*NotificationTemplate, error)
+	CreateTemplate(ctx context.Context, rtID string, in CreateTemplateInput, allowedVars []string) (*NotificationTemplate, error)
+	UpdateTemplate(ctx context.Context, rtID, id string, in UpdateTemplateInput) (*NotificationTemplate, error)
+	ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error)
+	DeleteTemplate(ctx context.Context, rtID, id string) error
+
+	// Logs listing
+	ListLogs(ctx context.Context, rtID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error)
+	GetLogByID(ctx context.Context, rtID, id string) (*NotificationLogEntry, error)
+
+	// Tenant resolution fallback for system roles
+	GetDefaultRTID(ctx context.Context) (string, error)
 }
 
 type pgRepository struct {
@@ -276,14 +292,19 @@ func (r *pgRepository) CheckAndRecordDedup(
 		trimmed := strings.TrimSpace(userID)
 		uidParam = &trimmed
 	}
+	var imageURL *string
+	if u, ok := payload["image_url"]; ok && strings.TrimSpace(u) != "" {
+		trimmed := strings.TrimSpace(u)
+		imageURL = &trimmed
+	}
 	query := `
-		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, payload, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'SENT')
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, payload, status, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'SENT', $8)
 		ON CONFLICT (dedup_key) DO NOTHING
 		RETURNING id;
 	`
 	var id string
-	err := r.pool.Raw().QueryRowContext(ctx, query, rtID, uidParam, eventType, dedupKey, title, body, payloadJSON).Scan(&id)
+	err := r.pool.Raw().QueryRowContext(ctx, query, rtID, uidParam, eventType, dedupKey, title, body, payloadJSON, imageURL).Scan(&id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// Row already exists -> deduplicated!
@@ -294,5 +315,349 @@ func (r *pgRepository) CheckAndRecordDedup(
 		}
 		return false, err
 	}
+	if payload != nil && id != "" {
+		payload["notification_id"] = id
+	}
 	return true, nil
+}
+
+func (r *pgRepository) ListTemplates(ctx context.Context, rtID, eventType string, isActive *bool) ([]NotificationTemplate, error) {
+	query := `
+		SELECT id, rt_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url
+		FROM notification_templates
+		WHERE rt_id = $1
+	`
+	args := []any{rtID}
+	argIdx := 2
+
+	if strings.TrimSpace(eventType) != "" {
+		query += fmt.Sprintf(" AND event_type = $%d", argIdx)
+		args = append(args, strings.TrimSpace(eventType))
+		argIdx++
+	}
+
+	if isActive != nil {
+		query += fmt.Sprintf(" AND is_active = $%d", argIdx)
+		args = append(args, *isActive)
+		argIdx++
+	}
+
+	query += " ORDER BY created_at DESC"
+
+	rows, err := r.pool.Raw().QueryContext(ctx, query, args...)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return []NotificationTemplate{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var templates []NotificationTemplate
+	for rows.Next() {
+		var t NotificationTemplate
+		var varsRaw []byte
+		if err := rows.Scan(&t.ID, &t.RTID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL); err != nil {
+			return nil, err
+		}
+		if len(varsRaw) > 0 {
+			_ = json.Unmarshal(varsRaw, &t.Variables)
+		}
+		if t.Variables == nil {
+			t.Variables = []string{}
+		}
+		templates = append(templates, t)
+	}
+	if templates == nil {
+		templates = []NotificationTemplate{}
+	}
+	return templates, rows.Err()
+}
+
+func (r *pgRepository) GetTemplateByID(ctx context.Context, rtID, id string) (*NotificationTemplate, error) {
+	query := `
+		SELECT id, rt_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url
+		FROM notification_templates
+		WHERE id = $1 AND rt_id = $2
+		LIMIT 1;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, id, rtID).Scan(
+		&t.ID, &t.RTID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+func (r *pgRepository) GetActiveTemplateForEvent(ctx context.Context, rtID, eventType string) (*NotificationTemplate, error) {
+	query := `
+		SELECT id, rt_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url
+		FROM notification_templates
+		WHERE rt_id = $1 AND event_type = $2 AND is_active = true
+		ORDER BY updated_at DESC
+		LIMIT 1;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, rtID, eventType).Scan(
+		&t.ID, &t.RTID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+func (r *pgRepository) CreateTemplate(ctx context.Context, rtID string, in CreateTemplateInput, allowedVars []string) (*NotificationTemplate, error) {
+	channel := "push"
+	if strings.TrimSpace(in.Channel) != "" {
+		channel = strings.TrimSpace(in.Channel)
+	}
+	varsJSON, _ := json.Marshal(allowedVars)
+
+	var imageURL *string
+	if in.ImageURL != nil && strings.TrimSpace(*in.ImageURL) != "" {
+		trimmed := strings.TrimSpace(*in.ImageURL)
+		imageURL = &trimmed
+	}
+
+	query := `
+		INSERT INTO notification_templates (rt_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, true, $7, NOW(), NOW(), $8)
+		RETURNING id, rt_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, rtID, in.Name, in.EventType, channel, in.Title, in.Body, varsJSON, imageURL).Scan(
+		&t.ID, &t.RTID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+func (r *pgRepository) UpdateTemplate(ctx context.Context, rtID, id string, in UpdateTemplateInput) (*NotificationTemplate, error) {
+	// First fetch existing
+	existing, err := r.GetTemplateByID(ctx, rtID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, nil
+	}
+
+	name := existing.Name
+	if strings.TrimSpace(in.Name) != "" {
+		name = strings.TrimSpace(in.Name)
+	}
+	title := existing.Title
+	if strings.TrimSpace(in.Title) != "" {
+		title = strings.TrimSpace(in.Title)
+	}
+	body := existing.Body
+	if strings.TrimSpace(in.Body) != "" {
+		body = strings.TrimSpace(in.Body)
+	}
+	isActive := existing.IsActive
+	if in.IsActive != nil {
+		isActive = *in.IsActive
+	}
+	imageURL := existing.ImageURL
+	if in.ImageURL != nil {
+		if strings.TrimSpace(*in.ImageURL) == "" {
+			imageURL = nil
+		} else {
+			trimmed := strings.TrimSpace(*in.ImageURL)
+			imageURL = &trimmed
+		}
+	}
+
+	query := `
+		UPDATE notification_templates
+		SET name = $1, title = $2, body = $3, is_active = $4, image_url = $5, updated_at = NOW()
+		WHERE id = $6 AND rt_id = $7
+		RETURNING id, rt_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err = r.pool.Raw().QueryRowContext(ctx, query, name, title, body, isActive, imageURL, id, rtID).Scan(
+		&t.ID, &t.RTID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+func (r *pgRepository) ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error) {
+	query := `
+		UPDATE notification_templates
+		SET is_active = NOT is_active, updated_at = NOW()
+		WHERE id = $1 AND rt_id = $2
+		RETURNING id, rt_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, id, rtID).Scan(
+		&t.ID, &t.RTID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+func (r *pgRepository) DeleteTemplate(ctx context.Context, rtID, id string) error {
+	query := `DELETE FROM notification_templates WHERE id = $1 AND rt_id = $2;`
+	res, err := r.pool.Raw().ExecContext(ctx, query, id, rtID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *pgRepository) ListLogs(ctx context.Context, rtID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error) {
+	countQuery := `SELECT COUNT(*) FROM notification_logs WHERE rt_id = $1`
+	countArgs := []any{rtID}
+	if strings.TrimSpace(eventType) != "" {
+		countQuery += " AND event_type = $2"
+		countArgs = append(countArgs, strings.TrimSpace(eventType))
+	}
+
+	var total int
+	err := r.pool.Raw().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return []NotificationLogEntry{}, 0, nil
+		}
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at, image_url
+		FROM notification_logs
+		WHERE rt_id = $1
+	`
+	args := []any{rtID}
+	argIdx := 2
+	if strings.TrimSpace(eventType) != "" {
+		query += fmt.Sprintf(" AND event_type = $%d", argIdx)
+		args = append(args, strings.TrimSpace(eventType))
+		argIdx++
+	}
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Raw().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var logs []NotificationLogEntry
+	for rows.Next() {
+		var entry NotificationLogEntry
+		if err := rows.Scan(&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL); err != nil {
+			return nil, 0, err
+		}
+		logs = append(logs, entry)
+	}
+	if logs == nil {
+		logs = []NotificationLogEntry{}
+	}
+	return logs, total, rows.Err()
+}
+
+func (r *pgRepository) GetLogByID(ctx context.Context, rtID, id string) (*NotificationLogEntry, error) {
+	query := `
+		SELECT id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at, image_url
+		FROM notification_logs
+		WHERE id = $1 AND rt_id = $2
+		LIMIT 1;
+	`
+	var entry NotificationLogEntry
+	err := r.pool.Raw().QueryRowContext(ctx, query, id, rtID).Scan(
+		&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &entry, nil
+}
+
+func (r *pgRepository) GetDefaultRTID(ctx context.Context) (string, error) {
+	var rtID string
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT id FROM rts
+		WHERE is_active = true AND (id = 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b' OR lower(name) = 'urena' OR (name ILIKE '%urena%' AND rt = '002'))
+		ORDER BY
+			CASE
+				WHEN id = 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b' THEN 1
+				WHEN lower(name) = 'urena' AND rt = '002' THEN 2
+				WHEN lower(name) = 'urena' THEN 3
+				WHEN name ILIKE '%urena%' AND rt = '002' THEN 4
+				ELSE 5
+			END ASC
+		LIMIT 1
+	`).Scan(&rtID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", errors.New("default rt (rt 002/urena) not found or inactive")
+		}
+		return "", err
+	}
+	return rtID, nil
 }

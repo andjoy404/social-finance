@@ -1,4 +1,4 @@
-export type IuranStatus = 'belum_bayar' | 'sebagian' | 'lunas' | 'dibatalkan' | 'sukarela'
+export type IuranStatus = 'belum_bayar' | 'menunggu_verifikasi' | 'sebagian' | 'lunas' | 'dibatalkan' | 'sukarela'
 
 // Backend BillStatus → Frontend IuranStatus mapping
 export const BACKEND_STATUS_MAP: Record<string, IuranStatus> = {
@@ -13,6 +13,8 @@ export function getStatusVariant(status: IuranStatus): 'red' | 'amber' | 'green'
   switch (status) {
     case 'belum_bayar':
       return 'red'
+    case 'menunggu_verifikasi':
+      return 'amber'
     case 'sebagian':
       return 'amber'
     case 'lunas':
@@ -39,6 +41,7 @@ export interface IuranPaymentRecord {
   verifiedByName?: string
   officerNotes?: string
   paymentNo?: string
+  actualReceivedDate?: string
   status?: PaymentStatusDisplay
   method?: 'CASH' | 'TRANSFER'
   submitterName?: string
@@ -65,7 +68,34 @@ export interface IuranBill {
   payments?: IuranPaymentRecord[]
   isVoluntary?: boolean
   dueId?: string
+  dueIsActive?: boolean
+  isActive?: boolean
+  dueType?: DueType
+  year?: number
 }
+
+// Due type → frontend badge label
+export function getDueTypeLabel(dueType?: DueType | null): string {
+  switch (dueType) {
+    case 'multi_month': return 'Multi-Bulan'
+    case 'voluntary': return 'Sukarela'
+    case 'regular':
+    default: return 'Reguler'
+  }
+}
+
+const DUE_TYPE_VARIANTS: Record<DueType, 'green' | 'blue' | 'violet'> = {
+  regular: 'green',
+  voluntary: 'blue',
+  multi_month: 'violet',
+}
+
+// Due type → frontend badge variant
+export function getDueTypeVariant(dueType?: DueType | null): 'green' | 'blue' | 'violet' {
+  return (dueType && DUE_TYPE_VARIANTS[dueType]) ?? 'green'
+}
+
+export type DueType = 'regular' | 'voluntary' | 'multi_month'
 
 export type IuranType = 'Keamanan' | 'Kebersihan' | 'Pembangunan'
 
@@ -147,11 +177,17 @@ export function getPaymentStatusVariant(status: PaymentStatusDisplay): 'default'
 }
 
 export function formatRibuan(value: number | string): string {
-  const digits = typeof value === 'number'
-    ? (isNaN(value) ? '' : String(Math.floor(Math.abs(value))))
-    : value.replace(/\D/g, '')
-  if (!digits) return ''
-  return new Intl.NumberFormat('id-ID').format(parseInt(digits, 10))
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'number') {
+    if (isNaN(value)) return ''
+    return new Intl.NumberFormat('id-ID').format(Math.floor(Math.abs(value)))
+  }
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+
+  const absStr = trimmed.startsWith('-') ? trimmed.slice(1).trim() : trimmed
+  const num = parseMoney(absStr)
+  return new Intl.NumberFormat('id-ID').format(num)
 }
 
 export type MoneyParseContract = 'auto' | 'api' | 'rupiah'

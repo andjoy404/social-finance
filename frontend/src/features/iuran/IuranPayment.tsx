@@ -21,12 +21,15 @@ import {
   parseMoney,
   type IuranBill,
   type IuranStatus,
+  type DueType,
 } from './iuranTypes'
 import {
   apiGetBill,
   apiCreatePayment,
+  apiCreateMultiPeriodPayment,
   apiUploadPaymentProof,
   apiListPayments,
+  apiListBills,
   type ApiPayment,
   type ApiError,
   getSessionPair,
@@ -41,22 +44,62 @@ const PAYMENT_METHODS = [
 const MAX_PROOF_SIZE = 5 * 1024 * 1024 // 5 MB
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
+export interface PayableBillInfo {
+  id: string
+  period: string
+  amount: string
+}
+
 function IuranPaymentContent({
   bill,
+  payableBills = [],
   remaining,
   handleClose,
   onPaymentSuccess,
 }: {
   bill: IuranBill
+  payableBills?: PayableBillInfo[]
   remaining: number
   handleClose: () => void
   onPaymentSuccess: (payment: ApiPayment) => void
 }) {
-  const isVoluntary = Boolean(bill.isVoluntary || bill.nominal === 0)
+  const isMultiMonth = bill.dueType === 'multi_month'
+  const isVoluntary = Boolean(bill.isVoluntary || (!isMultiMonth && bill.nominal === 0))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
-  const [nominal, setNominal] = useState(() => (remaining > 0 ? String(remaining) : ''))
+  const [monthCount, setMonthCount] = useState<number>(() => (isMultiMonth ? 0 : 1))
+
+  const effectiveBills: PayableBillInfo[] = useMemo(() => {
+    if (isMultiMonth) {
+      return payableBills ?? []
+    }
+    if (payableBills && payableBills.length > 0) return payableBills
+    return [{ id: bill.id, period: bill.periode, amount: String(bill.nominal) }]
+  }, [isMultiMonth, payableBills, bill])
+
+  const maxSelectableMonths = isMultiMonth ? Math.min(12, effectiveBills.length) : 1
+  const selectedBills = useMemo(() => {
+    if (!isMultiMonth) {
+      return [{ id: bill.id, period: bill.periode, amount: String(bill.nominal) }]
+    }
+    if (monthCount === 0 || effectiveBills.length === 0) return []
+    return effectiveBills.slice(0, Math.min(monthCount, maxSelectableMonths))
+  }, [isMultiMonth, monthCount, effectiveBills, maxSelectableMonths, bill])
+
+  const calculatedTotal = useMemo(() => {
+    if (isVoluntary) return remaining
+    if (isMultiMonth) {
+      if (monthCount === 0 || selectedBills.length === 0) return 0
+      return selectedBills.reduce((sum, b) => sum + parseMoney(b.amount), 0)
+    }
+    return remaining > 0 ? remaining : bill.nominal
+  }, [isVoluntary, isMultiMonth, monthCount, selectedBills, remaining, bill.nominal])
+
+  const [nominal, setNominal] = useState(() => {
+    if (isMultiMonth) return '0'
+    return remaining > 0 ? String(remaining) : ''
+  })
   const [payDate, setPayDate] = useState(() => new Date().toISOString().split('T')[0])
   const [catatan, setCatatan] = useState('')
   const [method, setMethod] = useState<'CASH' | 'TRANSFER' | ''>('')
@@ -66,10 +109,10 @@ function IuranPaymentContent({
   const [successPayment, setSuccessPayment] = useState<ApiPayment | null>(null)
 
   useEffect(() => {
-    if (!nominal && remaining > 0 && !isVoluntary) {
-      setNominal(String(remaining))
+    if (isMultiMonth) {
+      setNominal(String(calculatedTotal))
     }
-  }, [remaining, isVoluntary])
+  }, [calculatedTotal, isMultiMonth])
 
   // Clean up object URL on unmount or file change
   useEffect(() => {
@@ -122,12 +165,24 @@ function IuranPaymentContent({
     setWarningMessage(null)
 
     const errs: string[] = []
-    if (!nominal.trim()) {
-      errs.push('Nominal pembayaran harus diisi.')
-    } else if (isNaN(nominalNum) || nominalNum <= 0) {
-      errs.push('Nominal pembayaran harus lebih dari 0.')
-    } else if (!isVoluntary && nominalNum > remaining) {
-      errs.push(`Nominal pembayaran melebihi sisa tagihan (${formatRupiah(remaining)}).`)
+    if (isMultiMonth) {
+      if (effectiveBills.length === 0) {
+        errs.push('Tidak ada tagihan yang dapat dibayar untuk iuran ini.')
+      } else if (monthCount === 0) {
+        errs.push('Silakan pilih jumlah bulan yang ingin dibayar (minimal 1 bulan).')
+      } else if (nominalNum <= 0) {
+        errs.push('Nominal pembayaran harus lebih dari 0.')
+      } else if (nominalNum !== calculatedTotal) {
+        errs.push(`Nominal pembayaran untuk ${selectedBills.length} bulan harus sesuai (${formatRupiah(calculatedTotal)}).`)
+      }
+    } else {
+      if (!nominal.trim()) {
+        errs.push('Nominal pembayaran harus diisi.')
+      } else if (isNaN(nominalNum) || nominalNum <= 0) {
+        errs.push('Nominal pembayaran harus lebih dari 0.')
+      } else if (!isVoluntary && nominalNum > remaining) {
+        errs.push(`Nominal pembayaran melebihi sisa tagihan (${formatRupiah(remaining)}).`)
+      }
     }
     if (!payDate) {
       errs.push('Tanggal pembayaran harus diisi.')
@@ -158,14 +213,37 @@ function IuranPaymentContent({
         return
       }
 
-      // Create payment
-      let payment = await apiCreatePayment(pair.accessToken, {
-        bill_id: bill.id,
-        amount: String(nominalNum),
-        method: method as 'CASH' | 'TRANSFER',
-        notes: catatan || undefined,
-        file: proofFile || undefined,
-      })
+      // Create payment (multi-period if multi_month and > 1 bill, single payment otherwise)
+      let payment: ApiPayment
+      if (isMultiMonth) {
+        if (selectedBills.length > 1) {
+          const multiRes = await apiCreateMultiPeriodPayment(pair.accessToken, {
+            bill_ids: selectedBills.map((b) => b.id),
+            allocations: selectedBills.map((b) => ({ bill_id: b.id, amount: b.amount })),
+            amount: String(nominalNum),
+            method: method as 'CASH' | 'TRANSFER',
+            notes: catatan || undefined,
+            file: proofFile || undefined,
+          })
+          payment = multiRes.payment
+        } else {
+          payment = await apiCreatePayment(pair.accessToken, {
+            bill_id: selectedBills[0].id,
+            amount: String(nominalNum),
+            method: method as 'CASH' | 'TRANSFER',
+            notes: catatan || undefined,
+            file: proofFile || undefined,
+          })
+        }
+      } else {
+        payment = await apiCreatePayment(pair.accessToken, {
+          bill_id: bill.id,
+          amount: String(nominalNum),
+          method: method as 'CASH' | 'TRANSFER',
+          notes: catatan || undefined,
+          file: proofFile || undefined,
+        })
+      }
 
       // If proof file was attached but payment was created without file (or as separate upload)
       if (proofFile && !payment.proof_path) {
@@ -307,10 +385,95 @@ function IuranPaymentContent({
             <input
               id="ip-periode"
               className="sf-form-input"
-              value={bill.periode}
+              value={
+                isMultiMonth
+                  ? selectedBills.length > 1
+                    ? `${selectedBills[0].period} s/d ${selectedBills[selectedBills.length - 1].period} (${selectedBills.length} Bulan)`
+                    : selectedBills.length === 1
+                    ? selectedBills[0].period
+                    : bill.year ? `Tahun ${bill.year}` : bill.periode
+                  : bill.periode
+              }
               disabled
             />
           </div>
+
+          {/* Pilihan Jumlah Bulan untuk Multi-Bulan */}
+          {isMultiMonth && (
+            <div className="sf-form-field">
+              <label className="sf-form-label" htmlFor="ip-month-count">
+                <CalendarOutlined style={{ marginRight: 4 }} />
+                Jumlah Bulan yang Dibayar
+              </label>
+              {effectiveBills.length === 0 ? (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    background: 'var(--sf-surface, rgba(0,0,0,0.02))',
+                    border: '1px solid var(--sf-border, var(--border-color))',
+                    borderRadius: 'var(--sf-radius-sm, 6px)',
+                    color: 'var(--sf-text-muted)',
+                    fontSize: 13,
+                  }}
+                >
+                  Semua tagihan untuk iuran ini telah lunas atau tidak ada tagihan tertunggak.
+                </div>
+              ) : (
+                <>
+                  <select
+                    id="ip-month-count"
+                    aria-label="Jumlah Bulan yang Dibayar"
+                    className="sf-form-input"
+                    value={monthCount}
+                    onChange={(e) => {
+                      const count = Number(e.target.value)
+                      setMonthCount(count)
+                      setValidationErrors([])
+                    }}
+                  >
+                    <option value={0}>0 Bulan — Pilih jumlah bulan (1-{maxSelectableMonths})</option>
+                    {Array.from({ length: maxSelectableMonths }, (_, i) => i + 1).map((num) => (
+                      <option key={num} value={num}>
+                        {num} Bulan ({num} Tagihan)
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginTop: 4 }}>
+                    {monthCount === 0
+                      ? 'Silakan pilih jumlah bulan yang ingin dibayar (minimal 1 bulan).'
+                      : `Pembayaran ${monthCount} bulan diproses berurutan sesuai aturan FIFO (${selectedBills[0]?.period} s/d ${selectedBills[selectedBills.length - 1]?.period}).`}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Rincian Alokasi jika Multi-Bulan dan > 0 bulan */}
+          {isMultiMonth && selectedBills.length > 0 && (
+            <div
+              style={{
+                marginBottom: 'var(--sp-sm)',
+                padding: '10px 12px',
+                background: 'var(--sf-surface, rgba(0,0,0,0.02))',
+                border: '1px solid var(--sf-border, var(--border-color))',
+                borderRadius: 'var(--sf-radius-sm, 6px)',
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sf-text)', marginBottom: 6 }}>
+                Rincian Tagihan yang Dibayar ({selectedBills.length} Bulan):
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+                {selectedBills.map((b) => (
+                  <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: 'var(--sf-text-muted)' }}>Periode {b.period}</span>
+                    <span style={{ fontWeight: 500, color: 'var(--sf-text)' }}>
+                      {formatRupiah(parseMoney(b.amount))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Status */}
           <div className="sf-form-field">
@@ -332,7 +495,7 @@ function IuranPaymentContent({
               <input
                 id="ip-nominal"
                 className="sf-form-input"
-                value={formatRupiah(bill.nominal)}
+                value={formatRupiah(isMultiMonth ? calculatedTotal : remaining > 0 ? remaining : bill.nominal)}
                 disabled
               />
             </div>
@@ -361,7 +524,7 @@ function IuranPaymentContent({
               id="ip-sisa"
               className="sf-form-input"
               style={{ fontWeight: 700, color: isVoluntary ? 'var(--sf-accent)' : 'var(--sf-warning)' }}
-              value={isVoluntary ? 'Sukarela' : formatRupiah(remaining)}
+              value={isVoluntary ? 'Sukarela' : formatRupiah(isMultiMonth ? calculatedTotal : remaining)}
               disabled
             />
           </div>
@@ -420,15 +583,17 @@ function IuranPaymentContent({
               type="text"
               inputMode="numeric"
               value={formatRibuan(nominal)}
+              disabled={isMultiMonth}
               onChange={(e) => {
+                if (isMultiMonth) return
                 const rawDigits = e.target.value.replace(/\D/g, '')
                 setNominal(rawDigits)
                 setValidationErrors([])
               }}
-              placeholder={isVoluntary ? 'Masukkan nominal sumbangan' : `Maksimal ${formatRibuan(remaining)}`}
+              placeholder={isVoluntary ? 'Masukkan nominal sumbangan' : isMultiMonth ? '0' : `Maksimal ${formatRibuan(remaining)}`}
               autoFocus
             />
-            {remaining <= 0 && !isVoluntary && (
+            {remaining <= 0 && !isVoluntary && !isMultiMonth && (
               <div style={{ fontSize: 12, color: 'var(--sf-success)', marginTop: 4 }}>
                 Tagihan sudah lunas.
               </div>
@@ -594,7 +759,11 @@ function IuranPaymentContent({
           <button
             type="submit"
             className="sf-btn-primary"
-            disabled={submitting || (remaining <= 0 && !isVoluntary)}
+            disabled={
+              submitting ||
+              (isMultiMonth && (monthCount === 0 || effectiveBills.length === 0)) ||
+              (!isMultiMonth && !isVoluntary && remaining <= 0)
+            }
           >
             {submitting ? 'Menyimpan...' : 'Bayar'}
           </button>
@@ -626,6 +795,7 @@ export function IuranPayment({
   const [error, setError] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [bill, setBill] = useState<IuranBill | null>(null)
+  const [payableBills, setPayableBills] = useState<PayableBillInfo[]>([])
   const [retryCount, setRetryCount] = useState(0)
 
   const handleRetry = () => {
@@ -658,7 +828,8 @@ export function IuranPayment({
         if (cancelled) return
 
         const nominal = parseMoney(apiBill.amount)
-        const isVoluntary = Boolean(apiBill.is_voluntary || nominal === 0)
+        const isMultiMonth = apiBill.due_type === 'multi_month'
+        const isVoluntary = Boolean(apiBill.is_voluntary || (!isMultiMonth && nominal === 0))
         const status: IuranStatus = (isVoluntary && nominal === 0)
           ? 'sukarela'
           : (BACKEND_STATUS_MAP[apiBill.status] ?? 'belum_bayar')
@@ -677,6 +848,10 @@ export function IuranPayment({
           status,
           isVoluntary,
           dueId: apiBill.due_id,
+          dueIsActive: apiBill.due_is_active ?? true,
+          isActive: apiBill.is_active ?? true,
+          dueType: (apiBill.due_type as DueType) ?? (isVoluntary ? 'voluntary' : 'regular'),
+          year: apiBill.due_year ?? undefined,
           payments: [],
         }
 
@@ -710,6 +885,47 @@ export function IuranPayment({
         }
 
         setBill(mappedBill)
+
+        // Load payable bills for this household and due for multi-period selection
+        let payable: PayableBillInfo[] = []
+        if (isMultiMonth) {
+          if (apiBill.household_occupancy_id && apiBill.due_id) {
+            try {
+              const listRes = await apiListBills(token, {
+                household_occupancy_id: apiBill.household_occupancy_id,
+                due_id: apiBill.due_id,
+                status: 'unpaid',
+                is_active: true,
+                page_size: 50,
+              })
+              if (!cancelled && listRes?.data) {
+                const matched = listRes.data.filter(
+                  (b) =>
+                    b.household_occupancy_id === apiBill.household_occupancy_id &&
+                    b.due_id === apiBill.due_id &&
+                    b.status === 'unpaid' &&
+                    b.is_active !== false
+                )
+                if (apiBill.status === 'unpaid' && apiBill.is_active !== false && !matched.some((b) => b.id === apiBill.id)) {
+                  matched.push(apiBill)
+                }
+                matched.sort((a, b) => a.period.localeCompare(b.period))
+                payable = matched.map((b) => ({
+                  id: b.id,
+                  period: b.period,
+                  amount: b.amount,
+                }))
+              }
+            } catch {
+              // Silent fail — fallback to empty list
+            }
+          }
+        } else {
+          payable = [{ id: apiBill.id, period: apiBill.period, amount: apiBill.amount }]
+        }
+        if (!cancelled) {
+          setPayableBills(payable)
+        }
       } catch (err) {
         if (cancelled) return
         const apiErr = err as { code?: string }
@@ -740,6 +956,7 @@ export function IuranPayment({
     <IuranPaymentContent
       key={bill.id}
       bill={bill}
+      payableBills={payableBills}
       remaining={remaining}
       handleClose={handleClose}
       onPaymentSuccess={async (payment: ApiPayment) => {

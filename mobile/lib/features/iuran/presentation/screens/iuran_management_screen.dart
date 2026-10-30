@@ -18,7 +18,6 @@ import 'package:social_finance/features/iuran/data/iuran_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_providers.dart';
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
 import 'package:social_finance/features/iuran/presentation/screens/iuran_menu_screen.dart';
-import 'package:social_finance/features/iuran/presentation/widgets/iuran_tab_bar.dart';
 
 class IuranManagementScreen extends ConsumerStatefulWidget {
   const IuranManagementScreen({super.key});
@@ -186,8 +185,7 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
-        title: const MenuAppBarTitle(title: 'Iuran'),
-        bottom: const IuranTabBar(selectedIndex: 2),
+        title: const MenuAppBarTitle(title: 'Kelola Iuran'),
       ),
       floatingActionButton: _buildFab(context),
       body: Column(
@@ -545,7 +543,7 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
                                         Icons.edit_outlined,
                                         size: 20,
                                       ),
-                                      tooltip: 'Edit Iuran',
+                                      tooltip: 'Ubah Iuran',
                                       visualDensity: VisualDensity.compact,
                                       onPressed: () =>
                                           _showEditDialog(context, ref, due),
@@ -616,16 +614,19 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
                                               ),
                                           textAlign: TextAlign.right,
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${_periodLabel(due.periodType)} · ${due.isActive ? 'Aktif' : 'Tidak Aktif'}',
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                                color: theme
-                                                    .colorScheme
-                                                    .onSurfaceVariant,
-                                              ),
-                                          textAlign: TextAlign.right,
+                                        const SizedBox(height: 4),
+                                        AppBadge(
+                                          label: due.isActive ? 'Aktif' : 'Tidak Aktif',
+                                          textColor: due.isActive
+                                              ? AppColors.success
+                                              : AppColors.danger,
+                                          backgroundColor: due.isActive
+                                              ? AppColors.success.withValues(
+                                                  alpha: isDark ? 0.2 : 0.1,
+                                                )
+                                              : AppColors.danger.withValues(
+                                                  alpha: isDark ? 0.2 : 0.1,
+                                                ),
                                         ),
                                       ],
                                     ),
@@ -906,7 +907,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     final theme = Theme.of(context);
 
     return AlertDialog(
-      title: const Text('Edit Iuran'),
+      title: const Text('Ubah Iuran'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,

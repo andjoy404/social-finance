@@ -569,6 +569,11 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     VoidCallback? onSuccess,
   }) async {
     final notesController = TextEditingController();
+    final now = DateTime.now();
+    final todayFormatted =
+        '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dateController = TextEditingController(text: todayFormatted);
+
     showDialog(
       context: context,
       builder: (dialogContext) {
@@ -582,6 +587,29 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                 const Text(
                   'Apakah Anda yakin ingin menyetujui pembayaran ini?',
                   style: TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  controller: dateController,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Tanggal Uang Diterima *',
+                    helperText: 'Tanggal dana masuk ke kas/rekening RT (KAS)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.calendar_today_outlined),
+                  ),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: dialogContext,
+                      initialDate: DateTime.tryParse(dateController.text) ?? now,
+                      firstDate: DateTime(2020),
+                      lastDate: now,
+                    );
+                    if (picked != null) {
+                      dateController.text =
+                          '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+                    }
+                  },
                 ),
                 const SizedBox(height: AppSpacing.md),
                 TextField(
@@ -620,6 +648,17 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     ),
                     onPressed: () async {
                       final notes = notesController.text.trim();
+                      final actualDate = dateController.text.trim();
+                      if (actualDate.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Tanggal uang diterima wajib diisi'),
+                            backgroundColor: AppColors.danger,
+                          ),
+                        );
+                        return;
+                      }
+
                       Navigator.pop(dialogContext);
 
                       final snackBar = SnackBar(
@@ -634,6 +673,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                           paymentId,
                           action: 'approve',
                           officerNotes: notes.isNotEmpty ? notes : null,
+                          actualReceivedDate: actualDate,
                         );
 
                         if (context.mounted) {
@@ -850,6 +890,30 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
       default:
         return '';
     }
+  }
+
+  /// Format backend period string ("2026-10") to Indonesian ("Oktober 2026").
+  String _formatFullPeriod(String period) {
+    final parts = period.split('-');
+    if (parts.length < 2) return period;
+    final year = parts[0];
+    final monthIndex = int.tryParse(parts[1]) ?? 0;
+    const months = [
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
+    ];
+    if (monthIndex < 1 || monthIndex > months.length) return period;
+    return '${months[monthIndex - 1]} $year';
   }
 
   Widget _buildDetailRow(
@@ -1145,7 +1209,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Detail Pembayaran',
+                      'Verifikasi Pembayaran',
                       style: dialogTheme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -1198,6 +1262,20 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   const SizedBox(height: AppSpacing.sm),
                 ],
 
+                // Actual Received Date (O-12)
+                if (payment.actualReceivedDate != null &&
+                    payment.actualReceivedDate!.isNotEmpty) ...[
+                  _buildDialogDetailRow(
+                    dialogCtx,
+                    dialogIsDark,
+                    icon: Icons.event_available_outlined,
+                    label: 'Tgl Uang Diterima',
+                    value: payment.actualReceivedDate!,
+                    valueColor: AppColors.success,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+
                 // Details list
                 _buildDialogDetailRow(
                   dialogCtx,
@@ -1227,6 +1305,32 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                       ? AppColors.danger
                       : AppColors.warning,
                 ),
+                const SizedBox(height: AppSpacing.sm),
+
+                // PERIODE (from bill)
+                if (payment.period != null && payment.period!.isNotEmpty) ...[
+                  _buildDialogDetailRow(
+                    dialogCtx,
+                    dialogIsDark,
+                    icon: Icons.calendar_month_outlined,
+                    label: 'Periode',
+                    value: _formatFullPeriod(payment.period!),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+
+                // LOKASI DANA PENAMPUNGAN (from KAS transaction)
+                if (payment.locationName != null &&
+                    payment.locationName!.isNotEmpty) ...[
+                  _buildDialogDetailRow(
+                    dialogCtx,
+                    dialogIsDark,
+                    icon: Icons.account_balance_wallet_outlined,
+                    label: 'Lokasi Dana Penampungan',
+                    value: payment.locationName!,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
 
                 // Catatan (warga note)
                 if (payment.notes != null && payment.notes!.isNotEmpty) ...[

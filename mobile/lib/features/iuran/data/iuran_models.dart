@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/features/iuran/data/iuran_api_models.dart' show DueType;
+
+export 'package:social_finance/features/iuran/data/iuran_api_models.dart' show DueType;
 
 /// Enum representing the status of an iuran (dues) bill.
 enum IuranStatus { belumBayar, sebagian, lunas, sukarela }
@@ -29,6 +32,10 @@ class IuranBill {
   final String? dueRtCode;
   final bool? dueIsVoluntary;
   final String? dueId;
+  final bool? dueIsActive;
+  final String? householdOccupancyId;
+  final DueType dueType;
+  final int? year;
 
   const IuranBill({
     required this.id,
@@ -47,17 +54,25 @@ class IuranBill {
     this.dueRtCode,
     this.dueIsVoluntary,
     this.dueId,
+    this.dueIsActive = true,
+    this.householdOccupancyId,
+    this.dueType = DueType.regular,
+    this.year,
   });
 
   /// Returns true if this bill represents voluntary dues (Sukarela).
   bool get isVoluntaryDues =>
+      dueType == DueType.voluntary ||
       isVoluntary ||
       status == IuranStatus.sukarela ||
       nominal == 0 ||
       (dueIsVoluntary ?? false);
 
+  /// Returns true if this bill represents multi-month dues.
+  bool get isMultiMonthDues => dueType == DueType.multiMonth;
+
   /// Returns true if this bill represents regular dues.
-  bool get isRegularDues => !isVoluntaryDues;
+  bool get isRegularDues => !isVoluntaryDues && !isMultiMonthDues;
 
   /// Returns true if this bill requires full payment.
   bool get isFullPayment => requiresFullPayment;

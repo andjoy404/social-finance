@@ -42,6 +42,10 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   bool _saving = false;
   String? _error;
   bool _nominalPrefilled = false;
+  List<BackendBill> _multiBills = [];
+  bool _loadingMultiBills = false;
+  int _selectedMonthCount = 1;
+  bool _multiBillsLoaded = false;
 
   @override
   void initState() {
@@ -50,11 +54,65 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final billState = ref.read(billDetailProvider(widget.billId));
+    if (billState is AsyncData<IuranBill?> && billState.value != null) {
+      final b = billState.value!;
+      if (b.isMultiMonthDues && !_multiBillsLoaded && !_loadingMultiBills) {
+        _fetchMultiBills(b);
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _tanggalCtrl.dispose();
     _nominalCtrl.dispose();
     _catatanCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _fetchMultiBills(IuranBill bill) async {
+    if (bill.dueId == null || bill.dueId!.isEmpty) return;
+    setState(() {
+      _loadingMultiBills = true;
+      _error = null;
+    });
+    try {
+      final repo = ref.read(iuranRepositoryProvider);
+      final res = await repo.apiClient.listBills(
+        dueId: bill.dueId,
+        status: 'unpaid',
+        pageSize: 100,
+      );
+      final occId = bill.householdOccupancyId;
+      final payable = res.data.where((b) {
+        final matchesOcc =
+            occId == null || occId.isEmpty || b.householdOccupancyId == occId;
+        return matchesOcc &&
+            b.status == BillStatus.unpaid &&
+            b.dueIsActive != false;
+      }).toList();
+      payable.sort((a, b) => a.period.compareTo(b.period));
+
+      if (mounted) {
+        setState(() {
+          _multiBills = payable;
+          _selectedMonthCount = 0;
+          _loadingMultiBills = false;
+          _multiBillsLoaded = true;
+          _nominalCtrl.text = RupiahInputFormatter.formatForInput(0);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadingMultiBills = false;
+          _multiBillsLoaded = true;
+        });
+      }
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -106,6 +164,108 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         AsyncData(:final value) => value,
         _ => null,
       };
+
+      final repo = ref.read(iuranRepositoryProvider);
+
+      if (bill != null && bill.isMultiMonthDues) {
+        if (_selectedMonthCount == 0) {
+          if (mounted) {
+            setState(() {
+              _error = 'Silakan pilih jumlah bulan yang ingin dibayar (minimal 1 bulan).';
+              _saving = false;
+            });
+          }
+          return;
+        }
+        final maxMonths = _multiBills.length > 12 ? 12 : _multiBills.length;
+        final selectedCount =
+            _selectedMonthCount.clamp(1, maxMonths > 0 ? maxMonths : 1);
+        final selectedBills =
+            _multiBills.take(maxMonths > 0 ? selectedCount : 0).toList();
+
+        if (selectedBills.isEmpty) {
+          if (mounted) {
+            setState(() {
+              _error = 'Tidak ada tagihan yang dapat dibayar.';
+              _saving = false;
+            });
+          }
+          return;
+        }
+
+        final billIds = selectedBills.map((b) => b.id).toList();
+        final allocations = selectedBills.map((b) => {
+          'bill_id': b.id,
+          'amount': b.amount,
+        }).toList();
+        final totalAmount = selectedBills.fold<int>(
+          0,
+          (sum, b) => sum + moneyToDisplayRupiah(b.amount),
+        );
+
+        BackendPayment payment;
+        if (selectedBills.length > 1) {
+          final res = await repo.createMultiPeriodPayment(
+            billIds: billIds,
+            allocations: allocations,
+            amount: totalAmount,
+            method: _selectedMethod ?? PaymentMethod.cash,
+            notes: _catatanCtrl.text.trim().isEmpty
+                ? null
+                : _catatanCtrl.text.trim(),
+            fileBytes: _proofBytes,
+            filename: _proofFileName,
+          );
+          payment = res.payment;
+        } else {
+          payment = await repo.createPayment(
+            billId: selectedBills[0].id,
+            amount: totalAmount,
+            method: _selectedMethod ?? PaymentMethod.cash,
+            notes: _catatanCtrl.text.trim().isEmpty
+                ? null
+                : _catatanCtrl.text.trim(),
+          );
+          if (_proofBytes != null && _proofFileName != null) {
+            try {
+              payment = await repo.uploadPaymentProof(
+                paymentId: payment.id,
+                fileBytes: _proofBytes!,
+                filename: _proofFileName!,
+              );
+            } catch (_) {}
+          }
+        }
+
+        if (mounted) {
+          for (final id in billIds) {
+            ref.invalidate(billDetailProvider(id));
+            ref.invalidate(billPaymentsProvider(id));
+          }
+          ref.invalidate(billsProvider);
+
+          final isPending = payment.status == PaymentStatus.pending;
+          final msg = isPending
+              ? 'Pembayaran berhasil diajukan dan menunggu verifikasi.'
+              : 'Pembayaran berhasil dicatat.';
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: isPending ? AppColors.info : AppColors.success,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+            ),
+          );
+          if (Navigator.canPop(context)) {
+            context.pop();
+          }
+        }
+        return;
+      }
+
       final isRegularDues = bill != null && bill.isRegularDues;
       final isFullPayment = bill != null && bill.isFullPayment;
       final isAmountLocked = isRegularDues && isFullPayment;
@@ -120,7 +280,6 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         }
         return;
       }
-      final repo = ref.read(iuranRepositoryProvider);
 
       final payment = await repo.createPayment(
         billId: widget.billId,
@@ -190,6 +349,22 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   }
 
   bool _validate() {
+    final billState = ref.read(billDetailProvider(widget.billId));
+    final bill = switch (billState) {
+      AsyncData(:final value) => value,
+      _ => null,
+    };
+    if (bill != null && bill.isMultiMonthDues) {
+      if (_multiBillsLoaded && _multiBills.isEmpty) {
+        setState(() => _error = 'Semua tagihan untuk iuran ini telah lunas atau tidak ada tagihan tertunggak.');
+        return false;
+      }
+      if (_selectedMonthCount == 0) {
+        setState(() => _error = 'Silakan pilih jumlah bulan yang ingin dibayar (minimal 1 bulan).');
+        return false;
+      }
+    }
+
     if (!_formKey.currentState!.validate()) return false;
 
     final amount = parseRupiahInput(_nominalCtrl.text);
@@ -197,7 +372,25 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       final state = ref.read(billDetailProvider(widget.billId));
       if (state is AsyncData<IuranBill?> && state.value != null) {
         final bill = state.value!;
-        if (bill.isRegularDues) {
+        if (bill.isMultiMonthDues) {
+          final maxMonths =
+              _multiBills.length > 12 ? 12 : _multiBills.length;
+          final count = _selectedMonthCount.clamp(1, maxMonths > 0 ? maxMonths : 1);
+          final selBills = _multiBills.take(count).toList();
+          final expectedAmount = selBills.fold<int>(
+            0,
+            (sum, b) => sum + moneyToDisplayRupiah(b.amount),
+          );
+          if (amount != expectedAmount) {
+            if (mounted) {
+              setState(
+                () => _error =
+                    'Nominal harus sesuai dengan total tagihan yang dipilih (${formatRupiah(expectedAmount)}).',
+              );
+            }
+            return false;
+          }
+        } else if (bill.isRegularDues) {
           final capacity = bill.paymentCapacity;
           if (amount > capacity && capacity > 0) {
             if (mounted) {
@@ -307,6 +500,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
           );
         }
       }
+      if (next is AsyncData<IuranBill?> && next.value != null) {
+        final b = next.value!;
+        if (b.isMultiMonthDues && !_multiBillsLoaded && !_loadingMultiBills) {
+          _fetchMultiBills(b);
+        }
+      }
     });
 
     // Watch bill detail from API
@@ -315,15 +514,28 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       AsyncData(:final value) => value,
       _ => null,
     };
+    final isMultiMonth = currentBill != null && currentBill.isMultiMonthDues;
     final isRegularDues = currentBill != null && currentBill.isRegularDues;
     final isFullPayment = currentBill != null && currentBill.isFullPayment;
-    final isAmountLocked = isRegularDues && isFullPayment;
+    final isAmountLocked = isMultiMonth || (isRegularDues && isFullPayment);
 
     if (currentBill != null) {
-      final targetAmount = currentBill.paymentCapacity > 0
-          ? currentBill.paymentCapacity
-          : currentBill.nominal;
-      if (isAmountLocked && targetAmount > 0) {
+      if (isMultiMonth) {
+        final selBills = _multiBills.isNotEmpty && _selectedMonthCount > 0
+            ? _multiBills.take(_selectedMonthCount.clamp(1, _multiBills.length)).toList()
+            : <BackendBill>[];
+        final targetAmount = selBills.isNotEmpty
+            ? selBills.fold<int>(0, (sum, b) => sum + moneyToDisplayRupiah(b.amount))
+            : 0;
+        final formatted = RupiahInputFormatter.formatForInput(targetAmount);
+        if (_nominalCtrl.text != formatted) {
+          _nominalPrefilled = true;
+          _nominalCtrl.text = formatted;
+        }
+      } else if (isAmountLocked) {
+        final targetAmount = currentBill.paymentCapacity > 0
+            ? currentBill.paymentCapacity
+            : currentBill.nominal;
         final formattedFull = RupiahInputFormatter.formatForInput(targetAmount);
         if (_nominalCtrl.text != formattedFull) {
           _nominalPrefilled = true;
@@ -355,7 +567,11 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         body: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.all(AppSpacing.base),
+            cacheExtent: 1000,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.base,
+              vertical: AppSpacing.sm,
+            ),
             children: [
               // ── Error message ──
               if (_error != null)
@@ -379,7 +595,38 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                     ),
                   ),
                 ),
-              if (_error != null) const SizedBox(height: AppSpacing.md),
+              if (_error != null) const SizedBox(height: AppSpacing.sm),
+
+              // ── Jenis Pembayaran: Reguler / Sukarela / Multi-Bulan ──
+              if (currentBill != null) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Jenis Pembayaran',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    AppBadge(
+                      label: currentBill.isMultiMonthDues
+                          ? 'MULTI-BULAN'
+                          : (currentBill.isVoluntaryDues ? 'SUKARELA' : 'REGULER'),
+                      backgroundColor: currentBill.isMultiMonthDues
+                          ? AppColors.accent.withValues(alpha: 0.15)
+                          : (currentBill.isVoluntaryDues
+                              ? AppColors.info.withValues(alpha: 0.15)
+                              : AppColors.lightSuccessSoft),
+                      textColor: currentBill.isMultiMonthDues
+                          ? AppColors.accent
+                          : (currentBill.isVoluntaryDues
+                              ? AppColors.info
+                              : AppColors.success),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.sm),
+              ],
 
               // ── Bill Summary ──
               switch (billState) {
@@ -388,43 +635,43 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   isDark,
                   value,
                 ),
-                AsyncData() => Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: EmptyState(
-                      icon: Icons.receipt_long_outlined,
-                      title: 'Tagihan Tidak Ditemukan',
-                      description: 'Detail tagihan tidak tersedia.',
-                      actionText: 'Kembali',
-                      onAction: () => context.pop(),
+                  AsyncData() => Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: EmptyState(
+                        icon: Icons.receipt_long_outlined,
+                        title: 'Tagihan Tidak Ditemukan',
+                        description: 'Detail tagihan tidak tersedia.',
+                        actionText: 'Kembali',
+                        onAction: () => context.pop(),
+                      ),
                     ),
                   ),
-                ),
-                AsyncError() => Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Gagal Memuat Data Tagihan',
-                          style: theme.textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        ElevatedButton.icon(
-                          onPressed: () =>
-                              ref.refresh(billDetailProvider(widget.billId)),
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Coba Lagi'),
-                        ),
-                      ],
+                  AsyncError() => Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Gagal Memuat Data Tagihan',
+                            style: theme.textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          ElevatedButton.icon(
+                            onPressed: () =>
+                                ref.refresh(billDetailProvider(widget.billId)),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Coba Lagi'),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                _ => const Center(child: CircularProgressIndicator()),
-              },
+                  _ => const Center(child: CircularProgressIndicator()),
+                },
 
-              const SizedBox(height: AppSpacing.lg),
+              const SizedBox(height: AppSpacing.md),
 
               // ── Tanggal Pembayaran (otomatis hari ini) ──
               Column(
@@ -436,9 +683,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: AppSpacing.xs),
                   Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
                     decoration: BoxDecoration(
                       border: Border.all(color: AppColors.lightBorder),
                       borderRadius: BorderRadius.circular(AppRadius.base),
@@ -467,7 +717,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                           ),
                         ),
                         const Icon(
-                          Icons.lock_outline,
+                          Icons.lock,
                           size: 16,
                           color: Colors.grey,
                         ),
@@ -476,7 +726,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.lg),
+              const SizedBox(height: AppSpacing.md),
 
               // ── Metode Pembayaran ──
               Column(
@@ -488,7 +738,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: AppSpacing.xs),
                   SegmentedButton<PaymentMethod>(
                     segments: [
                       ButtonSegment(
@@ -520,7 +770,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.lg),
+              const SizedBox(height: AppSpacing.md),
 
               // ── Nominal Pembayaran ──
               AppTextField(
@@ -546,14 +796,29 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   if (state is AsyncData<IuranBill?> && state.value != null) {
                     final bill = state.value!;
                     if (bill.isRegularDues) {
-                      if (amount > bill.paymentCapacity &&
-                          bill.paymentCapacity > 0) {
-                        return 'Nominal melebihi sisa tagihan.';
-                      }
-                      if (bill.isFullPayment &&
-                          amount != bill.paymentCapacity &&
-                          bill.paymentCapacity > 0) {
-                        return 'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(bill.paymentCapacity)}).';
+                      if (_multiBills.isNotEmpty) {
+                        // For regular dues with multi-bills loaded, the nominal is fixed to the selected bills sum
+                        final maxMonths =
+                            _multiBills.length > 12 ? 12 : _multiBills.length;
+                        final count = _selectedMonthCount.clamp(1, maxMonths);
+                        final selBills = _multiBills.take(count).toList();
+                        final expectedAmount = selBills.fold<int>(
+                          0,
+                          (sum, b) => sum + moneyToDisplayRupiah(b.amount),
+                        );
+                        if (amount != expectedAmount) {
+                          return 'Nominal harus sesuai dengan total tagihan yang dipilih (${formatRupiah(expectedAmount)}).';
+                        }
+                      } else {
+                        if (amount > bill.paymentCapacity &&
+                            bill.paymentCapacity > 0) {
+                          return 'Nominal melebihi sisa tagihan.';
+                        }
+                        if (bill.isFullPayment &&
+                            amount != bill.paymentCapacity &&
+                            bill.paymentCapacity > 0) {
+                          return 'Iuran ini mewajibkan pembayaran lunas penuh (${formatRupiah(bill.paymentCapacity)}).';
+                        }
                       }
                     }
                   }
@@ -704,7 +969,15 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                         height: 48,
                         child: OutlinedButton(
                           key: const Key('btn_save'),
-                          onPressed: _saving ? null : _save,
+                          onPressed: _saving ||
+                                  (isMultiMonth &&
+                                      (_selectedMonthCount == 0 ||
+                                          (_multiBillsLoaded && _multiBills.isEmpty))) ||
+                                  (isRegularDues &&
+                                      !currentBill.isVoluntaryDues &&
+                                      currentBill.paymentCapacity <= 0)
+                              ? null
+                              : _save,
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: AppColors.accent),
                             foregroundColor: AppColors.accent,
@@ -787,19 +1060,45 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   }
 
   Widget _buildBillSummary(ThemeData theme, bool isDark, IuranBill bill) {
+    final maxMonths = _multiBills.length > 12 ? 12 : _multiBills.length;
+    final selectedBills = bill.isMultiMonthDues
+        ? (_selectedMonthCount > 0
+            ? _multiBills.take(_selectedMonthCount.clamp(1, maxMonths)).toList()
+            : <BackendBill>[])
+        : <BackendBill>[];
+    final totalAmount = bill.isMultiMonthDues
+        ? (_selectedMonthCount > 0
+            ? selectedBills.fold<int>(
+                0,
+                (sum, b) => sum + moneyToDisplayRupiah(b.amount),
+              )
+            : 0)
+        : bill.remainingAmount;
+
     return AppCard(
       useEmphasis: true,
-      padding: const EdgeInsets.all(AppSpacing.base),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Ringkasan Tagihan',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Ringkasan Tagihan',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_loadingMultiBills)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
               Icon(Icons.home_outlined, size: 18, color: AppColors.accent),
@@ -869,7 +1168,14 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 ),
               ),
               AppBadge(
-                label: bill.periode.toUpperCase(),
+                label: bill.isMultiMonthDues
+                    ? (selectedBills.length > 1
+                        ? '${formatPeriod(selectedBills.first.period)} s/d ${formatPeriod(selectedBills.last.period)} (${selectedBills.length} Bulan)'
+                            .toUpperCase()
+                        : (selectedBills.length == 1
+                            ? formatPeriod(selectedBills.first.period).toUpperCase()
+                            : (bill.year != null ? 'TAHUN ${bill.year}' : bill.periode.toUpperCase())))
+                    : bill.periode.toUpperCase(),
                 backgroundColor: isDark
                     ? AppColors.darkAccentSoft
                     : AppColors.lightAccentSoft,
@@ -877,7 +1183,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
               ),
             ],
           ),
-          const Divider(height: 24),
+          const Divider(height: 16),
           Row(
             children: [
               Icon(
@@ -897,7 +1203,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
               Text(
                 bill.isVoluntaryDues
                     ? 'Sukarela'
-                    : formatRupiah(bill.remainingAmount),
+                    : formatRupiah(totalAmount),
                 style: theme.textTheme.titleLarge?.copyWith(
                   color: bill.isVoluntaryDues
                       ? AppColors.info
@@ -907,6 +1213,129 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
               ),
             ],
           ),
+          if (bill.isMultiMonthDues) ...[
+            const SizedBox(height: AppSpacing.sm),
+            const Divider(height: 16),
+            if (!_loadingMultiBills && _multiBills.isEmpty && _multiBillsLoaded)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Text(
+                  'Semua tagihan untuk iuran ini telah lunas atau tidak ada tagihan tertunggak.',
+                  style: TextStyle(color: AppColors.lightTextMuted, fontSize: 13),
+                ),
+              )
+            else if (_multiBills.isNotEmpty) ...[
+              Text(
+                'Jumlah Bulan yang Dibayar',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color:
+                      isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              DropdownButtonFormField<int>(
+                key: const Key('dropdown_month_count'),
+                value: _selectedMonthCount,
+                decoration: InputDecoration(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    borderSide: const BorderSide(color: AppColors.lightBorder),
+                  ),
+                ),
+                items: [
+                  DropdownMenuItem(
+                    value: 0,
+                    child: Text('0 Bulan — Pilih jumlah bulan (1-$maxMonths)'),
+                  ),
+                  ...List.generate(
+                    maxMonths,
+                    (index) {
+                      final count = index + 1;
+                      return DropdownMenuItem(
+                        value: count,
+                        child: Text('$count Bulan ($count Tagihan)'),
+                      );
+                    },
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _selectedMonthCount = val;
+                      final countBills = _multiBills.take(val).toList();
+                      final tot = countBills.fold<int>(
+                        0,
+                        (sum, b) => sum + moneyToDisplayRupiah(b.amount),
+                      );
+                      _nominalCtrl.text =
+                          RupiahInputFormatter.formatForInput(tot);
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _selectedMonthCount == 0
+                    ? 'Silakan pilih jumlah bulan yang ingin dibayar (minimal 1 bulan).'
+                    : 'Pembayaran $_selectedMonthCount bulan diproses berurutan sesuai aturan FIFO.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                  fontSize: 12,
+                ),
+              ),
+              if (_selectedMonthCount > 0) ...[
+                const SizedBox(height: AppSpacing.sm),
+                ...selectedBills.map((b) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          formatPeriod(b.period),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          RupiahFormatter.format(moneyToDisplayRupiah(b.amount)),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color:
+                                isDark ? AppColors.darkText : AppColors.lightText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Pembayaran diproses berurutan dari tagihan tertua sesuai aturan FIFO.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 11,
+                  color: isDark
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
+                ),
+              ),
+              if (_multiBills.length > 12) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Maksimal 12 bulan per transaksi.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 11,
+                    color: AppColors.warning,
+                  ),
+                ),
+              ],
+            ],
+          ],
         ],
       ),
     );

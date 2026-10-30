@@ -38,6 +38,27 @@ enum CategoryType { income, expense }
 
 enum DuePeriodType { monthly, yearly, oneTime }
 
+enum DueType { regular, voluntary, multiMonth }
+
+DueType parseDueType(String? value, {bool isVoluntary = false}) {
+  switch (value) {
+    case 'multi_month':
+      return DueType.multiMonth;
+    case 'voluntary':
+      return DueType.voluntary;
+    case 'regular':
+      return DueType.regular;
+    default:
+      return isVoluntary ? DueType.voluntary : DueType.regular;
+  }
+}
+
+String dueTypeToApi(DueType type) => switch (type) {
+  DueType.regular => 'regular',
+  DueType.voluntary => 'voluntary',
+  DueType.multiMonth => 'multi_month',
+};
+
 enum PaymentRule { full, partial }
 
 enum BillStatus { unpaid, partial, paid, cancelled }
@@ -46,12 +67,13 @@ enum PaymentMethod { cash, transfer }
 
 enum PaymentOrigin { selfSubmitted, staffRecorded }
 
-enum PaymentStatus { pending, approved, rejected }
+enum PaymentStatus { pending, approved, rejected, reversed }
 
 String donationStatusMessage(PaymentStatus status) => switch (status) {
   PaymentStatus.pending => 'Donasi berhasil diajukan dan menunggu verifikasi.',
   PaymentStatus.approved => 'Donasi disetujui dan telah dicatat.',
   PaymentStatus.rejected => 'Donasi ditolak dan tidak menambah kas.',
+  PaymentStatus.reversed => 'Donasi telah dibatalkan (reversal).',
 };
 
 enum TransactionType { income, expense }
@@ -116,6 +138,8 @@ class BackendDue {
   final PaymentRule paymentRule;
   final bool isVoluntary;
   final bool isActive;
+  final DueType dueType;
+  final int? year;
 
   /// Optional last valid date in YYYY-MM-DD (voluntary dues only).
   final String? validUntil;
@@ -131,12 +155,15 @@ class BackendDue {
     required this.paymentRule,
     required this.isVoluntary,
     required this.isActive,
+    this.dueType = DueType.regular,
+    this.year,
     this.validUntil,
     this.createdAt,
     this.updatedAt,
   });
 
   factory BackendDue.fromJson(Map<String, dynamic> json) {
+    final isVol = json['is_voluntary'] as bool? ?? false;
     return BackendDue(
       id: json['id'] as String? ?? '',
       rtId: json['rt_id'] as String? ?? '',
@@ -144,8 +171,10 @@ class BackendDue {
       amount: json['amount'] as String? ?? '',
       periodType: _parseDuePeriodType(json['period_type'] as String?),
       paymentRule: _parsePaymentRule(json['payment_rule'] as String?),
-      isVoluntary: json['is_voluntary'] as bool? ?? false,
+      isVoluntary: isVol,
       isActive: json['is_active'] as bool? ?? true,
+      dueType: parseDueType(json['due_type'] as String?, isVoluntary: isVol),
+      year: json['year'] as int?,
       validUntil: json['valid_until'] as String?,
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
@@ -194,9 +223,12 @@ class BackendBill {
 
   // Enriched fields from JOIN queries
   final String? dueName;
+  final bool? dueIsActive;
   final String? houseNumber;
   final String? headName;
   final bool isVoluntary;
+  final DueType dueType;
+  final int? year;
   final String? paidAmount;
   final String? pendingAmount;
 
@@ -212,14 +244,18 @@ class BackendBill {
     this.createdAt,
     this.updatedAt,
     this.dueName,
+    this.dueIsActive,
     this.houseNumber,
     this.headName,
     this.isVoluntary = false,
+    this.dueType = DueType.regular,
+    this.year,
     this.paidAmount,
     this.pendingAmount,
   });
 
   factory BackendBill.fromJson(Map<String, dynamic> json) {
+    final isVol = json['is_voluntary'] as bool? ?? false;
     return BackendBill(
       id: json['id'] as String? ?? '',
       rtId: json['rt_id'] as String? ?? '',
@@ -232,9 +268,12 @@ class BackendBill {
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
       dueName: json['due_name'] as String?,
+      dueIsActive: json['due_is_active'] as bool?,
       houseNumber: json['house_number'] as String?,
       headName: json['head_name'] as String?,
-      isVoluntary: json['is_voluntary'] as bool? ?? false,
+      isVoluntary: isVol,
+      dueType: parseDueType(json['due_type'] as String?, isVoluntary: isVol),
+      year: json['due_year'] as int? ?? json['year'] as int?,
       paidAmount: json['paid_amount'] as String?,
       pendingAmount: json['pending_amount'] as String?,
     );
@@ -284,8 +323,14 @@ class BackendPayment {
   final String? officerNotes;
   final String? notes;
   final String? paymentNo;
+  final String? actualReceivedDate;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  // Enriched fields from backend JOIN queries
+  final String? period;
+  final String? locationId;
+  final String? locationName;
 
   const BackendPayment({
     required this.id,
@@ -312,8 +357,12 @@ class BackendPayment {
     this.officerNotes,
     this.notes,
     this.paymentNo,
+    this.actualReceivedDate,
     this.createdAt,
     this.updatedAt,
+    this.period,
+    this.locationId,
+    this.locationName,
   });
 
   factory BackendPayment.fromJson(Map<String, dynamic> json) {
@@ -342,8 +391,12 @@ class BackendPayment {
       officerNotes: json['officer_notes'] as String?,
       notes: json['notes'] as String?,
       paymentNo: json['payment_no'] as String?,
+      actualReceivedDate: json['actual_received_date'] as String?,
       createdAt: _parseDateTime(json['created_at'] as String?),
       updatedAt: _parseDateTime(json['updated_at'] as String?),
+      period: json['period'] as String?,
+      locationId: json['location_id'] as String?,
+      locationName: json['location_name'] as String?,
     );
   }
 }
@@ -371,13 +424,15 @@ PaymentOrigin _parsePaymentOrigin(String? value) {
 }
 
 PaymentStatus _parsePaymentStatus(String? value) {
-  switch (value) {
+  switch (value?.toUpperCase()) {
     case 'PENDING':
       return PaymentStatus.pending;
     case 'APPROVED':
       return PaymentStatus.approved;
     case 'REJECTED':
       return PaymentStatus.rejected;
+    case 'REVERSED':
+      return PaymentStatus.reversed;
     default:
       return PaymentStatus.pending;
   }
@@ -487,4 +542,104 @@ String formatPeriod(String period) {
   ];
   if (monthIndex < 1 || monthIndex > months.length) return period;
   return '${months[monthIndex - 1]} $year';
+}
+
+class BackendPaymentAllocation {
+  final String id;
+  final String paymentId;
+  final String billId;
+  final String amount;
+  final String? createdAt;
+
+  const BackendPaymentAllocation({
+    required this.id,
+    required this.paymentId,
+    required this.billId,
+    required this.amount,
+    this.createdAt,
+  });
+
+  factory BackendPaymentAllocation.fromJson(Map<String, dynamic> json) {
+    return BackendPaymentAllocation(
+      id: json['id'] as String? ?? '',
+      paymentId: json['payment_id'] as String? ?? '',
+      billId: json['bill_id'] as String? ?? '',
+      amount: json['amount'] as String? ?? '0',
+      createdAt: json['created_at'] as String?,
+    );
+  }
+}
+
+class BackendMultiPeriodPaymentResult {
+  final BackendPayment payment;
+  final List<BackendPaymentAllocation> allocations;
+
+  const BackendMultiPeriodPaymentResult({
+    required this.payment,
+    required this.allocations,
+  });
+
+  factory BackendMultiPeriodPaymentResult.fromJson(Map<String, dynamic> json) {
+    final rawPayment = json['payment'] as Map<String, dynamic>? ?? {};
+    final rawAllocations = json['allocations'] as List<dynamic>?;
+    return BackendMultiPeriodPaymentResult(
+      payment: BackendPayment.fromJson(rawPayment),
+      allocations: rawAllocations != null
+          ? rawAllocations
+              .whereType<Map>()
+              .map((e) => BackendPaymentAllocation.fromJson(e.cast<String, dynamic>()))
+              .toList()
+          : [],
+    );
+  }
+}
+
+class DueMonthSummary {
+  final String period;
+  final int month;
+  final int year;
+  final int totalBills;
+  final int activeBills;
+  final int paidBills;
+  final int unpaidBills;
+  final bool isActive;
+  final bool canDeactivate;
+
+  const DueMonthSummary({
+    required this.period,
+    required this.month,
+    required this.year,
+    required this.totalBills,
+    required this.activeBills,
+    required this.paidBills,
+    required this.unpaidBills,
+    required this.isActive,
+    required this.canDeactivate,
+  });
+
+  factory DueMonthSummary.fromJson(Map<String, dynamic> json) {
+    return DueMonthSummary(
+      period: json['period'] as String? ?? '',
+      month: json['month'] as int? ?? 0,
+      year: json['year'] as int? ?? 0,
+      totalBills: json['total_bills'] as int? ?? 0,
+      activeBills: json['active_bills'] as int? ?? 0,
+      paidBills: json['paid_bills'] as int? ?? 0,
+      unpaidBills: json['unpaid_bills'] as int? ?? 0,
+      isActive: json['is_active'] as bool? ?? false,
+      canDeactivate: json['can_deactivate'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'period': period,
+    'month': month,
+    'year': year,
+    'total_bills': totalBills,
+    'active_bills': activeBills,
+    'paid_bills': paidBills,
+    'unpaid_bills': unpaidBills,
+    'is_active': isActive,
+    'can_deactivate': canDeactivate,
+  };
 }

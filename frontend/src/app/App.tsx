@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth, isAllowedRT } from '@/app/AuthContext'
+import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationMenu } from '@/app/AuthContext'
 import { Login } from '@/features/auth/Login'
 import { Dashboard } from '@/features/dashboard/Dashboard'
 import { AppLayout } from '@/layouts/AppLayout'
@@ -11,12 +11,14 @@ import { RtEdit } from '@/features/rt/RtEdit'
 import { WargaLayout } from '@/features/warga/WargaLayout'
 import { IuranRoutes } from '@/features/iuran/iuranRoutes'
 import { KasRoutes } from '@/features/kas/kasRoutes'
+import { FundLocationRoutes } from '@/features/fund_location/fundLocationRoutes'
 import { ResidentDetail } from '@/features/warga/ResidentDetail'
 import { HouseholdCreate } from '@/features/warga/HouseholdCreate'
 import { HouseholdEdit } from '@/features/warga/HouseholdEdit'
 import { HouseholdMove } from '@/features/warga/HouseholdMove'
 import { SpecialResidentCreate } from '@/features/warga/SpecialResidentCreate'
 import { SpecialResidentEdit } from '@/features/warga/SpecialResidentEdit'
+import { NotificationScreen } from '@/features/notification/NotificationScreen'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -31,7 +33,7 @@ function SuperAdminRoute({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
-  if (!user || user.systemRole !== 'super_admin') {
+  if (!isSuperAdminUser(user)) {
     return <Navigate to="/" replace />
   }
   return <>{children}</>
@@ -43,6 +45,17 @@ function AllowedRTRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />
   }
   if (!isAllowedRT(user)) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
+function NotificationAdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />
+  }
+  if (!canAccessNotificationMenu(user)) {
     return <Navigate to="/" replace />
   }
   return <>{children}</>
@@ -152,6 +165,22 @@ export function App() {
             <AllowedRTRoute>
               <KasRoutes />
             </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="lokasi-dana/*"
+          element={
+            <AllowedRTRoute>
+              <FundLocationRoutes />
+            </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="notifikasi"
+          element={
+            <NotificationAdminRoute>
+              <NotificationScreen />
+            </NotificationAdminRoute>
           }
         />
       </Route>

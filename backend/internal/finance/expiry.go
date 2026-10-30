@@ -47,6 +47,40 @@ func JakartaDate(now time.Time) (string, error) {
 	return now.In(loc).Format("2006-01-02"), nil
 }
 
+// ParseActualReceivedDate validates that dateStr is in YYYY-MM-DD format,
+// represents a valid calendar day, and is not in the future relative to now in Asia/Jakarta.
+// Returns the occurredAt timestamp set to 12:00:00 (noon) WIB, the canonical YYYY-MM-DD string, or an error.
+func ParseActualReceivedDate(dateStr string, now time.Time) (time.Time, string, error) {
+	trimmed := strings.TrimSpace(dateStr)
+	if trimmed == "" {
+		return time.Time{}, "", errors.New("tanggal penerimaan aktual (actual_received_date) wajib diisi")
+	}
+	if len(trimmed) != 10 || trimmed[4] != '-' || trimmed[7] != '-' {
+		return time.Time{}, "", errors.New("format actual_received_date harus YYYY-MM-DD")
+	}
+	loc, err := loadJakartaLocation()
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("load timezone: %w", err)
+	}
+	parsed, err := time.ParseInLocation("2006-01-02", trimmed, loc)
+	if err != nil {
+		return time.Time{}, "", errors.New("tanggal penerimaan aktual tidak valid")
+	}
+	canon := parsed.Format("2006-01-02")
+	if canon != trimmed {
+		return time.Time{}, "", errors.New("tanggal penerimaan aktual tidak valid")
+	}
+	todayJakarta, err := JakartaDate(now)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	if canon > todayJakarta {
+		return time.Time{}, "", errors.New("tanggal penerimaan aktual tidak boleh berada di masa depan")
+	}
+	occurredAt := time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 12, 0, 0, 0, loc)
+	return occurredAt, canon, nil
+}
+
 func normalizeDateOnly(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	parsed, err := time.Parse("2006-01-02", trimmed)

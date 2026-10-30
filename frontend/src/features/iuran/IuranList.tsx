@@ -7,7 +7,6 @@ import {
   AlertOutlined,
   PlusOutlined,
 } from '@ant-design/icons'
-import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
@@ -24,12 +23,14 @@ import {
   getStatusLabel,
   IURAN_TYPE_OPTIONS,
   parseMoney,
+  getDueTypeLabel,
+  getDueTypeVariant,
 } from './iuranTypes'
 import { DueCreate } from './DueCreate'
 import { IuranDetail } from './IuranDetail'
 import { IuranPayment } from './IuranPayment'
-import type { IuranBill, IuranStatus } from './iuranTypes'
-import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiTriggerWasteTruckArrival, type ApiBill, type ApiDue, getSessionPair } from '@/app/api'
+import type { IuranBill, IuranStatus, DueType } from './iuranTypes'
+import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiGetDueMonths, apiUpdateDuePeriodStatus, type DueMonthSummary, apiTriggerWasteTruckArrival, type ApiBill, type ApiDue, apiGenerateBills, getSessionPair } from '@/app/api'
 
 type FilterType = 'semua' | 'status' | 'pembayaran' | 'periode' | 'jenis'
 
@@ -57,24 +58,11 @@ const statusFilterOptions: { value: FilterType; label: string }[] = [
   { value: 'jenis', label: 'Jenis Iuran' },
 ]
 
-const colStyles = {
-  no: { width: 40, minWidth: 40, maxWidth: 40, textAlign: 'center' as const },
-  name: { minWidth: 160, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  rt: { width: 70, minWidth: 70, maxWidth: 70, textAlign: 'center' as const },
-  type: { minWidth: 130, textAlign: 'left' as const, whiteSpace: 'nowrap' as const },
-  periode: { width: 90, minWidth: 90, maxWidth: 90, textAlign: 'center' as const },
-  nominal: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
-  paid: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
-  pending: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'right' as const, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' },
-  status: { width: 120, minWidth: 120, maxWidth: 120, textAlign: 'center' as const },
-  validUntil: { width: 130, minWidth: 130, maxWidth: 130, textAlign: 'center' as const, whiteSpace: 'nowrap' as const },
-  action: { width: 60, minWidth: 60, maxWidth: 60, textAlign: 'center' as const },
-}
-
 export function IuranList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [allBills, setAllBills] = useState<IuranBill[]>([])
+  const [allPeriodesSet, setAllPeriodesSet] = useState<Set<string>>(new Set())
 
   // Create Due modal state
   const [showCreateDue, setShowCreateDue] = useState(false)
@@ -107,6 +95,14 @@ export function IuranList() {
   // Iuran Tab Access Control
   // ═══════════════════════════════════════════════════
 
+  function isWarga(u: {
+    systemRole?: string | null
+    role?: string
+  }): boolean {
+    if (u.systemRole === 'super_admin') return false
+    return u.role === 'warga'
+  }
+
   function canAccessIuranTabs(u: {
     systemRole?: string | null
     role?: string
@@ -132,12 +128,22 @@ export function IuranList() {
   }
 
   const hasIuranAccess = user ? canAccessIuranTabs(user) : false
+  const userIsWarga = user ? isWarga(user) : false
 
-  // Force default tab for users without Iuran access
-  const effectiveInitialTab: ActiveTab = hasIuranAccess
+  // Force default tab for users without Iuran access, and ALWAYS force "Iuran Saya"
+  // for warga — they must never land on a tab they cannot see.
+  const effectiveInitialTab: ActiveTab = hasIuranAccess && !userIsWarga
     ? initialTab
     : 'tagihan'
   const [activeTab, setActiveTab] = useState<ActiveTab>(effectiveInitialTab)
+
+  // Guard against deep links (?tab=list-iuran) or late-resolved auth state:
+  // if the user is warga, clamp back to "Iuran Saya".
+  useEffect(() => {
+    if (userIsWarga && activeTab !== 'tagihan') {
+      setActiveTab('tagihan')
+    }
+  }, [userIsWarga, activeTab])
 
   // Dues data for "Kelola Iuran" tab
   const [dues, setDues] = useState<ApiDue[]>([])
@@ -146,8 +152,16 @@ export function IuranList() {
 
   // Edit Due modal state
   const [editDueId, setEditDueId] = useState<string | null>(null)
-  const [editDueForm, setEditDueForm] = useState<{ name: string; amount: string; period_type: 'monthly' | 'yearly' | 'one_time'; payment_rule: 'full' | 'partial'; is_voluntary: boolean; is_active: boolean; valid_until: string } | null>(null)
+  const [editDueForm, setEditDueForm] = useState<{ name: string; amount: string; period_type: 'monthly' | 'yearly' | 'one_time'; payment_rule: 'full' | 'partial'; is_voluntary: boolean; is_active: boolean; valid_until: string; due_type?: string; year?: number | null } | null>(null)
   const [editDueLoading, setEditDueLoading] = useState(false)
+  const [dueMonths, setDueMonths] = useState<DueMonthSummary[]>([])
+  const [dueMonthsLoading, setDueMonthsLoading] = useState(false)
+  const [dueMonthsError, setDueMonthsError] = useState<string | null>(null)
+  const [initialMonthStatus, setInitialMonthStatus] = useState<Record<string, boolean>>({})
+  const [pendingMonthChanges, setPendingMonthChanges] = useState<Record<string, boolean>>({})
+  const [syncBillsLoading, setSyncBillsLoading] = useState(false)
+  const [syncBillsMessage, setSyncBillsMessage] = useState<string | null>(null)
+  const [showSyncConfirm, setShowSyncConfirm] = useState(false)
 
   // Deactivate due state
   const [deactivateDueId, setDeactivateDueId] = useState<string | null>(null)
@@ -274,9 +288,15 @@ export function IuranList() {
     const paidAmount = b.paid_amount ? parseMoney(b.paid_amount) : 0
     const pendingAmount = b.pending_amount ? parseMoney(b.pending_amount) : 0
     const isVoluntary = Boolean(b.is_voluntary || nominal === 0)
-    const status: IuranStatus = (isVoluntary && nominal === 0)
-      ? 'sukarela'
-      : (BACKEND_STATUS_MAP[b.status] ?? 'belum_bayar')
+    // Prioritas utama: jika ada pembayaran yang menunggu verifikasi → status tersendiri
+    let status: IuranStatus
+    if (isVoluntary && nominal === 0) {
+      status = 'sukarela'
+    } else if (pendingAmount > 0) {
+      status = 'menunggu_verifikasi'
+    } else {
+      status = (BACKEND_STATUS_MAP[b.status] ?? 'belum_bayar')
+    }
 
     return {
       id: b.id,
@@ -291,7 +311,10 @@ export function IuranList() {
       pendingAmount,
       status,
       isVoluntary,
+      isActive: b.is_active !== false,
       dueId: b.due_id,
+      dueType: (b.due_type as DueType) ?? (isVoluntary ? 'voluntary' : 'regular'),
+      year: b.due_year ?? undefined,
       payments: [],
     }
   }, [])
@@ -325,6 +348,9 @@ export function IuranList() {
         period: periodeValue || undefined,
         due_name: jenisValue || undefined,
         my_bills: activeTab === 'tagihan' ? true : undefined,
+        // Iuran Warga: ask the backend for a global order (unpaid/partial oldest-first,
+        // then paid) so tier priority holds across pages, not just within one page.
+        order: activeTab === 'list-iuran' ? 'unpaid_first' : undefined,
       })
 
       if (currentReq !== requestIdRef.current) {
@@ -370,6 +396,44 @@ export function IuranList() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [loadData])
+
+  // Fetch semua periode untuk dropdown filter (tidak terpadu dengan halaman)
+  const fetchAllPeriodes = useCallback(async () => {
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    let apiStatus: string | undefined
+    if (statusValue === 'lunas') apiStatus = 'paid'
+    else if (statusValue === 'belum_bayar') apiStatus = 'unpaid'
+    else if (statusValue === 'dibatalkan') apiStatus = 'cancelled'
+    else if (statusValue === 'sebagian') apiStatus = 'partial'
+    try {
+      const periodes = new Set<string>()
+      let currentPage = 1
+      let totalPages = 1
+      while (currentPage <= totalPages) {
+        const resp = await apiListBills(token, {
+          page: currentPage,
+          page_size: 100,
+          search: debouncedSearch.trim() || undefined,
+          status: apiStatus,
+          payment_status: pembayaranValue || undefined,
+          due_name: jenisValue || undefined,
+          my_bills: activeTab === 'tagihan' ? true : undefined,
+        })
+        const bills = resp?.data?.map(mapBill) ?? []
+        bills.forEach((b) => { if (b.periode) periodes.add(b.periode) })
+        totalPages = resp.pagination?.total_pages ?? 1
+        currentPage++
+      }
+      setAllPeriodesSet(periodes)
+    } catch (err) {
+      // Silently ignore — dropdown akan menampilkan periode yang tersedia
+    }
+  }, [debouncedSearch, statusValue, pembayaranValue, jenisValue, activeTab, mapBill])
+
+  useEffect(() => {
+    void fetchAllPeriodes()
+  }, [fetchAllPeriodes])
 
   // Load dues for "Kelola Iuran" tab
   const loadDues = useCallback(async () => {
@@ -436,18 +500,103 @@ export function IuranList() {
     })
   }, [dues, debouncedSearch, filterType, jenisValue])
 
-  // No client-side filtering needed — backend handles status/periode/jenis/search.
-  // filteredBills = allBills which already comes from server with applied filters.
-  const filteredBills = useMemo(() => allBills, [allBills])
+  // Sort logic differs by tab:
+  // "Iuran Saya" (tagihan): 5-tier priority (pending → belum → sebagian → lunas → sukarela)
+  // "Iuran Warga" (list-iuran): 3-tier — pending, then unpaid/partial (oldest period first),
+  //                            then paid (oldest period first).
+  const filteredBills = useMemo(() => {
+    const sorted = [...allBills]
+
+    // Periode can arrive in two shapes depending on the data source:
+    //   1. "2026-01"        → canonical value stored in `bills.period`
+    //   2. "Januari 2026"   → legacy/display label
+    // Both must be parsed, otherwise every bill collapses to [0,0] and the
+    // period ordering silently becomes a no-op.
+    const parsePeriod = (p: string): [number, number] => {
+      if (!p) return [0, 0]
+
+      // Shape 1: YYYY-MM (also tolerate YYYY-M and YYYY/MM)
+      const ym = /^(\d{4})[-/](\d{1,2})$/.exec(p.trim())
+      if (ym) {
+        return [parseInt(ym[1], 10) || 0, parseInt(ym[2], 10) || 0]
+      }
+
+      // Shape 2: "<MonthName> <YYYY>"
+      const parts = p.trim().split(/\s+/)
+      if (parts.length < 2) return [0, 0]
+      const year = parseInt(parts[1], 10) || 0
+      const monthMap: Record<string, number> = {
+        januari: 1, februari: 2, maret: 3, april: 4, mei: 5, juni: 6,
+        juli: 7, agustus: 8, september: 9, oktober: 10, november: 11, desember: 12,
+        jan: 1, feb: 2, mar: 3, apr: 4, jun: 6, jul: 7, agu: 8, agt: 8,
+        sep: 9, okt: 10, nov: 11, des: 12,
+      }
+      return [year, monthMap[parts[0].toLowerCase()] || 0]
+    }
+
+    if (activeTab === 'list-iuran') {
+      // Iuran Warga: 3-tier sort
+      // Tier 1: menunggu_verifikasi → always top
+      // Tier 2: belum_bayar / sebagian / dibatalkan → period oldest-first
+      // Tier 3: lunas / sukarela → period oldest-first
+      const iuranTier: Record<string, number> = {
+        menunggu_verifikasi: 0,
+        belum_bayar: 1,
+        sebagian: 1,
+        dibatalkan: 1,
+        lunas: 2,
+        sukarela: 2,
+      }
+      sorted.sort((a, b) => {
+        const aTier = iuranTier[a.status] ?? 99
+        const bTier = iuranTier[b.status] ?? 99
+        if (aTier !== bTier) return aTier - bTier
+
+        const aP = parsePeriod(a.periode)
+        const bP = parsePeriod(b.periode)
+        const yearCmp = aP[0] - bP[0]
+        if (yearCmp !== 0) return yearCmp
+        return aP[1] - bP[1]
+      })
+    } else {
+      // Iuran Saya + Kelola Iuran: 5-tier priority
+      const tierOrder: Record<IuranStatus, number> = {
+        menunggu_verifikasi: 0,
+        belum_bayar: 1,
+        sebagian: 2,
+        lunas: 3,
+        dibatalkan: 4,
+        sukarela: 5,
+      }
+      sorted.sort((a, b) => {
+        const tierCmp = tierOrder[a.status] - tierOrder[b.status]
+        if (tierCmp !== 0) return tierCmp
+
+        const aP = parsePeriod(a.periode)
+        const bP = parsePeriod(b.periode)
+        const yearCmp = aP[0] - bP[0]
+        if (yearCmp !== 0) {
+          return (a.status === 'lunas' || a.status === 'sukarela')
+            ? bP[0] - aP[0] : yearCmp
+        }
+        const monthCmp = aP[1] - bP[1]
+        return (a.status === 'lunas' || a.status === 'sukarela') ? -monthCmp : monthCmp
+      })
+    }
+
+    return sorted
+  }, [allBills, activeTab])
 
   const displayTotal = total > 0 ? total : allBills.length
   const displayTotalPages = totalPages > 0 ? totalPages : Math.max(1, Math.ceil(displayTotal / pageSize))
+  // IMPORTANT: derive from `filteredBills` (sorted), NOT `allBills` (raw server order).
+  // Rendering raw `allBills` here silently discards the tab-specific sort.
   const paginatedBills = useMemo(() => {
-    if (allBills.length > pageSize) {
-      return allBills.slice((page - 1) * pageSize, page * pageSize)
+    if (filteredBills.length > pageSize) {
+      return filteredBills.slice((page - 1) * pageSize, page * pageSize)
     }
-    return allBills
-  }, [allBills, page, pageSize])
+    return filteredBills
+  }, [filteredBills, page, pageSize])
 
   // Load payments for visible bills on active page to calculate paidAmount & pendingAmount
   useEffect(() => {
@@ -557,12 +706,8 @@ export function IuranList() {
     : null
 
   const uniquePeriodes = useMemo(() => {
-    const s = new Set<string>()
-    allBills.forEach((b) => {
-      if (b.periode) s.add(b.periode)
-    })
-    return Array.from(s).sort().reverse()
-  }, [allBills])
+    return Array.from(allPeriodesSet).sort().reverse()
+  }, [allPeriodesSet])
 
   const uniquePeriodesOptions = useMemo(
     () => uniquePeriodes.map((p) => ({ value: p, label: formatPeriodeLabel(p) })),
@@ -586,21 +731,153 @@ export function IuranList() {
       is_voluntary: due.is_voluntary ?? false,
       is_active: due.is_active,
       valid_until: due.valid_until ?? '',
+      due_type: due.due_type,
+      year: due.year,
     })
+    setDueMonths([])
+    setDueMonthsError(null)
+    setInitialMonthStatus({})
+    setPendingMonthChanges({})
+    if (due.due_type === 'multi_month') {
+      const token = getSessionPair()?.accessToken
+      if (token) {
+        setDueMonthsLoading(true)
+        apiGetDueMonths(token, due.id)
+          .then((months) => {
+            setDueMonths(months)
+            const init: Record<string, boolean> = {}
+            for (const m of months) {
+              init[m.period] = m.is_active
+            }
+            setInitialMonthStatus(init)
+            setPendingMonthChanges({})
+          })
+          .catch((err) => setDueMonthsError(err instanceof Error ? err.message : 'Gagal memuat status bulan'))
+          .finally(() => setDueMonthsLoading(false))
+      }
+    }
   }, [])
 
   const handleCloseEdit = useCallback(() => {
     setEditDueId(null)
     setEditDueForm(null)
     setEditDueLoading(false)
+    setDueMonths([])
+    setDueMonthsError(null)
+    setInitialMonthStatus({})
+    setPendingMonthChanges({})
+    setSyncBillsMessage(null)
+    setShowSyncConfirm(false)
   }, [])
+
+  const handleSyncBills = useCallback(async () => {
+    if (!editDueId || !editDueForm) return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+
+    setSyncBillsLoading(true)
+    setSyncBillsMessage(null)
+    setShowSyncConfirm(false)
+
+    try {
+      const year = editDueForm.year ?? new Date().getFullYear()
+      const res = await apiGenerateBills(
+        token,
+        {
+          due_id: editDueId,
+          period: String(year),
+          due_date: `${year}-01-10`,
+        },
+        crypto.randomUUID()
+      )
+      setSyncBillsMessage(
+        res.generated_count > 0
+          ? `Sinkronisasi berhasil: ${res.generated_count} tagihan baru diterbitkan untuk KK yang belum memiliki tagihan.`
+          : 'Sinkronisasi selesai: Semua KK sudah memiliki tagihan untuk iuran ini.'
+      )
+      // Reload due months & bills data
+      if (editDueForm.due_type === 'multi_month') {
+        setDueMonthsLoading(true)
+        apiGetDueMonths(token, editDueId)
+          .then((months) => {
+            setDueMonths(months)
+            const init: Record<string, boolean> = {}
+            for (const m of months) {
+              init[m.period] = m.is_active
+            }
+            setInitialMonthStatus(init)
+            setPendingMonthChanges({})
+          })
+          .catch(() => {})
+          .finally(() => setDueMonthsLoading(false))
+      }
+      void loadData()
+    } catch (err) {
+      setSyncBillsMessage(`Gagal menyinkronkan tagihan: ${err instanceof Error ? err.message : 'Terjadi kesalahan'}`)
+    } finally {
+      setSyncBillsLoading(false)
+    }
+  }, [editDueId, editDueForm, loadData])
+
+  const handleToggleMonthStatus = useCallback((period: string, currentActive: boolean) => {
+    const targetActive = !currentActive
+    setDueMonths((prev) =>
+      prev.map((m) => (m.period === period ? { ...m, is_active: targetActive } : m))
+    )
+    setPendingMonthChanges((prev) => {
+      const next = { ...prev }
+      const initial = initialMonthStatus[period]
+      if (initial !== undefined && initial === targetActive) {
+        delete next[period]
+      } else {
+        next[period] = targetActive
+      }
+      return next
+    })
+  }, [initialMonthStatus])
 
   const handleSaveEdit = useCallback(async () => {
     if (!editDueId || !editDueForm) return
     const token = getSessionPair()?.accessToken
     if (!token) return
     setEditDueLoading(true)
+    setDueMonthsError(null)
+    setDuesError(null)
     try {
+      // 1. Simpan perubahan status bulan yang tertunda terlebih dahulu (jika ada)
+      const periodsToUpdate = Object.entries(pendingMonthChanges)
+      if (periodsToUpdate.length > 0) {
+        let successCount = 0
+        const failedPeriods: string[] = []
+        for (const [period, targetActive] of periodsToUpdate) {
+          try {
+            await apiUpdateDuePeriodStatus(token, editDueId, period, targetActive)
+            successCount++
+          } catch {
+            failedPeriods.push(period)
+          }
+        }
+        if (failedPeriods.length > 0) {
+          setDueMonthsError(
+            `Gagal memperbarui status bulan: ${failedPeriods.join(', ')}. ${successCount}/${periodsToUpdate.length} periode berhasil disimpan.`
+          )
+          // Re-fetch due months to sync server state
+          try {
+            const freshMonths = await apiGetDueMonths(token, editDueId)
+            setDueMonths(freshMonths)
+            const freshInit: Record<string, boolean> = {}
+            for (const m of freshMonths) {
+              freshInit[m.period] = m.is_active
+            }
+            setInitialMonthStatus(freshInit)
+            setPendingMonthChanges({})
+          } catch {}
+          setEditDueLoading(false)
+          return
+        }
+      }
+
+      // 2. Simpan form utama iuran
       await apiUpdateDue(token, editDueId, {
         ...editDueForm,
         // Empty string explicitly clears a voluntary deadline. Regular dues
@@ -615,7 +892,7 @@ export function IuranList() {
     } finally {
       setEditDueLoading(false)
     }
-  }, [editDueId, editDueForm, loadDues, handleCloseEdit])
+  }, [editDueId, editDueForm, pendingMonthChanges, loadDues, loadData, handleCloseEdit])
 
   // ═══════════════════════════════════════════════════
   // Deactivate due handlers
@@ -904,8 +1181,9 @@ export function IuranList() {
         </div>
 
         {/* Tab Navigation: Iuran Saya → Iuran Warga → Kelola Iuran */}
-        {hasIuranAccess && (
-          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '16px' }}>
+        {/* Hidden for warga — they only see their own bills directly */}
+        {!userIsWarga && hasIuranAccess && (
+          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: '0px' }}>
             <button
               type="button"
               onClick={() => { setActiveTab('tagihan'); setPage(1); }}
@@ -1030,7 +1308,7 @@ export function IuranList() {
           <div className="sf-modal-overlay" role="dialog" aria-modal="true">
             <div className="sf-modal" style={{ width: 480, maxWidth: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
               <ModalHeader
-                title="Edit Iuran"
+                title="Ubah Iuran"
                 subtitle="Perubahan akan berlaku untuk tagihan baru yang dibuat setelah ini."
                 onClose={handleCloseEdit}
               />
@@ -1048,62 +1326,33 @@ export function IuranList() {
                 </div>
                 <div className="sf-form-field">
                   <label className="sf-form-label" htmlFor="edit-due-amount">Nominal</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <input
-                      id="edit-due-amount"
-                      className="sf-form-input"
-                      type="text"
-                      value={editDueForm.amount}
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/\D/g, '')
-                        setEditDueForm({ ...editDueForm, amount: raw || '0' })
-                      }}
-                      disabled={editDueForm.is_voluntary}
-                      placeholder="0"
-                    />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={editDueForm.is_voluntary}
-                        onChange={(e) => setEditDueForm({ ...editDueForm, is_voluntary: e.target.checked })}
-                        style={{ accentColor: 'var(--sf-accent)' }}
-                      />
-                      Sukarela (Rp0)
-                    </label>
-                  </div>
+                  <input
+                    id="edit-due-amount"
+                    className="sf-form-input"
+                    type="text"
+                    value={editDueForm.amount}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '')
+                      setEditDueForm({ ...editDueForm, amount: raw || '0' })
+                    }}
+                    placeholder="0"
+                  />
                 </div>
-                {editDueForm.is_voluntary && (
+                {editDueForm.due_type !== 'multi_month' && (
                   <div className="sf-form-field">
-                    <label className="sf-form-label" htmlFor="edit-due-valid-until">Berlaku Sampai (opsional)</label>
-                    <DatePicker
-                      id="edit-due-valid-until"
-                      picker="date"
-                      value={editDueForm.valid_until ? dayjs(editDueForm.valid_until) : null}
-                      onChange={(date) => setEditDueForm({ ...editDueForm, valid_until: date?.format('YYYY-MM-DD') || '' })}
-                      allowClear
-                      placeholder="Tanpa batas waktu"
-                      format="DD/MM/YYYY"
-                      disabled={editDueLoading}
-                      style={{ width: '100%' }}
-                    />
-                    <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--sf-text-muted)' }}>
-                      Aktif sampai tanggal ini (inklusif, WIB). Mulai hari berikutnya otomatis tidak aktif. Untuk mengaktifkan kembali setelah kedaluwarsa, perpanjang tanggal ini lalu pilih Aktif.
-                    </p>
+                    <label className="sf-form-label" htmlFor="edit-due-period">Frekuensi</label>
+                    <select
+                      id="edit-due-period"
+                      className="sf-form-select"
+                      value={editDueForm.period_type}
+                      onChange={(e) => setEditDueForm({ ...editDueForm, period_type: e.target.value as 'monthly' | 'yearly' | 'one_time' })}
+                    >
+                      <option value="monthly">Bulanan</option>
+                      <option value="yearly">Tahunan</option>
+                      <option value="one_time">Sekali Waktu</option>
+                    </select>
                   </div>
                 )}
-                <div className="sf-form-field">
-                  <label className="sf-form-label" htmlFor="edit-due-period">Frekuensi</label>
-                  <select
-                    id="edit-due-period"
-                    className="sf-form-select"
-                    value={editDueForm.period_type}
-                    onChange={(e) => setEditDueForm({ ...editDueForm, period_type: e.target.value as 'monthly' | 'yearly' | 'one_time' })}
-                  >
-                    <option value="monthly">Bulanan</option>
-                    <option value="yearly">Tahunan</option>
-                    <option value="one_time">Sekali Waktu</option>
-                  </select>
-                </div>
                 <div className="sf-form-field">
                   <label className="sf-form-label" htmlFor="edit-due-rule">Aturan Pembayaran</label>
                   <select
@@ -1116,21 +1365,116 @@ export function IuranList() {
                     <option value="partial">Sebagian</option>
                   </select>
                 </div>
-                <div className="sf-form-field">
-                  <label className="sf-form-label" htmlFor="edit-due-status">Status</label>
-                  <select
-                    id="edit-due-status"
-                    className="sf-form-select"
-                    value={editDueForm.is_active ? 'true' : 'false'}
-                    onChange={(e) => setEditDueForm({ ...editDueForm, is_active: e.target.value === 'true' })}
-                  >
-                    <option value="true">Aktif</option>
-                    <option value="false">Tidak Aktif</option>
-                  </select>
-                  <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--sf-text-muted)' }}>
-                    Iuran tidak aktif tidak dapat menghasilkan tagihan baru. Tagihan dan pembayaran lama tetap tersimpan.
-                  </p>
-                </div>
+                {editDueForm.due_type !== 'multi_month' && (
+                  <div className="sf-form-field">
+                    <label className="sf-form-label" htmlFor="edit-due-status">Status</label>
+                    <select
+                      id="edit-due-status"
+                      className="sf-form-select"
+                      value={editDueForm.is_active ? 'true' : 'false'}
+                      onChange={(e) => setEditDueForm({ ...editDueForm, is_active: e.target.value === 'true' })}
+                    >
+                      <option value="true">Aktif</option>
+                      <option value="false">Tidak Aktif</option>
+                    </select>
+                    <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--sf-text-muted)' }}>
+                      Iuran tidak aktif tidak dapat menghasilkan tagihan baru. Tagihan dan pembayaran lama tetap tersimpan.
+                    </p>
+                  </div>
+                )}
+
+                {editDueForm.due_type === 'multi_month' && (
+                  <div className="sf-form-field" style={{ marginTop: '20px', borderTop: '1px solid var(--sf-border)', paddingTop: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <label className="sf-form-label" style={{ fontWeight: 600, margin: 0 }}>
+                        Kelola Status 12 Bulan ({editDueForm.year ?? 'Tahun Berjalan'})
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {dueMonthsLoading && <span style={{ fontSize: '12px', color: 'var(--sf-text-muted)' }}>Memuat...</span>}
+                        <button
+                          type="button"
+                          className="sf-btn-secondary"
+                          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                          disabled={syncBillsLoading || dueMonthsLoading}
+                          onClick={() => setShowSyncConfirm(true)}
+                          title="Terbitkan tagihan bagi KK baru yang belum memiliki tagihan pada tahun ini"
+                        >
+                          {syncBillsLoading ? 'Menyinkronkan...' : '🔄 Sinkronkan Tagihan KK'}
+                        </button>
+                      </div>
+                    </div>
+                    {syncBillsMessage && (
+                      <div style={{
+                        color: syncBillsMessage.startsWith('Gagal') ? 'var(--sf-danger)' : 'var(--sf-success, #1a7f37)',
+                        fontSize: '12px',
+                        marginBottom: '8px',
+                        padding: '6px 10px',
+                        background: syncBillsMessage.startsWith('Gagal') ? 'var(--sf-danger-soft, #fdf2f2)' : 'var(--sf-success-soft, #e6f7ed)',
+                        borderRadius: '4px',
+                        border: `1px solid ${syncBillsMessage.startsWith('Gagal') ? 'var(--sf-danger-border, #fca5a5)' : 'var(--sf-success-border, #a7f3d0)'}`
+                      }}>
+                        {syncBillsMessage}
+                      </div>
+                    )}
+                    {dueMonthsError && (
+                      <div style={{ color: 'var(--sf-danger)', fontSize: '12px', marginBottom: '8px', padding: '6px 10px', background: 'var(--sf-danger-soft)', borderRadius: '4px' }}>
+                        {dueMonthsError}
+                      </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', maxHeight: '220px', overflowY: 'auto', padding: '4px' }}>
+                      {dueMonths.map((m) => {
+                        const monthNames = [
+                          'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+                          'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+                        ]
+                        const name = monthNames[m.month - 1] || m.period
+                        const isPaidAll = m.paid_bills > 0 && m.paid_bills === m.total_bills
+
+                        return (
+                          <div
+                            key={m.period}
+                            style={{
+                              border: '1px solid var(--sf-border)',
+                              borderRadius: '6px',
+                              padding: '8px',
+                              background: m.is_active ? 'var(--sf-bg-surface)' : 'var(--sf-bg-subtle)',
+                              opacity: m.is_active ? 1 : 0.75,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '4px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '12px', fontWeight: 600 }}>{name}</span>
+                              <Badge variant={m.is_active ? 'green' : 'gray'} style={{ fontSize: '10px', padding: '0 6px', height: '18px' }}>
+                                {m.is_active ? 'Aktif' : 'Nonaktif'}
+                              </Badge>
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--sf-text-muted)' }}>
+                              {m.paid_bills > 0 ? `${m.paid_bills} Lunas` : `${m.total_bills} Tagihan`}
+                            </div>
+                            <button
+                              type="button"
+                              className={m.is_active ? 'sf-btn-secondary' : 'sf-btn-primary'}
+                              style={{
+                                fontSize: '11px',
+                                padding: '2px 6px',
+                                marginTop: '4px',
+                                alignSelf: 'stretch',
+                                height: '24px',
+                              }}
+                              disabled={dueMonthsLoading || editDueLoading || isPaidAll}
+                              title={isPaidAll ? 'Tagihan yang sudah lunas tidak dapat dinonaktifkan' : undefined}
+                              onClick={() => handleToggleMonthStatus(m.period, m.is_active)}
+                            >
+                              {isPaidAll ? 'Lunas' : m.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </ModalBody>
               <ModalFooter>
                 <button
@@ -1149,6 +1493,44 @@ export function IuranList() {
                   disabled={editDueLoading || !editDueForm.name.trim() || !editDueForm.amount}
                 >
                   {editDueLoading ? 'Menyimpan...' : 'Simpan'}
+                </button>
+              </ModalFooter>
+            </div>
+          </div>
+        )}
+
+        {/* Sync Bills Confirmation */}
+        {showSyncConfirm && editDueForm && (
+          <div className="sf-modal-overlay" role="dialog" aria-modal="true" style={{ zIndex: 1100 }}>
+            <div className="sf-modal" style={{ width: 440, maxWidth: 'calc(100vw - 32px)' }} onClick={(e) => e.stopPropagation()}>
+              <ModalHeader
+                title="Konfirmasi Sinkronisasi Tagihan KK"
+                onClose={() => setShowSyncConfirm(false)}
+              />
+              <ModalBody>
+                <p style={{ fontSize: '14px', lineHeight: 1.6, margin: 0 }}>
+                  Sistem akan menerbitkan 12 tagihan ({editDueForm.year ?? 'Tahun Berjalan'}) untuk setiap KK yang belum memiliki tagihan pada iuran ini.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--sf-text-muted)', marginTop: '8px', lineHeight: 1.5 }}>
+                  Tagihan lama, status aktif/nonaktif, dan riwayat pembayaran yang sudah ada <strong>tidak akan diubah atau diduplikasi</strong>.
+                </p>
+              </ModalBody>
+              <ModalFooter>
+                <button
+                  type="button"
+                  className="sf-btn-secondary"
+                  onClick={() => setShowSyncConfirm(false)}
+                  disabled={syncBillsLoading}
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  className="sf-btn-primary"
+                  onClick={handleSyncBills}
+                  disabled={syncBillsLoading}
+                >
+                  {syncBillsLoading ? 'Menyinkronkan...' : 'Ya, Sinkronkan'}
                 </button>
               </ModalFooter>
             </div>
@@ -1217,23 +1599,23 @@ export function IuranList() {
 
             {/* Bill Table */}
             {!loading && filteredBills.length > 0 && (
-              <div className="table-wrapper">
-                <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
+              <div className="table-wrapper sf-auto-layout-wrapper" style={{ overflowX: 'auto' }}>
+                <table className="sf-auto-layout-table">
                   <thead>
                     <tr>
-                      <th style={colStyles.no}>No</th>
-                      <th style={colStyles.name}>NAMA WARGA</th>
-                      <th style={colStyles.rt}>RT</th>
-                      <th style={colStyles.type}>JENIS IURAN</th>
-                      <th style={colStyles.periode}>PERIODE</th>
-                      <th style={colStyles.nominal}>NOMINAL</th>
-                      <th style={colStyles.paid}>DIBAYAR</th>
-                      <th style={colStyles.pending}>TERTUNDA</th>
-                      <th style={colStyles.status}>STATUS</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>NAMA WARGA</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '50px' }}>RT</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '120px' }}>NAMA IURAN</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '100px' }}>JENIS IURAN</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '160px' }}>PERIODE</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '140px' }}>NOMINAL</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '110px' }}>DIBAYAR</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '110px' }}>TERTUNDA</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '120px' }}>STATUS</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedBills.map((bill, idx) => {
+                    {paginatedBills.map((bill, _idx) => {
                       const hasPending = (bill.pendingAmount ?? 0) > 0
 
                       return (
@@ -1250,30 +1632,32 @@ export function IuranList() {
                             }
                           }}
                         >
-                          <td style={colStyles.no}>
-                            {(page - 1) * pageSize + idx + 1}
-                          </td>
-                          <td style={colStyles.name}>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
                             <span style={{ fontWeight: 600 }}>{bill.householdName}</span>
                           </td>
-                          <td style={colStyles.rt}>
+                          <td style={{ textAlign: 'center' }}>
                             {bill.rt}
                           </td>
-                          <td style={colStyles.type}>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
                             {bill.iuranType}
                           </td>
-                          <td style={colStyles.periode}>
+                          <td style={{ textAlign: 'center' }}>
+                            <Badge variant={getDueTypeVariant(bill.dueType)}>
+                              {getDueTypeLabel(bill.dueType)}
+                            </Badge>
+                          </td>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                             {bill.periode.includes('-') ? formatPeriodeLabel(bill.periode) : bill.periode}
                           </td>
-                          <td style={colStyles.nominal}>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                             {formatRupiah(bill.nominal)}
                           </td>
-                          <td style={colStyles.paid}>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                             <span style={{ color: (bill.paidAmount ?? 0) > 0 ? 'var(--sf-success)' : undefined, fontWeight: (bill.paidAmount ?? 0) > 0 ? 600 : 400 }}>
                               {formatRupiah(bill.paidAmount)}
                             </span>
                           </td>
-                          <td style={colStyles.pending}>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                             {hasPending ? (
                               <span style={{ color: 'var(--sf-warning)', fontWeight: 600 }}>
                                 {formatRupiah(bill.pendingAmount)}
@@ -1282,10 +1666,14 @@ export function IuranList() {
                               '—'
                             )}
                           </td>
-                          <td style={colStyles.status}>
-                            <Badge variant={getStatusVariant(bill.status)}>
-                              {getStatusLabel(bill.status)}
-                            </Badge>
+                          <td style={{ textAlign: 'center' }}>
+                            {bill.isActive === false ? (
+                              <Badge variant="gray">Tidak Aktif</Badge>
+                            ) : (
+                              <Badge variant={getStatusVariant(bill.status)}>
+                                {getStatusLabel(bill.status)}
+                              </Badge>
+                            )}
                           </td>
                         </tr>
                       )
@@ -1336,17 +1724,18 @@ export function IuranList() {
 
             {/* Dues Table — row click opens Edit Due modal */}
             {!duesLoading && filteredDues.length > 0 && (
-              <div className="table-wrapper">
-                <table className="sf-warga-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'auto' }}>
+              <div className="table-wrapper sf-auto-layout-wrapper" style={{ overflowX: 'auto' }}>
+                <table className="sf-auto-layout-table" style={{ tableLayout: 'fixed' }}>
                   <thead>
                     <tr>
-                      <th style={{ ...colStyles.name, minWidth: 200, textAlign: 'left' }}>NAMA IURAN</th>
-                      <th style={{ width: 130, minWidth: 130, textAlign: 'right', fontFamily: 'monospace' }}>NOMINAL</th>
-                      <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>FREKUENSI</th>
-                      <th style={{ width: 130, minWidth: 130, textAlign: 'left' }}>ATURAN</th>
-                      <th style={{ width: 110, minWidth: 110, textAlign: 'center' }}>TIPE</th>
-                      <th style={colStyles.validUntil}>BERLAKU SAMPAI</th>
-                      <th style={{ width: 120, minWidth: 120, textAlign: 'center' }}>STATUS</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>NAMA IURAN</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '100px' }}>JENIS IURAN</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '140px' }}>NOMINAL</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '240px' }}>PERIODE</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '80px' }}>FREKUENSI</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '80px' }}>ATURAN</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '100px' }}>BERLAKU SAMPAI</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '100px' }}>STATUS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1371,47 +1760,48 @@ export function IuranList() {
                             }
                           }}
                         >
-                          <td style={colStyles.name}>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
                             <span style={{ fontWeight: 600 }}>{due.name}</span>
                           </td>
-                          <td style={colStyles.nominal}>
+                          <td style={{ textAlign: 'center' }}>
+                            <Badge variant={getDueTypeVariant(due.due_type)}>
+                              {getDueTypeLabel(due.due_type)}
+                            </Badge>
+                          </td>
+                          <td style={{ textAlign: 'right', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                             {isVoluntary ? (
                               <span style={{ color: 'var(--sf-info)' }}>Sukarela</span>
                             ) : (
-                              formatRupiah(parseMoney(due.amount))
-                            )}
-                          </td>
-                          <td style={{ textAlign: 'left' }}>
-                            {periodLabel}
-                          </td>
-                          <td style={{ textAlign: 'left' }}>
-                            {ruleLabel}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            {isVoluntary ? (
-                              <Badge variant="blue">Sukarela</Badge>
-                            ) : (
-                              <span style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                padding: '0 8px',
-                                fontSize: '11px',
-                                fontWeight: 400,
-                                borderRadius: '5px',
-                                border: '1px solid rgba(16, 185, 129, 0.30)',
-                                background: 'rgba(16, 185, 129, 0.08)',
-                                color: '#059669',
-                                lineHeight: 1.2,
-                                height: '22px',
-                                boxSizing: 'border-box',
-                                boxShadow: '0 0 8px rgba(16, 185, 129, 0.08)',
-                                fontFamily: 'inherit',
-                              }}>
-                                Reguler
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {formatRupiah(parseMoney(due.amount))}
                               </span>
                             )}
                           </td>
-                          <td style={colStyles.validUntil}>
+                          <td style={{ textAlign: 'left', fontSize: '12px', whiteSpace: 'nowrap', maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {due.periods && due.periods.length > 0 ? (
+                              <>
+                                {due.periods.slice(0, 2).map((p) =>
+                                  p.includes('-') ? formatPeriodeLabel(p) : p
+                                ).join(', ')}
+                                {due.periods.length > 2 && (
+                                  <span style={{ color: 'var(--sf-text-muted)', fontSize: '11px', marginLeft: '2px' }}>
+                                    · +{due.periods.length - 2} lainnya
+                                  </span>
+                                )}
+                              </>
+                            ) : (due as any).period ? (
+                              ((due as any).period.includes('-') ? formatPeriodeLabel((due as any).period) : (due as any).period)
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+                            {periodLabel}
+                          </td>
+                          <td style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+                            {ruleLabel}
+                          </td>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                             {isVoluntary
                               ? (due.valid_until ? dayjs(due.valid_until).format('DD/MM/YYYY') : 'Tanpa batas')
                               : '—'}

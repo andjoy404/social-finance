@@ -245,7 +245,8 @@ Automatic expiry semantics:
 | `amount` | `numeric(15, 2)` | NOT NULL, CHECK `amount > 0` | Billed amount |
 | `period` | `text` | NOT NULL | e.g. "2026-09" |
 | `due_date` | `date` | NOT NULL | Payment deadline |
-| `status` | `text` | NOT NULL, default `'unpaid'`, CHECK IN (`unpaid`, `paid`, `cancelled`) | Bill status |
+| `status` | `text` | NOT NULL, default `'unpaid'`, CHECK IN (`unpaid`, `partial`, `paid`, `cancelled`) | Bill status |
+| `is_active` | `boolean` | NOT NULL, default `true` | Active/inactive status of the bill |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
 
@@ -255,6 +256,8 @@ Indexes & Constraints:
 - Index on `(household_occupancy_id)`
 - Index on `(due_id)`
 - Index on `(status)`
+- Index on `(rt_id, is_active)`
+- Index on `(household_occupancy_id, due_id, is_active)`
 
 ### 4.4 `payments` — Payment Records
 
@@ -616,3 +619,59 @@ These principles govern future schema and API design decisions:
 7. **Service automation must not silently mutate historical financial records.** Any service-related status changes are additions, not modifications.
 
 8. **Tenant isolation remains RT-scoped.** Every table and query on tenant data includes `rt_id` filtering.
+
+---
+
+## 12. Notification Schema
+
+### 12.1 `user_devices` — FCM Device Registrations
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Device identifier |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE CASCADE | Device owner |
+| `fcm_token` | `text` | NOT NULL | FCM registration token |
+| `platform` | `text` | NOT NULL, CHECK in (`android`, `ios`, `web`) | Device platform |
+| `device_id` | `text` | NULL | Unique hardware/installation ID |
+| `is_active` | `boolean` | NOT NULL, default `true` | Active registration flag |
+| `last_seen_at` | `timestamptz` | NOT NULL, default `now()` | Last activity timestamp |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Unique: `uq_user_devices_user_token (user_id, fcm_token)`.
+
+### 12.2 `notification_logs` — Delivery Audit Logs & Deduplication
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Log identifier |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | Tenant scope |
+| `user_id` | `uuid` | NULL, FK → `users.id` ON DELETE CASCADE | Targeted user (or NULL for RT-wide) |
+| `event_type` | `text` | NOT NULL | Event type identifier |
+| `dedup_key` | `text` | NOT NULL, UNIQUE | Deduplication idempotency key |
+| `title` | `text` | NOT NULL | Notification title sent |
+| `body` | `text` | NOT NULL | Notification body sent |
+| `image_url` | `text` | NULL | Public relative or absolute URL of attached image |
+| `payload` | `jsonb` | NOT NULL, default `'{}'` | Non-sensitive data payload |
+| `status` | `text` | NOT NULL, default `'SENT'` | Delivery status |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | Timestamp of dispatch |
+
+### 12.3 `notification_templates` — Configurable Notification Templates
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Template identifier |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | Tenant scope |
+| `name` | `varchar(100)`| NOT NULL | Display name of template |
+| `event_type` | `varchar(50)` | NOT NULL | Target notification event |
+| `channel` | `varchar(20)` | NOT NULL, default `'push'`, CHECK in (`push`, `in_app`) | Delivery channel |
+| `title` | `varchar(200)`| NOT NULL | Template title with optional `{{var}}` |
+| `body` | `text` | NOT NULL | Template body with optional `{{var}}` |
+| `image_url` | `text` | NULL | Optional image attachment URL (only for allowed events) |
+| `is_active` | `boolean` | NOT NULL, default `true` | Active status toggle |
+| `variables` | `jsonb` | NOT NULL, default `'[]'` | List of allowed variables |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Unique: `uq_rt_event_template_name (rt_id, event_type, name)`.
+Index: `idx_notification_templates_event_active (rt_id, event_type, is_active)`.

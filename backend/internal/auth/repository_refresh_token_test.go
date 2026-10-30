@@ -38,7 +38,7 @@ func TestCreateRefreshToken_NilMembershipID(t *testing.T) {
 	}
 
 	// Insert refresh token with nil membership_id.
-	err = CreateRefreshToken(ctx, tx, userID, nil, "test-hash-nil", time.Now().Add(7*24*time.Hour))
+	err = CreateRefreshToken(ctx, tx, userID, nil, "test-hash-nil", time.Now().Add(7*24*time.Hour), "")
 	if err != nil {
 		t.Fatalf("CreateRefreshToken(nil) returned error: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestCreateRefreshToken_MembershipID_UUID(t *testing.T) {
 
 	// Insert with real membership UUID.
 	midStr := mID
-	err = CreateRefreshToken(ctx, tx, userID, &midStr, "test-hash-uuid", time.Now().Add(7*24*time.Hour))
+	err = CreateRefreshToken(ctx, tx, userID, &midStr, "test-hash-uuid", time.Now().Add(7*24*time.Hour), "")
 	if err != nil {
 		t.Fatalf("CreateRefreshToken(&uuid) returned error: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestFindRefreshTokenByHash_NilMembershipID(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, q, userID, "find-nil@example.com", "noop", "Find Nil Test"); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
-	err = CreateRefreshToken(ctx, tx, userID, nil, "find-nil-hash", time.Now().Add(7*24*time.Hour))
+	err = CreateRefreshToken(ctx, tx, userID, nil, "find-nil-hash", time.Now().Add(7*24*time.Hour), "")
 	if err != nil {
 		t.Fatalf("CreateRefreshToken(nil): %v", err)
 	}
@@ -149,7 +149,7 @@ func TestFindRefreshTokenByHash_NilMembershipID(t *testing.T) {
 	}
 	defer tx2.Rollback()
 
-	foundUserID, mid, expiresAt, revoked, err := FindRefreshTokenByHash(ctx, tx2, "find-nil-hash")
+	foundUserID, mid, expiresAt, revoked, _, err := FindRefreshTokenByHash(ctx, tx2, "find-nil-hash")
 	if err != nil {
 		t.Fatalf("FindRefreshTokenByHash returned error: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestFindRefreshTokenByHash_MembershipID_UUID(t *testing.T) {
 	}
 
 	midStr := mID
-	err = CreateRefreshToken(ctx, tx, userID, &midStr, "find-uuid-hash", time.Now().Add(7*24*time.Hour))
+	err = CreateRefreshToken(ctx, tx, userID, &midStr, "find-uuid-hash", time.Now().Add(7*24*time.Hour), "")
 	if err != nil {
 		t.Fatalf("CreateRefreshToken(&uuid): %v", err)
 	}
@@ -212,7 +212,7 @@ func TestFindRefreshTokenByHash_MembershipID_UUID(t *testing.T) {
 	}
 	defer tx2.Rollback()
 
-	foundUserID, mid, expiresAt, revoked, err := FindRefreshTokenByHash(ctx, tx2, "find-uuid-hash")
+	foundUserID, mid, expiresAt, revoked, _, err := FindRefreshTokenByHash(ctx, tx2, "find-uuid-hash")
 	if err != nil {
 		t.Fatalf("FindRefreshTokenByHash returned error: %v", err)
 	}
@@ -270,12 +270,12 @@ func TestRevokeRefreshTokensByMembership_ExcludesNull(t *testing.T) {
 	mIDStr := mID
 
 	// Create member token (with real membership FK).
-	if err := CreateRefreshToken(ctx, tx, memberUserID, &mIDStr, "member-revoke-hash", time.Now().Add(7*24*time.Hour)); err != nil {
+	if err := CreateRefreshToken(ctx, tx, memberUserID, &mIDStr, "member-revoke-hash", time.Now().Add(7*24*time.Hour), ""); err != nil {
 		t.Fatalf("create member token: %v", err)
 	}
 
 	// Create system-only token.
-	if err := CreateRefreshToken(ctx, tx, systemUserID, nil, "system-revoke-hash", time.Now().Add(7*24*time.Hour)); err != nil {
+	if err := CreateRefreshToken(ctx, tx, systemUserID, nil, "system-revoke-hash", time.Now().Add(7*24*time.Hour), ""); err != nil {
 		t.Fatalf("create system token: %v", err)
 	}
 

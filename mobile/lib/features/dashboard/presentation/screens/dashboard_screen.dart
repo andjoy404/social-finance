@@ -167,6 +167,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (_isRefreshing) return;
     _isRefreshing = true;
     try {
+      final user = ref.read(authRepositoryProvider)?.valueOrNull;
+      final profileStatus = user?['profile_status'] as String?;
+      if (user != null &&
+          (profileStatus == 'stale' ||
+              profileStatus == 'error' ||
+              profileStatus == 'permissions_unavailable')) {
+        await ref.read(authRepositoryProvider.notifier).reloadProfile();
+      }
       ref.invalidate(dashboardSummaryProvider);
       ref.invalidate(recentKasTransactionsProvider);
       ref.invalidate(recentTransactionsProvider);

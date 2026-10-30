@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAuth, isAllowedRT } from '@/app/AuthContext'
+import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationMenu } from '@/app/AuthContext'
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -9,6 +9,8 @@ import {
   ApartmentOutlined,
   AccountBookOutlined,
   DollarOutlined,
+  BankOutlined,
+  BellOutlined,
 } from '@ant-design/icons'
 
 function isActive(route: string, pathname: string): boolean {
@@ -45,7 +47,7 @@ export function Sidebar() {
     })
   }, [])
 
-  const isSuperAdmin = user?.systemRole === 'super_admin'
+  const isSuperAdmin = isSuperAdminUser(user)
   const allowedRT = isAllowedRT(user)
 
   const items: NavItem[] = [
@@ -54,10 +56,30 @@ export function Sidebar() {
 
   if (allowedRT) {
     items.push(
-      { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+      { to: '/kas', label: 'Kas', icon: <DollarOutlined />, id: 'kas' },
       { to: '/iuran', label: 'Iuran', icon: <AccountBookOutlined />, id: 'iuran' },
-      { to: '/kas', label: 'KAS', icon: <DollarOutlined />, id: 'kas' },
     )
+    if (user?.role !== 'warga') {
+      items.push({
+        to: '/lokasi-dana',
+        label: 'Lokasi Dana',
+        icon: <BankOutlined />,
+        id: 'lokasi-dana',
+      })
+    }
+    items.push(
+      { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+    )
+  }
+
+  const canAccessNotifikasi = canAccessNotificationMenu(user)
+  if (canAccessNotifikasi) {
+    items.push({
+      to: '/notifikasi',
+      label: 'Notifikasi',
+      icon: <BellOutlined />,
+      id: 'notifikasi',
+    })
   }
 
   if (isSuperAdmin) {

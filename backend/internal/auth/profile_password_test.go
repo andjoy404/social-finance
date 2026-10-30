@@ -15,12 +15,12 @@ func TestProfileAndUpdatePassword(t *testing.T) {
 	handler, pool := setupEffectivePermissionTest(t)
 	t.Cleanup(func() {
 		resetHash, _ := auth.Hash("123qweasdzxc")
-		_, _ = pool.Raw().ExecContext(context.Background(), `UPDATE users SET email = 'warga.rt03@local.com', password_hash = $1 WHERE id = '22220001-0000-4000-8000-000000000001'`, resetHash)
+		_, _ = pool.Raw().ExecContext(context.Background(), `UPDATE users SET email = 'warga.rt01@local.com', password_hash = $1 WHERE id = '22220001-0000-4000-8000-000000000001'`, resetHash)
 	})
 
 	// 1. Login as warga to get access token and context
 	loginBody, _ := json.Marshal(map[string]string{
-		"email":    "warga.rt03@local.com",
+		"email":    "warga.rt01@local.com",
 		"password": "123qweasdzxc",
 	})
 	rec := httptest.NewRecorder()
@@ -59,9 +59,9 @@ func TestProfileAndUpdatePassword(t *testing.T) {
 	// 2. Test PUT /api/v1/auth/profile
 	t.Run("UpdateProfile_Success", func(t *testing.T) {
 		newPhone := "081298918220"
-		newEmail := "warga.rt03.updated@local.com"
+		newEmail := "warga.rt01.updated@local.com"
 		updateBody := auth.UpdateProfileRequest{
-			FullName: "Warga RT03 Updated",
+			FullName: "Warga RT01 Updated",
 			Phone:    &newPhone,
 			Email:    &newEmail,
 		}
@@ -74,8 +74,8 @@ func TestProfileAndUpdatePassword(t *testing.T) {
 		if err := json.Unmarshal(resp.Body.Bytes(), &updatedProfile); err != nil {
 			t.Fatalf("unmarshal updated profile: %v", err)
 		}
-		if updatedProfile.Fullname != "Warga RT03 Updated" {
-			t.Errorf("expected full_name 'Warga RT03 Updated', got %q", updatedProfile.Fullname)
+		if updatedProfile.Fullname != "Warga RT01 Updated" {
+			t.Errorf("expected full_name 'Warga RT01 Updated', got %q", updatedProfile.Fullname)
 		}
 	})
 
@@ -116,7 +116,7 @@ func TestProfileAndUpdatePassword(t *testing.T) {
 
 		// Login with old password must now fail
 		oldLogin, _ := json.Marshal(map[string]string{
-			"email":    "warga.rt03@local.com",
+			"email":    "warga.rt01@local.com",
 			"password": "123qweasdzxc",
 		})
 		rOld := httptest.NewRecorder()
@@ -127,7 +127,7 @@ func TestProfileAndUpdatePassword(t *testing.T) {
 
 		// Login with new password must succeed
 		newLogin, _ := json.Marshal(map[string]string{
-			"email":    "warga.rt03.updated@local.com",
+			"email":    "warga.rt01.updated@local.com",
 			"password": "NewPassword123!",
 		})
 		rNew := httptest.NewRecorder()
@@ -140,6 +140,6 @@ func TestProfileAndUpdatePassword(t *testing.T) {
 		_ = pool
 		var resetHash string
 		resetHash, _ = auth.Hash("123qweasdzxc")
-		_, _ = pool.Raw().ExecContext(context.Background(), `UPDATE users SET password_hash = $1 WHERE email = 'warga.rt03@local.com'`, resetHash)
+		_, _ = pool.Raw().ExecContext(context.Background(), `UPDATE users SET password_hash = $1 WHERE email = 'warga.rt01@local.com'`, resetHash)
 	})
 }

@@ -150,6 +150,7 @@ class _MockKasApiClient implements KasApiClient {
     required String description,
     DateTime? occurredAt,
     String? paymentMethod,
+    String? locationId,
     required String idempotencyKey,
   }) async => throw UnimplementedError();
 
@@ -161,6 +162,7 @@ class _MockKasApiClient implements KasApiClient {
     String? description,
     DateTime? occurredAt,
     String? paymentMethod,
+    String? locationId,
     required String id,
   }) async => throw UnimplementedError();
 

@@ -75,10 +75,24 @@ func RequireAuth(next http.Handler) http.Handler {
 		}
 		tx.Rollback()
 
+		effectiveRTID := claims.RTID
+		if SystemRole(claims.SysRole) == SystemRoleSuperAdmin && effectiveRTID == "" {
+			reqRT := strings.TrimSpace(r.Header.Get("X-RT-ID"))
+			if reqRT == "" {
+				reqRT = strings.TrimSpace(r.URL.Query().Get("rt_id"))
+			}
+			if reqRT != "" && AuthDBPool != nil {
+				var validID string
+				if err := AuthDBPool.Raw().QueryRowContext(validateCtx, "SELECT id FROM rts WHERE id = $1 AND is_active = true", reqRT).Scan(&validID); err == nil {
+					effectiveRTID = validID
+				}
+			}
+		}
+
 		ctx := context.WithValue(r.Context(), AuthContextKey, &AuthContext{
 			UserID:       claims.UserID,
 			MembershipID: claims.MID,
-			RTID:         claims.RTID,
+			RTID:         effectiveRTID,
 			SystemRole:   SystemRole(claims.SysRole),
 			TenantRole:   Role(claims.Role),
 			Jabatan:      Jabatan(claims.Jabatan),
@@ -334,6 +348,30 @@ func RequireAccess(roles []Role, jabatans []Jabatan) func(http.Handler) http.Han
 			}
 			// Neither role nor jabatan matches — forbidden.
 			httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		})
+	}
+}
+
+// RequireNotificationAdmin allows only SUPER_ADMIN or Ketua RT (jabatan "ketua") to access notification management.
+func RequireNotificationAdmin() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
+			if !ok || ac == nil {
+				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+				return
+			}
+			// System-level SUPER_ADMIN bypass — unrestricted access.
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Ketua RT position access
+			if ac.Jabatan == JabatanKetua || strings.EqualFold(strings.TrimSpace(string(ac.Jabatan)), string(JabatanKetua)) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "only super_admin or ketua rt can access notifications")
 		})
 	}
 }

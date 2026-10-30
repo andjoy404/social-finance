@@ -130,7 +130,12 @@ func TestVoluntaryDonationLifecycleAndTenantScope(t *testing.T) {
 	}
 	verifyPaymentAs := func(token, paymentID, action string) *httptest.ResponseRecorder {
 		t.Helper()
-		body := fmt.Sprintf(`{"action":%q}`, action)
+		var body string
+		if action == "approve" {
+			body = fmt.Sprintf(`{"action":%q,"actual_received_date":"2026-10-20"}`, action)
+		} else {
+			body = fmt.Sprintf(`{"action":%q}`, action)
+		}
 		req := httptest.NewRequest(
 			http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(body),
 		)

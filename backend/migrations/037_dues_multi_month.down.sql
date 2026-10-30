@@ -1,0 +1,5 @@
+DROP INDEX IF EXISTS idx_dues_due_type;
+ALTER TABLE dues DROP CONSTRAINT IF EXISTS dues_due_type_check;
+ALTER TABLE dues DROP COLUMN IF EXISTS year;
+ALTER TABLE dues DROP COLUMN IF EXISTS due_type;
+

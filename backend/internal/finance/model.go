@@ -9,20 +9,24 @@ import (
 )
 
 var (
-	ErrNotFound             = errors.New("resource not found")
-	ErrDuplicateCategory    = errors.New("category with this name already exists in RT")
-	ErrDuplicateBill        = errors.New("bill already exists for this occupancy, due, and period")
-	ErrBillAlreadyPaid      = errors.New("bill is already paid")
-	ErrBillCancelled        = errors.New("bill is cancelled")
-	ErrBillCannotCancel     = errors.New("bill cannot be cancelled: has approved payments")
-	ErrInvalidStatus        = errors.New("invalid status transition")
-	ErrTransactionPosted    = errors.New("transaction is already posted and immutable")
-	ErrAlreadyReversed      = errors.New("transaction is already reversed")
-	ErrCannotReverseNonPost = errors.New("cannot reverse a non-posted transaction")
-	ErrInvalidDuePeriod     = errors.New("invalid period_type: must be monthly, yearly, or one_time")
-	ErrInvalidCategoryType  = errors.New("invalid category type: must be income or expense")
-	ErrInvalidAmount        = errors.New("amount must be greater than zero")
-	ErrOverpayment          = errors.New("payment amount exceeds remaining balance")
+	ErrNotFound                        = errors.New("resource not found")
+	ErrDuplicateCategory               = errors.New("category with this name already exists in RT")
+	ErrDuplicateBill                   = errors.New("bill already exists for this occupancy, due, and period")
+	ErrBillAlreadyPaid                 = errors.New("bill is already paid")
+	ErrBillCancelled                   = errors.New("bill is cancelled")
+	ErrBillCannotCancel                = errors.New("bill cannot be cancelled: has approved payments")
+	ErrInvalidStatus                   = errors.New("invalid status transition")
+	ErrTransactionPosted               = errors.New("transaction is already posted and immutable")
+	ErrAlreadyReversed                 = errors.New("transaction is already reversed")
+	ErrCannotReverseNonPost            = errors.New("cannot reverse a non-posted transaction")
+	ErrInvalidDuePeriod                = errors.New("invalid period_type: must be monthly, yearly, or one_time")
+	ErrInvalidCategoryType             = errors.New("invalid category type: must be income or expense")
+	ErrInvalidAmount                   = errors.New("amount must be greater than zero")
+	ErrOverpayment                     = errors.New("payment amount exceeds remaining balance")
+	ErrInsufficientFunds               = errors.New("insufficient funds in source location")
+	ErrInsufficientReversalBalance     = errors.New("insufficient balance in location for reversal")
+	ErrPaymentAlreadyReversed          = errors.New("payment has already been reversed")
+	ErrCannotReverseNonApprovedPayment = errors.New("cannot reverse a non-approved payment")
 )
 
 // CategoryType represents income or expense.
@@ -63,6 +67,13 @@ const (
 	DuePeriodOneTime DuePeriodType = "one_time"
 )
 
+// DueType constants
+const (
+	DueTypeRegular    = "regular"
+	DueTypeVoluntary  = "voluntary"
+	DueTypeMultiMonth = "multi_month"
+)
+
 // PaymentRule represents how payment amounts are handled for a due type.
 type PaymentRule string
 
@@ -81,8 +92,11 @@ type Due struct {
 	PeriodType  DuePeriodType `json:"period_type"`
 	PaymentRule PaymentRule   `json:"payment_rule"`
 	IsVoluntary bool          `json:"is_voluntary"`
+	DueType     string        `json:"due_type"`
+	Year        *int          `json:"year,omitempty"`
 	IsActive    bool          `json:"is_active"`
 	ValidUntil  *string       `json:"valid_until"`
+	Periods     []string      `json:"periods"` // Distinct bill periods for this due
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
 }
@@ -93,6 +107,9 @@ type CreateDueInput struct {
 	PeriodType  DuePeriodType `json:"period_type"`
 	PaymentRule PaymentRule   `json:"payment_rule"` // defaults to "full"
 	IsVoluntary bool          `json:"is_voluntary"`
+	DueType     string        `json:"due_type,omitempty"`
+	Year        *int          `json:"year,omitempty"`
+	DueDate     string        `json:"due_date,omitempty"` // For initial bill generation if multi_month
 	ValidUntil  *string       `json:"valid_until,omitempty"`
 }
 
@@ -102,6 +119,8 @@ type UpdateDueInput struct {
 	PeriodType  *DuePeriodType `json:"period_type"`
 	PaymentRule *PaymentRule   `json:"payment_rule,omitempty"`
 	IsVoluntary *bool          `json:"is_voluntary,omitempty"`
+	DueType     *string        `json:"due_type,omitempty"`
+	Year        *int           `json:"year,omitempty"`
 	IsActive    *bool          `json:"is_active"`
 	ValidUntil  *string        `json:"valid_until,omitempty"`
 }
@@ -127,16 +146,36 @@ type Bill struct {
 	Period               string     `json:"period"` // e.g. "2026-09"
 	DueDate              string     `json:"due_date"`
 	Status               BillStatus `json:"status"`
+	IsActive             bool       `json:"is_active"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 
 	// Enriched fields from JOIN queries
 	DueName       *string `json:"due_name,omitempty"`
+	DueIsActive   *bool   `json:"due_is_active,omitempty"`
+	DueType       *string `json:"due_type,omitempty"`
+	DueYear       *int    `json:"due_year,omitempty"`
 	HouseNumber   *string `json:"house_number,omitempty"`
 	HeadName      *string `json:"head_name,omitempty"`
 	IsVoluntary   bool    `json:"is_voluntary"`
 	PaidAmount    *string `json:"paid_amount,omitempty"`
 	PendingAmount *string `json:"pending_amount,omitempty"`
+}
+
+type UpdateBillStatusInput struct {
+	IsActive bool `json:"is_active"`
+}
+
+type DueMonthSummary struct {
+	Period        string `json:"period"`
+	Month         int    `json:"month"`
+	Year          int    `json:"year"`
+	TotalBills    int    `json:"total_bills"`
+	ActiveBills   int    `json:"active_bills"`
+	PaidBills     int    `json:"paid_bills"`
+	UnpaidBills   int    `json:"unpaid_bills"`
+	IsActive      bool   `json:"is_active"`
+	CanDeactivate bool   `json:"can_deactivate"`
 }
 
 type CreateBillInput struct {
@@ -176,6 +215,7 @@ const (
 	PaymentStatusPending  PaymentStatus = "PENDING"
 	PaymentStatusApproved PaymentStatus = "APPROVED"
 	PaymentStatusRejected PaymentStatus = "REJECTED"
+	PaymentStatusReversed PaymentStatus = "REVERSED"
 )
 
 // Payment represents a recorded payment for a bill or a voluntary donation.
@@ -208,26 +248,39 @@ type Payment struct {
 	ProofSizeBytes    *int64        `json:"proof_size_bytes,omitempty"`
 	ProofUploadedAt   *time.Time    `json:"proof_uploaded_at,omitempty"`
 	ProofUploadedBy   *string       `json:"proof_uploaded_by,omitempty"`
+	ActualReceivedDate *string      `json:"actual_received_date,omitempty"` // YYYY-MM-DD
+
+	// Enriched fields from JOIN queries (not stored directly)
+	Period         *string `json:"period,omitempty"`
+	LocationID     *string `json:"location_id,omitempty"`
+	LocationName   *string `json:"location_name,omitempty"`
 }
 
 type CreatePaymentInput struct {
-	BillID            *string       `json:"bill_id,omitempty"`
-	DueID             *string       `json:"due_id,omitempty"`
-	SubmittedBy       *string       `json:"-"`
-	Amount            string        `json:"amount"`
-	Method            PaymentMethod `json:"method"`
-	ProofPath         *string       `json:"proof_path,omitempty"`
-	Notes             *string       `json:"notes,omitempty"`
-	ProofOriginalName *string       `json:"proof_original_name,omitempty"`
-	ProofMimeType     *string       `json:"proof_mime_type,omitempty"`
-	ProofSizeBytes    *int64        `json:"proof_size_bytes,omitempty"`
-	ProofUploadedBy   *string       `json:"proof_uploaded_by,omitempty"`
+	BillID             *string       `json:"bill_id,omitempty"`
+	DueID              *string       `json:"due_id,omitempty"`
+	SubmittedBy        *string       `json:"-"`
+	Amount             string        `json:"amount"`
+	Method             PaymentMethod `json:"method"`
+	ProofPath          *string       `json:"proof_path,omitempty"`
+	Notes              *string       `json:"notes,omitempty"`
+	ProofOriginalName  *string       `json:"proof_original_name,omitempty"`
+	ProofMimeType      *string       `json:"proof_mime_type,omitempty"`
+	ProofSizeBytes     *int64        `json:"proof_size_bytes,omitempty"`
+	ProofUploadedBy    *string       `json:"proof_uploaded_by,omitempty"`
+	ActualReceivedDate *string       `json:"actual_received_date,omitempty"` // YYYY-MM-DD
 }
 
 type VerifyPaymentInput struct {
-	Action          string  `json:"action"` // "approve" or "reject"
-	RejectionReason *string `json:"rejection_reason,omitempty"`
-	OfficerNotes    *string `json:"officer_notes,omitempty"`
+	Action             string  `json:"action"` // "approve" or "reject"
+	RejectionReason    *string `json:"rejection_reason,omitempty"`
+	OfficerNotes       *string `json:"officer_notes,omitempty"`
+	LocationID         *string `json:"location_id,omitempty"`
+	ActualReceivedDate *string `json:"actual_received_date,omitempty"` // YYYY-MM-DD (required when Action == "approve")
+}
+
+type ReversePaymentInput struct {
+	Reason string `json:"reason"`
 }
 
 // VerifyPaymentResult carries the outcome of VerifyPayment.
@@ -253,6 +306,7 @@ type PaymentAllocation struct {
 type CreateMultiPeriodPaymentInput struct {
 	BillIDs           []string          `json:"bill_ids"`
 	Allocations       []AllocationEntry `json:"allocations"`
+	Amount            *string           `json:"amount,omitempty"`
 	Method            PaymentMethod     `json:"method"`
 	ProofPath         *string           `json:"proof_path,omitempty"`
 	Notes             *string           `json:"notes,omitempty"`
@@ -260,6 +314,7 @@ type CreateMultiPeriodPaymentInput struct {
 	ProofMimeType     *string           `json:"proof_mime_type,omitempty"`
 	ProofSizeBytes    *int64            `json:"proof_size_bytes,omitempty"`
 	ProofUploadedBy   *string           `json:"proof_uploaded_by,omitempty"`
+	ActualReceivedDate *string          `json:"actual_received_date,omitempty"` // YYYY-MM-DD
 }
 
 // AllocationEntry maps a bill to its allocated amount within a multi-period payment.
@@ -315,6 +370,8 @@ type Transaction struct {
 	DueName       *string `json:"due_name,omitempty"`
 	CitizenName   *string `json:"citizen_name,omitempty"`
 	HouseNumber   *string `json:"house_number,omitempty"`
+	LocationID    *string `json:"location_id,omitempty"`
+	LocationName  *string `json:"location_name,omitempty"`
 }
 
 type CreateTransactionInput struct {
@@ -324,6 +381,7 @@ type CreateTransactionInput struct {
 	Description   string          `json:"description"`
 	OccurredAt    *string         `json:"occurred_at,omitempty"` // RFC3339 or YYYY-MM-DD
 	PaymentMethod *string         `json:"payment_method,omitempty"`
+	LocationID    *string         `json:"location_id,omitempty"`
 }
 
 type UpdateTransactionInput struct {
@@ -333,6 +391,7 @@ type UpdateTransactionInput struct {
 	Description   *string          `json:"description,omitempty"`
 	OccurredAt    *string          `json:"occurred_at,omitempty"`
 	PaymentMethod *string          `json:"payment_method,omitempty"`
+	LocationID    *string          `json:"location_id,omitempty"`
 }
 
 type DashboardPaymentMethodBreakdown struct {
@@ -437,6 +496,31 @@ func (d *CreateDueInput) Validate() error {
 	if d.Name == "" {
 		return errors.New("dues name is required")
 	}
+	d.DueType = strings.TrimSpace(d.DueType)
+	if d.DueType == "" {
+		if d.IsVoluntary {
+			d.DueType = DueTypeVoluntary
+		} else {
+			d.DueType = DueTypeRegular
+		}
+	}
+	if d.DueType != DueTypeRegular && d.DueType != DueTypeVoluntary && d.DueType != DueTypeMultiMonth {
+		return errors.New("invalid due_type: must be regular, voluntary, or multi_month")
+	}
+	if d.DueType == DueTypeVoluntary {
+		d.IsVoluntary = true
+	} else if d.DueType == DueTypeMultiMonth {
+		d.IsVoluntary = false
+		if d.PeriodType == "" {
+			d.PeriodType = DuePeriodMonthly
+		}
+		if d.Year == nil || *d.Year < 2000 || *d.Year > 2100 {
+			return errors.New("year is required and must be between 2000 and 2100 for multi_month due")
+		}
+	} else {
+		d.IsVoluntary = false
+	}
+
 	cents, canon, err := ParseMoney(d.Amount)
 	if err != nil {
 		return ErrInvalidAmount

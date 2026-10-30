@@ -45,69 +45,69 @@ func TestLogin_EmailAndPhoneVariants(t *testing.T) {
 		wantRole   string
 	}{
 		{
-			name: "Pengurus RT 03 login by email",
+			name: "Pengurus RT 01 login by email",
 			body: map[string]string{
-				"email":    "ketua-003@local.com",
+				"email":    "ketua-001@local.com",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "ketua-003@local.com",
+			wantEmail:  "ketua-001@local.com",
 			wantRole:   "pengurus",
 		},
 		{
-			name: "Pengurus RT 03 login by canonical phone (+62)",
+			name: "Pengurus RT 01 login by canonical phone (+62)",
 			body: map[string]string{
 				"phone":    "+628130000100",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "ketua-003@local.com",
+			wantEmail:  "ketua-001@local.com",
 			wantRole:   "pengurus",
 		},
 		{
-			name: "Pengurus RT 03 login by local phone (08...)",
+			name: "Pengurus RT 01 login by local phone (08...)",
 			body: map[string]string{
 				"phone":    "08130000100",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "ketua-003@local.com",
+			wantEmail:  "ketua-001@local.com",
 			wantRole:   "pengurus",
 		},
 		{
-			name: "Pengurus RT 03 login by identifier field",
+			name: "Pengurus RT 01 login by identifier field",
 			body: map[string]string{
 				"identifier": "08130000100",
 				"password":   devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "ketua-003@local.com",
+			wantEmail:  "ketua-001@local.com",
 			wantRole:   "pengurus",
 		},
 		{
-			name: "Warga RT 03 login by email",
+			name: "Warga RT 01 login by email",
 			body: map[string]string{
-				"email":    "warga.rt03@local.com",
+				"email":    "warga.rt01@local.com",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "warga.rt03@local.com",
+			wantEmail:  "warga.rt01@local.com",
 			wantRole:   "warga",
 		},
 		{
-			name: "Warga RT 03 login by local phone",
+			name: "Warga RT 01 login by local phone",
 			body: map[string]string{
 				"phone":    "081300000030",
 				"password": devseed.DefaultSeedPassword,
 			},
 			wantStatus: http.StatusOK,
-			wantEmail:  "warga.rt03@local.com",
+			wantEmail:  "warga.rt01@local.com",
 			wantRole:   "warga",
 		},
 		{
 			name: "Invalid password rejected",
 			body: map[string]string{
-				"email":    "ketua-003@local.com",
+				"email":    "ketua-001@local.com",
 				"password": "WrongPassword123!",
 			},
 			wantStatus: http.StatusUnauthorized,

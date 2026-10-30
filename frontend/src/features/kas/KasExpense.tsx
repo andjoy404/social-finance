@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DatePicker } from 'antd'
 import dayjs from 'dayjs'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { useAuth } from '@/app/AuthContext'
 import { hasWargaWriteAccess } from '@/app/wargaAuth'
-import { apiCreateTransaction, getSessionPair } from '@/app/api'
+import { apiCreateTransaction, apiListFundLocations, getSessionPair, type FundLocation } from '@/app/api'
 import { toJakartaIso8601, getJakartaDateString } from '@/utils/jakartaTime'
 import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
 import {
@@ -22,17 +22,21 @@ import {
 interface FormState {
   tanggal: string
   nominal: string
+  kategori: string
   keterangan: string
   paymentMethod: 'CASH' | 'TRANSFER'
   jenis: 'masuk' | 'keluar'
+  locationId: string
 }
 
 const emptyForm: FormState = {
   tanggal: getJakartaDateString(),
   nominal: '',
+  kategori: '',
   keterangan: '',
   paymentMethod: 'CASH',
   jenis: 'keluar',
+  locationId: '',
 }
 
 export function KasExpense() {
@@ -44,6 +48,35 @@ export function KasExpense() {
   const canWrite = hasWargaWriteAccess(user)
 
   const handleClose = () => navigate('/kas')
+
+  // Category state
+  interface Category {
+    id: string
+    name: string
+    type: string
+  }
+  const [categories, setCategories] = useState<Category[]>([])
+  const [loadingCategories, setLoadingCategories] = useState(true)
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const token = getSessionPair()?.accessToken ?? ''
+        const res = await fetch('/api/v1/categories', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setCategories(Array.isArray(data) ? data : (data.data ?? []))
+        }
+      } catch {
+        // ignore
+      } finally {
+        setLoadingCategories(false)
+      }
+    }
+    fetchCategories()
+  }, [])
 
   if (!canWrite) {
     return (
@@ -72,6 +105,16 @@ export function KasExpense() {
   // Bukti bayar (opsional, tidak dikirim ke backend karena contract API transaksi tidak mendukung file)
   const [proofFile, setProofFile] = useState<File | null>(null)
   const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null)
+  const [fundLocations, setFundLocations] = useState<FundLocation[]>([])
+
+  useEffect(() => {
+    const token = getSessionPair()?.accessToken
+    if (token) {
+      apiListFundLocations(token, { is_active: true })
+        .then(setFundLocations)
+        .catch(() => {})
+    }
+  }, [])
 
   const handleChange = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -132,7 +175,21 @@ export function KasExpense() {
         errs.push('Nominal harus berupa angka lebih dari 0.')
       }
     }
+    // Kategori bersifat opsional
+    if (form.kategori && form.kategori.trim()) {
+      // validasi kategori jika diisi
+    }
     if (!form.keterangan.trim()) errs.push('Keterangan harus diisi.')
+    if (form.jenis === 'keluar' && form.locationId) {
+      const selected = fundLocations.find((l) => l.id === form.locationId)
+      if (selected) {
+        const bal = parseMoney(selected.current_balance) || 0
+        const nom = parseMoney(form.nominal) || 0
+        if (nom > bal) {
+          errs.push(`Saldo pada ${selected.name} tidak mencukupi (Tersedia: Rp ${formatRibuan(bal)}).`)
+        }
+      }
+    }
     if (errs.length > 0) {
       setValidationErrors(errs)
       return
@@ -141,12 +198,18 @@ export function KasExpense() {
     setSaving(true)
     try {
       const token = getSessionPair()?.accessToken ?? ''
+      const cat = categories.find(
+        (c) => c.name === form.kategori,
+        null,
+      )
       await apiCreateTransaction(token, {
         amount: String(parseMoney(form.nominal)),
         type: form.jenis === 'masuk' ? 'income' : 'expense',
+        category_id: cat?.id,
         description: form.keterangan.trim(),
         occurred_at: toJakartaIso8601(form.tanggal),
         payment_method: form.paymentMethod,
+        location_id: form.locationId || undefined,
       })
       navigate('/kas')
     } catch (err: any) {
@@ -303,6 +366,68 @@ export function KasExpense() {
                 <BankOutlined style={{ color: form.paymentMethod === 'TRANSFER' ? 'var(--sf-accent)' : 'var(--sf-text-muted)' }} /> Transfer Bank
               </button>
             </div>
+          </div>
+
+          {/* Lokasi Dana */}
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="ke-location">
+              Lokasi Dana
+            </label>
+            <select
+              id="ke-location"
+              className="sf-select"
+              value={form.locationId}
+              onChange={(e) => handleChange('locationId', e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-surface)', color: 'var(--sf-text)' }}
+            >
+              <option value="">-- Tanpa Lokasi Dana (Kas Umum) --</option>
+              {fundLocations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name} ({loc.category.toUpperCase()}) - Saldo: Rp {formatRibuan(loc.current_balance)}
+                </option>
+              ))}
+            </select>
+            {form.jenis === 'keluar' && form.locationId && (() => {
+              const sel = fundLocations.find((l) => l.id === form.locationId)
+              if (sel && parseMoney(form.nominal) > (parseMoney(sel.current_balance) || 0)) {
+                return (
+                  <div style={{ color: 'var(--sf-danger)', fontSize: 12, marginTop: 4 }}>
+                    Peringatan: Saldo {sel.name} tidak mencukupi (Rp {formatRibuan(sel.current_balance)}).
+                  </div>
+                )
+              }
+              return null
+            })()}
+          </div>
+
+          {/* Kategori */}
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="ke-kategori">
+              <WalletOutlined style={{ marginRight: 4 }} />
+              Kategori
+            </label>
+            <select
+              id="ke-kategori"
+              className="sf-form-input"
+              value={form.kategori}
+              onChange={(e) => {
+                handleChange('kategori', e.target.value)
+                setValidationErrors([])
+              }}
+              disabled={saving || loadingCategories}
+              style={{
+                cursor: saving || loadingCategories ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <option value="">Pilih Kategori</option>
+              {categories
+                .filter((c) => c.type === (form.jenis === 'masuk' ? 'income' : 'expense'))
+                .map((c) => (
+                  <option key={c.id} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
           </div>
 
           {/* Nominal */}

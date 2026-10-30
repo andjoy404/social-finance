@@ -386,12 +386,12 @@ class FlutterSecureAuthStorage implements SecureAuthStorage {
   @override
   Future<StoredSession?> getSession() async {
     try {
-      final accessToken = await _storage.read(key: _keyAccessToken);
+      final accessToken = await _storage.read(key: _keyAccessToken) ?? '';
       final refreshToken = await _storage.read(key: _keyRefreshToken) ?? '';
       final serverUrl = await _storage.read(key: _keyServerUrl) ?? '';
       final userDataStr = await _storage.read(key: _keyUserData);
 
-      if (accessToken == null || accessToken.trim().isEmpty) {
+      if (accessToken.trim().isEmpty && refreshToken.trim().isEmpty) {
         return null;
       }
 
@@ -439,7 +439,11 @@ class FlutterSecureAuthStorage implements SecureAuthStorage {
   Future<bool> hasSession() async {
     try {
       final token = await _storage.read(key: _keyAccessToken);
-      return token != null && token.trim().isNotEmpty;
+      if (token != null && token.trim().isNotEmpty) {
+        return true;
+      }
+      final refresh = await _storage.read(key: _keyRefreshToken);
+      return refresh != null && refresh.trim().isNotEmpty;
     } catch (e) {
       return false;
     }

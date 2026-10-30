@@ -54,10 +54,16 @@ class KasReportAccess {
 // ---------------------------------------------------------------------------
 
 class KasReportScreen extends ConsumerStatefulWidget {
-  const KasReportScreen({super.key, this.period});
+  const KasReportScreen({super.key, this.period, this.startDate, this.endDate});
 
   /// Periode YYYY-MM; null = semua periode.
   final String? period;
+
+  /// Date range filter for year view.
+  final String? startDate;
+
+  /// Date range filter for year view.
+  final String? endDate;
 
   @override
   ConsumerState<KasReportScreen> createState() => _KasReportScreenState();
@@ -116,8 +122,14 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
       final txs = await repository.fetchAllBackendTransactions(
         status: 'posted',
         period: widget.period,
+        startDate: widget.startDate,
+        endDate: widget.endDate,
       );
-      final balance = await repository.fetchBalance(period: widget.period);
+      final balance = await repository.fetchBalance(
+        period: widget.period,
+        startDate: widget.startDate,
+        endDate: widget.endDate,
+      );
 
       BackendRTIdentity? rtDetail;
       if (rtId != null && rtId.isNotEmpty) {

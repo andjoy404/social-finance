@@ -23,9 +23,26 @@ export interface AuthUser {
   rtId?: string | null
 }
 
+export function isSuperAdminUser(user: AuthUser | null | undefined): boolean {
+  if (!user) return false
+  const sysRole = (user.systemRole ?? '').trim().toLowerCase()
+  const tenantRole = (user.role ?? '').trim().toLowerCase()
+  return sysRole === 'super_admin' || tenantRole === 'super_admin'
+}
+
+export function isKetuaRTUser(user: AuthUser | null | undefined): boolean {
+  if (!user) return false
+  const jabatan = (user.jabatan ?? '').trim().toLowerCase()
+  return jabatan === 'ketua' || jabatan === 'ketua_rt' || jabatan === 'ketua rt'
+}
+
+export function canAccessNotificationMenu(user: AuthUser | null | undefined): boolean {
+  return isSuperAdminUser(user) || isKetuaRTUser(user)
+}
+
 export function isAllowedRT(user: AuthUser | null): boolean {
   if (!user) return false
-  if (user.systemRole === 'super_admin') return true
+  if (isSuperAdminUser(user)) return true
   if (user.rtCode && ALLOWED_RT_CODES.includes(user.rtCode)) return true
   if (user.rtId && ALLOWED_RT_IDS.includes(user.rtId)) return true
   if (user.rt?.id && ALLOWED_RT_IDS.includes(user.rt.id)) return true
@@ -35,6 +52,11 @@ export function isAllowedRT(user: AuthUser | null): boolean {
 function mapUser(raw: ApiUser): AuthUser {
   const rtCode = raw.rt_rt ?? (raw.rt as { rt?: string } | null)?.rt ?? null
   const rtId = raw.rt_id ?? raw.rt?.id ?? null
+  if (rtId && typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.setItem('sf_active_rt_id', rtId)
+    } catch { /* ignore */ }
+  }
   return {
     id: raw.id,
     name: raw.full_name,
@@ -81,6 +103,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearAll = useCallback(() => {
     setUser(null)
     clearSessionPair()
+    try {
+      sessionStorage.removeItem('sf_active_rt_id')
+    } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {

@@ -63,6 +63,8 @@ class KasRepository {
     KasJenis? jenis,
     String? status,
     String? period,
+    String? startDate,
+    String? endDate,
   }) async {
     final allTransactions = <KasTransaction>[];
     int currentPage = 1;
@@ -73,6 +75,8 @@ class KasRepository {
         jenis: jenis,
         status: status,
         period: period,
+        startDate: startDate,
+        endDate: endDate,
         page: currentPage,
         pageSize: 100,
       );
@@ -105,6 +109,8 @@ class KasRepository {
   Future<List<BackendTransaction>> fetchAllBackendTransactions({
     String? status,
     String? period,
+    String? startDate,
+    String? endDate,
   }) async {
     final all = <BackendTransaction>[];
     var page = 1;
@@ -113,6 +119,8 @@ class KasRepository {
       final response = await apiClient.listTransactions(
         status: status,
         period: period,
+        startDate: startDate,
+        endDate: endDate,
         page: page,
         pageSize: 100,
       );
@@ -139,6 +147,7 @@ class KasRepository {
     required String description,
     DateTime? occurredAt,
     String? paymentMethod,
+    String? locationId,
     required String idempotencyKey,
   }) async {
     final backendTx = await apiClient.createTransaction(
@@ -148,6 +157,7 @@ class KasRepository {
       description: description,
       occurredAt: occurredAt,
       paymentMethod: paymentMethod,
+      locationId: locationId,
       idempotencyKey: idempotencyKey,
     );
     return _toUiTransaction(backendTx);
@@ -156,8 +166,16 @@ class KasRepository {
   // ─── Balance ────────────────────────────────────────────────────────
 
   /// Fetch current balance summary from the reports endpoint.
-  Future<BackendBalance> fetchBalance({String? period}) async {
-    return apiClient.getBalance(period: period);
+  Future<BackendBalance> fetchBalance({
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
+    return apiClient.getBalance(
+      period: period,
+      startDate: startDate,
+      endDate: endDate,
+    );
   }
 
   // ─── Categories ─────────────────────────────────────────────────────
@@ -187,6 +205,12 @@ class KasRepository {
                   : bt.paymentId)
             : (bt.reversesTransactionId != null ? 'Reversal' : null));
 
+    // If this is a reversal, replace description with the original transaction's reference number
+    String description = bt.description;
+    if (bt.reversesTransactionId != null && bt.reversesTransactionId!.isNotEmpty) {
+      description = 'Reversal: ${ref}';
+    }
+
     return KasTransaction(
       id: bt.id,
       tanggal: bt.occurredAt != null
@@ -194,7 +218,7 @@ class KasRepository {
           : DateTime.now(),
       jenis: jenis,
       kategori: kategori,
-      keterangan: bt.description,
+      keterangan: description,
       referensi: ref,
       dueName: bt.dueName,
       citizenName: bt.citizenName,
@@ -204,6 +228,7 @@ class KasRepository {
       createdAt: bt.createdAt != null ? DateTime.tryParse(bt.createdAt!) : null,
       nominal: bt.amount,
       saldo: '0', // Balance is computed server-side, not per-transaction
+      reversesTransactionId: bt.reversesTransactionId,
     );
   }
 

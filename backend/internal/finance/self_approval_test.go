@@ -79,7 +79,8 @@ func TestVerifyPayment_SelfApprovalPrevention(t *testing.T) {
 			t.Fatalf("begin tx: %v", err)
 		}
 
-		verifyIn := VerifyPaymentInput{Action: "approve"}
+		actualDate := "2026-10-20"
+		verifyIn := VerifyPaymentInput{Action: "approve", ActualReceivedDate: &actualDate}
 		_, err = svc.VerifyPayment(ctx, tx, rtID, submitterID, payment.ID, verifyIn)
 		if err == nil {
 			tx.Rollback()
@@ -153,7 +154,8 @@ func TestVerifyPayment_SelfApprovalPrevention(t *testing.T) {
 			t.Fatalf("begin tx: %v", err)
 		}
 
-		verifyIn := VerifyPaymentInput{Action: "approve"}
+		actualDate := "2026-10-20"
+		verifyIn := VerifyPaymentInput{Action: "approve", ActualReceivedDate: &actualDate}
 		_, err = svc.VerifyPayment(ctx, tx, rtID, verifierID, payment.ID, verifyIn)
 		if err != nil {
 			tx.Rollback()
@@ -246,7 +248,8 @@ func TestVerifyPayment_SubmitterIsNull_NoBlock(t *testing.T) {
 		if err2 != nil {
 			t.Fatalf("begin tx: %v", err2)
 		}
-		verifyIn := VerifyPaymentInput{Action: "approve"}
+		actualDate := "2026-10-20"
+		verifyIn := VerifyPaymentInput{Action: "approve", ActualReceivedDate: &actualDate}
 		_, err := svc.VerifyPayment(ctx, tx2, rtID, verifierID, payment.ID, verifyIn)
 		if err == nil {
 			tx2.Rollback()

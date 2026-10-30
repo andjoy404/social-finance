@@ -367,7 +367,7 @@ describe('IuranList - Pagination and Bill Name Search', () => {
     fireEvent.change(searchInput, { target: { value: 'Keamanan' } })
 
     await waitFor(() => {
-      expect(api.apiListBills).toHaveBeenLastCalledWith('test-token', expect.objectContaining({
+      expect(api.apiListBills).toHaveBeenCalledWith('test-token', expect.objectContaining({
         page: 1,
         search: 'Keamanan',
       }))
@@ -598,7 +598,7 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('Ketua RT with role=warga and jabatan=ketua sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
+  it('Ketua RT with role=warga and jabatan=ketua does NOT see Iuran Warga or Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -624,8 +624,9 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+    // role=warga always wins over jabatan: manager tabs stay hidden.
+    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
   })
 
   it('Bendahara RT with role=bendahara and jabatan=null sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
@@ -658,7 +659,7 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('User with effectivePermissions containing finance.read sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {
+  it('User with role=warga and effectivePermissions finance.read does NOT see Iuran Warga or Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -685,8 +686,9 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
+    // role=warga always wins over effectivePermissions: manager tabs stay hidden.
+    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
   })
 })
 

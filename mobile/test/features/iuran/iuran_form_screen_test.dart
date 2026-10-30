@@ -40,6 +40,8 @@ class FakeIuranRepository extends IuranRepository {
     PaymentRule? paymentRule,
     bool? isVoluntary,
     String? validUntil,
+    DueType? dueType,
+    int? year,
   }) async {
     if (createError != null) throw createError!;
     calls.add('createDue');
@@ -52,6 +54,8 @@ class FakeIuranRepository extends IuranRepository {
       paymentRule: paymentRule ?? PaymentRule.full,
       isVoluntary: isVoluntary ?? false,
       isActive: true,
+      dueType: dueType ?? (isVoluntary == true ? DueType.voluntary : DueType.regular),
+      year: year,
     );
   }
 
