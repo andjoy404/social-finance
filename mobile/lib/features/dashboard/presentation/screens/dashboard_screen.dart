@@ -50,31 +50,29 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   DashboardSummary? _apiSummary;
   DateTime _activeDate = DateTime.now();
-  bool _isAllPeriods = false;
+  int _selectedYear = DateTime.now().year;
+  bool _isYearFilterActive = false;
   bool _isRefreshing = false;
+  bool _filterExpanded = false;
+
+  static const _monthNames = [
+    'Januari',
+    'Februari',
+    'Maret',
+    'April',
+    'Mei',
+    'Juni',
+    'Juli',
+    'Agustus',
+    'September',
+    'Oktober',
+    'November',
+    'Desember',
+  ];
 
   bool get _isCurrentMonth {
     final now = DateTime.now();
     return _activeDate.year == now.year && _activeDate.month == now.month;
-  }
-
-  String _formatMonthYear(DateTime dt) {
-    const months = [
-      '',
-      'Januari',
-      'Februari',
-      'Maret',
-      'April',
-      'Mei',
-      'Juni',
-      'Juli',
-      'Agustus',
-      'September',
-      'Oktober',
-      'November',
-      'Desember',
-    ];
-    return '${months[dt.month]} ${dt.year}';
   }
 
   String _formatMonthYearShort(DateTime dt) {
@@ -96,45 +94,185 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return '${months[dt.month]} ${dt.year}';
   }
 
-  void _prevMonth() {
-    setState(() {
-      _isAllPeriods = false;
-      _activeDate = DateTime(_activeDate.year, _activeDate.month - 1);
-    });
-    _fetchDashboard();
-  }
-
-  void _nextMonth() {
-    setState(() {
-      _isAllPeriods = false;
-      _activeDate = DateTime(_activeDate.year, _activeDate.month + 1);
-    });
-    _fetchDashboard();
-  }
-
   Future<void> _pickMonth() async {
-    final picked = await showDatePicker(
+    final months = [
+      'Semua Bulan', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    ];
+    int selYear = _activeDate.year;
+    int selMonth = _activeDate.month;
+
+    return await showModalBottomSheet<void>(
       context: context,
-      initialDate: _activeDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-      initialDatePickerMode: DatePickerMode.year,
-      helpText: 'PILIH PERIODE BULAN',
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Bulan',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 2.2,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: months.length,
+                  itemBuilder: (_, i) {
+                    final isAll = i == 0;
+                    final isSelected = isAll ? _isYearFilterActive : (i == selMonth && !_isYearFilterActive);
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          if (isAll) {
+                            _isYearFilterActive = true;
+                          } else {
+                            _activeDate = DateTime(selYear, i, 1);
+                            _isYearFilterActive = false;
+                          }
+                        });
+                        _fetchDashboard();
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                      },
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? AppColors.accent.withValues(alpha: 0.2)
+                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          border: Border.all(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          months[i],
+                          style: TextStyle(
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark ? AppColors.darkText : AppColors.lightText),
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
-    if (picked != null) {
-      setState(() {
-        _isAllPeriods = false;
-        _activeDate = DateTime(picked.year, picked.month, 1);
-      });
-      _fetchDashboard();
-    }
   }
 
-  void _toggleAllPeriods() {
-    setState(() {
-      _isAllPeriods = !_isAllPeriods;
-    });
-    _fetchDashboard();
+  Future<void> _pickYear() async {
+    final currentYear = DateTime.now().year;
+    int selYear = _selectedYear;
+
+    return await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setModalState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final years = List.generate(15, (i) => currentYear - 7 + i);
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih Tahun',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    childAspectRatio: 2.0,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: years.length,
+                  itemBuilder: (_, i) {
+                    final year = years[i];
+                    final isSelected = year == selYear;
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedYear = year;
+                          _isYearFilterActive = true;
+                        });
+                        _fetchDashboard();
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                      },
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
+                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          border: Border.all(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          year.toString(),
+                          style: TextStyle(
+                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -149,9 +287,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     try {
       final api = ref.read(kasApiClientProvider);
-      final periodParam = _isAllPeriods
-          ? 'all'
+      // Year filter: send "YYYY" only (backend will use Jan-Dec of that year)
+      // Month filter: send "YYYY-MM"
+      final periodParam = _isYearFilterActive
+          ? '${_selectedYear}'
           : '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+
       final json = await api.getDashboardSummary(periodParam);
       if (mounted) {
         setState(() {
@@ -269,87 +410,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ],
                 ),
 
-                // ── Month Filter Bar ──
-                const SizedBox(height: _panelGap),
-                Container(
-                  decoration: BoxDecoration(
-                    color: theme.scaffoldBackgroundColor,
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    border: Border.all(
-                      color: isDark
-                          ? AppColors.darkBorder
-                          : AppColors.lightBorder,
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm,
-                    vertical: AppSpacing.xs,
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.chevron_left),
-                        onPressed: _isAllPeriods ? null : _prevMonth,
-                        tooltip: 'Bulan Sebelumnya',
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      Expanded(
-                        child: InkWell(
-                          onTap: _isAllPeriods ? null : _pickMonth,
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 4,
-                              horizontal: 8,
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  _isAllPeriods
-                                      ? 'Semua Periode'
-                                      : _formatMonthYear(_activeDate),
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: _isAllPeriods
-                                        ? theme.colorScheme.onSurfaceVariant
-                                        : AppColors.accent,
-                                  ),
-                                ),
-                                if (!_isAllPeriods) ...[
-                                  const SizedBox(width: 4),
-                                  const Icon(
-                                    Icons.arrow_drop_down,
-                                    size: 20,
-                                    color: AppColors.accent,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.chevron_right),
-                        onPressed: _isAllPeriods ? null : _nextMonth,
-                        tooltip: 'Bulan Berikutnya',
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      const SizedBox(width: 4),
-                      ChoiceChip(
-                        label: Text(
-                          _isAllPeriods ? 'Per Bulan' : 'Semua',
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                        selected: _isAllPeriods,
-                        visualDensity: VisualDensity.compact,
-                        onSelected: (val) {
-                          _toggleAllPeriods();
-                        },
-                      ),
-                    ],
-                  ),
-                ),
+                // ── Periode + Tahun Filter (expandable seperti KAS) ──
+                _buildFilterBar(theme, isDark),
 
                 // ── Saldo Kas ──
                 const SizedBox(height: _panelGap),
@@ -488,6 +550,165 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           ),
         ),
+    );
+  }
+
+  // ── Month/Year Filter Button Bar (like Kas) ──
+  Widget _buildFilterBar(ThemeData theme, bool isDark) {
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _filterExpanded = !_filterExpanded;
+        });
+      },
+      borderRadius: BorderRadius.circular(AppRadius.base),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? AppColors.darkSurface
+                  : AppColors.lightSurface,
+              borderRadius: BorderRadius.circular(AppRadius.base),
+              border: Border.all(
+                color: isDark
+                    ? AppColors.accent.withValues(alpha: 0.35)
+                    : AppColors.accent.withValues(alpha: 0.25),
+                width: 1,
+              ),
+              boxShadow: isDark
+                  ? [
+                      BoxShadow(
+                        color: AppColors.accent
+                            .withValues(alpha: 0.12),
+                        blurRadius: 8,
+                        spreadRadius: 0,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.tune,
+                  size: 18,
+                  color: isDark
+                      ? AppColors.darkText
+                      : AppColors.lightText,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Filter',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                AnimatedRotation(
+                  turns: _filterExpanded ? 0 : 0.5,
+                  duration: const Duration(milliseconds: 200),
+                  child: Icon(
+                    Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _filterExpanded
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 12),
+                      // Row 1: Periode + Tahun
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.base,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: _pickMonth,
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                                child: Container(
+                                  height: 38,
+                                  alignment: Alignment.centerLeft,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? AppColors.darkSurface
+                                        : AppColors.lightSurface,
+                                    borderRadius: BorderRadius.circular(AppRadius.base),
+                                    border: Border.all(
+                                      color: isDark
+                                          ? AppColors.accent.withValues(alpha: 0.35)
+                                          : AppColors.accent.withValues(alpha: 0.25),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _isYearFilterActive ? 'Semua Bulan' : _monthNames[_activeDate.month - 1],
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: InkWell(
+                                onTap: _pickYear,
+                                borderRadius: BorderRadius.circular(AppRadius.base),
+                                child: Container(
+                                  height: 38,
+                                  alignment: Alignment.centerLeft,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? AppColors.darkSurface
+                                        : AppColors.lightSurface,
+                                    borderRadius: BorderRadius.circular(AppRadius.base),
+                                    border: Border.all(
+                                      color: isDark
+                                          ? AppColors.accent.withValues(alpha: 0.35)
+                                          : AppColors.accent.withValues(alpha: 0.25),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _selectedYear.toString(),
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
     );
   }
 
