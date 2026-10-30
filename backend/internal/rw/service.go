@@ -39,13 +39,13 @@ func NewService(pool *database.Pool, repo *Repository, scopingCfg *auth.ScopingC
 //   - If scopingCfg is nil or empty, no SA can access any RW (fail-closed).
 //
 // Regular users must have an active RW membership whose rwID matches the requested scope.
-func (s *Service) checkRWAccess(ac *auth.AuthContext, rwID string) error {
+func (s *Service) checkRWAccess(ctx context.Context, ac *auth.AuthContext, rwID string) error {
 	if ac == nil {
 		return fmt.Errorf("no authentication context")
 	}
 	// Super Admin: validate scope and active status via shared validator.
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
-		return auth.ValidateSAForRW(context.Background(), s.scopingCfg, s.pool, rwID)
+		return auth.ValidateSAForRW(ctx, s.scopingCfg, s.pool, rwID)
 	}
 	for _, rm := range ac.RWMemberships {
 		if rm.RWID == rwID {
@@ -89,7 +89,7 @@ func (s *Service) checkRWPermission(ac *auth.AuthContext, rwID string, requiredP
 // requirePermission is a helper that wraps both access and permission checks.
 // It is the standard entry point for all public service methods.
 func (s *Service) requirePermission(ctx context.Context, ac *auth.AuthContext, rwID string, permissionCode string) error {
-	if err := s.checkRWAccess(ac, rwID); err != nil {
+	if err := s.checkRWAccess(ctx, ac, rwID); err != nil {
 		return err
 	}
 	return s.checkRWPermission(ac, rwID, permissionCode)

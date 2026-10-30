@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,6 +26,18 @@ type ScopingConfig struct {
 	RTIDs []string // validated UUIDs for RT allowlist (mandatory)
 	RWIDs []string // validated UUIDs for RW allowlist (optional, may be nil/empty)
 }
+
+// Sentinel errors for SA scope validation. Middleware uses errors.Is() to
+// distinguish authorization denials (403) from infrastructure failures (500).
+var (
+	// ErrRWScopeInvalid means the request was denied for authorization reasons:
+	// config unavailable, RW not in allowlist, RW not found, or RW inactive.
+	ErrRWScopeInvalid = errors.New("rw access denied")
+
+	// ErrRWInfrastructure means the validation could not proceed due to an
+	// internal problem (nil pool, database query failure).
+	ErrRWInfrastructure = errors.New("rw access denied: infrastructure error")
+)
 
 // isValidUUID checks if a string is a valid UUID v4 format.
 func isValidUUID(s string) bool {
@@ -161,6 +174,12 @@ func RequireRWScope(pool *database.Pool, cfg ScopingConfig) func(http.Handler) h
 				ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 				defer cancel()
 				if err := ValidateSAForRW(ctx, &cfg, pool, rwID); err != nil {
+					// Distinguish authorization denials (403) from
+					// infrastructure/database failures (500) using typed errors.
+					if errors.Is(err, ErrRWInfrastructure) {
+						httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "database unavailable")
+						return
+					}
 					httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rw not found or inactive")
 					return
 				}
@@ -233,35 +252,34 @@ func extractRWIDFromPath(r *http.Request) string {
 //   - ctx: request context for timeout/cancellation.
 //   - cfg: ScopingConfig holding the SCOPED_RW_IDS allowlist. If nil or empty,
 //     no SA can access any RW (fail-closed).
-//   - pool: database connection pool. If nil, returns an error.
+//   - pool: database connection pool. If nil, returns ErrRWInfrastructure.
 //   - rwID: the RW identifier to validate against.
 //
 // Errors:
-//   - If cfg is nil/empty or rwID not in SCOPED_RW_IDS → fmt.Errorf wrapping ErrRWScopeInvalid.
-//   - If rwID not found in database → fmt.Errorf wrapping ErrRWScopeInvalid.
-//   - If rwID exists but is_active = false → fmt.Errorf wrapping ErrRWScopeInvalid.
-//   - If pool is nil → fmt.Errorf (internal error).
+//   - ErrRWScopeInvalid: config nil/empty, rwID not in SCOPED_RW_IDS,
+//     rwID not found in database, or rwID exists but is_active = false.
+//   - ErrRWInfrastructure: pool is nil or database query fails.
 func ValidateSAForRW(ctx context.Context, cfg *ScopingConfig, pool *database.Pool, rwID string) error {
 	// Fail-closed: no config means no RW access.
 	if cfg == nil {
-		return fmt.Errorf("rw access denied: scoping configuration not available")
+		return ErrRWScopeInvalid
 	}
 	if !cfg.hasRW(rwID) {
-		return fmt.Errorf("rw access denied: rw not in configured scope")
+		return ErrRWScopeInvalid
 	}
 	if pool == nil {
-		return fmt.Errorf("database unavailable")
+		return fmt.Errorf("%w: database unavailable", ErrRWInfrastructure)
 	}
 	var isActive bool
 	err := pool.Raw().QueryRowContext(ctx, `SELECT is_active FROM rws WHERE id = $1 LIMIT 1`, rwID).Scan(&isActive)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("rw access denied: rw not found or inactive")
+		return ErrRWScopeInvalid
 	}
 	if err != nil {
-		return fmt.Errorf("rw access denied: database error checking rw status")
+		return fmt.Errorf("%w: %v", ErrRWInfrastructure, err)
 	}
 	if !isActive {
-		return fmt.Errorf("rw access denied: rw not found or inactive")
+		return ErrRWScopeInvalid
 	}
 	return nil
 }
