@@ -67,7 +67,14 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
     final user = ref.read(authRepositoryProvider)?.valueOrNull;
     if (user == null) return false;
     final role = _roleValue(user['role']);
-    return role == 'warga';
+    if (role != 'warga') return false;
+    // A warga with a management jabatan is not a plain warga for tab purposes.
+    // They hold an RT position (ketua, wakil_ketua, sekretaris, bendahara) and
+    // should see the full iuran tab navigation, not be clamped to "Iuran Saya".
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    final managementJabatans = {'ketua', 'wakil_ketua', 'sekretaris', 'bendahara'};
+    if (managementJabatans.contains(jabatan)) return false;
+    return true;
   }
 
   static String? _roleValue(Object? role) {
