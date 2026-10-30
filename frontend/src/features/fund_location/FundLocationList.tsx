@@ -47,7 +47,7 @@ import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
 export function FundLocationList() {
   const { user } = useAuth()
   const isBendahara = user?.role === 'bendahara' || user?.jabatan === 'bendahara' || user?.systemRole === 'super_admin'
-  const isPengurusOrBendahara = user?.role === 'bendahara' || user?.role === 'pengurus' || user?.systemRole === 'super_admin'
+  const isPengurusOrBendahara = user?.role === 'bendahara' || user?.role === 'pengurus' || user?.jabatan === 'bendahara' || user?.systemRole === 'super_admin'
 
   const [activeTab, setActiveTab] = useState<'locations' | 'transfers'>('locations')
   const [locations, setLocations] = useState<FundLocation[]>([])
