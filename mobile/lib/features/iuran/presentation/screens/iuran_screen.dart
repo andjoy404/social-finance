@@ -923,14 +923,15 @@ class _IuranCard extends StatelessWidget {
                         size: 20, color: AppColors.accent),
                   ),
                   const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Text(
-                      bill.householdName,
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                      overflow: TextOverflow.ellipsis,
+                  if (showHouseholdName)
+                    Expanded(
+                      child: Text(
+                        bill.householdName,
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
                   AppBadge(
                     label: getStatusLabel(bill.status),
                     textColor: getStatusColor(bill.status, context),
