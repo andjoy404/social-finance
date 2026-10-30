@@ -111,9 +111,14 @@ func LoadScoping() (ScopingConfig, error) {
 //   - If SCOPED_RW_IDS is empty, ALL RW requests are rejected (fail-closed).
 //   - This applies to every user including system-level SUPER_ADMIN.
 //
-// For users WITH RWContext in their JWT: validates rwId is in AuthContext.RWMemberships.
-// For users WITHOUT RWContext: returns 403 Forbidden (fail-closed).
-// For system-only super_admin: additionally checks DB is_active status.
+// System-level SUPER_ADMIN bypass:
+//   - A user with SystemRole == super_admin is allowed to access any RW
+//     that is in the configured SCOPED_RW_IDS allowlist, regardless of
+//     whether they have an RW membership record.
+//   - The RW ID must still exist and be active in the database.
+//
+// For users WITHOUT super_admin system role:
+//   - Must have an active RW membership whose rwId matches the requested scope.
 //
 // Usage:
 //
@@ -147,31 +152,15 @@ func RequireRWScope(pool *database.Pool, cfg ScopingConfig) func(http.Handler) h
 				return
 			}
 
-			// ── System-only SUPER_ADMIN ───────────────────────────────
-			if ac.SystemRole == SystemRoleSuperAdmin && ac.RTID == "" && ac.MembershipID == "" {
-				// SA must have at least one RW membership in their JWT context.
-				if len(ac.RWMemberships) == 0 {
-					httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rw access requires rw membership")
-					return
-				}
-
-				// Verify RW exists and is active in DB.
-				// If pool is nil, fail closed — cannot verify RW existence.
-				if pool == nil {
-					httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "database unavailable")
-					return
-				}
+			// ── System-level SUPER_ADMIN bypass ────────────────────────
+			// Super Admin does NOT require RW membership to access RW endpoints.
+			// They are authorized by their system role alone, subject to:
+			//   1. The RW ID must be in the configured SCOPED_RW_IDS (checked above).
+			//   2. The RW must exist and be active in the database.
+			if ac.SystemRole == SystemRoleSuperAdmin {
 				ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 				defer cancel()
-				tx, err := pool.BeginTx(ctx)
-				if err != nil {
-					httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
-					return
-				}
-				var isActive bool
-				err = tx.QueryRowContext(ctx, `SELECT is_active FROM rws WHERE id = $1 LIMIT 1`, rwID).Scan(&isActive)
-				tx.Rollback()
-				if err == sql.ErrNoRows || !isActive {
+				if err := ValidateSAForRW(ctx, &cfg, pool, rwID); err != nil {
 					httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rw not found or inactive")
 					return
 				}
@@ -179,8 +168,8 @@ func RequireRWScope(pool *database.Pool, cfg ScopingConfig) func(http.Handler) h
 				return
 			}
 
-			// ── Users WITH RW memberships ─────────────────────────────
-			// Must have at least one RW membership AND the specific rwId must match.
+			// ── Users WITHOUT super_admin system role ──────────────────
+			// Must have an active RW membership whose rwId matches the requested scope.
 			if len(ac.RWMemberships) == 0 {
 				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rw access requires active rw membership")
 				return
@@ -233,6 +222,50 @@ func extractRWIDFromPath(r *http.Request) string {
 	return ""
 }
 
+// ValidateSAForRW validates Super Admin access to a specific RW.
+// It checks: (1) SA identity, (2) rwID in SCOPED_RW_IDS, (3) RW exists in DB,
+// (4) RW is active. Returns nil if all checks pass, error otherwise.
+//
+// This function is shared between the RequireRWScope middleware and rw.Service
+// to prevent divergent validation logic between HTTP and direct service calls.
+//
+// Parameters:
+//   - ctx: request context for timeout/cancellation.
+//   - cfg: ScopingConfig holding the SCOPED_RW_IDS allowlist. If nil or empty,
+//     no SA can access any RW (fail-closed).
+//   - pool: database connection pool. If nil, returns an error.
+//   - rwID: the RW identifier to validate against.
+//
+// Errors:
+//   - If cfg is nil/empty or rwID not in SCOPED_RW_IDS → fmt.Errorf wrapping ErrRWScopeInvalid.
+//   - If rwID not found in database → fmt.Errorf wrapping ErrRWScopeInvalid.
+//   - If rwID exists but is_active = false → fmt.Errorf wrapping ErrRWScopeInvalid.
+//   - If pool is nil → fmt.Errorf (internal error).
+func ValidateSAForRW(ctx context.Context, cfg *ScopingConfig, pool *database.Pool, rwID string) error {
+	// Fail-closed: no config means no RW access.
+	if cfg == nil {
+		return fmt.Errorf("rw access denied: scoping configuration not available")
+	}
+	if !cfg.hasRW(rwID) {
+		return fmt.Errorf("rw access denied: rw not in configured scope")
+	}
+	if pool == nil {
+		return fmt.Errorf("database unavailable")
+	}
+	var isActive bool
+	err := pool.Raw().QueryRowContext(ctx, `SELECT is_active FROM rws WHERE id = $1 LIMIT 1`, rwID).Scan(&isActive)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("rw access denied: rw not found or inactive")
+	}
+	if err != nil {
+		return fmt.Errorf("rw access denied: database error checking rw status")
+	}
+	if !isActive {
+		return fmt.Errorf("rw access denied: rw not found or inactive")
+	}
+	return nil
+}
+
 // rwPermissionMap defines RW-specific permissions mapped by jabatan.
 // Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara').
 // Permission codes use the existing 'finance' domain.
@@ -261,6 +294,15 @@ var rwPermissionMap = map[string][]string{
 		"finance.update",
 		"finance.approve",
 	},
+}
+
+// HasRWScopePermission checks whether the given RW jabatan grants the specified
+// permission code. Returns false if the jabatan has no entry in rwPermissionMap.
+//
+// Exported as HasRWScopePermission for use by external packages (e.g., internal/rw).
+// The lowercase hasRWScopePermission is kept for backward compatibility with existing tests.
+func HasRWScopePermission(jabatan string, permissionCode string) bool {
+	return hasRWScopePermission(jabatan, permissionCode)
 }
 
 // hasRWScopePermission checks whether the given RW jabatan grants the specified

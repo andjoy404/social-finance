@@ -28,6 +28,7 @@ import (
 	"social-finance/internal/migration"
 	"social-finance/internal/notification"
 	rtpkg "social-finance/internal/rt"
+	rw "social-finance/internal/rw"
 	"social-finance/internal/storage"
 )
 
@@ -152,7 +153,14 @@ func main() {
 		}()
 	}
 
-	router := buildRouter(pool, authHandler, store)
+	// Validate scoping configuration before wiring routes.
+	scopingCfg, err := auth.LoadScoping()
+	if err != nil {
+		slog.Error("startup failed: invalid scoping configuration", "error", err)
+		os.Exit(1)
+	}
+
+	router := buildRouter(pool, authHandler, &scopingCfg, store)
 
 	// Expire voluntary dues once on startup (catch-up) and daily at 00:05 WIB.
 	// Test environments do not start background jobs; expiry logic is covered
@@ -395,7 +403,7 @@ func mustMarshal(v any) []byte {
 }
 
 // buildRouter wires up the HTTP router with middleware and endpoints.
-func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Service) http.Handler {
+func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.ScopingConfig, opts ...storage.Service) http.Handler {
 	r := chi.NewRouter()
 
 	// Core middleware.
@@ -730,6 +738,22 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Get("/api/v1/fund-transfers/{id}", locH.GetTransfer)
 		r.Post("/api/v1/fund-transfers/{id}/reverse", locH.ReverseTransfer)
 		r.Get("/api/v1/reports/fund-locations/reconciliation", locH.GetReconciliationReport)
+	})
+
+	rwRepo := rw.NewRepository(pool.Raw())
+	rwSvc := rw.NewService(pool, rwRepo, scopingCfg)
+	rwHandler := rw.NewHandler(pool, rwSvc)
+
+	// RW read-only operational endpoints
+	// Requires RW membership via RequireRWScope (from scoping.go)
+	// Accessible by pengurus, bendahara, Ketua, Wakil Ketua, Sekretaris, Bendahara jabatan
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireRWScope(pool, *scopingCfg))
+		r.Get("/api/v1/rw/{rwId}/dashboard", rwHandler.GetDashboard)
+		r.Get("/api/v1/rw/{rwId}/kas", rwHandler.GetKAS)
+		r.Get("/api/v1/rw/{rwId}/kas/transactions", rwHandler.GetKASTransactions)
+		r.Get("/api/v1/rw/{rwId}/locations", rwHandler.GetLocations)
 	})
 
 	// Notification module
