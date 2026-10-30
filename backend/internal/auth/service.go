@@ -3,11 +3,57 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// loadRWMemberships queries user_rw_memberships for the given user and returns
+// a slice of RWMembership. Returns nil (not error) when no memberships exist.
+func loadRWMemberships(ctx context.Context, tx *sql.Tx, userID string) ([]RWMembership, error) {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT urm.rw_id, w.name, urm.jabatan FROM user_rw_memberships urm
+		 LEFT JOIN rws w ON w.id = urm.rw_id
+		 WHERE urm.user_id = $1 AND urm.is_active = true`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load rw memberships: %w", err)
+	}
+	defer rows.Close()
+
+	var result []RWMembership
+	for rows.Next() {
+		var rwID, rwName, jabatan string
+		if err := rows.Scan(&rwID, &rwName, &jabatan); err != nil {
+			return nil, fmt.Errorf("scan rw membership: %w", err)
+		}
+		result = append(result, RWMembership{
+			RWID:   rwID,
+			Name:   rwName,
+			Jabatan: jabatan,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate rw memberships: %w", err)
+	}
+	return result, nil
+}
+
+// buildRWContextJSON serializes a slice of RWMembership into a compact JSON string.
+// Returns an empty string when the slice is nil or empty (backward compatible).
+func buildRWContextJSON(memberships []RWMembership) string {
+	if len(memberships) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(memberships)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
 
 // Service implements login, token refresh, logout, and profile lookup.
 type Service struct {
@@ -113,11 +159,32 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 	} else if len(memberships) == 1 {
 		m = &memberships[0]
 	} else {
+		// Multiple memberships — determine which RT to use.
+		// For SUPER_ADMIN: prefer the RT whose RW matches one of the user's
+		// RW memberships (if any), falling back to the first membership.
+		// This avoids hard-coding any specific RT UUID and works regardless
+		// of how many RTs/RWs the user is attached to.
 		if user.SystemRole == SystemRoleSuperAdmin {
-			for i := range memberships {
-				if memberships[i].RTID == "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b" {
-					m = &memberships[i]
-					break
+			// Load RW memberships to build an allowlist of RW IDs.
+			rwMemberships, err := loadRWMemberships(ctx, tx, user.ID)
+			if err == nil && len(rwMemberships) > 0 {
+				rwIDs := make(map[string]struct{}, len(rwMemberships))
+				for _, rm := range rwMemberships {
+					rwIDs[rm.RWID] = struct{}{}
+				}
+				// Query each RT's rw_id and find a match.
+				for i := range memberships {
+					var rtRWID string
+					err := tx.QueryRowContext(ctx,
+						`SELECT rw_id FROM rts WHERE id = $1 LIMIT 1`,
+						memberships[i].RTID,
+					).Scan(&rtRWID)
+					if err == nil {
+						if _, ok := rwIDs[rtRWID]; ok {
+							m = &memberships[i]
+							break
+						}
+					}
 				}
 			}
 			if m == nil {
@@ -147,13 +214,23 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 		// has a tenant membership; this avoids granting system access to
 		// a super_admin who has never used the system before (the login
 		// has already proven identity).
+		//
+		// RW memberships are loaded for all users (tenant and system-only)
+		// so that super_admins with RW access carry their RW context in the JWT.
+		var rwMemberships []RWMembership
+		if userRW, err := loadRWMemberships(ctx, tx, user.ID); err == nil {
+			rwMemberships = userRW
+		}
+		rwContext := buildRWContextJSON(rwMemberships)
+
 		accessToken, err := GenerateAccessToken(TokenClaims{
-			UserID:  user.ID,
-			MID:     m.ID,
-			RTID:    m.RTID,
-			Role:    string(m.Role),
-			Jabatan: string(m.Jabatan),
-			SysRole: string(user.SystemRole),
+			UserID:    user.ID,
+			MID:       m.ID,
+			RTID:      m.RTID,
+			Role:      string(m.Role),
+			Jabatan:   string(m.Jabatan),
+			SysRole:   string(user.SystemRole),
+			RWContext: rwContext,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("generate access token: %w", err)
@@ -192,9 +269,17 @@ func (s *Service) Login(ctx context.Context, tx *sql.Tx, identifier, rawPassword
 	}
 
 	// --- Case: system-only SUPER_ADMIN ---
+	// Load RW memberships for system-only super_admins too.
+	var rwMemberships []RWMembership
+	if userRW, err := loadRWMemberships(ctx, tx, user.ID); err == nil {
+		rwMemberships = userRW
+	}
+	rwContext := buildRWContextJSON(rwMemberships)
+
 	accessToken, err := GenerateAccessToken(TokenClaims{
-		UserID:  user.ID,
-		SysRole: string(user.SystemRole),
+		UserID:    user.ID,
+		SysRole:   string(user.SystemRole),
+		RWContext: rwContext,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("generate access token: %w", err)
@@ -260,9 +345,17 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID st
 		if err := ValidateIdentity(ctx, tx, userID, ""); err != nil {
 			return nil, fmt.Errorf("identity invalid during refresh: %w", err)
 		}
+		// Load RW memberships for system-only super_admin during refresh.
+		var rwMemberships []RWMembership
+		if userRW, err := loadRWMemberships(ctx, tx, userID); err == nil {
+			rwMemberships = userRW
+		}
+		rwContext := buildRWContextJSON(rwMemberships)
+
 		accessToken, err := GenerateAccessToken(TokenClaims{
-			UserID:  userID,
-			SysRole: string(user.SystemRole),
+			UserID:    userID,
+			SysRole:   string(user.SystemRole),
+			RWContext: rwContext,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("generate access token: %w", err)
@@ -318,13 +411,21 @@ func (s *Service) Refresh(ctx context.Context, tx *sql.Tx, rawToken, deviceID st
 	}
 
 	// Regenerate access token with both system and tenant roles.
+	// Also include RW memberships loaded from user_rw_memberships.
+	var rwMemberships []RWMembership
+	if userRW, err := loadRWMemberships(ctx, tx, m.UserID); err == nil {
+		rwMemberships = userRW
+	}
+	rwContext := buildRWContextJSON(rwMemberships)
+
 	accessToken, err := GenerateAccessToken(TokenClaims{
-		UserID:  m.UserID,
-		MID:     m.ID,
-		RTID:    m.RTID,
-		Role:    string(m.Role),
-		Jabatan: string(m.Jabatan),
-		SysRole: string(user.SystemRole),
+		UserID:    m.UserID,
+		MID:       m.ID,
+		RTID:      m.RTID,
+		Role:      string(m.Role),
+		Jabatan:   string(m.Jabatan),
+		SysRole:   string(user.SystemRole),
+		RWContext: rwContext,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("generate access token: %w", err)

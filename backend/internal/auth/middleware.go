@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -75,6 +77,73 @@ func RequireAuth(next http.Handler) http.Handler {
 		}
 		tx.Rollback()
 
+		// ── RW context ──────────────────────────────────────────────
+		// Parse the RWContext JSON string from the token claims.
+		// Empty string (or missing claim) → nil memberships (backward compatible).
+		// Invalid JSON → treated as empty (do not crash; handler-level middleware
+		// enforces 403 on RW endpoints for missing/empty RWContext).
+		var rwContextFromToken []RWMembership
+		if claims.RWContext != "" {
+			if err := json.Unmarshal([]byte(claims.RWContext), &rwContextFromToken); err != nil {
+				// Malformed RWContext — treat as empty, not a hard failure.
+				rwContextFromToken = nil
+			}
+		}
+
+		// Per-request validation: ensure every claimed RW membership is still
+		// active in the database. This is the revocation-safe layer — if a
+		// user's RW membership is deactivated or revoked, subsequent requests
+		// with the same stale JWT will silently drop that membership from the
+		// context. The user's existing RT access is unaffected.
+		var validRWMemberships []RWMembership
+		if len(rwContextFromToken) > 0 {
+			// Collect all rw_ids claimed in the token for a single query.
+			rwIDs := make(map[string]bool, len(rwContextFromToken))
+			for _, m := range rwContextFromToken {
+				rwIDs[m.RWID] = true
+			}
+			ids := make([]string, 0, len(rwIDs))
+			for id := range rwIDs {
+				ids = append(ids, id)
+			}
+
+			if len(ids) > 0 && AuthDBPool != nil {
+				// Build parameter placeholders: $1, $2, …
+				placeholders := make([]string, len(ids))
+				args := make([]interface{}, len(ids))
+				for i, id := range ids {
+					placeholders[i] = fmt.Sprintf("$%d", i+2) // +2 because $1 is user_id
+					args[i] = id
+				}
+				q := fmt.Sprintf(
+					`SELECT rw_id, jabatan FROM user_rw_memberships
+					 WHERE user_id = $1 AND rw_id IN (%s) AND is_active = true`,
+					strings.Join(placeholders, ","),
+				)
+				args = append([]interface{}{claims.UserID}, args...)
+
+				rows, err := AuthDBPool.Raw().QueryContext(validateCtx, q, args...)
+				if err == nil {
+					defer rows.Close()
+					validSet := make(map[string]string, len(ids))
+					for rows.Next() {
+						var rwID, jabatan string
+						if err := rows.Scan(&rwID, &jabatan); err == nil {
+							validSet[rwID] = jabatan
+						}
+					}
+					for _, tc := range rwContextFromToken {
+						if j, ok := validSet[tc.RWID]; ok {
+							validRWMemberships = append(validRWMemberships, RWMembership{
+								RWID:    tc.RWID,
+								Jabatan: j,
+							})
+						}
+					}
+				}
+			}
+		}
+
 		effectiveRTID := claims.RTID
 		if SystemRole(claims.SysRole) == SystemRoleSuperAdmin && effectiveRTID == "" {
 			reqRT := strings.TrimSpace(r.Header.Get("X-RT-ID"))
@@ -90,12 +159,13 @@ func RequireAuth(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), AuthContextKey, &AuthContext{
-			UserID:       claims.UserID,
-			MembershipID: claims.MID,
-			RTID:         effectiveRTID,
-			SystemRole:   SystemRole(claims.SysRole),
-			TenantRole:   Role(claims.Role),
-			Jabatan:      Jabatan(claims.Jabatan),
+			UserID:          claims.UserID,
+			MembershipID:    claims.MID,
+			RTID:            effectiveRTID,
+			SystemRole:      SystemRole(claims.SysRole),
+			TenantRole:      Role(claims.Role),
+			Jabatan:         Jabatan(claims.Jabatan),
+			RWMemberships:   validRWMemberships,
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

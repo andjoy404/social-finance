@@ -2,6 +2,14 @@ package auth
 
 import "social-finance/internal/database"
 
+// RWMembership represents a user's active membership in a Rukun Warga (RW).
+// Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara')
+type RWMembership struct {
+	RWID    string `json:"rw_id"`
+	Name    string `json:"rw_name"`
+	Jabatan string `json:"jabatan"`
+}
+
 // SystemRole represents a global-level role (not tied to an RT).
 type SystemRole string
 
@@ -72,12 +80,13 @@ var AllJabatans = []Jabatan{
 // authentication. All authorised handlers derive rtID, userID, etc. from
 // this — never from request body or query parameters.
 type AuthContext struct {
-	UserID       string
-	SystemRole   SystemRole // empty if the user has no global authorization
-	MembershipID string     // empty for system-only auth
-	RTID         string     // empty for system-only auth
-	TenantRole   Role       // empty for system-only auth
-	Jabatan      Jabatan    // empty if no position assigned
+	UserID         string
+	SystemRole     SystemRole // empty if the user has no global authorization
+	MembershipID   string     // empty for system-only auth
+	RTID           string     // empty for system-only auth
+	TenantRole     Role       // empty for system-only auth
+	Jabatan        Jabatan    // empty if no position assigned
+	RWMemberships  []RWMembership
 }
 
 // AuthDBPool is the database pool used by RequireAuth for identity validation.
