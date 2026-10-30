@@ -197,6 +197,38 @@ class _BillListTab extends ConsumerWidget {
     required this.searchController,
   });
 
+  /// Determine whether the household name should be shown in the bill card.
+  ///
+  /// Rules:
+  /// - Warga role: always hidden (they only see their own bills).
+  /// - Pengurus/Bendahara on "Iuran Saya" tab: hidden.
+  /// - Pengurus/Bendahara on "Iuran Warga" tab: visible.
+  bool _shouldShowHouseholdName(WidgetRef ref) {
+    final authState = ref.read(authRepositoryProvider);
+    final user = authState?.valueOrNull;
+    if (user == null) return false;
+
+    final role = _roleValue(user['role']);
+    // WARGA: always hide household name
+    if (role == 'warga') return false;
+
+    // Non-warga (pengurus/bendahara): show only on "Iuran Warga" tab
+    return !isMyBills;
+  }
+
+  static String? _roleValue(Object? role) {
+    if (role is AppRole) {
+      return switch (role) {
+        AppRole.superAdmin => 'super_admin',
+        AppRole.pengurus => 'pengurus',
+        AppRole.bendahara => 'bendahara',
+        AppRole.warga => 'warga',
+        AppRole.perangkat => 'perangkat',
+      };
+    }
+    return role is String ? role : null;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
@@ -590,7 +622,10 @@ class _BillListTab extends ConsumerWidget {
                       separatorBuilder: (_, __) =>
                           const SizedBox(height: AppSpacing.sm),
                       itemBuilder: (context, index) =>
-                          _IuranCard(bill: filtered[index]),
+                          _IuranCard(
+                            bill: filtered[index],
+                            showHouseholdName: _shouldShowHouseholdName(ref),
+                          ),
                     ),
             },
           ),
@@ -857,8 +892,9 @@ class _BillListTab extends ConsumerWidget {
 
 class _IuranCard extends StatelessWidget {
   final IuranBill bill;
+  final bool showHouseholdName;
 
-  const _IuranCard({required this.bill});
+  const _IuranCard({required this.bill, required this.showHouseholdName});
 
   @override
   Widget build(BuildContext context) {
