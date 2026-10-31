@@ -1,9 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../features/auth/data/mock_auth_repository.dart';
-import 'rw_models.dart';
-import 'rw_repository.dart';
+import 'package:social_finance/core/api/client.dart';
+import 'package:social_finance/features/rw/data/rw_api_client.dart';
+import 'package:social_finance/features/rw/data/rw_models.dart';
+import 'package:social_finance/features/rw/data/rw_repository.dart';
 
+/// Provider untuk RwApiClient (PR 4 — RW API operasional agregat).
+final rwApiClientProvider = Provider<RwApiClient>((ref) {
+  final apiClient = ref.watch(apiClientProvider);
+  return RwApiClient(apiClient);
+});
+
+/// Provider untuk RW Management CRUD (fitur lama yang sudah ada sebelum PR 4).
 final rwListProvider = AsyncNotifierProvider.autoDispose<RwListNotifier, List<RwModel>>(
   () => RwListNotifier(),
 );
@@ -11,8 +19,6 @@ final rwListProvider = AsyncNotifierProvider.autoDispose<RwListNotifier, List<Rw
 class RwListNotifier extends AutoDisposeAsyncNotifier<List<RwModel>> {
   @override
   Future<List<RwModel>> build() async {
-    final authState = ref.watch(authRepositoryProvider);
-    if (authState?.valueOrNull == null) return [];
     return _fetch();
   }
 

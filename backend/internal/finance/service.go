@@ -2224,15 +2224,29 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 	isAllPeriods := strings.EqualFold(trimmedPeriod, "all") || strings.EqualFold(trimmedPeriod, "semua")
 
 	currentPeriod := now.Format("2006-01")
+	isYearFilter := false
 	if !isAllPeriods && trimmedPeriod != "" {
 		if _, err := time.Parse("2006-01", trimmedPeriod); err == nil {
 			currentPeriod = trimmedPeriod
+		} else if yearVal, err := time.Parse("2006", trimmedPeriod); err == nil {
+			// Year-only filter: YYYY
+			isYearFilter = true
+			currentPeriod = yearVal.Format("2006-01")
 		}
 	}
 
 	tPeriod, _ := time.ParseInLocation("2006-01", currentPeriod, loc)
-	startOfMonth := time.Date(tPeriod.Year(), tPeriod.Month(), 1, 0, 0, 0, 0, loc)
-	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
+	var startOfMonth, startOfNextMonth time.Time
+	if isYearFilter {
+		// For year filter: Jan 1 of selected year to Jan 1 of next year
+		startOfMonth = time.Date(tPeriod.Year(), 1, 1, 0, 0, 0, 0, loc)
+		startOfNextMonth = time.Date(tPeriod.Year()+1, 1, 1, 0, 0, 0, 0, loc)
+	} else {
+		startOfMonth = time.Date(tPeriod.Year(), tPeriod.Month(), 1, 0, 0, 0, 0, loc)
+		startOfNextMonth = startOfMonth.AddDate(0, 1, 0)
+	}
+
+	isAllPeriods = isAllPeriods && !isYearFilter
 
 	var balanceStr, incomeStr, expenseStr, netMovementStr string
 	if isAllPeriods {

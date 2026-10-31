@@ -32,8 +32,11 @@ type Service interface {
 	UpdateTemplate(ctx context.Context, rtID, id string, in UpdateTemplateInput) (*NotificationTemplate, error)
 	ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error)
 	DeleteTemplate(ctx context.Context, rtID, id string) error
-	ListLogs(ctx context.Context, rtID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error)
+	ListLogs(ctx context.Context, ac *auth.AuthContext, rtID, eventType, status string, page, pageSize int) ([]NotificationLogEntry, int, error)
 	GetNotificationDetail(ctx context.Context, ac *auth.AuthContext, rtID, id string) (*NotificationLogEntry, error)
+	MarkAsRead(ctx context.Context, ac *auth.AuthContext, rtID, id string) error
+	MarkAllAsRead(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error)
+	GetUnreadCount(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error)
 	ResolveTenantRT(ctx context.Context, ac *auth.AuthContext, reqHeaderRT, reqQueryRT string) (string, error)
 }
 
@@ -811,7 +814,22 @@ func (s *service) DeleteTemplate(ctx context.Context, rtID, id string) error {
 	return s.repo.DeleteTemplate(ctx, rtID, id)
 }
 
-func (s *service) ListLogs(ctx context.Context, rtID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error) {
+func isOfficerUser(ac *auth.AuthContext) bool {
+	if ac == nil {
+		return false
+	}
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return true
+	}
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	if j == "ketua" || j == "ketua_rt" || j == "ketua rt" || j == "bendahara" || j == "wakil_ketua" || j == "sekretaris" {
+		return true
+	}
+	r := strings.ToLower(strings.TrimSpace(string(ac.TenantRole)))
+	return r == "bendahara" || r == "pengurus"
+}
+
+func (s *service) ListLogs(ctx context.Context, ac *auth.AuthContext, rtID, eventType, status string, page, pageSize int) ([]NotificationLogEntry, int, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -822,7 +840,34 @@ func (s *service) ListLogs(ctx context.Context, rtID, eventType string, page, pa
 		pageSize = 100
 	}
 	offset := (page - 1) * pageSize
-	return s.repo.ListLogs(ctx, rtID, eventType, offset, pageSize)
+	userID := ""
+	isOfficer := false
+	if ac != nil {
+		userID = ac.UserID
+		isOfficer = isOfficerUser(ac)
+	}
+	return s.repo.ListLogs(ctx, rtID, userID, eventType, status, isOfficer, offset, pageSize)
+}
+
+func (s *service) MarkAsRead(ctx context.Context, ac *auth.AuthContext, rtID, id string) error {
+	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
+		return errors.New("unauthorized: missing auth context")
+	}
+	return s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficerUser(ac))
+}
+
+func (s *service) MarkAllAsRead(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error) {
+	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
+		return 0, errors.New("unauthorized: missing auth context")
+	}
+	return s.repo.MarkAllAsRead(ctx, rtID, ac.UserID, isOfficerUser(ac))
+}
+
+func (s *service) GetUnreadCount(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error) {
+	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
+		return 0, errors.New("unauthorized: missing auth context")
+	}
+	return s.repo.GetUnreadCount(ctx, rtID, ac.UserID, isOfficerUser(ac))
 }
 
 func (s *service) GetNotificationDetail(ctx context.Context, ac *auth.AuthContext, rtID, id string) (*NotificationLogEntry, error) {
@@ -843,34 +888,47 @@ func (s *service) GetNotificationDetail(ctx context.Context, ac *auth.AuthContex
 		return nil, nil
 	}
 
+	isOfficer := isOfficerUser(ac)
+
 	// Test push notifications are strictly isolated to the Super Admin who triggered them.
 	if strings.HasPrefix(entry.DedupKey, "test_push:") {
 		if entry.UserID == nil || *entry.UserID != ac.UserID {
 			return nil, ErrForbidden
 		}
+		_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficer)
+		entry.IsRead = true
+		now := time.Now()
+		entry.ReadAt = &now
 		return entry, nil
 	}
 
 	// Broadcast RT notifications (manual_push, waste_truck_arrival) are readable by any authenticated member in the same RT.
 	if entry.EventType == EventManualPush || entry.EventType == EventWasteTruckArrival {
+		_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficer)
+		entry.IsRead = true
+		now := time.Now()
+		entry.ReadAt = &now
 		return entry, nil
 	}
 
 	// User-targeted or financial notifications require matching user_id or RT officer/admin role.
-	isOfficer := ac.SystemRole == auth.SystemRoleSuperAdmin ||
-		ac.Jabatan == auth.JabatanKetua ||
-		ac.Jabatan == auth.JabatanBendahara ||
-		ac.TenantRole == auth.RoleBendahara ||
-		ac.TenantRole == auth.RolePengurus
 	if entry.UserID != nil && *entry.UserID != "" {
 		if *entry.UserID != ac.UserID && !isOfficer {
 			return nil, ErrForbidden
 		}
+		_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficer)
+		entry.IsRead = true
+		now := time.Now()
+		entry.ReadAt = &now
 		return entry, nil
 	}
 	if !isOfficer {
 		return nil, ErrForbidden
 	}
+	_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficer)
+	entry.IsRead = true
+	now := time.Now()
+	entry.ReadAt = &now
 	return entry, nil
 }
 
@@ -881,15 +939,13 @@ func (s *service) ResolveTenantRT(ctx context.Context, ac *auth.AuthContext, req
 	if ac.RTID != "" {
 		return ac.RTID, nil
 	}
+	// At this point ac.RTID is empty. The RequireAllowedRT middleware
+	// (if present) already enforced a valid RTID for the request.
+	// For handlers that rely on this fallback without middleware,
+	// reject with a clear error rather than silently falling back to a
+	// default RT — that bypasses tenant isolation and the whitelist.
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
-		reqRT := strings.TrimSpace(reqHeaderRT)
-		if reqRT == "" {
-			reqRT = strings.TrimSpace(reqQueryRT)
-		}
-		if reqRT != "" {
-			return "", fmt.Errorf("requested tenant rt (%s) is invalid or inactive", reqRT)
-		}
-		return s.repo.GetDefaultRTID(ctx)
+		return "", fmt.Errorf("super admin must specify a target RT via X-RT-ID header or JWT membership")
 	}
-	return "", errors.New("missing tenant context")
+	return "", fmt.Errorf("missing tenant context: user has no active RT membership")
 }

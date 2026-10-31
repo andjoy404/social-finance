@@ -50,19 +50,7 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
     super.dispose();
   }
 
-  String _formatMonthYear(DateTime dt) =>
-      '${_monthNames[dt.month - 1]} ${dt.year}';
-
-  void _prevMonth() => setState(() {
-        _activeDate = DateTime(_activeDate.year, _activeDate.month - 1, 1);
-      });
-
-  void _nextMonth() => setState(() {
-        _activeDate = DateTime(_activeDate.year, _activeDate.month + 1, 1);
-      });
-
   Future<void> _pickMonth() async {
-    final currentYear = DateTime.now().year;
     int selYear = _activeDate.year;
     int selMonth = _activeDate.month;
 
@@ -117,7 +105,7 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                             _filterFrekuensi = 'all';
                           } else {
                             _isYearFilterActive = false;
-                            _activeDate = DateTime(selYear, i + 1, 1);
+                            _activeDate = DateTime(selYear, i, 1);
                           }
                         });
                         ref.read(billsProvider.notifier).refresh();

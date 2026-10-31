@@ -2,6 +2,7 @@ package notification_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -611,5 +612,188 @@ func TestGetTokensForPaymentVerifiers_JabatanKetuaWithFinanceApproveIncluded(t *
 	}
 	if !found {
 		t.Fatalf("jabatan=ketua WITH finance.approve SHOULD be a payment verifier, but token was not returned")
+	}
+}
+
+func TestNotificationRepository_ReadReceiptsAndScoping(t *testing.T) {
+	pool := notifTestPool(t)
+	repo := notification.NewRepository(pool)
+	ctx := context.Background()
+
+	rtID := notifTestRT(t, pool)
+	defer cleanupNotifTestRT(t, pool, rtID)
+
+	otherRTID := notifTestRT(t, pool)
+	defer cleanupNotifTestRT(t, pool, otherRTID)
+
+	wargaAID := notifTestUser(t, pool, "warga-a", true)
+	notifTestMembership(t, pool, wargaAID, rtID, "warga", nil, true)
+
+	wargaBID := notifTestUser(t, pool, "warga-b", true)
+	notifTestMembership(t, pool, wargaBID, rtID, "warga", nil, true)
+
+	// Insert:
+	// 1. Broadcast public announcement (manual_push, user_id=NULL) in rtID
+	// 2. Personal bill notification for Warga A in rtID
+	// 3. Personal bill notification for Warga B in rtID
+	// 4. Internal notification with user_id=NULL (NOT public announcement) in rtID
+	// 5. Cross-tenant notification in otherRTID
+	var notifAnnounceID, notifBillAID, notifBillBID, notifInternalNullID, notifOtherRTID string
+	err := pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at)
+		VALUES ($1, NULL, 'manual_push', 'test_db:manual:1', 'Pengumuman Kerja Bakti', 'Minggu jam 7', 'SENT', NOW() - INTERVAL '5 minutes')
+		RETURNING id::text
+	`, rtID).Scan(&notifAnnounceID)
+	if err != nil {
+		t.Fatalf("insert announcement: %v", err)
+	}
+
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at)
+		VALUES ($1, $2, 'iuran_bill_created', 'test_db:bill_a:1', 'Tagihan Warga A', 'IPL Rp 50.000', 'SENT', NOW() - INTERVAL '3 minutes')
+		RETURNING id::text
+	`, rtID, wargaAID).Scan(&notifBillAID)
+	if err != nil {
+		t.Fatalf("insert bill A: %v", err)
+	}
+
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at)
+		VALUES ($1, $2, 'iuran_bill_created', 'test_db:bill_b:1', 'Tagihan Warga B', 'IPL Rp 50.000', 'SENT', NOW() - INTERVAL '1 minute')
+		RETURNING id::text
+	`, rtID, wargaBID).Scan(&notifBillBID)
+	if err != nil {
+		t.Fatalf("insert bill B: %v", err)
+	}
+
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at)
+		VALUES ($1, NULL, 'system_maintenance', 'test_db:internal:1', 'Maintenance Server', 'Internal officer note', 'SENT', NOW() - INTERVAL '30 seconds')
+		RETURNING id::text
+	`, rtID).Scan(&notifInternalNullID)
+	if err != nil {
+		t.Fatalf("insert internal null log: %v", err)
+	}
+
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at)
+		VALUES ($1, NULL, 'manual_push', 'test_db:other_rt:1', 'Pengumuman RT Lain', 'Khusus RT lain', 'SENT', NOW())
+		RETURNING id::text
+	`, otherRTID).Scan(&notifOtherRTID)
+	if err != nil {
+		t.Fatalf("insert other RT log: %v", err)
+	}
+
+	// 1. Warga A lists logs -> sees ONLY announcement + own bill (2 items), unread
+	logsA, totalA, err := repo.ListLogs(ctx, rtID, wargaAID, "", "", false, 0, 10)
+	if err != nil {
+		t.Fatalf("ListLogs for Warga A: %v", err)
+	}
+	if totalA != 2 || len(logsA) != 2 {
+		t.Fatalf("expected Warga A to see exactly 2 logs, got total=%d len=%d", totalA, len(logsA))
+	}
+	for _, l := range logsA {
+		if l.ID == notifBillBID {
+			t.Errorf("Warga A must not see Warga B's personal notification")
+		}
+		if l.ID == notifInternalNullID {
+			t.Errorf("Warga A must not see internal system notification with user_id=NULL")
+		}
+		if l.ID == notifOtherRTID {
+			t.Errorf("Warga A must not see notification from another RT")
+		}
+		if l.IsRead {
+			t.Errorf("expected initial notification to be unread")
+		}
+	}
+
+	// 2. Unread count check: exactly 2 for Warga A and 2 for Warga B
+	unreadA, err := repo.GetUnreadCount(ctx, rtID, wargaAID, false)
+	if err != nil {
+		t.Fatalf("GetUnreadCount A: %v", err)
+	}
+	if unreadA != 2 {
+		t.Errorf("expected 2 unread for Warga A, got %d", unreadA)
+	}
+
+	unreadB, err := repo.GetUnreadCount(ctx, rtID, wargaBID, false)
+	if err != nil {
+		t.Fatalf("GetUnreadCount B: %v", err)
+	}
+	if unreadB != 2 {
+		t.Errorf("expected 2 unread for Warga B, got %d", unreadB)
+	}
+
+	// 3. Warga A marks own bill as read -> SUCCESS
+	if err := repo.MarkAsRead(ctx, rtID, wargaAID, notifBillAID, false); err != nil {
+		t.Fatalf("MarkAsRead for Warga A: %v", err)
+	}
+
+	unreadA2, _ := repo.GetUnreadCount(ctx, rtID, wargaAID, false)
+	if unreadA2 != 1 {
+		t.Errorf("expected 1 unread for Warga A after marking read, got %d", unreadA2)
+	}
+
+	// User isolation: Warga B's unread count MUST remain 2
+	unreadB2, _ := repo.GetUnreadCount(ctx, rtID, wargaBID, false)
+	if unreadB2 != 2 {
+		t.Errorf("expected 2 unread for Warga B (unchanged), got %d", unreadB2)
+	}
+
+	// 4. Status filter test
+	unreadLogsA, _, err := repo.ListLogs(ctx, rtID, wargaAID, "", "unread", false, 0, 10)
+	if err != nil || len(unreadLogsA) != 1 || unreadLogsA[0].ID != notifAnnounceID {
+		t.Fatalf("expected 1 unread log (announcement) for Warga A, got %v", unreadLogsA)
+	}
+
+	readLogsA, _, err := repo.ListLogs(ctx, rtID, wargaAID, "", "read", false, 0, 10)
+	if err != nil || len(readLogsA) != 1 || readLogsA[0].ID != notifBillAID {
+		t.Fatalf("expected 1 read log (own bill) for Warga A, got %v", readLogsA)
+	}
+
+	// 5a. Warga A attempts to mark Warga B's personal notification as read -> ErrForbidden
+	if err := repo.MarkAsRead(ctx, rtID, wargaAID, notifBillBID, false); err != notification.ErrForbidden {
+		t.Errorf("expected ErrForbidden when Warga A attempts to mark Warga B's bill as read, got %v", err)
+	}
+
+	// 5b. Warga A attempts to mark internal notification (user_id=NULL, not public) as read -> ErrForbidden
+	if err := repo.MarkAsRead(ctx, rtID, wargaAID, notifInternalNullID, false); err != notification.ErrForbidden {
+		t.Errorf("expected ErrForbidden when Warga A attempts to mark internal notification as read, got %v", err)
+	}
+
+	// 5c. Warga A attempts to mark other RT notification as read -> sql.ErrNoRows (tenant isolation)
+	if err := repo.MarkAsRead(ctx, rtID, wargaAID, notifOtherRTID, false); err != sql.ErrNoRows {
+		t.Errorf("expected sql.ErrNoRows when accessing notification from another RT, got %v", err)
+	}
+
+	// 6. Warga A marks all as read -> marks only the 1 remaining accessible log (announcement)
+	marked, err := repo.MarkAllAsRead(ctx, rtID, wargaAID, false)
+	if err != nil {
+		t.Fatalf("MarkAllAsRead for Warga A: %v", err)
+	}
+	if marked != 1 {
+		t.Errorf("expected 1 remaining unread log marked as read, got %d", marked)
+	}
+
+	unreadA3, _ := repo.GetUnreadCount(ctx, rtID, wargaAID, false)
+	if unreadA3 != 0 {
+		t.Errorf("expected 0 unread for Warga A, got %d", unreadA3)
+	}
+
+	// Warga B still has 2 unread!
+	unreadB3, _ := repo.GetUnreadCount(ctx, rtID, wargaBID, false)
+	if unreadB3 != 2 {
+		t.Errorf("expected Warga B to still have 2 unread, got %d", unreadB3)
+	}
+
+	// 7. Officer listing sees all 4 notifications in this RT (announcement, bill A, bill B, internal)
+	officerID := notifTestUser(t, pool, "officer", false)
+	notifTestMembership(t, pool, officerID, rtID, "pengurus", nil, true)
+	officerLogs, totalOff, err := repo.ListLogs(ctx, rtID, officerID, "", "", true, 0, 10)
+	if err != nil {
+		t.Fatalf("Officer ListLogs: %v", err)
+	}
+	if totalOff != 4 || len(officerLogs) != 4 {
+		t.Errorf("expected officer to see all 4 logs in rtID, got total=%d len=%d", totalOff, len(officerLogs))
 	}
 }

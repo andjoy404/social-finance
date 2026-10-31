@@ -30,6 +30,9 @@ vi.mock('@/app/api', async () => {
     apiUploadNotificationImage: vi.fn(),
     apiTriggerManualPush: vi.fn().mockResolvedValue({ status: 'accepted', message: 'dispatched' }),
     apiTestPush: vi.fn().mockResolvedValue({ status: 'dispatched', message: 'dispatched', dispatched_count: 1 }),
+    apiMarkNotificationAsRead: vi.fn().mockResolvedValue(undefined),
+    apiMarkAllNotificationsAsRead: vi.fn().mockResolvedValue({ marked: 1 }),
+    apiGetNotificationUnreadCount: vi.fn().mockResolvedValue({ unread_count: 1 }),
     getSessionPair: vi.fn().mockReturnValue({ accessToken: 'mock-token' }),
   }
 })
@@ -276,5 +279,60 @@ describe('NotificationScreen', () => {
     expect(screen.getAllByRole('button', { name: /Tambah Template/i }).length).toBeGreaterThan(0)
     // SuperAdmin-only test push button must NOT be shown to Ketua RT
     expect(screen.queryByRole('button', { name: /Test Notifikasi/i })).not.toBeInTheDocument()
+  })
+
+  it('renders ONLY Riwayat for Warga role without Sistem or Template tabs', async () => {
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: {
+        id: 'usr-warga',
+        name: 'Warga Contoh',
+        email: 'warga@local.com',
+        systemRole: null,
+        role: 'warga',
+        jabatan: null,
+        rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+        rtCode: '002',
+        rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter>
+        <NotificationScreen />
+      </MemoryRouter>
+    )
+
+    // Header title for warga is "Notifikasi", subtitle is "Riwayat Notifikasi dan Pengumuman Warga RT"
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    expect(screen.getByText('Riwayat Notifikasi dan Pengumuman Warga RT')).toBeInTheDocument()
+
+    // Administrative tabs must NOT be present
+    expect(screen.queryByRole('button', { name: /Notifikasi Sistem/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Template Kustom/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Tambah Template/i })).not.toBeInTheDocument()
+
+    // Riwayat content is rendered directly
+    await waitFor(() => {
+      expect(screen.getByText('Riwayat Notifikasi')).toBeInTheDocument()
+      expect(screen.getByText('Total riwayat tersimpan: 1')).toBeInTheDocument()
+      expect(screen.getByText('Segera bayar tagihan nomor 101 ya.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Tandai Semua Dibaca/i })).toBeInTheDocument()
+    })
+
+    // System types and templates endpoints MUST NOT be called for warga
+    expect(api.apiGetNotificationSystemTypes).not.toHaveBeenCalled()
+    expect(api.apiGetNotificationTemplates).not.toHaveBeenCalled()
+    expect(api.apiGetNotificationLogs).toHaveBeenCalled()
+
+    // Test clicking "Tandai Semua Dibaca"
+    const markAllBtn = screen.getByRole('button', { name: /Tandai Semua Dibaca/i })
+    fireEvent.click(markAllBtn)
+    await waitFor(() => {
+      expect(api.apiMarkAllNotificationsAsRead).toHaveBeenCalledWith('mock-token')
+    })
   })
 })

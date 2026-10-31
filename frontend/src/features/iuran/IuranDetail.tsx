@@ -864,15 +864,43 @@ function PaymentDetailModal({
               letterSpacing: '0.03em',
               marginBottom: '4px',
             }}>
-              No. Pembayaran
+              Referensi
             </div>
             <div style={{
               fontSize: '13px',
               fontWeight: 600,
               color: 'var(--sf-text)',
               fontFamily: 'var(--sf-font-mono)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
             }}>
               {payment.paymentNo || '—'}
+              {payment.paymentNo && (
+                <button
+                  onClick={async () => {
+                    const { copyToClipboard, showCopyFeedback } = await import('@/utils/clipboard')
+                    const result = await copyToClipboard(payment.paymentNo!)
+                    const toast = showCopyFeedback(result, result.success)
+                    setTimeout(() => toast.remove(), 2600)
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: '2px',
+                    cursor: 'pointer',
+                    color: 'var(--sf-accent)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                  }}
+                  title="Salin Referensi"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         </div>

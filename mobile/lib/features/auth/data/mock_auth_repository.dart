@@ -509,6 +509,11 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       'rw': user.rwCode,
       'rw_id': user.rwId,
       'rw_name': user.rwName,
+      'rw_memberships': user.rwMemberships.map((m) => {
+        'rw_id': m.rwId,
+        'rw_name': m.rwName,
+        'jabatan': m.jabatan,
+      }).toList(),
       'access_token': accessToken,
     };
     state = AsyncData(_currentUser);

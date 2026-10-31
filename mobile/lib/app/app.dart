@@ -23,6 +23,9 @@ import '../features/reports/presentation/screens/reports_screen.dart';
 import '../features/warga/data/warga_providers.dart';
 import 'package:social_finance/features/warga/presentation/screens/warga_screen.dart';
 import 'package:social_finance/features/rw/presentation/screens/rw_list_screen.dart';
+import 'package:social_finance/features/rw/presentation/screens/rw_dashboard_screen.dart';
+import 'package:social_finance/features/rw/presentation/screens/rw_kas_screen.dart';
+import 'package:social_finance/features/rw/presentation/screens/rw_fund_location_screen.dart';
 import '../features/warga/presentation/screens/household_create_screen.dart';
 import '../features/warga/presentation/screens/household_edit_screen.dart';
 import '../features/warga/presentation/screens/special_resident_create_screen.dart';
@@ -326,7 +329,40 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       }
     }
 
+    if (loc.startsWith('/rw/')) {
+      if (!_canAccessRWPath(loc, user)) {
+        return '/home';
+      }
+    }
+
     return target;
+  }
+
+  bool _canAccessRWPath(String path, Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final systemRole = (user['system_role'] ?? '').toString().toLowerCase();
+    final role = (user['role'] ?? '').toString().toLowerCase();
+    final isSuperAdmin = systemRole == 'super_admin' ||
+        role == 'super_admin' ||
+        role.contains('superadmin');
+    final rawMemberships = (user['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ??
+        <Map<String, dynamic>>[];
+    final validMemberships = rawMemberships.where((m) {
+      if (isSuperAdmin) return true;
+      final jabatan = (m['jabatan'] ?? '').toString().toLowerCase();
+      return ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'].contains(jabatan);
+    }).toList();
+
+    if (validMemberships.isEmpty) return false;
+    final segments = path.split('/').where((s) => s.isNotEmpty).toList();
+    if (segments.length >= 2 && segments[0] == 'rw') {
+      final rwId = segments[1];
+      return validMemberships.any((m) =>
+          (m['rw_id'] ?? m['id'] ?? '').toString() == rwId);
+    }
+    return true;
   }
 
   void _navigateToDeepLink(String? link, {Map<String, dynamic>? payload}) {
@@ -654,6 +690,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               return '/home/iuran';
             }
           }
+          if (loc.startsWith('/rw/')) {
+            if (!_canAccessRWPath(loc, user)) {
+              return '/home';
+            }
+          }
         }
         return null;
       },
@@ -934,6 +975,31 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               path: '/home/rw',
               name: 'rw',
               builder: (context, state) => const RwListScreen(),
+            ),
+            // RW Data Viewing Routes (for users with RW context)
+            GoRoute(
+              path: '/rw/:rwId/dashboard',
+              name: 'rw_dashboard',
+              builder: (context, state) {
+                final rwId = state.pathParameters['rwId']!;
+                return RwDashboardScreen(rwId: rwId);
+              },
+            ),
+            GoRoute(
+              path: '/rw/:rwId/kas',
+              name: 'rw_kas',
+              builder: (context, state) {
+                final rwId = state.pathParameters['rwId']!;
+                return RwKasScreen(rwId: rwId);
+              },
+            ),
+            GoRoute(
+              path: '/rw/:rwId/lokasi-dana',
+              name: 'rw_fund_location',
+              builder: (context, state) {
+                final rwId = state.pathParameters['rwId']!;
+                return RwFundLocationScreen(rwId: rwId);
+              },
             ),
           ],
         ),

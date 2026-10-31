@@ -98,9 +98,17 @@ export function IuranList() {
   function isWarga(u: {
     systemRole?: string | null
     role?: string
+    jabatan?: string | null
   }): boolean {
     if (u.systemRole === 'super_admin') return false
-    return u.role === 'warga'
+    if (u.role !== 'warga') return false
+    // A warga with a management jabatan is not a plain warga for tab purposes.
+    // They hold an RT position (ketua, wakil_ketua, sekretaris, bendahara) and
+    // should see the full iuran tab navigation, not be clamped to "Iuran Saya".
+    const jabatan = (u.jabatan ?? '').trim().toLowerCase()
+    const managementJabatans = new Set(['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'])
+    if (managementJabatans.has(jabatan)) return false
+    return true
   }
 
   function canAccessIuranTabs(u: {

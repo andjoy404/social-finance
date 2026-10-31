@@ -510,25 +510,32 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			return nil, fmt.Errorf("create position resident: %w", err)
 		}
 
-		// If resident was not created (should not happen with gen_random_uuid), check if one already exists for this user
+		// If resident was not created (e.g. existing NIK or user_id), find existing resident
 		if residentID == "" {
 			var existingID string
 			err = tx.QueryRowContext(ctx,
-				`SELECT id FROM residents WHERE user_id = $1 LIMIT 1`, prs.UserID).Scan(&existingID)
+				`SELECT id FROM residents WHERE user_id = $1 OR (rt_id = $2 AND nik = $3) LIMIT 1`,
+				prs.UserID, prs.RTID, prs.NIK).Scan(&existingID)
 			if err != nil && err != sql.ErrNoRows {
 				return nil, fmt.Errorf("check existing position resident: %w", err)
 			}
 			residentID = existingID
+			if residentID != "" {
+				// Ensure user_id and active status are linked
+				_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1, is_active = true WHERE id = $2`, prs.UserID, residentID)
+			}
 		}
 
-		// 5. Create residency period for this resident
-		rpQ := `
-			INSERT INTO residency_periods (id, resident_id, household_occupancy_id, start_date, end_date)
-			VALUES (gen_random_uuid(), $1, $2, CURRENT_DATE, NULL)
-			ON CONFLICT DO NOTHING
-		`
-		if _, err := tx.ExecContext(ctx, rpQ, residentID, prs.OccupancyID); err != nil {
-			return nil, fmt.Errorf("create position resident occupancy: %w", err)
+		// 5. Create residency period for this resident if residentID is resolved
+		if residentID != "" {
+			rpQ := `
+				INSERT INTO residency_periods (id, resident_id, household_occupancy_id, start_date, end_date)
+				VALUES (gen_random_uuid(), $1, $2, CURRENT_DATE, NULL)
+				ON CONFLICT DO NOTHING
+			`
+			if _, err := tx.ExecContext(ctx, rpQ, residentID, prs.OccupancyID); err != nil {
+				return nil, fmt.Errorf("create position resident occupancy: %w", err)
+			}
 		}
 
 		summary.PositionResidentsCount++

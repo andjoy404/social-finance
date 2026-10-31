@@ -105,14 +105,14 @@ class _RwCard extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (rw.headName != null && rw.headName!.isNotEmpty)
+                if ((rw.headName ?? '').isNotEmpty)
                   Text(
-                    'Ketua: ${rw.headName}',
+                    'Ketua: ${rw.headName ?? ''}',
                     style: theme.textTheme.bodySmall,
                   ),
-                if (rw.address != null && rw.address!.isNotEmpty)
+                if ((rw.address ?? '').isNotEmpty)
                   Text(
-                    rw.address!,
+                    rw.address ?? '',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -123,17 +123,17 @@ class _RwCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: (rw.isActive ? AppColors.success : AppColors.danger)
+              color: ((rw.isActive ?? false) ? AppColors.success : AppColors.danger)
                   .withValues(alpha: isDark ? 0.25 : 0.12),
               borderRadius: BorderRadius.circular(AppRadius.xs),
             ),
-            child: Text(
-              rw.isActive ? 'Aktif' : 'Nonaktif',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: rw.isActive ? AppColors.success : AppColors.danger,
-              ),
+              child: Text(
+                (rw.isActive ?? false) ? 'Aktif' : 'Nonaktif',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: (rw.isActive ?? false) ? AppColors.success : AppColors.danger,
+                ),
             ),
           ),
         ],

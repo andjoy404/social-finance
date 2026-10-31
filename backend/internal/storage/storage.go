@@ -279,8 +279,11 @@ func (s *S3Storage) UploadNotificationImage(ctx context.Context, rtID, eventType
 	sanitizedName = strings.ReplaceAll(sanitizedName, "/", "_")
 	sanitizedName = strings.ReplaceAll(sanitizedName, "\\", "_")
 
-	randomBytes := make([]byte, 8)
-	_, _ = rand.Read(randomBytes)
+	// 128-bit cryptographic random component for unguessable object keys.
+	randomBytes := make([]byte, 16)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return nil, fmt.Errorf("generate object key random component: %w", err)
+	}
 	randomHex := hex.EncodeToString(randomBytes)
 
 	now := time.Now()

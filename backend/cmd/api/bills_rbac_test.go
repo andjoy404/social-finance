@@ -543,11 +543,53 @@ func TestRBAC_FinanceReadCannotApproveWithoutFinanceApprove(t *testing.T) {
 		t.Fatalf("create payment: %v", err)
 	}
 
-	// Create a user with jabatan=wakil_ketua (wakil_ketua HAS finance.read, but NO finance.approve)
+	// Create a user with jabatan=sekretaris (sekretaris HAS finance.read, but NO finance.approve)
+	var sekUser, sekMID string
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
+		VALUES (gen_random_uuid(), $1, 'dummy', 'Sekretaris RT', NULL, true)
+		RETURNING id
+	`, fmt.Sprintf("sekretaris-%d@local.com", time.Now().UnixNano())).Scan(&sekUser)
+	if err != nil {
+		t.Fatalf("create sekretaris user: %v", err)
+	}
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		VALUES (gen_random_uuid(), $1, $2, 'warga', 'sekretaris', true)
+		RETURNING id
+	`, sekUser, rtID).Scan(&sekMID)
+	if err != nil {
+		t.Fatalf("create sekretaris membership: %v", err)
+	}
+
+	token := makeTestToken(t, sekUser, sekMID, rtID, auth.RoleWarga, "sekretaris")
+
+	// 1. sekretaris CAN read bills (HTTP 200)
+	reqRead := httptest.NewRequest(http.MethodGet, "/api/v1/bills", nil)
+	reqRead.Header.Set("Authorization", "Bearer "+token)
+	recRead := httptest.NewRecorder()
+	router.ServeHTTP(recRead, reqRead)
+	if recRead.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200 for sekretaris reading bills, got %d: %s", recRead.Code, recRead.Body.String())
+	}
+
+	// 2. sekretaris CANNOT approve payment (HTTP 403 Forbidden)
+	verifyBody := bytes.NewBufferString(`{"action":"approve"}`)
+	reqApprove := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", verifyBody)
+	reqApprove.Header.Set("Authorization", "Bearer "+token)
+	reqApprove.Header.Set("Content-Type", "application/json")
+	recApprove := httptest.NewRecorder()
+	router.ServeHTTP(recApprove, reqApprove)
+
+	if recApprove.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403 for sekretaris attempting to approve payment without finance.approve, got %d: %s", recApprove.Code, recApprove.Body.String())
+	}
+
+	// 3. wakil_ketua HAS finance.approve (migration 033 equity), so wakil_ketua is allowed to approve
 	var wkUser, wkMID string
 	err = pool.Raw().QueryRowContext(ctx, `
 		INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
-		VALUES (gen_random_uuid(), $1, 'dummy', 'Wakil Ketua', NULL, true)
+		VALUES (gen_random_uuid(), $1, 'dummy', 'Wakil Ketua RT', NULL, true)
 		RETURNING id
 	`, fmt.Sprintf("wakil-ketua-%d@local.com", time.Now().UnixNano())).Scan(&wkUser)
 	if err != nil {
@@ -562,27 +604,15 @@ func TestRBAC_FinanceReadCannotApproveWithoutFinanceApprove(t *testing.T) {
 		t.Fatalf("create wakil ketua membership: %v", err)
 	}
 
-	token := makeTestToken(t, wkUser, wkMID, rtID, auth.RoleWarga, "wakil_ketua")
+	wkToken := makeTestToken(t, wkUser, wkMID, rtID, auth.RoleWarga, "wakil_ketua")
+	reqWkApprove := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(`{"action":"approve"}`))
+	reqWkApprove.Header.Set("Authorization", "Bearer "+wkToken)
+	reqWkApprove.Header.Set("Content-Type", "application/json")
+	recWkApprove := httptest.NewRecorder()
+	router.ServeHTTP(recWkApprove, reqWkApprove)
 
-	// 1. wakil_ketua CAN read bills (HTTP 200)
-	reqRead := httptest.NewRequest(http.MethodGet, "/api/v1/bills", nil)
-	reqRead.Header.Set("Authorization", "Bearer "+token)
-	recRead := httptest.NewRecorder()
-	router.ServeHTTP(recRead, reqRead)
-	if recRead.Code != http.StatusOK {
-		t.Fatalf("expected HTTP 200 for wakil_ketua reading bills, got %d: %s", recRead.Code, recRead.Body.String())
-	}
-
-	// 2. wakil_ketua CANNOT approve payment (HTTP 403 Forbidden)
-	verifyBody := bytes.NewBufferString(`{"action":"APPROVED"}`)
-	reqApprove := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", verifyBody)
-	reqApprove.Header.Set("Authorization", "Bearer "+token)
-	reqApprove.Header.Set("Content-Type", "application/json")
-	recApprove := httptest.NewRecorder()
-	router.ServeHTTP(recApprove, reqApprove)
-
-	if recApprove.Code != http.StatusForbidden {
-		t.Fatalf("expected HTTP 403 for wakil_ketua attempting to approve payment without finance.approve, got %d: %s", recApprove.Code, recApprove.Body.String())
+	if recWkApprove.Code == http.StatusForbidden {
+		t.Fatalf("expected wakil_ketua to have finance.approve permission, got HTTP 403: %s", recWkApprove.Body.String())
 	}
 }
 

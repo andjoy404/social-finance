@@ -448,7 +448,17 @@ func RequireNotificationAdmin() func(http.Handler) http.Handler {
 
 // RequireAllowedRT returns a middleware that verifies the tenant RT is in the allowed
 // list (RT 002 and RT 003). Non-allowed RTs receive 403 Forbidden.
-// System-only SUPER_ADMIN without tenant context is permitted for platform-wide management.
+//
+// RT validation rules:
+//   - Non-SuperAdmin: must have a valid, active RT from JWT membership. No fallback.
+//   - SuperAdmin with RTID from JWT: same whitelist + active check as above.
+//   - SuperAdmin without JWT RTID: MUST have an RT provided via X-RT-ID header (or
+//     equivalent mechanism set by RequireAuth). The header RT is validated against
+//     the whitelist and the active flag in the rts table. No fallback to a default RT.
+//     If no RT is provided, the request is rejected with 400 Bad Request.
+//
+// This prevents Super Admins from silently accessing any RT or bypassing the
+// whitelist by relying on an empty RTID.
 func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -458,13 +468,10 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 				return
 			}
 
-			// System-only super admin with no RT context passes through
-			if ac.SystemRole == SystemRoleSuperAdmin && ac.RTID == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if ac.RTID == "" {
+			// Every tenant-scoped request MUST have a valid RTID.
+			// No bypass for any role — including Super Admin.
+			rtIDToValidate := ac.RTID
+			if rtIDToValidate == "" {
 				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "tenant context required")
 				return
 			}
@@ -485,7 +492,7 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 			var isActive bool
 			err := effectivePool.Raw().QueryRowContext(ctx,
 				`SELECT rt, is_active FROM rts WHERE id = $1 LIMIT 1`,
-				ac.RTID,
+				rtIDToValidate,
 			).Scan(&rtCode, &isActive)
 			if err != nil {
 				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt not found or invalid")
@@ -506,4 +513,13 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 var AllowedRTCodes = map[string]bool{
 	"002": true,
 	"003": true,
+}
+
+// AllowedRTCodesList returns the allowed RT codes as a sorted []string for iteration.
+func AllowedRTCodesList() []string {
+	result := make([]string, 0, len(AllowedRTCodes))
+	for code := range AllowedRTCodes {
+		result = append(result, code)
+	}
+	return result
 }

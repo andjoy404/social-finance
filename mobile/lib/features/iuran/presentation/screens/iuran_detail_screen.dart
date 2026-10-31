@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -533,7 +534,8 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(AppRadius.base),
           child: Padding(
-            padding: padding ??
+            padding:
+                padding ??
                 const EdgeInsets.symmetric(
                   horizontal: AppSpacing.md,
                   vertical: 12,
@@ -601,7 +603,8 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                   onTap: () async {
                     final picked = await showDatePicker(
                       context: dialogContext,
-                      initialDate: DateTime.tryParse(dateController.text) ?? now,
+                      initialDate:
+                          DateTime.tryParse(dateController.text) ?? now,
                       firstDate: DateTime(2020),
                       lastDate: now,
                     );
@@ -639,7 +642,8 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     label: 'Setuju',
                     icon: Icons.check_circle_outline,
                     neonColor: AppColors.success,
-                    softBg: Theme.of(dialogContext).brightness == Brightness.dark
+                    softBg:
+                        Theme.of(dialogContext).brightness == Brightness.dark
                         ? AppColors.darkSuccessSoft
                         : AppColors.lightSuccessSoft,
                     padding: const EdgeInsets.symmetric(
@@ -710,7 +714,8 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     label: 'Batal',
                     icon: Icons.cancel_outlined,
                     neonColor: AppColors.danger,
-                    softBg: Theme.of(dialogContext).brightness == Brightness.dark
+                    softBg:
+                        Theme.of(dialogContext).brightness == Brightness.dark
                         ? AppColors.darkDangerSoft
                         : AppColors.lightDangerSoft,
                     padding: const EdgeInsets.symmetric(
@@ -1251,13 +1256,102 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                 // Payment reference number
                 if (payment.paymentNo != null &&
                     payment.paymentNo!.isNotEmpty) ...[
-                  _buildDialogDetailRow(
-                    dialogCtx,
-                    dialogIsDark,
-                    icon: Icons.receipt_outlined,
-                    label: 'No. Pembayaran',
-                    value: payment.paymentNo!,
-                    valueColor: AppColors.accent,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.receipt_outlined,
+                          size: 18,
+                          color: AppColors.accent,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Referensi',
+                                style: dialogTheme.textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: dialogIsDark
+                                          ? AppColors.darkTextMuted
+                                          : AppColors.lightTextMuted,
+                                    ),
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      payment.paymentNo!,
+                                      style: dialogTheme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: dialogIsDark
+                                                ? AppColors.darkText
+                                                : AppColors.lightText,
+                                          ),
+                                    ),
+                                  ),
+                                  InkWell(
+                                    onTap: () async {
+                                      try {
+                                        await Clipboard.setData(
+                                          ClipboardData(
+                                            text: payment.paymentNo!,
+                                          ),
+                                        );
+                                        if (dialogCtx.mounted) {
+                                          ScaffoldMessenger.of(
+                                            dialogCtx,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: const Text(
+                                                'Referensi berhasil disalin.',
+                                              ),
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                              duration: const Duration(
+                                                milliseconds: 1500,
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (dialogCtx.mounted) {
+                                          ScaffoldMessenger.of(
+                                            dialogCtx,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Gagal menyalin: $e',
+                                              ),
+                                              behavior:
+                                                  SnackBarBehavior.floating,
+                                              backgroundColor: AppColors.danger,
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(4),
+                                      child: Icon(
+                                        Icons.copy_outlined,
+                                        size: 16,
+                                        color: AppColors.accent,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
                 ],

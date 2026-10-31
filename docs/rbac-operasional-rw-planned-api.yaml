@@ -1,0 +1,266 @@
+openapi: 3.0.3
+info:
+  title: Social Finance API — RW Operational Endpoints (PLANNED)
+  version: 1.0.0
+  description: 'End-point operasional RW yang belum diimplementasikan. Dokumen ini
+    terpisah dari kontrak API aktif untuk mencegah kebingungan.
+
+
+    Middleware `RequireRWScope()` dan handler `checkRWBendaharaAccess()` sudah ada
+    di codebase tetapi BELUM terhubung ke endpoint manapun.'
+servers:
+- url: /api/v1
+  description: Base path untuk semua endpoint
+tags:
+- name: rbac-operasional-rw-planned
+  description: Endpoint operasional RW (PLANNED — NOT IMPLEMENTED)
+- name: rbac-operasional-rw
+  description: RBAC Operasional RW (PLANNED — NOT IMPLEMENTED)
+paths:
+  /api/v1/rw/{rwId}/dashboard:
+    get:
+      tags:
+      - rbac-operasional-rw
+      summary: RW Dashboard summary (PLANNED — NOT IMPLEMENTED)
+      description: 'Aggregated overview for RW scope.
+
+        Accessible by Ketua RW, Wakil Ketua RW, Bendahara RW.
+
+        Accessible by Perangkat RT (read-only).
+
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: RW dashboard summary
+        '401':
+          description: Not authenticated
+        '403':
+          description: 'Forbidden — user lacks RW scope:
+
+            - Not in SCOPED_RT_IDS / SCOPED_RW_IDS
+
+            - No RW membership for this rwId
+
+            - RW membership inactive
+
+            '
+  /api/v1/rw/{rwId}/kas:
+    get:
+      tags:
+      - rbac-operasional-rw
+      summary: RW Kas report (PLANNED — NOT IMPLEMENTED)
+      description: 'Financial ledger summary for RW scope.
+
+        Accessible by Ketua RW, Wakil Ketua RW, Bendahara RW.
+
+        Accessible by Perangkat RT (read-only).
+
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Kas report
+        '403':
+          description: Forbidden
+  /api/v1/rw/{rwId}/kas/transactions:
+    get:
+      tags:
+      - rbac-operasional-rw
+      summary: List RW transactions (PLANNED — NOT IMPLEMENTED)
+      description: 'Full transaction ledger for RW scope with filters.
+
+        Accessible by Ketua RW, Wakil Ketua RW, Bendahara RW.
+
+        Accessible by Perangkat RT (read-only).
+
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: type
+        in: query
+        schema:
+          type: string
+          enum:
+          - income
+          - expense
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - posted
+          - cancelled
+      - name: date_from
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: date_to
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: category_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Transaction list
+  /api/v1/rw/{rwId}/locations:
+    get:
+      tags:
+      - rbac-operasional-rw
+      summary: List RW fund locations (PLANNED — NOT IMPLEMENTED)
+      description: 'Fund locations for RW scope.
+
+        Ketua RW, Wakil Ketua RW, Bendahara RW: full access.
+
+        Perangkat RT: denied access.
+
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Fund locations list
+        '403':
+          description: Forbidden (Perangkat RT denied)
+    post:
+      tags:
+      - rbac-operasional-rw
+      summary: Create RW fund location (PLANNED — NOT IMPLEMENTED)
+      description: 'Create Rekening/Brankas/COH for RW.
+
+        Requires checkRWBendaharaAccess() — bendahara_rw only.
+
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFundLocationRequest'
+      responses:
+        '201':
+          description: Fund location created
+  /api/v1/rw/{rwId}/transfers:
+    post:
+      tags:
+      - rbac-operasional-rw
+      summary: Create RW fund transfer (PLANNED — NOT IMPLEMENTED)
+      description: 'Transfer funds between RW fund locations.
+
+        Requires checkRWBendaharaAccess(ac, rwId) — bendahara_rw only.
+
+        ketua_rw and wakil_ketua_rw CANNOT transfer even with finance.update.
+
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransferRequest'
+      responses:
+        '201':
+          description: Transfer created
+        '403':
+          description: Forbidden (only bendahara_rw can transfer)
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    CreateFundLocationRequest:
+      type: object
+      required:
+      - name
+      - location_type
+      properties:
+        name:
+          type: string
+        location_type:
+          type: string
+          enum:
+          - rekening
+          - brankas
+          - coh
+        account_number:
+          type: string
+        bank_name:
+          type: string
+    CreateTransferRequest:
+      type: object
+      required:
+      - from_location_id
+      - to_location_id
+      - amount
+      - description
+      properties:
+        from_location_id:
+          type: string
+          format: uuid
+        to_location_id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+          description: Always positive
+        description:
+          type: string
+        date:
+          type: string
+          format: date

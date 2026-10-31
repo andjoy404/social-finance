@@ -9,6 +9,12 @@ export const ALLOWED_RT_IDS = [
   '8dfa1e36-6727-45be-8fea-24d958efc155', // RT 003
 ]
 
+export interface RWMembership {
+  rw_id: string
+  rw_name: string
+  jabatan: string
+}
+
 export interface AuthUser {
   id: string
   name: string
@@ -21,6 +27,8 @@ export interface AuthUser {
   rt: { id: string; name: string } | null
   rtCode?: string | null
   rtId?: string | null
+  rwId?: string | null
+  rwMemberships?: RWMembership[]
 }
 
 export function isSuperAdminUser(user: AuthUser | null | undefined): boolean {
@@ -36,8 +44,12 @@ export function isKetuaRTUser(user: AuthUser | null | undefined): boolean {
   return jabatan === 'ketua' || jabatan === 'ketua_rt' || jabatan === 'ketua rt'
 }
 
-export function canAccessNotificationMenu(user: AuthUser | null | undefined): boolean {
+export function canAccessNotificationAdmin(user: AuthUser | null | undefined): boolean {
   return isSuperAdminUser(user) || isKetuaRTUser(user)
+}
+
+export function canAccessNotificationMenu(user: AuthUser | null | undefined): boolean {
+  return !!user
 }
 
 export function isAllowedRT(user: AuthUser | null): boolean {
@@ -52,11 +64,19 @@ export function isAllowedRT(user: AuthUser | null): boolean {
 function mapUser(raw: ApiUser): AuthUser {
   const rtCode = raw.rt_rt ?? (raw.rt as { rt?: string } | null)?.rt ?? null
   const rtId = raw.rt_id ?? raw.rt?.id ?? null
+  const rwId = raw.rw_id ?? null
   if (rtId && typeof sessionStorage !== 'undefined') {
     try {
       sessionStorage.setItem('sf_active_rt_id', rtId)
     } catch { /* ignore */ }
   }
+  const rwMemberships: RWMembership[] = Array.isArray(raw.rw_memberships)
+    ? raw.rw_memberships.map((m) => ({
+        rw_id: m.rw_id,
+        rw_name: m.rw_name,
+        jabatan: m.jabatan,
+      }))
+    : []
   return {
     id: raw.id,
     name: raw.full_name,
@@ -69,6 +89,8 @@ function mapUser(raw: ApiUser): AuthUser {
     rt: raw.rt ?? (raw.rt_id ? { id: raw.rt_id, name: raw.rt_name ?? '' } : null),
     rtCode,
     rtId,
+    rwId,
+    rwMemberships,
   }
 }
 

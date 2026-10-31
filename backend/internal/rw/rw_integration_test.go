@@ -87,6 +87,9 @@ func setupRWTest(t *testing.T) (*database.Pool, *rw.Repository, string, string, 
 		pool := pool // capture for closure
 
 		// 1. Drop child references (transactions, balances, changes)
+		pool.Raw().ExecContext(ctx, `DELETE FROM rw_location_balance_changes WHERE rw_id = ANY($1)`, []string{rwID1, rwID2})
+		pool.Raw().ExecContext(ctx, `DELETE FROM rw_fund_transfers WHERE rw_id = ANY($1)`, []string{rwID1, rwID2})
+		pool.Raw().ExecContext(ctx, `DELETE FROM rw_fund_locations WHERE rw_id = ANY($1)`, []string{rwID1, rwID2})
 		pool.Raw().ExecContext(ctx, `DELETE FROM rw_transactions WHERE rw_id = ANY($1)`, []string{rwID1, rwID2})
 		pool.Raw().ExecContext(ctx, `DELETE FROM rw_opening_balances WHERE rw_id = ANY($1)`, []string{rwID1, rwID2})
 		pool.Raw().ExecContext(ctx, `DELETE FROM location_balance_changes WHERE rt_id IN ($1, $2, $3)`, rtID1, rtID2, rtID3)
@@ -157,6 +160,38 @@ func seedLocationWithCategory(t *testing.T, ctx context.Context, pool *database.
 	).Scan(&locID)
 	require.NoError(t, err, "seed location %s: %v", name, err)
 	return locID
+}
+
+func seedRWFundLocation(t *testing.T, ctx context.Context, pool *database.Pool, rwID, name, category, bankName string) string {
+	var locID string
+	err := pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO rw_fund_locations (rw_id, name, category, bank_name) VALUES ($1, $2, $3, $4) RETURNING id`,
+		rwID, name, category, bankName,
+	).Scan(&locID)
+	require.NoError(t, err, "seed rw location %s: %v", name, err)
+	return locID
+}
+
+func seedRWLBC(t *testing.T, ctx context.Context, pool *database.Pool, locationID, rwID string, changeType string, amountDelta string, txnID *string, transferID *string) {
+	query := `INSERT INTO rw_location_balance_changes (rw_id, location_id, change_type, amount_delta`
+	args := []interface{}{rwID, locationID, changeType}
+	pos := 4
+
+	if txnID != nil {
+		query += `, transaction_id`
+		args = append(args, *txnID)
+		pos++
+	}
+	if transferID != nil {
+		query += `, transfer_id`
+		args = append(args, *transferID)
+		pos++
+	}
+	query += fmt.Sprintf(`) VALUES ($%d, $%d, $%d, $%d)`, pos-3, pos-2, pos-1, pos)
+	args = append(args, amountDelta)
+
+	_, err := pool.Raw().ExecContext(ctx, query, args...)
+	require.NoError(t, err, "seed RW LBC for loc %s type=%s delta=%s: %v", locationID, changeType, amountDelta, err)
 }
 
 func seedLBC(t *testing.T, ctx context.Context, pool *database.Pool, locationID, rtID string, changeType string, amountDelta string, txnID *string, transferID *string) {
@@ -715,22 +750,22 @@ func TestRWDashboardWithReversal(t *testing.T) {
 
 func TestGetLocationsBalanceComputed(t *testing.T) {
 	ctx := context.Background()
-	pool, repo, rwID, _, rtID1, _, rtID3 := setupRWTest(t)
+	pool, repo, rwID, rwID2, _, _, _ := setupRWTest(t)
 
-	// Lokasi di RT1 (RW 1)
-	_ = seedLocationWithCategory(t, ctx, pool, rtID1, "Lokasi Aktif", "brankas", "")
-	_ = seedLocationWithCategory(t, ctx, pool, rtID1, "Lokasi Tanpa Mutasi", "brankas", "")
+	// Lokasi di RW 1
+	_ = seedRWFundLocation(t, ctx, pool, rwID, "Lokasi Aktif", "brankas", "")
+	_ = seedRWFundLocation(t, ctx, pool, rwID, "Lokasi Tanpa Mutasi", "brankas", "")
 
-	locInactive := seedLocationWithCategory(t, ctx, pool, rtID1, "Lokasi Nonaktif", "brankas", "")
+	locInactive := seedRWFundLocation(t, ctx, pool, rwID, "Lokasi Nonaktif", "brankas", "")
 	_, err := pool.Raw().ExecContext(ctx,
-		`UPDATE fund_locations SET is_active = false WHERE id = $1`, locInactive)
+		`UPDATE rw_fund_locations SET is_active = false WHERE id = $1`, locInactive)
 	require.NoError(t, err)
 
-	// Lokasi di RT3 (RW 2)
-	locRW2 := seedLocationWithCategory(t, ctx, pool, rtID3, "Lokasi RW2", "brankas", "")
+	// Lokasi di RW 2
+	locRW2 := seedRWFundLocation(t, ctx, pool, rwID2, "Lokasi RW2", "brankas", "")
 
-	seedLBC(t, ctx, pool, locInactive, rtID1, "opening_balance", "5000.00", nil, nil)
-	seedLBC(t, ctx, pool, locRW2, rtID3, "opening_balance", "10000.00", nil, nil)
+	seedRWLBC(t, ctx, pool, locInactive, rwID, "opening_balance", "5000.00", nil, nil)
+	seedRWLBC(t, ctx, pool, locRW2, rwID2, "opening_balance", "10000.00", nil, nil)
 
 	// Test A: Lokasi aktif
 	activeTrue := true
@@ -787,10 +822,14 @@ func TestGetLocationsBalanceComputed(t *testing.T) {
 
 func TestGetLocationsTenantIsolation(t *testing.T) {
 	ctx := context.Background()
-	pool, repo, rwID1, rwID2, rtID1, _, rtID3 := setupRWTest(t)
+	pool, repo, rwID1, rwID2, rtID1, _, _ := setupRWTest(t)
 
-	seedLocationWithCategory(t, ctx, pool, rtID1, "Lokasi RW1-A", "brankas", "")
-	seedLocationWithCategory(t, ctx, pool, rtID3, "Lokasi RW2-A", "brankas", "")
+	// RW locations
+	seedRWFundLocation(t, ctx, pool, rwID1, "Lokasi RW1-A", "brankas", "")
+	seedRWFundLocation(t, ctx, pool, rwID2, "Lokasi RW2-A", "brankas", "")
+
+	// RT location in child RT under RW 1 (must NOT appear in RW locations)
+	seedLocationWithCategory(t, ctx, pool, rtID1, "Lokasi RT1-A", "brankas", "")
 
 	tx1, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -807,10 +846,14 @@ func TestGetLocationsTenantIsolation(t *testing.T) {
 	for _, loc := range locs1 {
 		require.NotEqual(t, "Lokasi RW2-A", loc.Name,
 			"RW 1 must not see RW 2 locations, but found: %s", loc.Name)
+		require.NotEqual(t, "Lokasi RT1-A", loc.Name,
+			"RW 1 must not see RT locations, but found: %s", loc.Name)
 	}
 	for _, loc := range locs2 {
 		require.NotEqual(t, "Lokasi RW1-A", loc.Name,
 			"RW 2 must not see RW 1 locations, but found: %s", loc.Name)
+		require.NotEqual(t, "Lokasi RT1-A", loc.Name,
+			"RW 2 must not see RT locations, but found: %s", loc.Name)
 	}
 }
 
@@ -1068,3 +1111,189 @@ func TestRegularUserAuthFailsWithoutDBQuery(t *testing.T) {
 	// "rw access denied" (no ErrRWScopeInvalid because that's SA-specific).
 	require.Contains(t, err.Error(), "rw access denied")
 }
+
+func strPtr(s string) *string {
+	return &s
+}
+
+// ===========================================================================
+// TEST: Super Admin cannot mutate inactive RW (Scenario 4)
+// ===========================================================================
+
+func TestSACannotMutateInactiveRW(t *testing.T) {
+	ctx := context.Background()
+	pool, repo, rwID, _, _, _, _ := setupRWTest(t)
+
+	// Deactivate the RW
+	_, err := pool.Raw().ExecContext(ctx, `UPDATE rws SET is_active = false WHERE id = $1`, rwID)
+	require.NoError(t, err)
+
+	ac := &auth.AuthContext{
+		UserID:     "sa-user-id",
+		SystemRole: auth.SystemRoleSuperAdmin,
+		RWMemberships: []auth.RWMembership{
+			{RWID: rwID, Jabatan: "ketua"},
+		},
+	}
+
+	scopeCfg := &auth.ScopingConfig{
+		RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+		RWIDs: []string{rwID},
+	}
+	svc := rw.NewService(pool, repo, scopeCfg)
+
+	// SA should not be able to create a location in inactive RW
+	_, err = svc.CreateLocation(ctx, ac, rwID, rw.CreateRWFundLocationInput{
+		Name:          "Inactive RW Location",
+		Category:      rw.CategoryBrankas,
+		BankName:      strPtr("Bank Test"),
+		AccountNumber: strPtr("123456"),
+		AccountHolder: strPtr("Test Holder"),
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, auth.ErrRWScopeInvalid, "SA cannot mutate inactive RW")
+}
+
+// ===========================================================================
+// TEST: Wakil Ketua cannot do finance.update (Scenario 6)
+// ===========================================================================
+
+func TestWakilKetuaCannotUpdateRW(t *testing.T) {
+	ctx := context.Background()
+	pool, repo, rwID, _, _, _, _ := setupRWTest(t)
+
+	ac := &auth.AuthContext{
+		UserID:     "wk-user-id",
+		TenantRole: auth.RoleWarga,
+		Jabatan:    "wakil_ketua",
+		RWMemberships: []auth.RWMembership{
+			{RWID: rwID, Jabatan: "wakil_ketua"},
+		},
+	}
+
+	scopeCfg := &auth.ScopingConfig{
+		RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+		RWIDs: []string{rwID},
+	}
+	svc := rw.NewService(pool, repo, scopeCfg)
+
+	// Wakil Ketua CAN create a location (has finance.create)
+	locID := seedRWLocation(t, ctx, pool, rwID, "WK Location", rw.CategoryBrankas, "Bank Test", "123456", "Test Holder")
+
+	// Wakil Ketua CANNOT update a location (no finance.update)
+	_, err := svc.UpdateLocation(ctx, ac, rwID, locID, rw.UpdateRWFundLocationInput{
+		Name: strPtr("Updated Name"),
+	})
+	require.Error(t, err, "wakil_ketua cannot update location")
+	require.ErrorIs(t, err, rw.ErrPermissionDenied)
+
+	// Wakil Ketua CAN read locations (finance.read)
+	locations, err := svc.GetLocations(ctx, ac, rwID, nil)
+	require.NoError(t, err, "wakil_ketua can read locations")
+	require.NotEmpty(t, locations)
+}
+
+// ===========================================================================
+// TEST: Sekretaris can only read (Scenario 7)
+// ===========================================================================
+
+func TestSekretarisCanOnlyReadRW(t *testing.T) {
+	ctx := context.Background()
+	pool, repo, rwID, _, _, _, _ := setupRWTest(t)
+
+	// Create a location
+	locID := seedRWLocation(t, ctx, pool, rwID, "Test Location", rw.CategoryBrankas, "Bank Test", "123456", "Test Holder")
+
+	ac := &auth.AuthContext{
+		UserID:     "sekretaris-user-id",
+		TenantRole: auth.RoleWarga,
+		Jabatan:    "sekretaris",
+		RWMemberships: []auth.RWMembership{
+			{RWID: rwID, Jabatan: "sekretaris"},
+		},
+	}
+
+	scopeCfg := &auth.ScopingConfig{
+		RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+		RWIDs: []string{rwID},
+	}
+	svc := rw.NewService(pool, repo, scopeCfg)
+
+	// Sekretaris CAN read locations (finance.read)
+	locations, err := svc.GetLocations(ctx, ac, rwID, nil)
+	require.NoError(t, err, "sekretaris can read locations")
+	require.NotEmpty(t, locations, "sekretaris should see at least one location")
+
+	// Sekretaris CANNOT create a location (finance.create)
+	_, err = svc.CreateLocation(ctx, ac, rwID, rw.CreateRWFundLocationInput{
+		Name:          "Sekretaris Location",
+		Category:      rw.CategoryBrankas,
+		BankName:      strPtr("Bank Test"),
+		AccountNumber: strPtr("123456"),
+		AccountHolder: strPtr("Test Holder"),
+	})
+	require.Error(t, err, "sekretaris cannot create location")
+	require.ErrorIs(t, err, rw.ErrPermissionDenied)
+
+	// Sekretaris CANNOT update a location (finance.update)
+	_, err = svc.UpdateLocation(ctx, ac, rwID, locID, rw.UpdateRWFundLocationInput{
+		Name: strPtr("Updated Name"),
+	})
+	require.Error(t, err, "sekretaris cannot update location")
+	require.ErrorIs(t, err, rw.ErrPermissionDenied)
+}
+
+// ===========================================================================
+// TEST: RT (warga without jabatan) cannot access Lokasi Dana RW (Scenario 8)
+// ===========================================================================
+
+func TestWargaCannotAccessRWLocations(t *testing.T) {
+	ctx := context.Background()
+	pool, repo, rwID, _, _, _, _ := setupRWTest(t)
+
+	_ = seedRWLocation(t, ctx, pool, rwID, "Test Location", rw.CategoryBrankas, "Bank Test", "123456", "Test Holder")
+
+	ac := &auth.AuthContext{
+		UserID:     "warga-user-id",
+		TenantRole: auth.RoleWarga,
+		Jabatan:    "", // no jabatan - plain warga
+		RWMemberships: []auth.RWMembership{
+			{RWID: rwID, Jabatan: ""},
+		},
+	}
+
+	scopeCfg := &auth.ScopingConfig{
+		RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+		RWIDs: []string{rwID},
+	}
+	svc := rw.NewService(pool, repo, scopeCfg)
+
+	// Warga without jabatan cannot read locations (no management jabatan = no finance.read)
+	_, err := svc.GetLocations(ctx, ac, rwID, nil)
+	require.Error(t, err, "warga without jabatan cannot read RW locations")
+	require.ErrorIs(t, err, rw.ErrPermissionDenied)
+
+	// Warga without jabatan cannot create a location
+	_, err = svc.CreateLocation(ctx, ac, rwID, rw.CreateRWFundLocationInput{
+		Name:          "Warga Location",
+		Category:      rw.CategoryBrankas,
+		BankName:      strPtr("Bank Test"),
+		AccountNumber: strPtr("123456"),
+		AccountHolder: strPtr("Test Holder"),
+	})
+	require.Error(t, err, "warga without jabatan cannot create location")
+	require.ErrorIs(t, err, rw.ErrPermissionDenied)
+}
+
+// Helper: seed a RW fund location
+func seedRWLocation(t *testing.T, ctx context.Context, pool *database.Pool, rwID string, name string, category rw.Category, bankName, accountNumber, accountHolder string) string {
+	var locID string
+	err := pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO rw_fund_locations (rw_id, name, category, bank_name, account_number, account_holder, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $6, true) RETURNING id`,
+		rwID, name, category, bankName, accountNumber, accountHolder,
+	).Scan(&locID)
+	require.NoError(t, err, "seed RW fund location: %v", err)
+	return locID
+}
+

@@ -1,0 +1,3090 @@
+openapi: 3.0.3
+info:
+  title: Social Finance API — RBAC Operasional RW
+  version: 1.0.0
+  description: 'Kontrak API untuk Social Finance Urena, mencakup endpoint yang sudah terimplementasi
+
+    dan endpoint operasional RW yang masih direncanakan (PLANNED — NOT IMPLEMENTED).
+
+
+    Endpoint RW operasional (KAS RW, Beranda RW, Lokasi Dana RW) belum tersedia.
+
+    Middleware `RequireRWScope()` dan handler `checkRWBendaharaAccess()` sudah ada
+
+    di codebase tapi belum terhubung ke endpoint manapun.
+
+
+    Dokumentasi ini dibuat dari inspeksi source code aktual di router `buildRouter()`,
+
+    handler `internal/finance/`, `internal/fund_location/`, `internal/auth/`,
+
+    dan `internal/rt/`.
+
+    '
+  contact:
+    name: Social Finance Team
+servers:
+- url: /api/v1
+  description: Base path untuk semua endpoint
+tags:
+- name: auth
+  description: Otentikasi dan manajemen sesi
+- name: rt-admin
+  description: Manajemen RT (SUPER_ADMIN only)
+- name: rw-admin
+  description: Manajemen RW (SUPER_ADMIN only)
+- name: finance-read
+  description: Baca data keuangan (warga, bendahara, pengurus)
+- name: finance-write
+  description: Operasional keuangan (bendahara, pengurus)
+- name: fund-location
+  description: Manajemen lokasi dana RT
+- name: rw-operational
+  description: Operasional read-only RW (aggregate dari semua RT dalam RW). Accessible by pengurus.
+- name: health
+  description: Health check endpoint
+paths:
+  /api/v1/auth/login:
+    post:
+      tags:
+      - auth
+      summary: Authenticate user (login)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: user@example.com
+              password: SecurePass123!
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Invalid request body (missing email/password)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limited (too many login attempts)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/refresh:
+    post:
+      tags:
+      - auth
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Missing refresh_token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/logout:
+    post:
+      tags:
+      - auth
+      summary: Logout (invalidate refresh token)
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/me:
+    get:
+      tags:
+      - auth
+      summary: Get current user profile
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/profile:
+    put:
+      tags:
+      - auth
+      summary: Update user profile
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/auth/password:
+    put:
+      tags:
+      - auth
+      summary: Change password
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/rws:
+    get:
+      tags:
+      - rw-admin
+      summary: List all RW organizations (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      description: 'Returns all RW records. Only accessible by SUPER_ADMIN.
+
+        No `rt_id` filter — system-wide scope.
+
+        '
+      responses:
+        '200':
+          description: RW list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RW'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Forbidden (not SUPER_ADMIN)
+    post:
+      tags:
+      - rw-admin
+      summary: Create a new RW organization (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRWRequest'
+      responses:
+        '201':
+          description: RW created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RW'
+        '400':
+          description: Invalid input
+        '403':
+          description: Forbidden
+        '409':
+          description: RW number already exists
+  /api/v1/rws/{id}:
+    get:
+      tags:
+      - rw-admin
+      summary: Get RW by ID (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: RW details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RW'
+        '404':
+          description: RW not found
+    patch:
+      tags:
+      - rw-admin
+      summary: Update RW (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRWRequest'
+      responses:
+        '200':
+          description: RW updated
+        '400':
+          description: Invalid input
+        '404':
+          description: RW not found
+  /api/v1/rws/{id}/deactivate:
+    patch:
+      tags:
+      - rw-admin
+      summary: Deactivate RW (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: RW deactivated
+        '404':
+          description: RW not found
+  /api/v1/rws/{id}/memberships:
+    get:
+      tags:
+      - rw-admin
+      summary: List RW memberships (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Membership list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RWMembership'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+  /api/v1/rws/{id}/memberships/{userId}/jabatan:
+    put:
+      tags:
+      - rw-admin
+      summary: Set RW jabatan for user (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRWJabatanRequest'
+      responses:
+        '200':
+          description: Jabatan set
+        '400':
+          description: Invalid jabatan
+        '409':
+          description: Already assigned
+    delete:
+      tags:
+      - rw-admin
+      summary: Remove RW jabatan for user (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Jabatan removed
+  /api/v1/rts:
+    get:
+      tags:
+      - rt-admin
+      summary: List all RTs (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: rw_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: RT list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RT'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+    post:
+      tags:
+      - rt-admin
+      summary: Create a new RT (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRTRequest'
+      responses:
+        '201':
+          description: RT created
+  /api/v1/rts/{id}:
+    get:
+      tags:
+      - rt-admin
+      summary: Get RT by ID (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: RT details
+        '404':
+          description: RT not found
+    patch:
+      tags:
+      - rt-admin
+      summary: Update RT (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: RT updated
+  /api/v1/rts/{id}/deactivate:
+    patch:
+      tags:
+      - rt-admin
+      summary: Deactivate RT (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: RT deactivated
+  /api/v1/rts/{id}/memberships:
+    get:
+      tags:
+      - rt-admin
+      summary: List RT memberships (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Membership list
+  /api/v1/rts/{id}/memberships/{userId}/jabatan:
+    put:
+      tags:
+      - rt-admin
+      summary: Set RT jabatan for user (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Jabatan set
+    delete:
+      tags:
+      - rt-admin
+      summary: Remove RT jabatan for user (SUPER_ADMIN)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Jabatan removed
+  /api/v1/rw/{rwId}/dashboard:
+    get:
+      tags:
+      - rw-operational
+      summary: Get RW dashboard (read-only)
+      security:
+      - BearerAuth: []
+      description: 'Aggregates financial overview from all RTs within the RW.
+        Requires RW membership (verified via RequireRWScope middleware).
+        Returns total RTs, locations, balance, income, expense, transaction count.
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: RW dashboard summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RWDashboardSummary'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Forbidden (no RW membership or RW not found)
+  /api/v1/rw/{rwId}/kas:
+    get:
+      tags:
+      - rw-operational
+      summary: Get RW KAS report (read-only)
+      security:
+      - BearerAuth: []
+      description: 'Aggregates income/expense KAS from all RTs within the RW.
+        Optional period filter (YYYY-MM) limits to posted transactions in that month.
+        Net balance is income minus expense.
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: period
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: '^\\d{4}-\\d{2}$'
+        description: 'Filter by month (YYYY-MM). If omitted, returns all-time totals.'
+      responses:
+        '200':
+          description: KAS report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/KASReport'
+        '400':
+          description: Invalid period format
+        '401':
+          description: Not authenticated
+        '403':
+          description: Forbidden (no RW membership or RW not found)
+  /api/v1/rw/{rwId}/kas/transactions:
+    get:
+      tags:
+      - rw-operational
+      summary: Get RW KAS transactions (read-only)
+      security:
+      - BearerAuth: []
+      description: 'Lists posted transactions from all RTs within the RW.
+        Supports filtering by period (YYYY-MM), start_date, and end_date.
+        Returns paginated results ordered by occurred_at DESC.
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: period
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: '^\\d{4}-\\d{2}$'
+        description: 'Filter by month (YYYY-MM).'
+      - name: start_date
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: 'Filter transactions on or after this date (YYYY-MM-DD).'
+      - name: end_date
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: 'Filter transactions on or before this date (YYYY-MM-DD).'
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Paginated transaction list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TransactionEntry'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '400':
+          description: Invalid query parameter
+        '401':
+          description: Not authenticated
+        '403':
+          description: Forbidden (no RW membership or RW not found)
+  /api/v1/rw/{rwId}/locations:
+    get:
+      tags:
+      - rw-operational
+      summary: Get RW fund locations (read-only)
+      security:
+      - BearerAuth: []
+      description: 'Lists all fund locations from all RTs within the RW.
+        Includes current balance derived from location_balance_changes.
+        '
+      parameters:
+      - name: rwId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: is_active
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: 'Filter by active status. If omitted, returns all locations.'
+      responses:
+        '200':
+          description: Fund locations list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FundLocationSummary'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Forbidden (no RW membership or RW not found)
+  /api/v1/households:
+    get:
+      tags:
+      - finance-read
+      summary: List households (warga, bendahara, pengurus)
+      security:
+      - BearerAuth: []
+      description: 'Tenant-scoped via JWT `rt_id`. Accessible by warga, bendahara, pengurus.
+
+        Requires `warga.read` permission (checked via `position_permissions` for jabatan-based users).
+
+        '
+      responses:
+        '200':
+          description: Household list
+        '403':
+          description: Forbidden
+    post:
+      tags:
+      - finance-write
+      summary: Create household (pengurus, bendahara)
+      security:
+      - BearerAuth: []
+      description: 'Requires `warga.create` permission AND role/jabatan check.
+
+        Both role-based (Pengurus, Bendahara) and jabatan-based (Ketua, Wakil Ketua, Sekretaris, Bendahara) allowed.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateHouseholdRequest'
+      responses:
+        '201':
+          description: Household created
+        '403':
+          description: Forbidden
+  /api/v1/households/{id}:
+    get:
+      tags:
+      - finance-read
+      summary: Get household by ID
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Household details
+        '404':
+          description: Not found
+    patch:
+      tags:
+      - finance-write
+      summary: Update household
+      security:
+      - BearerAuth: []
+      description: Requires `warga.update` permission.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Updated
+        '403':
+          description: Forbidden
+    delete:
+      tags:
+      - finance-write
+      summary: Deactivate household (soft delete)
+      security:
+      - BearerAuth: []
+      description: Requires `warga.update` permission.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Deactivated
+  /api/v1/households/{id}/move:
+    post:
+      tags:
+      - finance-write
+      summary: Move household to different RT
+      security:
+      - BearerAuth: []
+      description: Requires `warga.update` permission.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Moved
+  /api/v1/residents:
+    get:
+      tags:
+      - finance-read
+      summary: List residents
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Resident list
+    post:
+      tags:
+      - finance-write
+      summary: Create resident
+      security:
+      - BearerAuth: []
+      description: Requires `warga.create` permission.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResidentRequest'
+      responses:
+        '201':
+          description: Resident created
+  /api/v1/residents/{id}:
+    get:
+      tags:
+      - finance-read
+      summary: Get resident by ID
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: &id001
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+    patch:
+      tags:
+      - finance-write
+      summary: Update resident
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: Requires `warga.update` permission.
+      responses: *id001
+    delete:
+      tags:
+      - finance-write
+      summary: Deactivate resident (soft delete)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/residents/special:
+    post:
+      tags:
+      - finance-write
+      summary: Create special resident (not affiliated with a household)
+      security:
+      - BearerAuth: []
+      description: Requires `warga.create` permission.
+      responses: *id001
+  /api/v1/residents/special/{id}:
+    patch:
+      tags:
+      - finance-write
+      summary: Update special resident
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/warga/export:
+    get:
+      tags:
+      - finance-read
+      summary: Export warga data as CSV
+      security:
+      - BearerAuth: []
+      description: Warga-exportable CSV download.
+      responses: *id001
+  /api/v1/warga/template:
+    get:
+      tags:
+      - finance-read
+      summary: Download warga import template
+      security:
+      - BearerAuth: []
+      description: 'XLSX template for warga import. Requires `warga.export` permission
+
+        AND role/jabatan check (Pengurus, Bendahara, Ketua, Wakil Ketua).
+
+        '
+      responses: *id001
+  /api/v1/warga/export/xlsx:
+    get:
+      tags:
+      - finance-read
+      summary: Export warga data as XLSX
+      security:
+      - BearerAuth: []
+      description: 'XLSX export. Requires `warga.export` permission.
+
+        '
+      responses: *id001
+  /api/v1/warga/import/preview:
+    post:
+      tags:
+      - finance-write
+      summary: Preview warga import from JSON
+      security:
+      - BearerAuth: []
+      description: 'Preview parsed warga data before commit.
+
+        Requires `warga.create`, `warga.update`, and `warga.import` permissions.
+
+        '
+      responses: *id001
+  /api/v1/warga/import/commit:
+    post:
+      tags:
+      - finance-write
+      summary: Commit warga import from JSON
+      security:
+      - BearerAuth: []
+      description: 'Commit parsed warga data.
+
+        Requires `warga.create`, `warga.update`, and `warga.import` permissions.
+
+        '
+      responses: *id001
+  /api/v1/warga/import/preview/xlsx:
+    post:
+      tags:
+      - finance-write
+      summary: Preview warga import from XLSX file
+      security:
+      - BearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses: *id001
+  /api/v1/warga/import/commit/xlsx:
+    post:
+      tags:
+      - finance-write
+      summary: Commit warga import from XLSX file
+      security:
+      - BearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses: *id001
+  /api/v1/categories:
+    post:
+      tags:
+      - finance-write
+      summary: Create category (pengurus only)
+      security:
+      - BearerAuth: []
+      description: 'Only Pengurus role can create categories. Bendahara cannot.
+
+        No permission check in code — relies on role/jabatan check only.
+
+        '
+      responses:
+        '201':
+          description: Category created
+    get:
+      tags:
+      - finance-read
+      summary: List financial categories
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/dues:
+    post:
+      tags:
+      - finance-write
+      summary: Create levy/due configuration
+      security:
+      - BearerAuth: []
+      description: Requires `finance.create`, `finance.update`, `finance.approve` permissions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDueRequest'
+      responses:
+        '201':
+          description: Due created
+    get:
+      tags:
+      - finance-read
+      summary: List RT dues configuration
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/dues/{id}/months:
+    get:
+      tags:
+      - finance-read
+      summary: Get due periods (months) for a due ID
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/bills:
+    post:
+      tags:
+      - finance-write
+      summary: Create bill
+      security:
+      - BearerAuth: []
+      description: Requires `finance.create`, `finance.update`, `finance.approve` permissions.
+      responses: *id001
+    get:
+      tags:
+      - finance-read
+      summary: List bills
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/bills/{id}:
+    get:
+      tags:
+      - finance-read
+      summary: Get bill by ID
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+    delete:
+      tags:
+      - finance-write
+      summary: Cancel bill
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/payments:
+    post:
+      tags:
+      - finance-write
+      summary: Create payment (self-submitted by warga or staff)
+      security:
+      - BearerAuth: []
+      description: Warga can submit own payments. Staff (bendahara/pengurus) can submit on behalf.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '201':
+          description: Payment created
+    get:
+      tags:
+      - finance-read
+      summary: List payments
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/payments/{id}:
+    get:
+      tags:
+      - finance-read
+      summary: Get payment by ID
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/payments/{id}/proof:
+    post:
+      tags:
+      - finance-write
+      summary: Upload payment proof image
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                proof:
+                  type: string
+                  format: binary
+      responses: *id001
+    get:
+      tags:
+      - finance-read
+      summary: Get proof of payment image
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/transactions:
+    post:
+      tags:
+      - finance-write
+      summary: Create financial transaction
+      security:
+      - BearerAuth: []
+      description: 'Records income or expense. Amounts are always positive; type determines direction.
+
+        Requires `finance.create`, `finance.update`, `finance.approve` permissions.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '201':
+          description: Transaction created
+    get:
+      tags:
+      - finance-read
+      summary: List financial transactions
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: type
+        in: query
+        schema:
+          type: string
+      - name: status
+        in: query
+        schema:
+          type: string
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/transactions/{id}:
+    put:
+      tags:
+      - finance-write
+      summary: Update transaction (full update)
+      security:
+      - BearerAuth: []
+      description: 'Only works for draft transactions. Posted transactions cannot be modified.
+
+        '
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+    patch:
+      tags:
+      - finance-write
+      summary: Partial update transaction
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+    get:
+      tags:
+      - finance-read
+      summary: Get transaction by ID
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/reports/balance:
+    get:
+      tags:
+      - finance-read
+      summary: Get balance report (calculated from ledger)
+      security:
+      - BearerAuth: []
+      description: 'Tenant-scoped. Balance = Total Posted Income - Total Posted Expenses.
+
+        Query params: `period`.
+
+        '
+      responses:
+        '200':
+          description: Balance report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceReport'
+        '403':
+          description: Forbidden
+  /api/v1/dashboard/summary:
+    get:
+      tags:
+      - finance-read
+      summary: Get dashboard summary
+      security:
+      - BearerAuth: []
+      description: 'Aggregated overview: total income, expense, balance, recent transactions.
+
+        Tenant-scoped.
+
+        '
+      responses: *id001
+  /api/v1/payments/multi-period:
+    post:
+      tags:
+      - finance-write
+      summary: Create multi-period payments
+      security:
+      - BearerAuth: []
+      description: Submit payments for multiple periods at once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMultiPeriodPaymentRequest'
+      responses:
+        '201':
+          description: Payments created
+  /api/v1/payments/{id}/verify:
+    post:
+      tags:
+      - finance-write
+      summary: Verify payment (bendahara, pengurus)
+      security:
+      - BearerAuth: []
+      description: 'Validates payment and creates a financial transaction.
+
+        Requires `finance.approve` permission.
+
+        Action parameter must be exactly "approve" or "reject" (lowercase).
+
+        '
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyPaymentRequest'
+      responses:
+        '200':
+          description: Payment verified
+        '400':
+          description: Invalid action parameter (must be "approve" or "reject")
+        '403':
+          description: Forbidden (missing finance.approve permission)
+  /api/v1/payments/{id}/reverse:
+    post:
+      tags:
+      - finance-write
+      summary: Reverse payment
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/dues/{id}/periods/{period}/status:
+    patch:
+      tags:
+      - finance-write
+      summary: Update due period status
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: period
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDueStatusRequest'
+      responses: *id001
+  /api/v1/dues/{id}:
+    patch:
+      tags:
+      - finance-write
+      summary: Update due (bendahara, pengurus)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+    delete:
+      tags:
+      - finance-write
+      summary: Deactivate due
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/bills/{id}/status:
+    patch:
+      tags:
+      - finance-write
+      summary: Update bill status
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBillStatusRequest'
+      responses: *id001
+  /api/v1/bills/generate:
+    post:
+      tags:
+      - finance-write
+      summary: Generate bills for selected households
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateBillsRequest'
+      responses: *id001
+  /api/v1/transactions/{id}/reverse:
+    post:
+      tags:
+      - finance-write
+      summary: Reverse posted transaction
+      security:
+      - BearerAuth: []
+      description: 'Creates a reversal transaction of opposite type and amount.
+
+        The original remains in the ledger; both are visible in reports.
+
+        '
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/reports/balance/opening/{period}:
+    put:
+      tags:
+      - finance-write
+      summary: Set opening balance for a period
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: period
+        in: path
+        required: true
+        schema:
+          type: string
+          format: date
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetOpeningBalanceRequest'
+      responses: *id001
+  /api/v1/fund-locations:
+    get:
+      tags:
+      - fund-location
+      summary: List fund locations (tenant-scoped)
+      security:
+      - BearerAuth: []
+      description: 'Tenant-scoped via JWT `rt_id`.
+
+        Includes Rekening (bank accounts), Brankas (cash boxes), COH (Cash on Hand).
+
+        '
+      responses:
+        '200':
+          description: Fund locations list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FundLocation'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+    post:
+      tags:
+      - fund-location
+      summary: Create fund location
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFundLocationRequest'
+      responses:
+        '201':
+          description: Fund location created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FundLocation'
+      description: 'Creates Rekening, Brankas, or COH.
+
+        bendahara-only access enforced by `checkBendaharaAccess()`.
+
+        '
+  /api/v1/fund-locations/{id}:
+    get:
+      tags:
+      - fund-location
+      summary: Get fund location by ID
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+    patch:
+      tags:
+      - fund-location
+      summary: Update fund location
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: bendahara-only.
+      responses: *id001
+    delete:
+      tags:
+      - fund-location
+      summary: Deactivate fund location (soft delete)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: bendahara-only.
+      responses: *id001
+  /api/v1/fund-locations/{id}/history:
+    get:
+      tags:
+      - fund-location
+      summary: Get fund location transaction history
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/fund-locations/{id}/opening-balance:
+    put:
+      tags:
+      - fund-location
+      summary: Set opening balance for fund location
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetOpeningBalanceRequest'
+      description: bendahara-only.
+      responses: *id001
+  /api/v1/fund-transfers:
+    post:
+      tags:
+      - fund-location
+      summary: Create fund transfer
+      security:
+      - BearerAuth: []
+      description: 'Transfer funds between locations within the same RT.
+
+        Requires `checkBendaharaAccess()` — only bendahara can execute.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransferRequest'
+      responses:
+        '201':
+          description: Transfer created
+    get:
+      tags:
+      - finance-read
+      summary: List fund transfers
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+      - name: page
+        in: query
+        schema:
+          type: integer
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/fund-transfers/{id}:
+    get:
+      tags:
+      - fund-location
+      summary: Get transfer by ID
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/fund-transfers/{id}/reverse:
+    post:
+      tags:
+      - fund-location
+      summary: Reverse fund transfer
+      security:
+      - BearerAuth: []
+      description: 'Creates a reversal transfer. Only bendahara allowed via `checkBendaharaAccess()`.
+
+        '
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/reports/fund-locations/reconciliation:
+    get:
+      tags:
+      - fund-location
+      summary: Get fund location reconciliation report
+      security:
+      - BearerAuth: []
+      description: 'Compares ledger totals with fund location balances.
+
+        '
+      responses:
+        '200':
+          description: Reconciliation report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationReport'
+  /api/v1/notifications/devices:
+    post:
+      tags:
+      - auth
+      summary: Register device token (POST variant)
+      security:
+      - BearerAuth: []
+      description: 'Registers a push notification device token.
+
+        Supports both `/api/v1/notifications/devices` and `/api/v1/devices`.
+
+        '
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceRequest'
+      responses: *id001
+    delete:
+      tags:
+      - auth
+      summary: Unregister device token
+      security:
+      - BearerAuth: []
+      responses: *id001
+  /api/v1/devices:
+    post:
+      tags:
+      - auth
+      summary: Register device token (devices variant)
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceRequest'
+      responses: *id001
+    delete:
+      tags:
+      - auth
+      summary: Unregister device token (devices variant)
+      security:
+      - BearerAuth: []
+      responses: *id001
+  /api/v1/notifications/detail/{id}:
+    get:
+      tags:
+      - auth
+      summary: Get notification detail
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/notifications/images/*:
+    get:
+      summary: Serve notification attachment images
+      responses:
+        '200':
+          description: Image file
+        '404':
+          description: Not found
+  /api/v1/notifications/system-types:
+    get:
+      tags:
+      - auth
+      summary: Get notification system types
+      security:
+      - BearerAuth: []
+      description: 'Admin endpoint. Requires notification admin role.
+
+        '
+      responses: *id001
+  /api/v1/notifications/templates:
+    get:
+      tags:
+      - auth
+      summary: List notification templates
+      security:
+      - BearerAuth: []
+      description: 'Requires notification admin role.
+
+        '
+      responses: *id001
+    post:
+      tags:
+      - auth
+      summary: Create notification template
+      security:
+      - BearerAuth: []
+      description: "Requires notification admin role.\nrequestBody:\n  required: true\n  content:\n    application/json:\n      schema:\n        $ref: \"#/components/schemas/CreateNotificationTemplateRequest\"\n"
+      responses: *id001
+  /api/v1/notifications/templates/{id}:
+    get:
+      tags:
+      - auth
+      summary: Get notification template
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+    put:
+      tags:
+      - auth
+      summary: Update notification template
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+    delete:
+      tags:
+      - auth
+      summary: Delete notification template
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/notifications/templates/{id}/toggle-active:
+    patch:
+      tags:
+      - auth
+      summary: Toggle notification template active status
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses: *id001
+  /api/v1/notifications/logs:
+    get:
+      tags:
+      - auth
+      summary: List notification logs
+      security:
+      - BearerAuth: []
+      responses: *id001
+  /api/v1/notifications/upload-image:
+    post:
+      tags:
+      - auth
+      summary: Upload notification image
+      security:
+      - BearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses: *id001
+  /api/v1/notifications/test-push:
+    post:
+      tags:
+      - auth
+      summary: Test push notification
+      security:
+      - BearerAuth: []
+      description: 'Sends a test push to registered devices.
+
+        Only available in non-production environments.
+
+        '
+      responses: *id001
+  /api/v1/notifications/test-self:
+    post:
+      tags:
+      - auth
+      summary: Send test notification to self
+      security:
+      - BearerAuth: []
+      description: Only available in development/test environments.
+      responses: *id001
+  /api/v1/notifications/waste-truck:
+    post:
+      tags:
+      - auth
+      summary: Trigger waste truck arrival notification
+      security:
+      - BearerAuth: []
+      description: 'Requires Pengurus role. Sends notification about waste truck arrival.
+
+        '
+      responses: *id001
+  /api/v1/notifications/manual:
+    post:
+      tags:
+      - auth
+      summary: Send manual push notification
+      security:
+      - BearerAuth: []
+      description: 'Requires Pengurus role. Manual push to selected recipients.
+
+        '
+      responses: *id001
+  /health:
+    get:
+      tags:
+      - health
+      summary: Health check
+      description: Unauthenticated. Returns 200 with status and database name.
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  database:
+                    type: string
+  /__test__/info:
+    get:
+      tags:
+      - health
+      summary: Test environment info (E2E test only)
+      description: 'Returns app environment and current database name.
+
+        Used by E2E tests to verify test DB isolation.
+
+        '
+      responses:
+        '200':
+          description: Test info
+  /__test__require_role_bendahara:
+    get:
+      tags:
+      - health
+      summary: Test RequireRole(bendahara) middleware
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Auth context with tenant role
+  /__test__require_system_admin:
+    get:
+      tags:
+      - health
+      summary: Test RequireSystemRole(super_admin) middleware
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Auth context with system role
+  /__test/override/query:
+    get:
+      tags:
+      - health
+      summary: Test tenant override (verify client rt_id is ignored)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: rt_id
+        in: query
+        schema:
+          type: string
+      - name: membership_id
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Shows auth context vs client-provided values
+  /__test__/override/*:
+    get:
+      tags:
+      - health
+      summary: Test tenant override via path param
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Shows auth context vs client path values
+  /api/v1/residents/{id}/move:
+    post:
+      tags:
+      - finance-write
+      summary: Move resident to different household
+      security:
+      - BearerAuth: []
+      description: Requires `warga.update` permission.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+  /api/v1/categories/{id}:
+    delete:
+      tags:
+      - finance-write
+      summary: Deactivate category (pengurus only)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: Soft delete via is_active = false.
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+    patch:
+      tags:
+      - finance-write
+      summary: Update category (pengurus only)
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '500':
+          description: Internal server error
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'JWT token with claims:
+
+        - sub: user ID (UUID)
+
+        - role: tenant role (warga, bendahara, pengurus)
+
+        - rt_id: tenant ID (NULL for super_admin)
+
+        - rw_context: JSON array of RW membership objects (RWID + jabatan)
+
+        - sys_role: system role (super_admin) or NULL
+
+        '
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+      - email
+      - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          example: SecurePass123!
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: Short-lived JWT (15 minutes)
+        refresh_token:
+          type: string
+          description: Opaque refresh token, stored server-side as hash
+        token_type:
+          type: string
+          example: Bearer
+    RefreshRequest:
+      type: object
+      required:
+      - refresh_token
+      properties:
+        refresh_token:
+          type: string
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        phone:
+          type: string
+          pattern: ^\+?[0-9]{8,15}$
+    ChangePasswordRequest:
+      type: object
+      required:
+      - current_password
+      - new_password
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          minLength: 8
+    UserProfile:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        phone:
+          type: string
+        rt_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tenant ID from JWT (NULL for super_admin)
+        role:
+          type: string
+          enum:
+          - warga
+          - bendahara
+          - pengurus
+        rw_memberships:
+          type: array
+          nullable: true
+          description: RW memberships from JWT (loaded via loadRWMemberships)
+          items:
+            $ref: '#/components/schemas/RWMembership'
+    RW:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        rw_number:
+          type: integer
+          description: RW number (e.g., 1, 2, 16)
+        name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateRWRequest:
+      type: object
+      required:
+      - rw_number
+      - name
+      properties:
+        rw_number:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          maxLength: 100
+    UpdateRWRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+    RWMembership:
+      type: object
+      properties:
+        membership_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        rw_id:
+          type: string
+          format: uuid
+        jabatan:
+          type: string
+          enum:
+          - ketua
+          - wakil_ketua
+          - sekretaris
+          - bendahara
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    SetRWJabatanRequest:
+      type: object
+      required:
+      - jabatan
+      properties:
+        jabatan:
+          type: string
+          enum:
+          - ketua
+          - wakil_ketua
+          - sekretaris
+          - bendahara
+    RT:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        rw_id:
+          type: string
+          format: uuid
+        rt:
+          type: integer
+          description: RT number (e.g., 1, 2, 21)
+        name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateRTRequest:
+      type: object
+      required:
+      - rw_id
+      - rt
+      properties:
+        rw_id:
+          type: string
+          format: uuid
+        rt:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          maxLength: 100
+    CreateHouseholdRequest:
+      type: object
+      required:
+      - rt_id
+      - address
+      - house_number
+      - owner_name
+      properties:
+        rt_id:
+          type: string
+          format: uuid
+        address:
+          type: string
+        house_number:
+          type: string
+        owner_name:
+          type: string
+        owner_nik:
+          type: string
+          pattern: ^[0-9]{16}$
+        owner_phone:
+          type: string
+    CreateResidentRequest:
+      type: object
+      properties:
+        household_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        nik:
+          type: string
+          pattern: ^[0-9]{16}$
+        phone:
+          type: string
+        relationship:
+          type: string
+        gender:
+          type: string
+          enum:
+          - male
+          - female
+        birth_date:
+          type: string
+          format: date
+        occupation:
+          type: string
+        education:
+          type: string
+    CreatePaymentRequest:
+      type: object
+      required:
+      - bill_id
+      - amount
+      - payment_method
+      properties:
+        bill_id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+          description: Fixed-precision decimal as string (e.g., '50000')
+          example: '50000'
+        payment_method:
+          type: string
+        note:
+          type: string
+    CreateMultiPeriodPaymentRequest:
+      type: object
+      required:
+      - bill_ids
+      - amount
+      - payment_method
+      properties:
+        bill_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        amount:
+          type: string
+        payment_method:
+          type: string
+        note:
+          type: string
+    VerifyPaymentRequest:
+      type: object
+      required:
+      - action
+      properties:
+        action:
+          type: string
+          enum:
+          - approve
+          - reject
+          description: Must be lowercase 'approve' or 'reject'. 'APPROVED' (with -D) will be rejected with 400.
+        note:
+          type: string
+    CreateDueRequest:
+      type: object
+      required:
+      - rt_id
+      - category_id
+      - name
+      - amount
+      properties:
+        rt_id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        amount:
+          type: string
+        description:
+          type: string
+    UpdateDueStatusRequest:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          enum:
+          - active
+          - archived
+    UpdateBillStatusRequest:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          enum:
+          - pending
+          - paid
+          - overdue
+          - cancelled
+    GenerateBillsRequest:
+      type: object
+      required:
+      - due_id
+      - period_month
+      - period_year
+      - household_ids
+      properties:
+        due_id:
+          type: string
+          format: uuid
+        period_month:
+          type: integer
+        period_year:
+          type: integer
+        household_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    CreateTransactionRequest:
+      type: object
+      required:
+      - type
+      - amount
+      - category_id
+      - description
+      properties:
+        type:
+          type: string
+          enum:
+          - income
+          - expense
+          description: Always positive. Use type instead of negative amounts.
+        amount:
+          type: string
+          description: Fixed-precision decimal as string (e.g., '50000')
+        category_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        date:
+          type: string
+          format: date
+        reference_no:
+          type: string
+        rt_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Derived from JWT. NOT from request body.
+      example:
+        type: income
+        amount: '50000'
+        category_id: a3a3a3a3-a3a3-a3a3-a3a3-a3a3a3a3a3a3
+        description: Iuran bulanan Oktober
+        date: '2026-10-01'
+    BalanceReport:
+      type: object
+      properties:
+        period:
+          type: string
+          description: YYYY-MM format
+        opening_balance:
+          type: string
+          description: Fixed-precision decimal as string
+        total_income:
+          type: string
+          description: Sum of all posted income
+        total_expense:
+          type: string
+          description: Sum of all posted expense
+        closing_balance:
+          type: string
+          description: opening + income - expense
+        computed_from:
+          type: string
+          description: Calculated from ledger, never stored
+    SetOpeningBalanceRequest:
+      type: object
+      required:
+      - amount
+      - period
+      properties:
+        amount:
+          type: string
+          description: Fixed-precision decimal as string
+        period:
+          type: string
+          description: YYYY-MM
+    FundLocation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        rt_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: e.g., 'Rekening Bank BRI', 'Brankas RT'
+        location_type:
+          type: string
+          enum:
+          - rekening
+          - brankas
+          - coh
+        account_number:
+          type: string
+          nullable: true
+        bank_name:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        opening_balance:
+          type: string
+          nullable: true
+        current_balance:
+          type: string
+          description: Calculated from transactions, never stored
+        created_at:
+          type: string
+          format: date-time
+    CreateFundLocationRequest:
+      type: object
+      required:
+      - rt_id
+      - name
+      - location_type
+      properties:
+        rt_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        location_type:
+          type: string
+          enum:
+          - rekening
+          - brankas
+          - coh
+        account_number:
+          type: string
+        bank_name:
+          type: string
+        opening_balance:
+          type: string
+    CreateTransferRequest:
+      type: object
+      required:
+      - from_location_id
+      - to_location_id
+      - amount
+      - description
+      properties:
+        from_location_id:
+          type: string
+          format: uuid
+        to_location_id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+          description: Always positive
+        description:
+          type: string
+        date:
+          type: string
+          format: date
+    ReconciliationReport:
+      type: object
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        ledger_total:
+          type: string
+        reported_balance:
+          type: string
+        difference:
+          type: string
+        status:
+          type: string
+          enum:
+          - matched
+          - unmatched
+    RegisterDeviceRequest:
+      type: object
+      required:
+      - device_token
+      - platform
+      properties:
+        device_token:
+          type: string
+        platform:
+          type: string
+          enum:
+          - android
+          - ios
+          - web
+        device_model:
+          type: string
+        app_version:
+          type: string
+    CreateNotificationTemplateRequest:
+      type: object
+      required:
+      - name
+      - system_type
+      properties:
+        name:
+          type: string
+        system_type:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+        variables:
+          type: array
+          items:
+            type: string
+          example:
+          - '{{name}}'
+          - '{{amount}}'
+          - '{{period}}'
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+              example: validation_error
+            message:
+              type: string
+              description: Human-readable error message
+              example: Invalid request body
+            details:
+              type: array
+              description: Detailed validation errors (if any)
+              items:
+                type: object
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 100
+        total_pages:
+          type: integer
+          example: 5
+    RWDashboardSummary:
+      type: object
+      description: 'Aggregated financial overview for the RW scope (all RTs in the RW).
+        All monetary values are fixed-precision strings.'
+      properties:
+        total_rts:
+          type: integer
+          description: Number of active RTs in this RW
+        total_locations:
+          type: integer
+          description: Number of fund locations across all RTs
+        total_balance:
+          type: string
+          description: 'Net balance across all RT locations. Computed as: SUM(locations.current_balance).'
+        total_income:
+          type: string
+          description: 'Sum of all posted income transactions across all RTs.'
+        total_expense:
+          type: string
+          description: 'Sum of all posted expense transactions across all RTs.'
+        transaction_count:
+          type: integer
+          description: Total number of posted transactions across all RTs
+    KASReport:
+      type: object
+      description: 'RW-level KAS report (income minus expense).
+        Aggregated from all RTs in the RW.
+        All monetary values are fixed-precision strings.'
+      properties:
+        total_income:
+          type: string
+          description: 'Sum of all posted income transactions across all RTs.'
+        total_expense:
+          type: string
+          description: 'Sum of all posted expense transactions across all RTs.'
+        net_balance:
+          type: string
+          description: 'total_income minus total_expense.'
+        transaction_count:
+          type: integer
+          description: Total number of posted transactions across all RTs
+    TransactionEntry:
+      type: object
+      description: 'Single posted transaction from an RT within the RW.
+        Transaction data is sourced from the RT-level transactions table,
+        joined with rts.rw_id for RW-scoped access.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        rt_id:
+          type: string
+          format: uuid
+          description: The RT this transaction belongs to
+        rt_name:
+          type: string
+          description: The RT name for identification
+        type:
+          type: string
+          enum:
+          - income
+          - expense
+          description: Always positive. Use type instead of negative amounts.
+        amount:
+          type: string
+          description: Fixed-precision decimal as string (always positive)
+        description:
+          type: string
+        category_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum:
+          - posted
+        payment_id:
+          type: string
+          format: uuid
+          nullable: true
+        occurred_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    FundLocationSummary:
+      type: object
+      description: 'Read-only fund location from an RT within the RW.
+        Includes current balance derived from location_balance_changes.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        rt_id:
+          type: string
+          format: uuid
+          description: The RT this location belongs to
+        rt_name:
+          type: string
+          description: The RT name for identification
+        name:
+          type: string
+          description: e.g., 'Rekening Bank BRI', 'Brankas RT'
+        category:
+          type: string
+          description: e.g., 'bank_account', 'cash'
+        bank_name:
+          type: string
+          nullable: true
+        account_number:
+          type: string
+          nullable: true
+        account_holder:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        current_balance:
+          type: string
+          description: 'Calculated balance: SUM(location_balance_changes.amount_delta) + opening_balance'
+        created_at:
+          type: string
+          format: date-time

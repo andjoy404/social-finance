@@ -147,6 +147,7 @@ class NotificationApiClient {
     int page = 1,
     int perPage = 20,
     String? eventType,
+    String? status,
   }) async {
     final queryParams = <String, dynamic>{
       'page': page,
@@ -154,6 +155,9 @@ class NotificationApiClient {
     };
     if (eventType != null && eventType.isNotEmpty) {
       queryParams['event_type'] = eventType;
+    }
+    if (status != null && status.isNotEmpty && status != 'all') {
+      queryParams['status'] = status;
     }
 
     final response = await dio.get(
@@ -171,6 +175,31 @@ class NotificationApiClient {
       total: 0,
       totalPages: 1,
     );
+  }
+
+  /// POST /api/v1/notifications/logs/{id}/read
+  Future<void> markAsRead(String id) async {
+    await dio.post('/api/v1/notifications/logs/$id/read');
+  }
+
+  /// POST /api/v1/notifications/logs/read-all
+  Future<int> markAllAsRead() async {
+    final response = await dio.post('/api/v1/notifications/logs/read-all');
+    final data = response.data;
+    if (data is Map && data['marked'] is num) {
+      return (data['marked'] as num).toInt();
+    }
+    return 0;
+  }
+
+  /// GET /api/v1/notifications/unread-count
+  Future<int> getUnreadCount() async {
+    final response = await dio.get('/api/v1/notifications/unread-count');
+    final data = response.data;
+    if (data is Map && data['unread_count'] is num) {
+      return (data['unread_count'] as num).toInt();
+    }
+    return 0;
   }
 
   /// GET /api/v1/notifications/detail/{id}

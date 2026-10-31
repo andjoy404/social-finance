@@ -148,6 +148,8 @@ class NotificationLogEntry {
   final Map<String, dynamic> variables;
   final int recipientsCount;
   final DateTime? createdAt;
+  final bool isRead;
+  final DateTime? readAt;
 
   const NotificationLogEntry({
     required this.id,
@@ -160,6 +162,8 @@ class NotificationLogEntry {
     required this.variables,
     required this.recipientsCount,
     this.createdAt,
+    this.isRead = false,
+    this.readAt,
   });
 
   factory NotificationLogEntry.fromJson(Map<String, dynamic> json) {
@@ -178,6 +182,10 @@ class NotificationLogEntry {
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'].toString())
           : null,
+      isRead: json['is_read'] as bool? ?? false,
+      readAt: json['read_at'] != null
+          ? DateTime.tryParse(json['read_at'].toString())
+          : null,
     );
   }
 
@@ -192,7 +200,39 @@ class NotificationLogEntry {
         'variables': variables,
         'recipients_count': recipientsCount,
         'created_at': createdAt?.toIso8601String(),
+        'is_read': isRead,
+        if (readAt != null) 'read_at': readAt?.toIso8601String(),
       };
+
+  NotificationLogEntry copyWith({
+    String? id,
+    String? rtId,
+    String? templateId,
+    String? eventType,
+    String? title,
+    String? body,
+    String? imageUrl,
+    Map<String, dynamic>? variables,
+    int? recipientsCount,
+    DateTime? createdAt,
+    bool? isRead,
+    DateTime? readAt,
+  }) {
+    return NotificationLogEntry(
+      id: id ?? this.id,
+      rtId: rtId ?? this.rtId,
+      templateId: templateId ?? this.templateId,
+      eventType: eventType ?? this.eventType,
+      title: title ?? this.title,
+      body: body ?? this.body,
+      imageUrl: imageUrl ?? this.imageUrl,
+      variables: variables ?? this.variables,
+      recipientsCount: recipientsCount ?? this.recipientsCount,
+      createdAt: createdAt ?? this.createdAt,
+      isRead: isRead ?? this.isRead,
+      readAt: readAt ?? this.readAt,
+    );
+  }
 }
 
 class NotificationLogsResponse {
@@ -253,12 +293,16 @@ bool isPengurusUser(Map<String, dynamic>? user) {
   return role == AppRole.pengurus || roleStr == 'pengurus';
 }
 
-/// Helper function to check if the current user has access to Notification Management.
-/// Permitted roles: super_admin, pengurus, or Ketua RT.
+/// Checks if the current user has administrative access to notification management
+/// (Super Admin or Ketua RT).
+bool canUserAccessNotificationAdmin(Map<String, dynamic>? user) {
+  return isSuperAdminUser(user) || isKetuaRTUser(user);
+}
+
+/// Helper function to check if the current user has access to Notification Menu.
+/// All authenticated users (including Warga) can access notifications.
 bool canUserAccessNotificationMenu(Map<String, dynamic>? user) {
-  return isSuperAdminUser(user) ||
-      isKetuaRTUser(user) ||
-      isPengurusUser(user);
+  return user != null;
 }
 
 

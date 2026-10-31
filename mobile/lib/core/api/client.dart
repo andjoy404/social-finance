@@ -324,6 +324,60 @@ class ApiClient {
     clearAllTokens();
     onUnauthorized?.call();
   }
+
+  /// GET shortcut — makes a GET request and returns the parsed response.
+  Future<Response<Map<String, dynamic>>> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    final response = await dio.get<Map<String, dynamic>>(
+      _baseUrl + path,
+      queryParameters: queryParameters,
+    );
+    return response;
+  }
+
+  /// POST shortcut — makes a POST request and returns the parsed response.
+  Future<Response<Map<String, dynamic>>> post(
+    String path, {
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    final response = await dio.post<Map<String, dynamic>>(
+      _baseUrl + path,
+      data: data,
+      queryParameters: queryParameters,
+    );
+    return response;
+  }
+
+  /// PUT shortcut — makes a PUT request and returns the parsed response.
+  Future<Response<Map<String, dynamic>>> put(
+    String path, {
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    final response = await dio.put<Map<String, dynamic>>(
+      _baseUrl + path,
+      data: data,
+      queryParameters: queryParameters,
+    );
+    return response;
+  }
+
+  /// PATCH shortcut — makes a PATCH request and returns the parsed response.
+  Future<Response<Map<String, dynamic>>> patch(
+    String path, {
+    Map<String, dynamic>? data,
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    final response = await dio.patch<Map<String, dynamic>>(
+      _baseUrl + path,
+      data: data,
+      queryParameters: queryParameters,
+    );
+    return response;
+  }
 }
 
 enum _RefreshStatus {

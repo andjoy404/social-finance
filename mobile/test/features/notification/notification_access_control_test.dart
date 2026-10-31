@@ -52,6 +52,7 @@ class _FakeNotificationRepository extends NotificationRepository {
     int page = 1,
     int perPage = 20,
     String? eventType,
+    String? status,
   }) async {
     return const NotificationLogsResponse(
       data: [],
@@ -64,7 +65,7 @@ class _FakeNotificationRepository extends NotificationRepository {
 }
 
 rp.ProviderScope _createApp({
-  required Map<String, dynamic> user,
+  Map<String, dynamic>? user,
 }) {
   final fakeRepo = _FakeNotificationRepository();
   return rp.ProviderScope(
@@ -90,7 +91,7 @@ rp.ProviderScope _createApp({
 
 void main() {
   group('Notification Menu Access Control (Unit)', () {
-    test('super_admin via system_role has full access', () {
+    test('super_admin via system_role has full admin and menu access', () {
       final user = {
         'id': 'u-admin',
         'system_role': 'super_admin',
@@ -98,9 +99,10 @@ void main() {
         'jabatan': null,
       };
       expect(canUserAccessNotificationMenu(user), isTrue);
+      expect(canUserAccessNotificationAdmin(user), isTrue);
     });
 
-    test('super_admin via AppRole.superAdmin has full access', () {
+    test('super_admin via AppRole.superAdmin has full admin and menu access', () {
       final user = {
         'id': 'u-admin-role',
         'system_role': null,
@@ -108,9 +110,10 @@ void main() {
         'jabatan': null,
       };
       expect(canUserAccessNotificationMenu(user), isTrue);
+      expect(canUserAccessNotificationAdmin(user), isTrue);
     });
 
-    test('Ketua RT has access', () {
+    test('Ketua RT has admin and menu access', () {
       final user = {
         'id': 'u-ketua',
         'system_role': null,
@@ -118,29 +121,37 @@ void main() {
         'jabatan': 'ketua',
       };
       expect(canUserAccessNotificationMenu(user), isTrue);
+      expect(canUserAccessNotificationAdmin(user), isTrue);
     });
 
-    test('Bendahara RT does NOT have access', () {
+    test('Bendahara RT has menu access but NOT admin access', () {
       final user = {
         'id': 'u-bendahara',
         'system_role': null,
         'role': AppRole.bendahara,
         'jabatan': 'bendahara',
       };
-      expect(canUserAccessNotificationMenu(user), isFalse);
+      expect(canUserAccessNotificationMenu(user), isTrue);
+      expect(canUserAccessNotificationAdmin(user), isFalse);
     });
 
-    test('Warga does NOT have access', () {
+    test('Warga has menu access but NOT admin access', () {
       final user = {
         'id': 'u-warga',
         'system_role': null,
         'role': AppRole.warga,
         'jabatan': null,
       };
-      expect(canUserAccessNotificationMenu(user), isFalse);
+      expect(canUserAccessNotificationMenu(user), isTrue);
+      expect(canUserAccessNotificationAdmin(user), isFalse);
     });
 
-    test('Semua Pengurus (sekretaris, wakil_ketua, bendahara internal) has access', () {
+    test('Unauthenticated user (null) does NOT have access', () {
+      expect(canUserAccessNotificationMenu(null), isFalse);
+      expect(canUserAccessNotificationAdmin(null), isFalse);
+    });
+
+    test('Pengurus non-ketua has menu access but NOT admin access', () {
       expect(
         canUserAccessNotificationMenu({
           'id': 'u-sekre',
@@ -151,23 +162,13 @@ void main() {
         isTrue,
       );
       expect(
-        canUserAccessNotificationMenu({
-          'id': 'u-wakil',
+        canUserAccessNotificationAdmin({
+          'id': 'u-sekre',
           'system_role': null,
           'role': AppRole.pengurus,
-          'jabatan': 'wakil_ketua',
+          'jabatan': 'sekretaris',
         }),
-        isTrue,
-      );
-      // Ketua RT tetap memiliki akses
-      expect(
-        canUserAccessNotificationMenu({
-          'id': 'u-ketua2',
-          'system_role': null,
-          'role': AppRole.pengurus,
-          'jabatan': 'ketua',
-        }),
-        isTrue,
+        isFalse,
       );
     });
   });
@@ -244,62 +245,20 @@ void main() {
     );
 
     testWidgets(
-      'Unauthorized roles (Warga, Bendahara) do NOT see Notifikasi tab in BottomAppBar',
+      'Warga sees Notifikasi tab in BottomAppBar and can open NotificationManagementScreen (Riwayat only)',
       (tester) async {
-        for (final unauthorizedUser in [
-          {
-            'id': 'u-warga',
-            'email': 'warga@local.com',
-            'name': 'Warga RT',
-            'role': AppRole.warga,
-            'system_role': null,
-            'jabatan': null,
-            'rt': '002',
-            'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
-          },
-          {
-            'id': 'u-bendahara',
-            'email': 'bendahara-002@local.com',
-            'name': 'Bendahara RT',
-            'role': AppRole.bendahara,
-            'system_role': null,
-            'jabatan': 'bendahara',
-            'rt': '002',
-            'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
-          },
-        ]) {
-          await tester.pumpWidget(
-            KeyedSubtree(
-              key: ValueKey(unauthorizedUser['id']),
-              child: _createApp(user: unauthorizedUser),
-            ),
-          );
-          await tester.pumpAndSettle();
-
-          final bottomNav = find.byType(BottomAppBar);
-          expect(
-            find.descendant(of: bottomNav, matching: find.text('Notifikasi')),
-            findsNothing,
-          );
-        }
-      },
-    );
-
-    testWidgets(
-      'Pengurus (sekretaris) sees Notifikasi tab in BottomAppBar and can open NotificationManagementScreen',
-      (tester) async {
-        final sekreUser = {
-          'id': 'u-sekre',
-          'email': 'sekretaris-002@local.com',
-          'name': 'Sekretaris RT',
-          'role': AppRole.pengurus,
+        final wargaUser = {
+          'id': 'u-warga',
+          'email': 'warga@local.com',
+          'name': 'Warga RT',
+          'role': AppRole.warga,
           'system_role': null,
-          'jabatan': 'sekretaris',
+          'jabatan': null,
           'rt': '002',
           'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
         };
 
-        await tester.pumpWidget(_createApp(user: sekreUser));
+        await tester.pumpWidget(_createApp(user: wargaUser));
         await tester.pumpAndSettle();
 
         final bottomNav = find.byType(BottomAppBar);
@@ -313,7 +272,26 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(NotificationManagementScreen), findsOneWidget);
-        expect(find.text('KELOLA NOTIFIKASI'), findsOneWidget);
+        // Header title for warga is NOTIFIKASI, NOT KELOLA NOTIFIKASI
+        expect(find.text('NOTIFIKASI'), findsOneWidget);
+        expect(find.text('KELOLA NOTIFIKASI'), findsNothing);
+        // Administrative tabs must not be present
+        expect(find.text('Sistem'), findsNothing);
+        expect(find.text('Template'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Unauthenticated user (null) does NOT see Notifikasi tab in BottomAppBar',
+      (tester) async {
+        await tester.pumpWidget(_createApp(user: null));
+        await tester.pumpAndSettle();
+
+        final bottomNav = find.byType(BottomAppBar);
+        expect(
+          find.descendant(of: bottomNav, matching: find.text('Notifikasi')),
+          findsNothing,
+        );
       },
     );
   });

@@ -598,7 +598,7 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('Ketua RT with role=warga and jabatan=ketua does NOT see Iuran Warga or Kelola Iuran tabs', async () => {
+  it('Ketua RT with role=warga and jabatan=ketua sees Iuran Warga and Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -624,9 +624,9 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    // role=warga always wins over jabatan: manager tabs stay hidden.
-    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
+    // jabatan=ketua grants management access even with role=warga.
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
   it('Bendahara RT with role=bendahara and jabatan=null sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {

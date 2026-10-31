@@ -22,6 +22,11 @@ export interface ApiUser {
   rt_rt?: string
   rw_id?: string
   rw_name?: string
+  rw_memberships?: Array<{
+    rw_id: string
+    rw_name: string
+    jabatan: string
+  }>
 }
 
 export interface ApiRefreshResponse {
@@ -1678,6 +1683,8 @@ export interface ApiNotificationLog {
   image_url?: string | null
   status: string
   created_at: string
+  is_read?: boolean
+  read_at?: string | null
 }
 
 export async function apiGetNotificationSystemTypes(token: string): Promise<ApiSystemNotificationType[]> {
@@ -1808,11 +1815,13 @@ export async function apiGetNotificationLogs(
   page = 1,
   pageSize = 20,
   eventType?: string,
+  status?: string,
 ): Promise<{ data: ApiNotificationLog[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> {
   const params = new URLSearchParams()
   params.set('page', String(page))
   params.set('page_size', String(pageSize))
   if (eventType) params.set('event_type', eventType)
+  if (status && status !== 'all') params.set('status', status)
 
   const res = await authenticatedApiRequest(BASE + `/notifications/logs?${params.toString()}`, {
     method: 'GET',
@@ -1823,6 +1832,46 @@ export async function apiGetNotificationLogs(
   if (!res.ok || !body) {
     const err = await json<ApiError>(res).catch(() => null)
     throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load notification logs')
+  }
+  return body
+}
+
+export async function apiMarkNotificationAsRead(token: string, id: string): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + `/notifications/logs/${id}/read`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to mark notification as read')
+  }
+}
+
+export async function apiMarkAllNotificationsAsRead(token: string): Promise<{ marked: number }> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/logs/read-all', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ marked: number }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to mark all notifications as read')
+  }
+  return body
+}
+
+export async function apiGetNotificationUnreadCount(token: string): Promise<{ unread_count: number }> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/unread-count', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ unread_count: number }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load unread notification count')
   }
   return body
 }

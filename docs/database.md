@@ -102,7 +102,69 @@ Indexes:
 
 **Key design:** This table replaces the old approach where `users.role` and `users.rt_id` encoded tenant access. The separation allows a `super_admin` global user to hold zero tenant memberships, while tenant users hold exactly one (or more) memberships.
 
-#### `refresh_tokens` — Server-Side Refresh Token Store
+---
+
+## 2.3 RW (Rukun Warga) Domain Tables
+
+### `rws` — RW Organization Domain
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | |
+| `name` | `text` | NOT NULL | RW display name (e.g., "RW 01") |
+| `rw_number` | `int` | NOT NULL | Numeric RW identifier (e.g., 1, 16) |
+| `head_name` | `text` | NOT NULL | RW head (Ketua RW) name |
+| `is_active` | `boolean` | NOT NULL, default `true` | Soft delete flag |
+| `community_id` | `uuid` | NULL, FK → `communities.id` ON DELETE RESTRICT | |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Indexes:
+- `idx_rws_id` — PK
+- `idx_rws_is_active` — For active RW filtering
+
+**Key design:** RW is a parent organization that contains multiple RTs. The `rts.rw_id` FK links RTs to their parent RW. RW data is read-only aggregated from RT-level tables — no separate RW financial transactions or locations exist.
+
+---
+
+### `user_rw_memberships` — RW Role Assignment
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE CASCADE | |
+| `rw_id` | `uuid` | NOT NULL, FK → `rws.id` ON DELETE CASCADE | RW scope |
+| `jabatan` | `text` | NOT NULL, CHECK IN (`ketua`, `wakil_ketua`, `sekretaris`, `bendahara`) | RW position |
+| `term_start` | `date` | NOT NULL | Membership term start date |
+| `term_end` | `date` | NULL | Membership term end date (NULL = ongoing) |
+| `is_active` | `boolean` | NOT NULL, default `true` | Soft delete flag |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Indexes:
+- `idx_rw_memberships_user_rw_active` — UNIQUE `(user_id, rw_id) WHERE is_active = true`
+- `idx_rw_memberships_user_id`
+- `idx_rw_memberships_rw_id`
+- `idx_rw_memberships_rw_active` — `(rw_id, is_active)`
+
+**Key design:** This table manages RW-level roles separate from RT-level roles (`user_rt_memberships`). A user can hold both RT and RW memberships simultaneously. RW membership is required for accessing RW endpoints (dashboard, KAS, locations). RW positions (`ketua`, `wakil_ketua`, `sekretaris`, `bendahara`) determine permissions within the RW context.
+
+**Position permissions:**
+- `ketua`: Full RW access — read and write operations on KAS, transactions, and locations
+- `wakil_ketua`: RW access — read operations on KAS, transactions, and locations
+- `sekretaris`: RW access — read operations on KAS and transactions (no locations)
+- `bendahara`: RW access — read and write operations on KAS and transactions (no locations)
+
+**Authorization flow:**
+1. `RequireAuth` middleware populates `AuthContext.RWMemberships` from DB
+2. `RequireRWScope` validates the RW ID against `SCOPED_RW_IDS` and checks DB for active RW status
+3. `checkRWAccess()` verifies the user has an active RW membership for the requested RW
+
+**Note:** System-level `SUPER_ADMIN` users bypass the RW membership check and can access any RW that is in the configured `SCOPED_RW_IDS` and is active in the database.
+
+---
+
+### `refresh_tokens` — Server-Side Refresh Token Store
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -341,6 +403,47 @@ Indexes & Constraints:
 
 ---
 
+## 4.8 `rw_transactions` — RW-Level Independent Financial Ledger
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | |
+| `rw_id` | `uuid` | NOT NULL, FK → `rws.id` ON DELETE CASCADE | RW scope |
+| `category_id` | `uuid` | NULL, FK → `financial_categories.id` ON DELETE SET NULL | Financial category |
+| `account_id` | `uuid` | NULL, FK → `fund_locations.id` ON DELETE SET NULL | Target fund location |
+| `amount` | `numeric(15,2)` | NOT NULL, CHECK `amount > 0` | Always positive |
+| `type` | `text` | NOT NULL, CHECK IN (`income`, `expense`) | Direction |
+| `status` | `text` | NOT NULL, default `'posted'`, CHECK IN (`draft`, `posted`, `cancelled`) | Immutability status |
+| `reverses_transaction_id` | `uuid` | NULL, FK → `rw_transactions.id` ON DELETE RESTRICT | Reversal link |
+| `payment_id` | `uuid` | NULL, FK → `payments.id` ON DELETE SET NULL | Payment link |
+| `description` | `text` | NOT NULL | Audit ledger note |
+| `occurred_at` | `timestamptz` | NOT NULL, default `now()` | Event date |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `payment_method` | `text` | NULL, CHECK IN (`CASH`, `TRANSFER`) | Payment method |
+| `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Officer who recorded the manual transaction |
+| `reference_no` | `text` | NULL | System-generated transaction reference number |
+
+Indexes & Constraints:
+- Index on `(rw_id)`
+- Index on `(status)`
+- Index on `(type)`
+- Index on `(occurred_at)`
+- Index on `(reverses_transaction_id)`
+- Index on `(category_id)`
+- Index on `(payment_id)`
+- Index on `(created_by)`
+- Partial unique index `uniq_rw_transactions_reference_no` on `(reference_no) WHERE reference_no IS NOT NULL`
+
+**Key design:** RW-level financial transactions (income, expense, ledger) are stored in this **independent** table — NOT aggregated from RT transactions. RW balance (fund locations) still comes from aggregated RT `fund_locations`. This separation implements the "Koreksi Fundamental" principle: KAS RT and KAS RW are completely independent ledgers.
+
+**Transaction lifecycle:** Same as `transactions`:
+- `draft` — not yet posted, can be edited/deleted
+- `posted` — finalized, visible in ledger
+- `cancelled` — a reversal transaction referencing the original via `reverses_transaction_id`
+
+---
+
 ## 5. Migration History
 
 | Version | File | Description | Schema Dirty |
@@ -359,8 +462,50 @@ Indexes & Constraints:
 | 026 | `026_enrich_transactions_creator_and_household_updates.up.sql` | Adds `created_by` to `transactions` and allows editing household metadata | false |
 | 027 | `027_rw_domain_and_transaction_reference.up.sql` | Creates `rws` domain table, adds `rts.rw_id` foreign key, and adds `transactions.reference_no` for auto-generated KAS transaction references | false |
 | 032 | `032_dues_valid_until.up.sql` | Adds nullable `dues.valid_until` for voluntary-due auto-expiry plus a partial expiry index | false |
+| 042 | `042_rw_transactions.up.sql` | Creates `rw_transactions` table — RW-level independent financial ledger separate from RT transactions (Brief 2: Koreksi Fundamental) | false |
 
 Migration execution: `docker compose run --rm migrate up`
+
+---
+
+## 5.1 RW Scope — Independent Ledger Architecture (Brief 2: Koreksi Fundamental)
+
+**RW accounting is independent from RT accounting.** There is no aggregation in either direction.
+
+RW-level operational endpoints (**GET /api/v1/rw/{rwId}/dashboard**, **/kas**, **/kas/transactions**, **/locations**) have a separate ledger for transactions:
+
+**Data flow:**
+
+```
+RT transactions      →  NOT aggregated into RW
+RT fund_locations    → JOIN rts.rw_id  →  RW dashboard total_balance & locations list
+rw_transactions      → WHERE rw_id     →  RW dashboard total_income, total_expense, transaction_count
+rw_transactions      → WHERE rw_id     →  RW KAS report (income/expense)
+rw_transactions      → WHERE rw_id     →  RW transaction list (paginated)
+```
+
+**What is independent vs what is aggregated:**
+
+| Data | Source | Why |
+|------|--------|-----|
+| RW balance | Aggregated RT `fund_locations` | RW's cash is physically held in RT locations |
+| RW KAS (income/expense) | `rw_transactions` table | RW-level independent ledger |
+| RW transaction history | `rw_transactions` table | RW-level independent ledger |
+| RW locations list | Aggregated RT `fund_locations` | Locations are RT-level entities |
+
+**Two independent ledgers:**
+
+| Ledger | Table | Scoped By |
+|--------|-------|-----------|
+| KAS RT | `transactions` | `rt_id` |
+| KAS RW | `rw_transactions` | `rw_id` |
+
+**Key design:** RW-level financial transactions (income, expense, ledger) are stored in the **independent** `rw_transactions` table — NOT aggregated from RT transactions. RW balance (fund locations) still comes from aggregated RT `fund_locations`. This separation implements the "Koreksi Fundamental" principle: KAS RT and KAS RW are completely independent ledgers.
+
+**Authorization chain:**
+1. `RequireAuth` middleware populates `AuthContext.RWMemberships` from DB
+2. `RequireRWScope(pool, cfg)` middleware validates `rwId` param against memberships + SCOPED_RW_IDS allowlist
+3. `Service.checkRWAccess(ctx, rwID)` provides defense-in-depth: rejects if user has no active RW membership
 
 ---
 
@@ -675,3 +820,104 @@ Unique: `uq_user_devices_user_token (user_id, fcm_token)`.
 
 Unique: `uq_rt_event_template_name (rt_id, event_type, name)`.
 Index: `idx_notification_templates_event_active (rt_id, event_type, is_active)`.
+
+### 12.4 `notification_reads` — Per-User Notification Read Receipts
+
+Tracks read timestamps per user for notification logs, ensuring read receipts for personal notifications and RT-wide announcements remain isolated per user.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `notification_id` | `uuid` | NOT NULL, FK → `notification_logs.id` ON DELETE CASCADE | Associated notification log |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE CASCADE | User who read the notification |
+| `read_at` | `timestamptz` | NOT NULL, default `now()` | Timestamp when opened/marked as read |
+
+Primary Key: `(notification_id, user_id)`.
+Indexes:
+- `idx_notification_reads_user_id (user_id)`
+- `idx_notification_reads_notif_id (notification_id)`
+
+---
+
+## 13. RW Finance & Fund Locations (Migration 042, 043, 045)
+
+### 13.1 `rw_transactions` — RW Financial Ledger
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Transaction identifier |
+| `rw_id` | `uuid` | NOT NULL, FK → `rws.id` ON DELETE RESTRICT | RW organization scope |
+| `reference_no` | `varchar(50)` | NULL | Unique reference number |
+| `type` | `varchar(20)` | NOT NULL, CHECK (`income`, `expense`) | Transaction direction |
+| `amount` | `numeric(15, 2)` | NOT NULL, CHECK (`amount > 0`) | Transaction amount |
+| `description` | `text` | NOT NULL | Transaction description |
+| `category_id` | `uuid` | NULL, FK → `categories.id` ON DELETE SET NULL | Category classification |
+| `payment_method` | `varchar(20)` | NOT NULL, default `'cash'`, CHECK (`cash`, `transfer`, `other`) | Payment method |
+| `status` | `varchar(20)` | NOT NULL, default `'posted'`, CHECK (`draft`, `posted`, `cancelled`) | Immutability status |
+| `location_id` | `uuid` | NULL, FK → `(location_id, rw_id)` REFERENCES `rw_fund_locations` | Source/destination fund location |
+| `source_rt_id` | `uuid` | NULL, FK → `rts.id` ON DELETE SET NULL | Source RT for incoming dues/funds |
+| `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Officer recording transaction |
+| `transaction_date` | `date` | NOT NULL, default `CURRENT_DATE` | Date of financial event |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | Audit timestamp |
+
+Indexes:
+- `idx_rw_transactions_rw_date (rw_id, transaction_date)`
+- `idx_rw_transactions_location_id (location_id)`
+- `idx_rw_transactions_source_rt_id (source_rt_id)`
+- `uniq_rw_transactions_reference_no (reference_no) WHERE reference_no IS NOT NULL`
+
+### 13.2 `rw_fund_locations` — RW Fund Storage Locations
+
+Supports 3 distinct categories: `rekening` (Rekening Bank), `brankas` (Brankas Fisik), and `coh` (Kas Di Tangan / Cash on Hand). The concept of "Dana Hibah/Donasi" is eliminated.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Location identifier |
+| `rw_id` | `uuid` | NOT NULL, FK → `rws.id` ON DELETE RESTRICT | RW organization scope |
+| `name` | `varchar(100)` | NOT NULL | Location display name |
+| `category` | `varchar(20)` | NOT NULL, CHECK in (`rekening`, `brankas`, `coh`) | Storage category |
+| `bank_name` | `varchar(50)` | NULL | Bank name (required for `rekening`) |
+| `account_number` | `varchar(50)` | NULL | Bank account number |
+| `account_holder` | `varchar(100)` | NULL | Account holder name |
+| `is_active` | `boolean` | NOT NULL, default `true` | Soft toggle (deactivation requires balance = 0) |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | Creation timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | Last updated timestamp |
+
+Unique: `uniq_rw_fund_locations_rw_name (rw_id, name)`.
+
+### 13.3 `rw_fund_transfers` — Intra-RW Fund Transfers
+
+Transfers funds between locations within the same RW organization. Blocked across different RWs.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Transfer identifier |
+| `rw_id` | `uuid` | NOT NULL, FK → `rws.id` ON DELETE RESTRICT | RW organization scope |
+| `from_location_id` | `uuid` | NOT NULL, FK → `(from_location_id, rw_id)` REFERENCES `rw_fund_locations` | Source location |
+| `to_location_id` | `uuid` | NOT NULL, FK → `(to_location_id, rw_id)` REFERENCES `rw_fund_locations` | Destination location |
+| `amount` | `numeric(15, 2)` | NOT NULL, CHECK (`amount > 0`) | Transfer amount |
+| `transfer_date` | `date` | NOT NULL | Date of transfer |
+| `notes` | `text` | NULL | Transfer remarks |
+| `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Initiating officer |
+| `reverses_transfer_id` | `uuid` | NULL, FK → `rw_fund_transfers.id` | Reversed original transfer |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | Timestamp |
+
+Constraints:
+- `chk_rw_fund_transfers_diff_locations (from_location_id != to_location_id)`
+
+### 13.4 `rw_location_balance_changes` — RW Location Mutation Ledger
+
+Append-only immutable balance changes for RW fund locations.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Mutation identifier |
+| `rw_id` | `uuid` | NOT NULL, FK → `rws.id` ON DELETE RESTRICT | RW organization scope |
+| `location_id` | `uuid` | NOT NULL, FK → `(location_id, rw_id)` REFERENCES `rw_fund_locations` | Targeted location |
+| `transaction_id` | `uuid` | NULL, FK → `rw_transactions.id` | Associated KAS transaction |
+| `transfer_id` | `uuid` | NULL, FK → `rw_fund_transfers.id` | Associated transfer |
+| `change_type` | `text` | NOT NULL | Mutation type |
+| `amount_delta` | `numeric(15, 2)` | NOT NULL, CHECK (`amount_delta != 0`) | Positive (credit) or negative (debit) |
+| `notes` | `text` | NULL | Mutation notes |
+| `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Author |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | Timestamp |
+

@@ -176,8 +176,19 @@ class _KasScreenState extends ConsumerState<KasScreen> {
 
   Future<void> _pickMonth() async {
     final months = [
-      'Semua Bulan', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+      'Semua Bulan',
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
     ];
     final currentYear = DateTime.now().year;
     int selYear = _activeDate.year;
@@ -186,7 +197,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
     return await showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.base),
+        ),
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (_, setModalState) {
@@ -222,7 +235,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                   itemCount: months.length,
                   itemBuilder: (_, i) {
                     final isAll = i == 0;
-                    final isSelected = isAll ? _isYearFilterActive : (i == selMonth && !_isYearFilterActive);
+                    final isSelected = isAll
+                        ? _isYearFilterActive
+                        : (i == selMonth && !_isYearFilterActive);
                     return InkWell(
                       onTap: () {
                         setState(() {
@@ -241,10 +256,16 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                         decoration: BoxDecoration(
                           color: isSelected
                               ? AppColors.accent.withValues(alpha: 0.2)
-                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                              : (isDark
+                                    ? AppColors.darkSurfaceHover
+                                    : AppColors.lightSurfaceHover),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           border: Border.all(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkBorder
+                                      : AppColors.lightBorder),
                             width: isSelected ? 2 : 1,
                           ),
                         ),
@@ -254,7 +275,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                           style: TextStyle(
                             color: isSelected
                                 ? AppColors.accent
-                                : (isDark ? AppColors.darkText : AppColors.lightText),
+                                : (isDark
+                                      ? AppColors.darkText
+                                      : AppColors.lightText),
                             fontWeight: isSelected ? FontWeight.w600 : null,
                           ),
                         ),
@@ -277,7 +300,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
     return await showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.base),
+        ),
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (_, setModalState) {
@@ -328,11 +353,19 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
-                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                              ? (isDark
+                                    ? AppColors.darkAccentSoft
+                                    : AppColors.lightAccentSoft)
+                              : (isDark
+                                    ? AppColors.darkSurfaceHover
+                                    : AppColors.lightSurfaceHover),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           border: Border.all(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkBorder
+                                      : AppColors.lightBorder),
                             width: isSelected ? 2 : 1,
                           ),
                         ),
@@ -340,7 +373,11 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                         child: Text(
                           year.toString(),
                           style: TextStyle(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkText
+                                      : AppColors.lightText),
                             fontWeight: isSelected ? FontWeight.w600 : null,
                           ),
                         ),
@@ -373,7 +410,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
       startDateParam = '${_selectedYear}-01-01';
       endDateParam = '${_selectedYear}-12-31';
     } else {
-      periodParam = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+      periodParam =
+          '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
       startDateParam = null;
       endDateParam = null;
     }
@@ -428,7 +466,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
       startDateParam = '${_selectedYear}-01-01';
       endDateParam = '${_selectedYear}-12-31';
     } else {
-      periodParam = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+      periodParam =
+          '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
       startDateParam = null;
       endDateParam = null;
     }
@@ -728,7 +767,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                     startDate = '${_selectedYear}-01-01';
                     endDate = '${_selectedYear}-12-31';
                   } else {
-                    period = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+                    period =
+                        '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
                     startDate = null;
                     endDate = null;
                   }
@@ -830,7 +870,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                     startDate = '${_selectedYear}-01-01';
                     endDate = '${_selectedYear}-12-31';
                   } else {
-                    period = '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
+                    period =
+                        '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
                     startDate = null;
                     endDate = null;
                   }
@@ -936,8 +977,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                         boxShadow: isDark
                             ? [
                                 BoxShadow(
-                                  color: AppColors.accent
-                                      .withValues(alpha: 0.12),
+                                  color: AppColors.accent.withValues(
+                                    alpha: 0.12,
+                                  ),
                                   blurRadius: 8,
                                   spreadRadius: 0,
                                 ),
@@ -993,28 +1035,46 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                       Expanded(
                                         child: InkWell(
                                           onTap: _pickMonth,
-                                          borderRadius: BorderRadius.circular(AppRadius.base),
+                                          borderRadius: BorderRadius.circular(
+                                            AppRadius.base,
+                                          ),
                                           child: Container(
                                             height: 38,
                                             alignment: Alignment.centerLeft,
-                                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
                                             decoration: BoxDecoration(
                                               color: isDark
                                                   ? AppColors.darkSurface
                                                   : AppColors.lightSurface,
-                                              borderRadius: BorderRadius.circular(AppRadius.base),
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                    AppRadius.base,
+                                                  ),
                                               border: Border.all(
                                                 color: isDark
-                                                    ? AppColors.accent.withValues(alpha: 0.35)
-                                                    : AppColors.accent.withValues(alpha: 0.25),
+                                                    ? AppColors.accent
+                                                          .withValues(
+                                                            alpha: 0.35,
+                                                          )
+                                                    : AppColors.accent
+                                                          .withValues(
+                                                            alpha: 0.25,
+                                                          ),
                                                 width: 1,
                                               ),
                                             ),
                                             child: Text(
-                                              _isYearFilterActive ? 'Semua Bulan' : _monthNames[_activeDate.month - 1],
-                                              style: theme.textTheme.bodySmall?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                              _isYearFilterActive
+                                                  ? 'Semua Bulan'
+                                                  : _monthNames[_activeDate
+                                                            .month -
+                                                        1],
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
@@ -1025,28 +1085,42 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                       Expanded(
                                         child: InkWell(
                                           onTap: _pickYear,
-                                          borderRadius: BorderRadius.circular(AppRadius.base),
+                                          borderRadius: BorderRadius.circular(
+                                            AppRadius.base,
+                                          ),
                                           child: Container(
                                             height: 38,
                                             alignment: Alignment.centerLeft,
-                                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
                                             decoration: BoxDecoration(
                                               color: isDark
                                                   ? AppColors.darkSurface
                                                   : AppColors.lightSurface,
-                                              borderRadius: BorderRadius.circular(AppRadius.base),
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                    AppRadius.base,
+                                                  ),
                                               border: Border.all(
                                                 color: isDark
-                                                    ? AppColors.accent.withValues(alpha: 0.35)
-                                                    : AppColors.accent.withValues(alpha: 0.25),
+                                                    ? AppColors.accent
+                                                          .withValues(
+                                                            alpha: 0.35,
+                                                          )
+                                                    : AppColors.accent
+                                                          .withValues(
+                                                            alpha: 0.25,
+                                                          ),
                                                 width: 1,
                                               ),
                                             ),
                                             child: Text(
                                               _selectedYear.toString(),
-                                              style: theme.textTheme.bodySmall?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
@@ -1069,16 +1143,24 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                       Expanded(
                                         child: Container(
                                           height: 38,
-                                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                          ),
                                           decoration: BoxDecoration(
                                             color: isDark
                                                 ? AppColors.darkSurface
                                                 : AppColors.lightSurface,
-                                            borderRadius: BorderRadius.circular(AppRadius.base),
+                                            borderRadius: BorderRadius.circular(
+                                              AppRadius.base,
+                                            ),
                                             border: Border.all(
                                               color: isDark
-                                                  ? AppColors.accent.withValues(alpha: 0.35)
-                                                  : AppColors.accent.withValues(alpha: 0.25),
+                                                  ? AppColors.accent.withValues(
+                                                      alpha: 0.35,
+                                                    )
+                                                  : AppColors.accent.withValues(
+                                                      alpha: 0.25,
+                                                    ),
                                               width: 1,
                                             ),
                                           ),
@@ -1086,10 +1168,12 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                             child: DropdownButton<String>(
                                               value: _filterArus,
                                               isExpanded: true,
-                                              style: theme.textTheme.bodySmall?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                              dropdownColor: theme.scaffoldBackgroundColor,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                              dropdownColor:
+                                                  theme.scaffoldBackgroundColor,
                                               items: const [
                                                 DropdownMenuItem(
                                                   value: 'all',
@@ -1097,16 +1181,22 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                                 ),
                                                 DropdownMenuItem(
                                                   value: 'masuk',
-                                                  child: Text('Pemasukan (Masuk)'),
+                                                  child: Text(
+                                                    'Pemasukan (Masuk)',
+                                                  ),
                                                 ),
                                                 DropdownMenuItem(
                                                   value: 'keluar',
-                                                  child: Text('Pengeluaran (Keluar)'),
+                                                  child: Text(
+                                                    'Pengeluaran (Keluar)',
+                                                  ),
                                                 ),
                                               ],
                                               onChanged: (val) {
                                                 if (val != null) {
-                                                  setState(() => _filterArus = val);
+                                                  setState(
+                                                    () => _filterArus = val,
+                                                  );
                                                   _refreshFiltered();
                                                 }
                                               },
@@ -1118,16 +1208,24 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                       Expanded(
                                         child: Container(
                                           height: 38,
-                                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                          ),
                                           decoration: BoxDecoration(
                                             color: isDark
                                                 ? AppColors.darkSurface
                                                 : AppColors.lightSurface,
-                                            borderRadius: BorderRadius.circular(AppRadius.base),
+                                            borderRadius: BorderRadius.circular(
+                                              AppRadius.base,
+                                            ),
                                             border: Border.all(
                                               color: isDark
-                                                  ? AppColors.accent.withValues(alpha: 0.35)
-                                                  : AppColors.accent.withValues(alpha: 0.25),
+                                                  ? AppColors.accent.withValues(
+                                                      alpha: 0.35,
+                                                    )
+                                                  : AppColors.accent.withValues(
+                                                      alpha: 0.25,
+                                                    ),
                                               width: 1,
                                             ),
                                           ),
@@ -1135,10 +1233,12 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                             child: DropdownButton<String>(
                                               value: _filterMetode,
                                               isExpanded: true,
-                                              style: theme.textTheme.bodySmall?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                              dropdownColor: theme.scaffoldBackgroundColor,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                              dropdownColor:
+                                                  theme.scaffoldBackgroundColor,
                                               items: const [
                                                 DropdownMenuItem(
                                                   value: 'all',
@@ -1155,7 +1255,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                               ],
                                               onChanged: (val) {
                                                 if (val != null) {
-                                                  setState(() => _filterMetode = val);
+                                                  setState(
+                                                    () => _filterMetode = val,
+                                                  );
                                                   _refreshFiltered();
                                                 }
                                               },
@@ -1183,24 +1285,35 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                                       fillColor: isDark
                                           ? AppColors.darkSurface
                                           : AppColors.lightSurface,
-                                      textAlignVertical: TextAlignVertical.center,
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 0,
+                                      textAlignVertical:
+                                          TextAlignVertical.center,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 0,
+                                          ),
+                                      prefixIconConstraints:
+                                          const BoxConstraints(
+                                            minWidth: 36,
+                                            minHeight: 38,
+                                          ),
+                                      suffixIconConstraints:
+                                          const BoxConstraints(
+                                            minWidth: 36,
+                                            minHeight: 38,
+                                          ),
+                                      prefixIcon: const Icon(
+                                        Icons.search,
+                                        size: 18,
                                       ),
-                                      prefixIconConstraints: const BoxConstraints(
-                                        minWidth: 36,
-                                        minHeight: 38,
-                                      ),
-                                      suffixIconConstraints: const BoxConstraints(
-                                        minWidth: 36,
-                                        minHeight: 38,
-                                      ),
-                                      prefixIcon: const Icon(Icons.search, size: 18),
-                                      suffixIcon: _searchController.text.isNotEmpty
+                                      suffixIcon:
+                                          _searchController.text.isNotEmpty
                                           ? IconButton(
                                               padding: EdgeInsets.zero,
-                                              icon: const Icon(Icons.clear, size: 18),
+                                              icon: const Icon(
+                                                Icons.clear,
+                                                size: 18,
+                                              ),
                                               onPressed: _clearSearch,
                                             )
                                           : null,
@@ -1540,12 +1653,14 @@ class KasTransactionCard extends StatelessWidget {
   final KasTransaction transaction;
   final bool isDark;
   final VoidCallback? onTap;
+  final VoidCallback? onCopy;
 
   const KasTransactionCard({
     super.key,
     required this.transaction,
     required this.isDark,
     this.onTap,
+    this.onCopy,
   });
 
   @override
@@ -1685,6 +1800,24 @@ class KasTransactionCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (onCopy != null) ...[
+                  const SizedBox(width: 4),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: onCopy,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.copy_outlined,
+                          size: 14,
+                          color: AppColors.accent,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(width: 8),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,

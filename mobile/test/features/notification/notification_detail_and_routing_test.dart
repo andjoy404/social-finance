@@ -199,6 +199,7 @@ class _FakeNotificationRepository extends NotificationRepository {
     int page = 1,
     int perPage = 20,
     String? eventType,
+    String? status,
   }) async {
     return NotificationLogsResponse(
       data: [

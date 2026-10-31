@@ -28,11 +28,20 @@ class _NotificationManagementScreenState
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
+  static const Map<String, String> _knownEventNames = {
+    'manual_push': 'Pengumuman Pengurus',
+    'waste_truck_arrival': 'Kedatangan Mobil Sampah',
+    'iuran_bill_created': 'Penerbitan Tagihan Iuran',
+    'payment_verified': 'Pembayaran Diverifikasi',
+    'payment_rejected': 'Pembayaran Ditolak',
+  };
+
   // Logs state
   List<NotificationLogEntry> _logs = [];
   bool _isLoadingLogs = false;
   String? _logsError;
   String _selectedLogEventType = '';
+  String _selectedLogStatus = 'all';
 
   @override
   void initState() {
@@ -58,6 +67,7 @@ class _NotificationManagementScreenState
         page: 1,
         perPage: 50,
         eventType: _selectedLogEventType.isNotEmpty ? _selectedLogEventType : null,
+        status: _selectedLogStatus != 'all' ? _selectedLogStatus : null,
       );
       if (mounted) {
         setState(() {
@@ -75,7 +85,38 @@ class _NotificationManagementScreenState
     }
   }
 
+  Future<void> _markAllAsRead() async {
+    try {
+      final repo = ref.read(notificationRepositoryProvider);
+      await repo.markAllAsRead();
+      if (mounted) {
+        setState(() {
+          _logs = _logs.map((l) => l.copyWith(isRead: true, readAt: l.readAt ?? DateTime.now())).toList();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Semua notifikasi ditandai sebagai sudah dibaca')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menandai notifikasi: $e')),
+        );
+      }
+    }
+  }
+
   void _openLogDetail(NotificationLogEntry log) {
+    if (!log.isRead) {
+      ref.read(notificationRepositoryProvider).markAsRead(log.id).then((_) {
+        if (mounted) {
+          setState(() {
+            _logs = _logs.map((l) => l.id == log.id ? l.copyWith(isRead: true, readAt: DateTime.now()) : l).toList();
+          });
+        }
+      }).catchError((_) {});
+    }
+
     final id = log.id.trim();
     final router = GoRouter.maybeOf(context);
     if (router != null) {
@@ -795,6 +836,35 @@ class _NotificationManagementScreenState
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final isSuperAdmin = isSuperAdminUser(user);
+    final isAdmin = canUserAccessNotificationAdmin(user);
+
+    if (!isAdmin) {
+      return Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: Navigator.of(context).canPop(),
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Notifikasi'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.done_all_rounded),
+              tooltip: 'Tandai Semua Dibaca',
+              onPressed: _markAllAsRead,
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: 'Segarkan',
+              onPressed: _loadLogs,
+            ),
+          ],
+        ),
+        body: _buildLogsTab(
+          theme: theme,
+          isDark: isDark,
+          isAdmin: false,
+          systemTypes: const [],
+        ),
+      );
+    }
 
     final systemTypesAsync = ref.watch(notificationSystemTypesProvider);
     final templatesAsync = ref.watch(notificationTemplatesProvider);
@@ -804,6 +874,17 @@ class _NotificationManagementScreenState
         automaticallyImplyLeading: Navigator.of(context).canPop(),
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Kelola Notifikasi'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Segarkan',
+            onPressed: () {
+              ref.invalidate(notificationSystemTypesProvider);
+              ref.invalidate(notificationTemplatesProvider);
+              _loadLogs();
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: AppColors.accent,
@@ -1302,137 +1383,242 @@ class _NotificationManagementScreenState
           ),
 
           // TAB 3: RIWAYAT PENGIRIMAN
-          RefreshIndicator(
-            onRefresh: _loadLogs,
-            child: Column(
+          _buildLogsTab(
+            theme: theme,
+            isDark: isDark,
+            isAdmin: true,
+            systemTypes: systemTypesAsync.valueOrNull ?? [],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogsTab({
+    required ThemeData theme,
+    required bool isDark,
+    required bool isAdmin,
+    required List<SystemNotificationType> systemTypes,
+  }) {
+    return RefreshIndicator(
+      onRefresh: _loadLogs,
+      child: Column(
+        children: [
+          // Filter bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
               children: [
-                // Filter bar
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        'Filter:',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: _selectedLogEventType,
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('Semua Jenis'),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            isExpanded: true,
-                            value: _selectedLogEventType,
-                            items: [
-                              const DropdownMenuItem(
-                                value: '',
-                                child: Text('Semua Jenis Notifikasi'),
-                              ),
-                              ...(systemTypesAsync.valueOrNull ?? []).map((st) {
-                                return DropdownMenuItem(
-                                  value: st.eventType,
-                                  child: Text(st.name),
-                                );
-                              }),
-                            ],
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() {
-                                  _selectedLogEventType = val;
-                                });
-                                _loadLogs();
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
+                        if (systemTypes.isNotEmpty)
+                          ...systemTypes.map((st) {
+                            return DropdownMenuItem(
+                              value: st.eventType,
+                              child: Text(st.name),
+                            );
+                          })
+                        else
+                          ..._knownEventNames.entries.map((e) {
+                            return DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value),
+                            );
+                          }),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedLogEventType = val;
+                          });
+                          _loadLogs();
+                        }
+                      },
+                    ),
                   ),
                 ),
-                const Divider(height: 1),
-
-                // List
+                const SizedBox(width: 8),
                 Expanded(
-                  child: _isLoadingLogs
-                      ? const Center(child: LoadingIndicator())
-                      : _logsError != null
-                          ? ErrorState(
-                              message: _logsError!,
-                              onRetry: _loadLogs,
-                            )
-                          : _logs.isEmpty
-                              ? const EmptyState(
-                                  icon: Icons.history_toggle_off_rounded,
-                                  title: 'Belum Ada Riwayat Notifikasi',
-                                  description:
-                                      'Riwayat tercatat secara otomatis setiap kali notifikasi push dikirimkan ke warga.',
-                                )
-                              : ListView.builder(
-                                  key: const PageStorageKey<String>(
-                                    'notification_logs_list',
-                                  ),
-                                  padding: const EdgeInsets.all(16),
-                                  itemCount: _logs.length,
-                                  itemBuilder: (context, index) {
-                                    final log = _logs[index];
-                                    final dateStr = log.createdAt != null
-                                        ? '${log.createdAt!.day.toString().padLeft(2, '0')}/${log.createdAt!.month.toString().padLeft(2, '0')}/${log.createdAt!.year} ${log.createdAt!.hour.toString().padLeft(2, '0')}:${log.createdAt!.minute.toString().padLeft(2, '0')}'
-                                        : '-';
+                  flex: 2,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: _selectedLogStatus,
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'all',
+                          child: Text('Semua'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'unread',
+                          child: Text('Belum Dibaca'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'read',
+                          child: Text('Sudah Dibaca'),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedLogStatus = val;
+                          });
+                          _loadLogs();
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                if (isAdmin) ...[
+                  IconButton(
+                    icon: const Icon(Icons.done_all_rounded, size: 20),
+                    tooltip: 'Tandai Semua Dibaca',
+                    onPressed: _markAllAsRead,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const Divider(height: 1),
 
-                                    return Padding(
-                                      padding: const EdgeInsets.only(bottom: 10),
-                                      child: InkWell(
-                                        key: Key(
-                                          'notification_log_item_${log.id}',
-                                        ),
-                                        borderRadius: BorderRadius.circular(
-                                          AppRadius.base,
-                                        ),
-                                        onTap: () => _openLogDetail(log),
-                                        child: AppCard(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    dateStr,
-                                                    style: theme.textTheme.bodySmall
-                                                        ?.copyWith(
-                                                      color: isDark
-                                                          ? AppColors.darkTextMuted
-                                                          : AppColors.lightTextMuted,
+          // List
+          Expanded(
+            child: _isLoadingLogs
+                ? const Center(child: LoadingIndicator())
+                : _logsError != null
+                    ? ErrorState(
+                        message: _logsError!,
+                        onRetry: _loadLogs,
+                      )
+                    : _logs.isEmpty
+                        ? const EmptyState(
+                            icon: Icons.history_toggle_off_rounded,
+                            title: 'Belum Ada Riwayat Notifikasi',
+                            description:
+                                'Riwayat tercatat secara otomatis setiap kali notifikasi push dikirimkan ke warga.',
+                          )
+                        : ListView.builder(
+                            key: const PageStorageKey<String>(
+                              'notification_logs_list',
+                            ),
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _logs.length,
+                            itemBuilder: (context, index) {
+                              final log = _logs[index];
+                              final dateStr = log.createdAt != null
+                                  ? '${log.createdAt!.day.toString().padLeft(2, '0')}/${log.createdAt!.month.toString().padLeft(2, '0')}/${log.createdAt!.year} ${log.createdAt!.hour.toString().padLeft(2, '0')}:${log.createdAt!.minute.toString().padLeft(2, '0')}'
+                                  : '-';
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: InkWell(
+                                  key: Key(
+                                    'notification_log_item_${log.id}',
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.base,
+                                  ),
+                                  onTap: () => _openLogDetail(log),
+                                  child: AppCard(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              dateStr,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color: isDark
+                                                    ? AppColors.darkTextMuted
+                                                    : AppColors.lightTextMuted,
+                                              ),
+                                            ),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (!log.isRead) ...[
+                                                  const Padding(
+                                                    padding: EdgeInsets.only(right: 6),
+                                                    child: AppBadge(
+                                                      label: 'BARU',
+                                                      backgroundColor: AppColors.accent,
+                                                      textColor: Colors.white,
                                                     ),
                                                   ),
-                                                  const AppBadge(
-                                                    label: 'TERKIRIM',
-                                                    backgroundColor: AppColors.success,
-                                                    textColor: Colors.white,
-                                                  ),
                                                 ],
+                                                const AppBadge(
+                                                  label: 'TERKIRIM',
+                                                  backgroundColor: AppColors.success,
+                                                  textColor: Colors.white,
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Row(
+                                          children: [
+                                            if (!log.isRead)
+                                              Container(
+                                                width: 8,
+                                                height: 8,
+                                                margin: const EdgeInsets.only(right: 6),
+                                                decoration: const BoxDecoration(
+                                                  color: AppColors.accent,
+                                                  shape: BoxShape.circle,
+                                                ),
                                               ),
-                                              const SizedBox(height: 6),
-                                              Text(
+                                            Expanded(
+                                              child: Text(
                                                 log.title,
                                                 style: theme.textTheme.bodyMedium
                                                     ?.copyWith(
-                                                  fontWeight: FontWeight.bold,
+                                                  fontWeight: log.isRead
+                                                      ? FontWeight.w600
+                                                      : FontWeight.bold,
                                                 ),
                                               ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                log.body,
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                  color: isDark
-                                                      ? AppColors.darkTextMuted
-                                                      : AppColors.lightTextMuted,
-                                                ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          log.body,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: isDark
+                                                ? AppColors.darkTextMuted
+                                                : AppColors.lightTextMuted,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              _knownEventNames[log.eventType] ?? log.eventType,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isDark
+                                                    ? AppColors.darkTextMuted
+                                                    : AppColors.lightTextMuted,
                                               ),
-                                              const SizedBox(height: 6),
+                                            ),
+                                            if (isAdmin)
                                               Text(
                                                 'Penerima: ${log.recipientsCount} perangkat',
                                                 style: TextStyle(
@@ -1442,16 +1628,15 @@ class _NotificationManagementScreenState
                                                       : AppColors.lightTextMuted,
                                                 ),
                                               ),
-                                            ],
-                                          ),
+                                          ],
                                         ),
-                                      ),
-                                    );
-                                  },
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                ),
-              ],
-            ),
+                              );
+                            },
+                          ),
           ),
         ],
       ),

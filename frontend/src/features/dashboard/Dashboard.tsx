@@ -500,6 +500,13 @@ export function Dashboard() {
                   const isIncome = t.type === 'income'
                   const metode = t.payment_method === 'TRANSFER' ? 'Transfer' : t.payment_method === 'CASH' ? 'Tunai' : null
                   const refNo = t.payment_no || t.reference_no || (t.payment_id ? `PAY-${t.payment_id.slice(0, 8)}` : '')
+                  const handleCopyRef = async (e: React.MouseEvent) => {
+                    e.stopPropagation()
+                    const { copyToClipboard, showCopyFeedback } = await import('@/utils/clipboard')
+                    const result = await copyToClipboard(refNo)
+                    const toast = showCopyFeedback(result, result.success)
+                    setTimeout(() => toast.remove(), 2600)
+                  }
                   return (
                     <tr key={t.id}>
                       <td>
@@ -507,8 +514,30 @@ export function Dashboard() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <Badge variant="blue">{t.due_name}</Badge>
                             {refNo && (
-                              <span style={{ fontWeight: 500, fontFamily: 'monospace', color: 'var(--sf-text-muted)', fontSize: 12 }}>
-                                {refNo}
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontWeight: 500, fontFamily: 'monospace', color: 'var(--sf-text-muted)', fontSize: 12 }}>
+                                  {refNo}
+                                </span>
+                                <button
+                                  onClick={handleCopyRef}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: '2px',
+                                    cursor: 'pointer',
+                                    color: 'var(--sf-accent)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                  title="Salin Referensi"
+                                  aria-label="Salin referensi"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                </button>
                               </span>
                             )}
                           </div>
@@ -518,8 +547,30 @@ export function Dashboard() {
                               {cleanKasDescription(t.description)}
                             </span>
                             {refNo && (
-                              <span style={{ fontFamily: 'monospace', color: 'var(--sf-text-muted)', fontSize: 11 }}>
-                                ({refNo})
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontFamily: 'monospace', color: 'var(--sf-text-muted)', fontSize: 11 }}>
+                                  ({refNo})
+                                </span>
+                                <button
+                                  onClick={handleCopyRef}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: '2px',
+                                    cursor: 'pointer',
+                                    color: 'var(--sf-accent)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                  title="Salin Referensi"
+                                  aria-label="Salin referensi"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                </button>
                               </span>
                             )}
                           </div>

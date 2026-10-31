@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -61,13 +62,23 @@ type ChangePasswordRequest struct {
 
 // Handler handles auth endpoints (login, refresh, logout, me, profile, password).
 type Handler struct {
-	svc *Service
-	p   *database.Pool
+	svc        *Service
+	p          *database.Pool
+	scopingCfg *ScopingConfig
 }
 
-// NewHandler creates a new auth handler.
-func NewHandler(pool *database.Pool, svc *Service) *Handler {
-	return &Handler{svc: svc, p: pool}
+// NewHandler creates a new auth handler with optional scoping configuration.
+func NewHandler(pool *database.Pool, svc *Service, scopingCfg ...*ScopingConfig) *Handler {
+	var sc *ScopingConfig
+	if len(scopingCfg) > 0 {
+		sc = scopingCfg[0]
+	}
+	return &Handler{svc: svc, p: pool, scopingCfg: sc}
+}
+
+// SetScopingConfig updates the scoping configuration on the handler.
+func (h *Handler) SetScopingConfig(cfg *ScopingConfig) {
+	h.scopingCfg = cfg
 }
 
 // Register mounts the auth routes on the given router group.
@@ -345,6 +356,68 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Populate scoped RW memberships for Super Admin.
+	// Super Admin does not hold user_rw_memberships rows; their access
+	// is governed by SCOPED_RW_IDS. Active RWs in scope are exposed so that
+	// Super Admin can navigate and switch contexts among authorized RWs.
+	if profile != nil && profile.SystemRole == string(SystemRoleSuperAdmin) {
+		var scopedRWIDs []string
+		if h.scopingCfg != nil && len(h.scopingCfg.RWIDs) > 0 {
+			scopedRWIDs = h.scopingCfg.RWIDs
+		} else if rawEnv := os.Getenv("SCOPED_RW_IDS"); rawEnv != "" {
+			if parsed, errParse := parseUUIDList(rawEnv); errParse == nil {
+				scopedRWIDs = parsed
+			}
+		}
+
+		if len(scopedRWIDs) > 0 {
+			placeholders := make([]string, len(scopedRWIDs))
+			args := make([]interface{}, len(scopedRWIDs))
+			for i, id := range scopedRWIDs {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+				args[i] = id
+			}
+			q := fmt.Sprintf(`
+				SELECT id, name
+				FROM rws
+				WHERE id IN (%s) AND is_active = true
+				ORDER BY rw_number ASC, name ASC
+			`, strings.Join(placeholders, ","))
+
+			rows, errScoped := tx.QueryContext(ctx, q, args...)
+			if errScoped == nil {
+				defer rows.Close()
+				var saMemberships []RWMembership
+				for rows.Next() {
+					var sID, sName string
+					if errScan := rows.Scan(&sID, &sName); errScan == nil {
+						saMemberships = append(saMemberships, RWMembership{
+							RWID:    sID,
+							Name:    sName,
+							Jabatan: "super_admin",
+						})
+					}
+				}
+				if len(saMemberships) > 0 {
+					profile.RWMemberships = saMemberships
+					found := false
+					if profile.RWID != nil && *profile.RWID != "" {
+						for _, m := range saMemberships {
+							if m.RWID == *profile.RWID {
+								found = true
+								break
+							}
+						}
+					}
+					if !found {
+						profile.RWID = &saMemberships[0].RWID
+						profile.RWName = &saMemberships[0].Name
+					}
+				}
+			}
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile")
 		return
@@ -448,6 +521,68 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile permissions")
 		return
+	}
+
+	// Populate scoped RW memberships for Super Admin.
+	// Super Admin does not hold user_rw_memberships rows; their access
+	// is governed by SCOPED_RW_IDS. Active RWs in scope are exposed so that
+	// Super Admin can navigate and switch contexts among authorized RWs.
+	if profile != nil && profile.SystemRole == string(SystemRoleSuperAdmin) {
+		var scopedRWIDs []string
+		if h.scopingCfg != nil && len(h.scopingCfg.RWIDs) > 0 {
+			scopedRWIDs = h.scopingCfg.RWIDs
+		} else if rawEnv := os.Getenv("SCOPED_RW_IDS"); rawEnv != "" {
+			if parsed, errParse := parseUUIDList(rawEnv); errParse == nil {
+				scopedRWIDs = parsed
+			}
+		}
+
+		if len(scopedRWIDs) > 0 {
+			placeholders := make([]string, len(scopedRWIDs))
+			args := make([]interface{}, len(scopedRWIDs))
+			for i, id := range scopedRWIDs {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+				args[i] = id
+			}
+			q := fmt.Sprintf(`
+				SELECT id, name
+				FROM rws
+				WHERE id IN (%s) AND is_active = true
+				ORDER BY rw_number ASC, name ASC
+			`, strings.Join(placeholders, ","))
+
+			rows, errScoped := tx.QueryContext(ctx, q, args...)
+			if errScoped == nil {
+				defer rows.Close()
+				var saMemberships []RWMembership
+				for rows.Next() {
+					var sID, sName string
+					if errScan := rows.Scan(&sID, &sName); errScan == nil {
+						saMemberships = append(saMemberships, RWMembership{
+							RWID:    sID,
+							Name:    sName,
+							Jabatan: "super_admin",
+						})
+					}
+				}
+				if len(saMemberships) > 0 {
+					profile.RWMemberships = saMemberships
+					found := false
+					if profile.RWID != nil && *profile.RWID != "" {
+						for _, m := range saMemberships {
+							if m.RWID == *profile.RWID {
+								found = true
+								break
+							}
+						}
+					}
+					if !found {
+						profile.RWID = &saMemberships[0].RWID
+						profile.RWName = &saMemberships[0].Name
+					}
+				}
+			}
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

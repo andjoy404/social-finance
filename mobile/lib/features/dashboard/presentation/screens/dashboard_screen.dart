@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:social_finance/core/models/role.dart';
@@ -96,8 +97,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<void> _pickMonth() async {
     final months = [
-      'Semua Bulan', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+      'Semua Bulan',
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember',
     ];
     int selYear = _activeDate.year;
     int selMonth = _activeDate.month;
@@ -105,7 +117,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return await showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.base),
+        ),
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (_, setModalState) {
@@ -141,7 +155,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   itemCount: months.length,
                   itemBuilder: (_, i) {
                     final isAll = i == 0;
-                    final isSelected = isAll ? _isYearFilterActive : (i == selMonth && !_isYearFilterActive);
+                    final isSelected = isAll
+                        ? _isYearFilterActive
+                        : (i == selMonth && !_isYearFilterActive);
                     return InkWell(
                       onTap: () {
                         setState(() {
@@ -160,10 +176,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         decoration: BoxDecoration(
                           color: isSelected
                               ? AppColors.accent.withValues(alpha: 0.2)
-                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                              : (isDark
+                                    ? AppColors.darkSurfaceHover
+                                    : AppColors.lightSurfaceHover),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           border: Border.all(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkBorder
+                                      : AppColors.lightBorder),
                             width: isSelected ? 2 : 1,
                           ),
                         ),
@@ -173,7 +195,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           style: TextStyle(
                             color: isSelected
                                 ? AppColors.accent
-                                : (isDark ? AppColors.darkText : AppColors.lightText),
+                                : (isDark
+                                      ? AppColors.darkText
+                                      : AppColors.lightText),
                             fontWeight: isSelected ? FontWeight.w600 : null,
                           ),
                         ),
@@ -196,7 +220,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return await showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.base),
+        ),
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (_, setModalState) {
@@ -247,11 +273,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
-                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                              ? (isDark
+                                    ? AppColors.darkAccentSoft
+                                    : AppColors.lightAccentSoft)
+                              : (isDark
+                                    ? AppColors.darkSurfaceHover
+                                    : AppColors.lightSurfaceHover),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           border: Border.all(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkBorder
+                                      : AppColors.lightBorder),
                             width: isSelected ? 2 : 1,
                           ),
                         ),
@@ -259,7 +293,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         child: Text(
                           year.toString(),
                           style: TextStyle(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkText
+                                      : AppColors.lightText),
                             fontWeight: isSelected ? FontWeight.w600 : null,
                           ),
                         ),
@@ -349,207 +387,233 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          centerTitle: false,
-          title: const MenuAppBarTitle(title: 'Beranda'),
-          actions: [
-            _ThemeActionButton(
-              onSelected: (mode) {
-                ref.read(themeProvider.notifier).setMode(mode);
-              },
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
-        body: RefreshIndicator(
-          key: const Key('dashboard-refresh-indicator'),
-          onRefresh: _handleRefresh,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.fromLTRB(
-              AppSpacing.base,
-              AppSpacing.base,
-              AppSpacing.base,
-              DashboardMedia.bottomPadding(context),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── Header ──
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        centerTitle: false,
+        title: const MenuAppBarTitle(title: 'Beranda'),
+        actions: [
+          _ThemeActionButton(
+            onSelected: (mode) {
+              ref.read(themeProvider.notifier).setMode(mode);
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: RefreshIndicator(
+        key: const Key('dashboard-refresh-indicator'),
+        onRefresh: _handleRefresh,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(
+            AppSpacing.base,
+            AppSpacing.base,
+            AppSpacing.base,
+            DashboardMedia.bottomPadding(context),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Header ──
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Selamat datang,',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            const Spacer(),
+                            AppBadge(
+                              label: appRoleDisplayName(roleUser),
+                              isNeonStyle: isDark,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(userName, style: theme.textTheme.headlineMedium),
+                        Text(
+                          'RT $rt / RW $rw',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              // ── Periode + Tahun Filter (expandable seperti KAS) ──
+              _buildFilterBar(theme, isDark),
+
+              // ── Saldo Kas ──
+              const SizedBox(height: _panelGap),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.darkSurface
+                      : AppColors.lightSurface,
+                  border: Border.all(
+                    color: isDark
+                        ? AppColors.darkBorder.withValues(alpha: 0.5)
+                        : AppColors.lightBorder,
+                    width: 1.5,
+                  ),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                ),
+                child: Row(
                   children: [
+                    Container(
+                      width: 4,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: AppColors.accent,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Text(
-                                'Selamat datang,',
-                                style: theme.textTheme.bodyMedium,
+                              Icon(
+                                Icons.account_balance_wallet_rounded,
+                                size: 16,
+                                color: AppColors.accent,
                               ),
-                              const Spacer(),
-                              AppBadge(
-                                label: appRoleDisplayName(roleUser),
-                                isNeonStyle: isDark,
+                              const SizedBox(width: 8),
+                              Text(
+                                'Saldo Kas',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: AppColors.textMutedColor(context),
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(userName, style: theme.textTheme.headlineMedium),
+                          const SizedBox(height: 12),
                           Text(
-                            'RT $rt / RW $rw',
-                            style: theme.textTheme.bodySmall,
+                            RupiahFormatter.format(summary.saldoKas),
+                            style: theme.textTheme.headlineLarge?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextPrimary
+                                  : AppColors.lightTextPrimary,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
+              ),
 
-                // ── Periode + Tahun Filter (expandable seperti KAS) ──
-                _buildFilterBar(theme, isDark),
-
-                // ── Saldo Kas ──
-                const SizedBox(height: _panelGap),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? AppColors.darkSurface
-                        : AppColors.lightSurface,
-                    border: Border.all(
-                      color: isDark
-                          ? AppColors.darkBorder.withValues(alpha: 0.5)
-                          : AppColors.lightBorder,
-                      width: 1.5,
+              // ── Pemasukan / Pengeluaran ──
+              const SizedBox(height: _panelGap),
+              Row(
+                children: [
+                  Expanded(
+                    child: SummaryCard(
+                      title: _isCurrentMonth
+                          ? 'Pemasukan Bulan Ini'
+                          : 'Pemasukan (${_formatMonthYearShort(_activeDate)})',
+                      value: RupiahFormatter.format(summary.pemasukanBulanIni),
+                      icon: Icons.arrow_downward,
+                      accentColor: AppColors.income,
                     ),
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 4,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: AppColors.accent,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SummaryCard(
+                      title: _isCurrentMonth
+                          ? 'Pengeluaran Bulan Ini'
+                          : 'Pengeluaran (${_formatMonthYearShort(_activeDate)})',
+                      value: RupiahFormatter.format(
+                        summary.pengeluaranBulanIni,
                       ),
-                      const SizedBox(width: 20),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.account_balance_wallet_rounded,
-                                  size: 16,
-                                  color: AppColors.accent,
+                      icon: Icons.arrow_upward,
+                      accentColor: AppColors.expense,
+                    ),
+                  ),
+                ],
+              ),
+
+              // ── Ringkasan Keuangan ──
+              const SizedBox(height: _panelGap),
+              FinancialSummaryChart(summary: summary, theme: theme),
+
+              // ── Metode Pembayaran (Donut Chart: Transfer vs Tunai) ──
+              const SizedBox(height: _sectionGap),
+              _buildPaymentMethodDonutSection(
+                summary.paymentMethodBreakdown,
+                theme,
+              ),
+
+              // ── Iuran Bulan Ini ──
+              const SizedBox(height: _sectionGap),
+              _buildDuesSection(summary.duesProgress, theme),
+
+              // ── Transaksi Terbaru ──
+              const SizedBox(height: _sectionGap),
+              const SectionHeader(title: 'Transaksi Terbaru'),
+              const SizedBox(height: _titleGap),
+              if (kasTransactions.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: Text('Belum ada transaksi.')),
+                )
+              else
+                ...kasTransactions.map(
+                  (tx) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: KasTransactionCard(
+                      transaction: tx,
+                      isDark: isDark,
+                      onTap: () => context.push('/home/kas/${tx.id}'),
+                      onCopy: () async {
+                        try {
+                          await Clipboard.setData(
+                            ClipboardData(text: tx.referensi ?? ''),
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text(
+                                  'Referensi berhasil disalin.',
                                 ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Saldo Kas',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: AppColors.textMutedColor(context),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              RupiahFormatter.format(summary.saldoKas),
-                              style: theme.textTheme.headlineLarge?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextPrimary
-                                    : AppColors.lightTextPrimary,
-                                fontWeight: FontWeight.bold,
+                                behavior: SnackBarBehavior.floating,
+                                duration: const Duration(milliseconds: 1500),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // ── Pemasukan / Pengeluaran ──
-                const SizedBox(height: _panelGap),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SummaryCard(
-                        title: _isCurrentMonth
-                            ? 'Pemasukan Bulan Ini'
-                            : 'Pemasukan (${_formatMonthYearShort(_activeDate)})',
-                        value: RupiahFormatter.format(
-                          summary.pemasukanBulanIni,
-                        ),
-                        icon: Icons.arrow_downward,
-                        accentColor: AppColors.income,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SummaryCard(
-                        title: _isCurrentMonth
-                            ? 'Pengeluaran Bulan Ini'
-                            : 'Pengeluaran (${_formatMonthYearShort(_activeDate)})',
-                        value: RupiahFormatter.format(
-                          summary.pengeluaranBulanIni,
-                        ),
-                        icon: Icons.arrow_upward,
-                        accentColor: AppColors.expense,
-                      ),
-                    ),
-                  ],
-                ),
-
-                // ── Ringkasan Keuangan ──
-                const SizedBox(height: _panelGap),
-                FinancialSummaryChart(summary: summary, theme: theme),
-
-                // ── Metode Pembayaran (Donut Chart: Transfer vs Tunai) ──
-                const SizedBox(height: _sectionGap),
-                _buildPaymentMethodDonutSection(
-                  summary.paymentMethodBreakdown,
-                  theme,
-                ),
-
-                // ── Iuran Bulan Ini ──
-                const SizedBox(height: _sectionGap),
-                _buildDuesSection(summary.duesProgress, theme),
-
-                // ── Transaksi Terbaru ──
-                const SizedBox(height: _sectionGap),
-                const SectionHeader(title: 'Transaksi Terbaru'),
-                const SizedBox(height: _titleGap),
-                if (kasTransactions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(child: Text('Belum ada transaksi.')),
-                  )
-                else
-                  ...kasTransactions.map(
-                    (tx) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: KasTransactionCard(
-                        transaction: tx,
-                        isDark: isDark,
-                        onTap: () => context.push('/home/kas/${tx.id}'),
-                      ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Gagal menyalin: $e'),
+                                behavior: SnackBarBehavior.floating,
+                                backgroundColor: AppColors.danger,
+                              ),
+                            );
+                          }
+                        }
+                      },
                     ),
                   ),
-                const SizedBox(height: AppSpacing.base),
-              ],
-            ),
+                ),
+              const SizedBox(height: AppSpacing.base),
+            ],
           ),
         ),
+      ),
     );
   }
 
@@ -565,14 +629,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: isDark
-                  ? AppColors.darkSurface
-                  : AppColors.lightSurface,
+              color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
               borderRadius: BorderRadius.circular(AppRadius.base),
               border: Border.all(
                 color: isDark
@@ -583,8 +642,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               boxShadow: isDark
                   ? [
                       BoxShadow(
-                        color: AppColors.accent
-                            .withValues(alpha: 0.12),
+                        color: AppColors.accent.withValues(alpha: 0.12),
                         blurRadius: 8,
                         spreadRadius: 0,
                       ),
@@ -596,9 +654,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 Icon(
                   Icons.tune,
                   size: 18,
-                  color: isDark
-                      ? AppColors.darkText
-                      : AppColors.lightText,
+                  color: isDark ? AppColors.darkText : AppColors.lightText,
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -640,25 +696,37 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             Expanded(
                               child: InkWell(
                                 onTap: _pickMonth,
-                                borderRadius: BorderRadius.circular(AppRadius.base),
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.base,
+                                ),
                                 child: Container(
                                   height: 38,
                                   alignment: Alignment.centerLeft,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: isDark
                                         ? AppColors.darkSurface
                                         : AppColors.lightSurface,
-                                    borderRadius: BorderRadius.circular(AppRadius.base),
+                                    borderRadius: BorderRadius.circular(
+                                      AppRadius.base,
+                                    ),
                                     border: Border.all(
                                       color: isDark
-                                          ? AppColors.accent.withValues(alpha: 0.35)
-                                          : AppColors.accent.withValues(alpha: 0.25),
+                                          ? AppColors.accent.withValues(
+                                              alpha: 0.35,
+                                            )
+                                          : AppColors.accent.withValues(
+                                              alpha: 0.25,
+                                            ),
                                       width: 1,
                                     ),
                                   ),
                                   child: Text(
-                                    _isYearFilterActive ? 'Semua Bulan' : _monthNames[_activeDate.month - 1],
+                                    _isYearFilterActive
+                                        ? 'Semua Bulan'
+                                        : _monthNames[_activeDate.month - 1],
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -672,20 +740,30 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             Expanded(
                               child: InkWell(
                                 onTap: _pickYear,
-                                borderRadius: BorderRadius.circular(AppRadius.base),
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.base,
+                                ),
                                 child: Container(
                                   height: 38,
                                   alignment: Alignment.centerLeft,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: isDark
                                         ? AppColors.darkSurface
                                         : AppColors.lightSurface,
-                                    borderRadius: BorderRadius.circular(AppRadius.base),
+                                    borderRadius: BorderRadius.circular(
+                                      AppRadius.base,
+                                    ),
                                     border: Border.all(
                                       color: isDark
-                                          ? AppColors.accent.withValues(alpha: 0.35)
-                                          : AppColors.accent.withValues(alpha: 0.25),
+                                          ? AppColors.accent.withValues(
+                                              alpha: 0.35,
+                                            )
+                                          : AppColors.accent.withValues(
+                                              alpha: 0.25,
+                                            ),
                                       width: 1,
                                     ),
                                   ),

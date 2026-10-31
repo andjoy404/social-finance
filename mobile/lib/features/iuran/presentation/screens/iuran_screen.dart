@@ -42,8 +42,9 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
       if (mounted) {
         final current = ref.read(iuranSelectedPeriodeProvider);
         if (current.isEmpty) {
+          final now = DateTime.now();
           ref.read(iuranSelectedPeriodeProvider.notifier).state =
-              currentCalendarPeriod();
+              '${now.year}-${now.month.toString().padLeft(2, '0')}';
         }
       }
     });
@@ -634,72 +635,53 @@ class _BillListTab extends ConsumerWidget {
     );
   }
 
-  /// Navigate to previous month period (YYYY-MM)
-  String _prevPeriode(String periode) {
-    if (periode.isEmpty) return periode;
-    final parts = periode.split('-');
-    if (parts.length != 2) return periode;
-    final year = int.tryParse(parts[0]) ?? DateTime.now().year;
-    final month = int.tryParse(parts[1]) ?? 1;
-    final prev = DateTime(year, month - 1, 1);
-    return '${prev.year}-${prev.month.toString().padLeft(2, '0')}';
-  }
-
-  /// Navigate to next month period (YYYY-MM)
-  String _nextPeriode(String periode) {
-    if (periode.isEmpty) return periode;
-    final parts = periode.split('-');
-    if (parts.length != 2) return periode;
-    final year = int.tryParse(parts[0]) ?? DateTime.now().year;
-    final month = int.tryParse(parts[1]) ?? 1;
-    final next = DateTime(year, month + 1, 1);
-    return '${next.year}-${next.month.toString().padLeft(2, '0')}';
-  }
-
-  /// Select a specific periode and update the filter
-  void _selectSpecificPeriode(BuildContext context, WidgetRef ref, String periode) {
-    if (periode.isEmpty) return;
-    ref.read(iuranSelectedPeriodeProvider.notifier).state = periode;
-  }
-
   static const _monthNames = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
   ];
 
+  static (int, int) _parseYearMonth(String periode) {
+    final now = DateTime.now();
+    if (periode.isEmpty) return (now.year, now.month);
+    if (periode.contains('-')) {
+      final parts = periode.split('-');
+      final y = int.tryParse(parts[0]) ?? now.year;
+      final m = (parts.length > 1 ? int.tryParse(parts[1]) : null) ?? now.month;
+      return (y, m);
+    }
+    final parts = periode.split(' ');
+    if (parts.length >= 2) {
+      const monthNames = {
+        'januari': 1, 'februari': 2, 'maret': 3, 'april': 4,
+        'mei': 5, 'juni': 6, 'juli': 7, 'agustus': 8,
+        'september': 9, 'oktober': 10, 'november': 11, 'desember': 12,
+      };
+      final m = monthNames[parts[0].toLowerCase()] ?? now.month;
+      final y = int.tryParse(parts[1]) ?? now.year;
+      return (y, m);
+    }
+    return (now.year, now.month);
+  }
+
   String _monthNameFromPeriode(String periode) {
     if (periode.isEmpty) {
       return 'Semua Bulan';
     }
-    final parts = periode.split('-');
-    if (parts.length >= 2) {
-      final month = int.tryParse(parts[1]);
-      if (month != null && month >= 1 && month <= 12) {
-        return _monthNames[month - 1];
-      }
+    final (_, month) = _parseYearMonth(periode);
+    if (month >= 1 && month <= 12) {
+      return _monthNames[month - 1];
     }
     return _monthNames[DateTime.now().month - 1];
   }
 
   String _yearFromPeriode(String periode) {
-    if (periode.isEmpty) {
-      return DateTime.now().year.toString();
-    }
-    final parts = periode.split('-');
-    final year = int.tryParse(parts[0]);
-    return year?.toString() ?? DateTime.now().year.toString();
+    final (year, _) = _parseYearMonth(periode);
+    return year.toString();
   }
 
   Future<void> _pickMonth(BuildContext context, WidgetRef ref) async {
     final periode = ref.read(iuranSelectedPeriodeProvider);
-    final parts = periode.split('-');
-    final currentYear = DateTime.now().year;
-    int selYear = currentYear;
-    int selMonth = DateTime.now().month;
-    if (parts.length >= 2) {
-      selYear = int.tryParse(parts[0]) ?? currentYear;
-      selMonth = int.tryParse(parts[1]) ?? DateTime.now().month;
-    }
+    final (selYear, selMonth) = _parseYearMonth(periode);
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -740,14 +722,15 @@ class _BillListTab extends ConsumerWidget {
                   itemCount: 13,
                   itemBuilder: (_, i) {
                     final isAll = i == 0;
-                    final months = ['Semua Bulan', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-                    final isSelected = isAll ? (ref.read(iuranSelectedPeriodeProvider).isEmpty) : (ref.read(iuranSelectedPeriodeProvider).isNotEmpty && i == selMonth);
+                    final months = ['Semua Bulan', ...List.generate(12, (idx) => _monthNames[idx])];
+                    final currentPeriode = ref.read(iuranSelectedPeriodeProvider);
+                    final isSelected = isAll ? currentPeriode.isEmpty : (currentPeriode.isNotEmpty && i == selMonth);
                     return InkWell(
                       onTap: () {
                         if (isAll) {
                           ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
                         } else {
-                          final newPeriode = '${selYear.toString().padLeft(4, '0')}-${(i).toString().padLeft(2, '0')}';
+                          final newPeriode = '${selYear.toString().padLeft(4, '0')}-${i.toString().padLeft(2, '0')}';
                           ref.read(iuranSelectedPeriodeProvider.notifier).state = newPeriode;
                         }
                         if (ctx.mounted) Navigator.of(ctx).pop();
@@ -786,9 +769,8 @@ class _BillListTab extends ConsumerWidget {
 
   Future<void> _pickYear(BuildContext context, WidgetRef ref) async {
     final periode = ref.read(iuranSelectedPeriodeProvider);
-    final parts = periode.split('-');
+    final (selYear, selMonth) = _parseYearMonth(periode);
     final currentYear = DateTime.now().year;
-    int selYear = int.tryParse(parts[0]) ?? currentYear;
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -833,15 +815,11 @@ class _BillListTab extends ConsumerWidget {
                     final isSelected = year == selYear;
                     return InkWell(
                       onTap: () {
-                        setModalState(() => selYear = year);
                         final currentPeriode = ref.read(iuranSelectedPeriodeProvider);
                         if (currentPeriode.isEmpty) {
-                          // Keep "Semua Bulan" — just update year context
                           ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
                         } else {
-                          final parts2 = currentPeriode.split('-');
-                          final month = (parts2.length > 1 ? int.tryParse(parts2[1]) : null) ?? DateTime.now().month;
-                          final newPeriode = '${selYear.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}';
+                          final newPeriode = '${year.toString().padLeft(4, '0')}-${selMonth.toString().padLeft(2, '0')}';
                           ref.read(iuranSelectedPeriodeProvider.notifier).state = newPeriode;
                         }
                         if (ctx.mounted) Navigator.of(ctx).pop();
@@ -876,15 +854,6 @@ class _BillListTab extends ConsumerWidget {
         },
       ),
     );
-  }
-
-  List<String> _uniquePeriodes(WidgetRef ref) {
-    final bs = isMyBills ? ref.read(myBillsProvider) : ref.read(billsProvider);
-    return switch (bs) {
-      AsyncData(:final value) =>
-        value.map((b) => b.periode).toSet().toList()..sort((a, b) => b.compareTo(a)),
-      _ => const [],
-    };
   }
 }
 

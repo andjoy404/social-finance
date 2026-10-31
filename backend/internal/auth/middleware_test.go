@@ -1241,7 +1241,7 @@ func TestRequireAllowedRT(t *testing.T) {
 		t.Errorf("expected 403 for RT 004, got %d", rec.Code)
 	}
 
-	// 4. System-only super admin with no RTID passes through
+	// 4. System-only super admin with no RTID is rejected on tenant routes
 	setupSystemOnlyIdentity(t, "user-superadmin-rt", "test-superadmin-rt@example.com")
 	claimsSA := TokenClaims{
 		UserID:  testUUID("user-superadmin-rt"),
@@ -1256,8 +1256,28 @@ func TestRequireAllowedRT(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+tokenSA)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for super admin without RTID, got %d", rec.Code)
+	}
+
+	// 5. Super admin with whitelisted RT via X-RT-ID passes
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenSA)
+	req.Header.Set("X-RT-ID", testUUID("rt-uuid-002"))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 for system-only super admin, got %d", rec.Code)
+		t.Errorf("expected 200 for super admin with allowed X-RT-ID, got %d", rec.Code)
+	}
+
+	// 6. Super admin with non-whitelisted RT via X-RT-ID is rejected
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenSA)
+	req.Header.Set("X-RT-ID", testUUID("rt-uuid-004"))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for super admin with non-allowed X-RT-ID, got %d", rec.Code)
 	}
 }
 
@@ -1788,6 +1808,7 @@ func TestSuperAdminReadAccessNoRegression(t *testing.T) {
 	t.Cleanup(func() { AuthDBPool = oldPool })
 
 	setupSystemOnlyIdentity(t, "user-sa-read", "sa-read@example.com")
+	rt002ID := "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"
 	token := makeToken(TokenClaims{
 		UserID:  testUUID("user-sa-read"),
 		SysRole: "super_admin",
@@ -1800,11 +1821,21 @@ func TestSuperAdminReadAccessNoRegression(t *testing.T) {
 	for _, permission := range []string{"warga.read", "finance.read"} {
 		handler := readChain(pool, permission, inner)
 		for _, path := range []string{"/api/v1/residents", "/api/v1/bills", "/api/v1/transactions"} {
+			// Without X-RT-ID -> rejected with 403 (tenant context required)
+			reqNoRT := makeAuthRequest(http.MethodGet, path, token)
+			recNoRT := httptest.NewRecorder()
+			handler.ServeHTTP(recNoRT, reqNoRT)
+			if recNoRT.Code != http.StatusForbidden {
+				t.Errorf("expected 403 without X-RT-ID on %s (%s), got %d: %s", path, permission, recNoRT.Code, recNoRT.Body.String())
+			}
+
+			// With whitelisted X-RT-ID -> 200 OK
 			req := makeAuthRequest(http.MethodGet, path, token)
+			req.Header.Set("X-RT-ID", rt002ID)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 			if rec.Code != http.StatusOK {
-				t.Errorf("expected 200 for SUPER_ADMIN on %s (%s), got %d: %s", path, permission, rec.Code, rec.Body.String())
+				t.Errorf("expected 200 for SUPER_ADMIN with X-RT-ID on %s (%s), got %d: %s", path, permission, rec.Code, rec.Body.String())
 			}
 		}
 	}

@@ -13,8 +13,9 @@ import {
   SendOutlined,
   ExperimentOutlined,
   PictureOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
-import { useAuth, isSuperAdminUser } from '@/app/AuthContext'
+import { useAuth, isSuperAdminUser, canAccessNotificationAdmin } from '@/app/AuthContext'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
 import {
@@ -29,6 +30,9 @@ import {
   apiUploadNotificationImage,
   apiTriggerManualPush,
   apiTestPush,
+  apiMarkNotificationAsRead,
+  apiMarkAllNotificationsAsRead,
+  apiGetNotificationUnreadCount,
   type ApiSystemNotificationType,
   type ApiNotificationTemplate,
   type ApiNotificationLog,
@@ -37,8 +41,16 @@ import {
 export function NotificationScreen() {
   const { user } = useAuth()
   const isSuperAdmin = isSuperAdminUser(user)
+  const isAdmin = canAccessNotificationAdmin(user)
 
-  const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs'>('system')
+  const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs'>(isAdmin ? 'system' : 'logs')
+
+  // Keep activeTab synced if role resolves
+  useEffect(() => {
+    if (!isAdmin && activeTab !== 'logs') {
+      setActiveTab('logs')
+    }
+  }, [isAdmin, activeTab])
 
   // Data states
   const [systemTypes, setSystemTypes] = useState<ApiSystemNotificationType[]>([])
@@ -48,6 +60,8 @@ export function NotificationScreen() {
   const [logsPage, setLogsPage] = useState(1)
   const [logsPageSize] = useState(15)
   const [logsEventType, setLogsEventType] = useState('')
+  const [logsStatusFilter, setLogsStatusFilter] = useState<'all' | 'unread' | 'read'>('all')
+  const [unreadCount, setUnreadCount] = useState(0)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -91,6 +105,14 @@ export function NotificationScreen() {
   const [formSubmitting, setFormSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
+  const knownEventNames: Record<string, string> = {
+    iuran_bill_created: 'Tagihan Iuran Baru',
+    payment_verified: 'Pembayaran Diverifikasi',
+    payment_rejected: 'Pembayaran Ditolak',
+    manual_push: 'Pengumuman Pengurus',
+    waste_truck_arrival: 'Truk Sampah Tiba',
+  }
+
   // Load Data
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -102,26 +124,85 @@ export function NotificationScreen() {
     }
 
     try {
-      const [typesData, tmplData] = await Promise.all([
-        apiGetNotificationSystemTypes(token).catch(() => []),
-        apiGetNotificationTemplates(token).catch(() => []),
-      ])
-      setSystemTypes(typesData)
-      setTemplates(tmplData)
+      if (isAdmin) {
+        const [typesData, tmplData] = await Promise.all([
+          apiGetNotificationSystemTypes(token).catch(() => []),
+          apiGetNotificationTemplates(token).catch(() => []),
+        ])
+        setSystemTypes(typesData)
+        setTemplates(tmplData)
+      } else {
+        setSystemTypes([])
+        setTemplates([])
+      }
 
-      // Also load logs
-      const logsResp = await apiGetNotificationLogs(token, logsPage, logsPageSize, logsEventType || undefined).catch(() => ({
-        data: [],
-        pagination: { page: 1, page_size: 15, total: 0, total_pages: 1 },
-      }))
+      // Also load logs and unread count
+      const [logsResp, unreadResp] = await Promise.all([
+        apiGetNotificationLogs(
+          token,
+          logsPage,
+          logsPageSize,
+          logsEventType || undefined,
+          logsStatusFilter !== 'all' ? logsStatusFilter : undefined,
+        ).catch(() => ({
+          data: [],
+          pagination: { page: 1, page_size: 15, total: 0, total_pages: 1 },
+        })),
+        apiGetNotificationUnreadCount(token).catch(() => ({ unread_count: 0 })),
+      ])
       setLogs(logsResp.data || [])
       setLogsTotal(logsResp.pagination?.total || 0)
+      setUnreadCount(unreadResp.unread_count)
     } catch (err: any) {
       setError(err?.message || 'Gagal memuat data notifikasi')
     } finally {
       setLoading(false)
     }
-  }, [logsPage, logsPageSize, logsEventType])
+  }, [isAdmin, logsPage, logsPageSize, logsEventType, logsStatusFilter])
+
+  const handleMarkAsRead = async (log: ApiNotificationLog) => {
+    if (log.is_read) return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    try {
+      await apiMarkNotificationAsRead(token, log.id)
+      setLogs((prev) =>
+        prev.map((l) => (l.id === log.id ? { ...l, is_read: true, read_at: new Date().toISOString() } : l))
+      )
+      setUnreadCount((c) => Math.max(0, c - 1))
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleMarkAllAsRead = async () => {
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    try {
+      await apiMarkAllNotificationsAsRead(token)
+      setLogs((prev) =>
+        prev.map((l) => ({ ...l, is_read: true, read_at: l.read_at || new Date().toISOString() }))
+      )
+      setUnreadCount(0)
+      setSuccessMsg('Semua notifikasi ditandai sebagai sudah dibaca')
+    } catch (err: any) {
+      setError(err?.message || 'Gagal menandai semua notifikasi')
+    }
+  }
+
+  const handleOpenLogPreview = (log: ApiNotificationLog) => {
+    const eventName =
+      systemTypes.find((st) => st.event_type === log.event_type)?.name ||
+      knownEventNames[log.event_type] ||
+      log.event_type
+    setPreviewItem({
+      title: log.title,
+      body: log.body,
+      eventName,
+      imageUrl: log.image_url,
+    })
+    handleMarkAsRead(log)
+  }
 
   useEffect(() => {
     loadData()
@@ -371,9 +452,11 @@ export function NotificationScreen() {
             <BellOutlined style={{ fontSize: 16 }} />
           </span>
           <div className="sf-page-header-copy">
-            <div className="sf-page-header-title-text">Kelola Notifikasi</div>
+            <div className="sf-page-header-title-text">{isAdmin ? 'Kelola Notifikasi' : 'Notifikasi'}</div>
             <div className="sf-page-header-subtitle">
-              Pusat Pengelolaan Notifikasi Sistem, Template Pesan, dan Riwayat Pengiriman RT
+              {isAdmin
+                ? 'Pusat Pengelolaan Notifikasi Sistem, Template Pesan, dan Riwayat Pengiriman RT'
+                : 'Riwayat Notifikasi dan Pengumuman Warga RT'}
             </div>
           </div>
         </div>
@@ -386,13 +469,15 @@ export function NotificationScreen() {
           >
             <ReloadOutlined style={{ marginRight: 6 }} /> Segarkan
           </button>
-          <button
-            type="button"
-            className="sf-btn-primary"
-            onClick={() => handleOpenCreate()}
-          >
-            <PlusOutlined style={{ marginRight: 6 }} /> Tambah Template
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className="sf-btn-primary"
+              onClick={() => handleOpenCreate()}
+            >
+              <PlusOutlined style={{ marginRight: 6 }} /> Tambah Template
+            </button>
+          )}
         </div>
       </div>
 
@@ -408,66 +493,79 @@ export function NotificationScreen() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: 16 }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('system')}
-          style={{
-            padding: '10px 16px',
-            border: 'none',
-            background: 'none',
-            fontWeight: activeTab === 'system' ? 600 : 400,
-            fontSize: 14,
-            cursor: 'pointer',
-            borderBottom: activeTab === 'system' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-            color: activeTab === 'system' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <AppstoreOutlined /> Notifikasi Sistem ({systemTypes.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('templates')}
-          style={{
-            padding: '10px 16px',
-            border: 'none',
-            background: 'none',
-            fontWeight: activeTab === 'templates' ? 600 : 400,
-            fontSize: 14,
-            cursor: 'pointer',
-            borderBottom: activeTab === 'templates' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-            color: activeTab === 'templates' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <BellOutlined /> Template Kustom ({templates.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('logs')}
-          style={{
-            padding: '10px 16px',
-            border: 'none',
-            background: 'none',
-            fontWeight: activeTab === 'logs' ? 600 : 400,
-            fontSize: 14,
-            cursor: 'pointer',
-            borderBottom: activeTab === 'logs' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-            color: activeTab === 'logs' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <HistoryOutlined /> Riwayat Pengiriman ({logsTotal})
-        </button>
-      </div>
+      {/* Tabs (Rendered for Admins only) */}
+      {isAdmin ? (
+        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('system')}
+            style={{
+              padding: '10px 16px',
+              border: 'none',
+              background: 'none',
+              fontWeight: activeTab === 'system' ? 600 : 400,
+              fontSize: 14,
+              cursor: 'pointer',
+              borderBottom: activeTab === 'system' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              color: activeTab === 'system' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <AppstoreOutlined /> Notifikasi Sistem ({systemTypes.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('templates')}
+            style={{
+              padding: '10px 16px',
+              border: 'none',
+              background: 'none',
+              fontWeight: activeTab === 'templates' ? 600 : 400,
+              fontSize: 14,
+              cursor: 'pointer',
+              borderBottom: activeTab === 'templates' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              color: activeTab === 'templates' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <BellOutlined /> Template Kustom ({templates.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('logs')}
+            style={{
+              padding: '10px 16px',
+              border: 'none',
+              background: 'none',
+              fontWeight: activeTab === 'logs' ? 600 : 400,
+              fontSize: 14,
+              cursor: 'pointer',
+              borderBottom: activeTab === 'logs' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              color: activeTab === 'logs' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <HistoryOutlined /> Riwayat Pengiriman ({logsTotal})
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--sf-border)', paddingBottom: 12, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-text)' }}>
+              Riwayat Notifikasi
+            </span>
+            {unreadCount > 0 && (
+              <Badge variant="blue">{unreadCount} belum dibaca</Badge>
+            )}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--sf-text-muted)' }}>
@@ -713,34 +811,85 @@ export function NotificationScreen() {
           {activeTab === 'logs' && (
             <div>
               {/* Filter bar */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>Filter Jenis:</span>
-                  <select
-                    value={logsEventType}
-                    onChange={(e) => {
-                      setLogsEventType(e.target.value)
-                      setLogsPage(1)
-                    }}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: 6,
-                      border: '1px solid var(--sf-border)',
-                      background: 'var(--sf-card-bg)',
-                      color: 'var(--sf-text)',
-                      fontSize: 13,
-                    }}
-                  >
-                    <option value="">Semua Jenis Notifikasi</option>
-                    {systemTypes.map((st) => (
-                      <option key={st.event_type} value={st.event_type}>
-                        {st.name}
-                      </option>
-                    ))}
-                  </select>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>Filter Jenis:</span>
+                    <select
+                      value={logsEventType}
+                      onChange={(e) => {
+                        setLogsEventType(e.target.value)
+                        setLogsPage(1)
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        border: '1px solid var(--sf-border)',
+                        background: 'var(--sf-card-bg)',
+                        color: 'var(--sf-text)',
+                        fontSize: 13,
+                      }}
+                    >
+                      <option value="">Semua Jenis Notifikasi</option>
+                      {systemTypes.length > 0
+                        ? systemTypes.map((st) => (
+                            <option key={st.event_type} value={st.event_type}>
+                              {st.name}
+                            </option>
+                          ))
+                        : Object.entries(knownEventNames).map(([key, label]) => (
+                            <option key={key} value={key}>
+                              {label}
+                            </option>
+                          ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>Status:</span>
+                    <select
+                      value={logsStatusFilter}
+                      onChange={(e) => {
+                        setLogsStatusFilter(e.target.value as any)
+                        setLogsPage(1)
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        border: '1px solid var(--sf-border)',
+                        background: 'var(--sf-card-bg)',
+                        color: 'var(--sf-text)',
+                        fontSize: 13,
+                      }}
+                    >
+                      <option value="all">Semua Status</option>
+                      <option value="unread">Belum Dibaca</option>
+                      <option value="read">Sudah Dibaca</option>
+                    </select>
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
-                  Total riwayat tersimpan: {logsTotal}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button
+                    type="button"
+                    className="sf-btn-outline"
+                    onClick={handleMarkAllAsRead}
+                    disabled={unreadCount === 0}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: 13,
+                      opacity: unreadCount === 0 ? 0.6 : 1,
+                      cursor: unreadCount === 0 ? 'not-allowed' : 'pointer',
+                    }}
+                    title="Tandai semua notifikasi sebagai sudah dibaca"
+                  >
+                    <CheckCircleOutlined /> Tandai Semua Dibaca
+                  </button>
+                  <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                    Total riwayat tersimpan: {logsTotal}
+                  </div>
                 </div>
               </div>
 
@@ -761,38 +910,112 @@ export function NotificationScreen() {
                       <tr style={{ borderBottom: '1px solid var(--sf-border)', background: 'rgba(0,0,0,0.02)' }}>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Waktu Kirim</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Event</th>
-                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Judul</th>
-                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Isi Pesan</th>
-                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Judul & Pesan</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status Kirim</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status Baca</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
                       {logs.map((l) => (
-                        <tr key={l.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
+                        <tr
+                          key={l.id}
+                          onClick={() => handleOpenLogPreview(l)}
+                          style={{
+                            borderBottom: '1px solid var(--sf-border)',
+                            cursor: 'pointer',
+                            background: !l.is_read ? 'rgba(56, 132, 255, 0.04)' : undefined,
+                          }}
+                        >
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--sf-text-muted)', fontSize: 12 }}>
                             {new Date(l.created_at).toLocaleString('id-ID', {
                               dateStyle: 'medium',
                               timeStyle: 'short',
                             })}
                           </td>
-                          <td style={{ padding: '12px 16px' }}>
+                          <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                             <Badge variant="gray">
-                              {systemTypes.find((st) => st.event_type === l.event_type)?.name || l.event_type}
+                              {systemTypes.find((st) => st.event_type === l.event_type)?.name || knownEventNames[l.event_type] || l.event_type}
                             </Badge>
                           </td>
-                          <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text)' }}>
-                            {l.title}
-                          </td>
-                          <td style={{ padding: '12px 16px', maxWidth: 380, color: 'var(--sf-text-muted)' }}>
-                            {l.body}
-                          </td>
                           <td style={{ padding: '12px 16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                              {!l.is_read && (
+                                <span
+                                  style={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    backgroundColor: 'var(--sf-accent)',
+                                    display: 'inline-block',
+                                    flexShrink: 0,
+                                  }}
+                                  title="Belum dibaca"
+                                />
+                              )}
+                              <span style={{ fontWeight: l.is_read ? 500 : 700, color: 'var(--sf-text)' }}>
+                                {l.title}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', maxWidth: 460 }}>
+                              {l.body}
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                             <Badge variant="green">TERKIRIM</Badge>
+                          </td>
+                          <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                            {l.is_read ? (
+                              <Badge variant="gray">Sudah Dibaca</Badge>
+                            ) : (
+                              <Badge variant="blue">Belum Dibaca</Badge>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                            <button
+                              type="button"
+                              className="sf-btn-outline"
+                              style={{ padding: '4px 10px', fontSize: 12 }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleOpenLogPreview(l)
+                              }}
+                            >
+                              <EyeOutlined style={{ marginRight: 4 }} /> Detail
+                            </button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+
+                  {logsTotal > logsPageSize && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--sf-border)' }}>
+                      <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
+                        Menampilkan {((logsPage - 1) * logsPageSize) + 1} - {Math.min(logsPage * logsPageSize, logsTotal)} dari {logsTotal} data
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          type="button"
+                          className="sf-btn-outline"
+                          style={{ padding: '4px 12px', fontSize: 12 }}
+                          disabled={logsPage <= 1}
+                          onClick={() => setLogsPage((p) => Math.max(1, p - 1))}
+                        >
+                          Sebelumnya
+                        </button>
+                        <button
+                          type="button"
+                          className="sf-btn-outline"
+                          style={{ padding: '4px 12px', fontSize: 12 }}
+                          disabled={logsPage * logsPageSize >= logsTotal}
+                          onClick={() => setLogsPage((p) => p + 1)}
+                        >
+                          Berikutnya
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
