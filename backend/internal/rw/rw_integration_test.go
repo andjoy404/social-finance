@@ -2,6 +2,7 @@ package rw_test
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"fmt"
 	"testing"
 	"time"
@@ -18,45 +19,89 @@ func setupRWTest(t *testing.T) (*database.Pool, *rw.Repository, string, string, 
 	pool := testutil.GetTestPool(t)
 	repo := rw.NewRepository(pool.Raw())
 
+	// Generate unique fixture IDs to avoid collisions with ~4855 existing rws
+	// and ~6209 existing rts rows (no pre-existing data touched)
+	rwUUID1 := uuid.New()
+	rwUUID2 := uuid.New()
+	rtUUID1 := uuid.New()
+	rtUUID2 := uuid.New()
+	rtUUID3 := uuid.New()
+
 	ctx := context.Background()
 
-	// RW 1 — tempat kita menguji
+	// RW 1 — tempat kita menguji (unique rw_number)
 	var rwID1 string
 	err := pool.Raw().QueryRowContext(ctx,
-		`INSERT INTO rws (name, rw_number, is_active) VALUES ('RW 1', 1, true) RETURNING id`,
+		`INSERT INTO rws (name, rw_number, is_active) VALUES ('RW 1', $1, true) RETURNING id`,
+		1000000+int(rwUUID1[0])*65536+int(rwUUID1[1])*256+int(rwUUID1[2]),
 	).Scan(&rwID1)
 	require.NoError(t, err)
 
-	// RW 2 — untuk isolasi tenant
+	// RW 2 — untuk isolasi tenant (unique rw_number)
 	var rwID2 string
 	err = pool.Raw().QueryRowContext(ctx,
-		`INSERT INTO rws (name, rw_number, is_active) VALUES ('RW 2', 2, true) RETURNING id`,
+		`INSERT INTO rws (name, rw_number, is_active) VALUES ('RW 2', $1, true) RETURNING id`,
+		1000000+int(rwUUID2[0])*65536+int(rwUUID2[1])*256+int(rwUUID2[2]),
 	).Scan(&rwID2)
 	require.NoError(t, err)
 
-	// RT aktif di RW 1
+	// RT aktif di RW 1 (unique rt code)
 	var rtID1 string
 	err = pool.Raw().QueryRowContext(ctx,
-		`INSERT INTO rts (name, rw, rt, rw_id, is_active) VALUES ('RT 1-01', 1, $1, $2, true) RETURNING id`,
-		fmt.Sprintf("01-%d", time.Now().UnixNano()), rwID1,
+		`INSERT INTO rts (name, rw, rt, rw_id, is_active) VALUES ('RT 1-01', $1, $2, $3, true) RETURNING id`,
+		1000000+int(rwUUID1[0])*65536+int(rwUUID1[1])*256+int(rwUUID1[2]),
+		"test-"+rtUUID1.String()[:8], rwID1,
 	).Scan(&rtID1)
 	require.NoError(t, err)
 
 	// RT aktif kedua di RW 1
 	var rtID2 string
 	err = pool.Raw().QueryRowContext(ctx,
-		`INSERT INTO rts (name, rw, rt, rw_id, is_active) VALUES ('RT 1-02', 1, $1, $2, true) RETURNING id`,
-		fmt.Sprintf("02-%d", time.Now().UnixNano()), rwID1,
+		`INSERT INTO rts (name, rw, rt, rw_id, is_active) VALUES ('RT 1-02', $1, $2, $3, true) RETURNING id`,
+		1000000+int(rwUUID1[0])*65536+int(rwUUID1[1])*256+int(rwUUID1[2]),
+		"test-"+rtUUID2.String()[:8], rwID1,
 	).Scan(&rtID2)
 	require.NoError(t, err)
 
 	// RT aktif di RW 2 (harus terisolasi)
 	var rtID3 string
 	err = pool.Raw().QueryRowContext(ctx,
-		`INSERT INTO rts (name, rw, rt, rw_id, is_active) VALUES ('RT 2-01', 2, $1, $2, true) RETURNING id`,
-		fmt.Sprintf("03-%d", time.Now().UnixNano()), rwID2,
+		`INSERT INTO rts (name, rw, rt, rw_id, is_active) VALUES ('RT 2-01', $1, $2, $3, true) RETURNING id`,
+		1000000+int(rwUUID2[0])*65536+int(rwUUID2[1])*256+int(rwUUID2[2]),
+		"test-"+rtUUID3.String()[:8], rwID2,
 	).Scan(&rtID3)
 	require.NoError(t, err)
+
+	// FK-safe cleanup order based on actual schema constraints:
+	// - rts.rw_id → rws(id) RESTRICT
+	// - financial_categories.rt_id → rts(id) RESTRICT
+	// - rw_transactions.rw_id → rws(id) RESTRICT
+	// - rw_transactions.category_id → financial_categories(id) RESTRICT
+	// - rw_opening_balances.rw_id → rws(id) RESTRICT
+	// - fund_locations.rt_id → rts(id) RESTRICT
+	// - location_balance_changes.location_id → fund_locations(id) RESTRICT
+	// - location_balance_changes.transaction_id → rw_transactions(id) RESTRICT
+	// - location_balance_changes.transfer_id → fund_transfers(id) RESTRICT
+	t.Cleanup(func() {
+		ctx := context.Background()
+		pool := pool // capture for closure
+
+		// 1. Drop child references (transactions, balances, changes)
+		pool.Raw().ExecContext(ctx, `DELETE FROM rw_transactions WHERE rw_id = ANY($1)`, []string{rwID1, rwID2})
+		pool.Raw().ExecContext(ctx, `DELETE FROM rw_opening_balances WHERE rw_id = ANY($1)`, []string{rwID1, rwID2})
+		pool.Raw().ExecContext(ctx, `DELETE FROM location_balance_changes WHERE rt_id IN ($1, $2, $3)`, rtID1, rtID2, rtID3)
+		pool.Raw().ExecContext(ctx, `DELETE FROM fund_locations WHERE rt_id IN ($1, $2, $3)`, rtID1, rtID2, rtID3)
+
+		// 2. Drop categories that reference RTs
+		pool.Raw().ExecContext(ctx, `DELETE FROM financial_categories WHERE rt_id IN ($1, $2, $3)`, rtID1, rtID2, rtID3)
+
+		// 3. Drop RTs (restores rw_id to NULL on rws via cascade, or we clear it explicitly)
+		pool.Raw().ExecContext(ctx, `UPDATE rts SET rw_id = NULL WHERE id IN ($1, $2, $3)`, rtID1, rtID2, rtID3)
+		pool.Raw().ExecContext(ctx, `DELETE FROM rts WHERE id IN ($1, $2, $3)`, rtID1, rtID2, rtID3)
+
+		// 4. Drop RWs (now rw_id is NULL on all rts, safe to delete)
+		pool.Raw().ExecContext(ctx, `DELETE FROM rws WHERE id = ANY($1)`, []string{rwID1, rwID2})
+	})
 
 	return pool, repo, rwID1, rwID2, rtID1, rtID2, rtID3
 }
@@ -73,18 +118,18 @@ func seedCategory(t *testing.T, ctx context.Context, pool *database.Pool, rtID s
 	return catID
 }
 
-func seedRWTransaction(t *testing.T, ctx context.Context, pool *database.Pool, rwID, categoryID string, amount float64, txnType, status, description string) string {
+func seedRWTransaction(t *testing.T, ctx context.Context, pool *database.Pool, rwID, categoryID string, amount string, txnType, status, description string) string {
 	var txID string
 	err := pool.Raw().QueryRowContext(ctx,
 		`INSERT INTO rw_transactions (rw_id, category_id, amount, type, status, description)
 		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
 		rwID, categoryID, amount, txnType, status, description,
 	).Scan(&txID)
-	require.NoError(t, err, "seed RW transaction rw=%s type=%s status=%s amount=%f: %v", rwID, txnType, status, amount, err)
+	require.NoError(t, err, "seed RW transaction rw=%s type=%s status=%s amount=%s: %v", rwID, txnType, status, amount, err)
 	return txID
 }
 
-func seedRWReversal(t *testing.T, ctx context.Context, pool *database.Pool, rwID, categoryID string, amount float64, originalTxID string, description string) string {
+func seedRWReversal(t *testing.T, ctx context.Context, pool *database.Pool, rwID, categoryID string, amount string, originalTxID string, description string) string {
 	var revID string
 	err := pool.Raw().QueryRowContext(ctx,
 		`INSERT INTO rw_transactions (rw_id, category_id, amount, type, status, reverses_transaction_id, description)
@@ -95,13 +140,13 @@ func seedRWReversal(t *testing.T, ctx context.Context, pool *database.Pool, rwID
 	return revID
 }
 
-func seedOpeningBalance(t *testing.T, ctx context.Context, pool *database.Pool, rwID string, amount float64, desc string) {
+func seedOpeningBalance(t *testing.T, ctx context.Context, pool *database.Pool, rwID string, amount string, desc string) {
 	_, err := pool.Raw().ExecContext(ctx,
 		`INSERT INTO rw_opening_balances (rw_id, amount, description)
 		 VALUES ($1, $2, $3)`,
 		rwID, amount, desc,
 	)
-	require.NoError(t, err, "seed opening balance rw=%s amount=%f: %v", rwID, amount, err)
+	require.NoError(t, err, "seed opening balance rw=%s amount=%s: %v", rwID, amount, err)
 }
 
 func seedLocationWithCategory(t *testing.T, ctx context.Context, pool *database.Pool, rtID, name, category, bankName string) string {
@@ -146,7 +191,7 @@ func TestRegression1_OpeningBalanceIndependent(t *testing.T) {
 	pool, repo, rwID, _, rtID1, _, _ := setupRWTest(t)
 
 	// Saldo awal RW = Rp7.000.000
-	seedOpeningBalance(t, ctx, pool, rwID, 7000000.00, "Saldo awal KAS RW")
+	seedOpeningBalance(t, ctx, pool, rwID, "7000000.00", "Saldo awal KAS RW")
 
 	// Lokasi dana RT = Rp99.000.000 (BEGITU Saja — tidak boleh memengaruhi saldo RW)
 	seedLBC(t, ctx, pool,
@@ -179,11 +224,11 @@ func TestRegression2_IncreaseByIncome(t *testing.T) {
 	ctx := context.Background()
 	pool, repo, rwID, _, rtID, _, _ := setupRWTest(t)
 
-	seedOpeningBalance(t, ctx, pool, rwID, 7000000.00, "Saldo awal")
+	seedOpeningBalance(t, ctx, pool, rwID, "7000000.00", "Saldo awal")
 	catID := seedCategory(t, ctx, pool, rtID)
 
 	// Pemasukan RW = Rp500.000
-	seedRWTransaction(t, ctx, pool, rwID, catID, 500000.00, "income", "posted", "Pemasukan KAS RW")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "500000.00", "income", "posted", "Pemasukan KAS RW")
 
 	tx, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -209,11 +254,11 @@ func TestRegression3_IncreaseByExpense(t *testing.T) {
 	ctx := context.Background()
 	pool, repo, rwID, _, rtID, _, _ := setupRWTest(t)
 
-	seedOpeningBalance(t, ctx, pool, rwID, 7000000.00, "Saldo awal")
+	seedOpeningBalance(t, ctx, pool, rwID, "7000000.00", "Saldo awal")
 	catID := seedCategory(t, ctx, pool, rtID)
 
-	seedRWTransaction(t, ctx, pool, rwID, catID, 500000.00, "income", "posted", "Pemasukan")
-	seedRWTransaction(t, ctx, pool, rwID, catID, 200000.00, "expense", "posted", "Pengeluaran KAS RW")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "500000.00", "income", "posted", "Pemasukan")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "200000.00", "expense", "posted", "Pengeluaran KAS RW")
 
 	tx, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -238,7 +283,7 @@ func TestRegression4_RTChangeDoesNotAffectRW(t *testing.T) {
 	ctx := context.Background()
 	pool, repo, rwID, _, rtID1, _, _ := setupRWTest(t)
 
-	seedOpeningBalance(t, ctx, pool, rwID, 1000000.00, "Saldo awal")
+	seedOpeningBalance(t, ctx, pool, rwID, "1000000.00", "Saldo awal")
 
 	// Ambil snapshot saldo RW sebelum perubahan RT
 	txBefore, err := pool.Raw().BeginTx(ctx, nil)
@@ -296,7 +341,7 @@ func TestRegression5_RWChangeDoesNotAffectRT(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ubah saldo RW: tambahkan opening balance 5.000.000
-	seedOpeningBalance(t, ctx, pool, rwID, 5000000.00, "RW opening")
+	seedOpeningBalance(t, ctx, pool, rwID, "5000000.00", "RW opening")
 
 	// Saldo RT harus TIDAK berubah
 	txAfter, err := pool.Raw().BeginTx(ctx, nil)
@@ -351,9 +396,9 @@ func TestRegression7_RWTransactionsNotInRTHistory(t *testing.T) {
 	pool, repo, rwID, _, rtID1, _, _ := setupRWTest(t)
 
 	// Seed transaksi RW (masuk ke rw_transactions, bukan transactions)
-	seedOpeningBalance(t, ctx, pool, rwID, 100000.00, "Opening")
+	seedOpeningBalance(t, ctx, pool, rwID, "100000.00", "Opening")
 	catID := seedCategory(t, ctx, pool, rtID1)
-	seedRWTransaction(t, ctx, pool, rwID, catID, 200000.00, "income", "posted", "Transaksi RW")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "200000.00", "income", "posted", "Transaksi RW")
 
 	// Pastikan transaksi RT = 0
 	tx, err := pool.Raw().BeginTx(ctx, nil)
@@ -382,7 +427,7 @@ func TestRegression8_RWReversalOnlyAffectsRW(t *testing.T) {
 	catID := seedCategory(t, ctx, pool, rtID)
 
 	// Pemasukan awal RW = Rp10.000
-	incomeID := seedRWTransaction(t, ctx, pool, rwID, catID, 10000.00, "income", "posted", "Income A")
+	incomeID := seedRWTransaction(t, ctx, pool, rwID, catID, "10000.00", "income", "posted", "Income A")
 
 	// Ambil snapshot
 	tx1, err := pool.Raw().BeginTx(ctx, nil)
@@ -396,7 +441,7 @@ func TestRegression8_RWReversalOnlyAffectsRW(t *testing.T) {
 	require.Equal(t, "0.00", s1.TotalExpense)
 
 	// Reversal: transaksi baru dengan amount Rp1.000, reverses_transaction_id = ID transaksi Income A
-	seedRWReversal(t, ctx, pool, rwID, catID, 1000.00, incomeID, "Reversal Income A")
+	seedRWReversal(t, ctx, pool, rwID, catID, "1000.00", incomeID, "Reversal Income A")
 
 	// Setelah reversal:
 	// - Income tetap 10.000 (reversal tidak mengurangi line item income)
@@ -430,10 +475,10 @@ func TestRegression9_ConsistentBalanceAcrossViews(t *testing.T) {
 	pool, repo, rwID, _, rtID, _, _ := setupRWTest(t)
 
 	// Setup data
-	seedOpeningBalance(t, ctx, pool, rwID, 1000000.00, "Opening balance")
+	seedOpeningBalance(t, ctx, pool, rwID, "1000000.00", "Opening balance")
 	catID := seedCategory(t, ctx, pool, rtID)
-	seedRWTransaction(t, ctx, pool, rwID, catID, 500000.00, "income", "posted", "Pemasukan")
-	seedRWTransaction(t, ctx, pool, rwID, catID, 200000.00, "expense", "posted", "Pengeluaran")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "500000.00", "income", "posted", "Pemasukan")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "200000.00", "expense", "posted", "Pengeluaran")
 
 	// 1. Dashboard summary
 	txDash, err := pool.Raw().BeginTx(ctx, nil)
@@ -552,14 +597,14 @@ func TestRWTenantIsolation(t *testing.T) {
 	cat2 := seedCategory(t, ctx, pool, rtID3)
 
 	// RW 1: opening 5000, income 1000, expense 200
-	seedOpeningBalance(t, ctx, pool, rwID1, 5000.00, "RW1 opening")
-	seedRWTransaction(t, ctx, pool, rwID1, cat1, 1000.00, "income", "posted", "RW1 Income")
-	seedRWTransaction(t, ctx, pool, rwID1, cat1, 200.00, "expense", "posted", "RW1 Expense")
+	seedOpeningBalance(t, ctx, pool, rwID1, "5000.00", "RW1 opening")
+	seedRWTransaction(t, ctx, pool, rwID1, cat1, "1000.00", "income", "posted", "RW1 Income")
+	seedRWTransaction(t, ctx, pool, rwID1, cat1, "200.00", "expense", "posted", "RW1 Expense")
 
 	// RW 2: opening 99999, income 88888, expense 77777
-	seedOpeningBalance(t, ctx, pool, rwID2, 99999.00, "RW2 opening")
-	seedRWTransaction(t, ctx, pool, rwID2, cat2, 88888.00, "income", "posted", "RW2 Income")
-	seedRWTransaction(t, ctx, pool, rwID2, cat2, 77777.00, "expense", "posted", "RW2 Expense")
+	seedOpeningBalance(t, ctx, pool, rwID2, "99999.00", "RW2 opening")
+	seedRWTransaction(t, ctx, pool, rwID2, cat2, "88888.00", "income", "posted", "RW2 Income")
+	seedRWTransaction(t, ctx, pool, rwID2, cat2, "77777.00", "expense", "posted", "RW2 Expense")
 
 	// Test RW 1
 	tx1, err := pool.Raw().BeginTx(ctx, nil)
@@ -603,7 +648,7 @@ func TestRWDashboardWithReversal(t *testing.T) {
 	catID := seedCategory(t, ctx, pool, rtID)
 
 	// 1. Posting income 10000
-	incomeID := seedRWTransaction(t, ctx, pool, rwID, catID, 10000.00, "income", "posted", "Income A")
+	incomeID := seedRWTransaction(t, ctx, pool, rwID, catID, "10000.00", "income", "posted", "Income A")
 
 	tx1, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -616,7 +661,7 @@ func TestRWDashboardWithReversal(t *testing.T) {
 	require.Equal(t, int64(1), s1.TransactionCount, "after 1 posting: expected 1 transaction")
 
 	// 2. Posting expense 3000
-	seedRWTransaction(t, ctx, pool, rwID, catID, 3000.00, "expense", "posted", "Expense A")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "3000.00", "expense", "posted", "Expense A")
 
 	tx2, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -630,7 +675,7 @@ func TestRWDashboardWithReversal(t *testing.T) {
 	require.Equal(t, int64(2), s2.TransactionCount, "after 2 postings: expected 2 transactions")
 
 	// 3. Draft (harus diabaikan)
-	seedRWTransaction(t, ctx, pool, rwID, catID, 9999.00, "income", "draft", "Draft yang tidak dihitung")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "9999.00", "income", "draft", "Draft yang tidak dihitung")
 
 	tx3, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -643,7 +688,7 @@ func TestRWDashboardWithReversal(t *testing.T) {
 	require.Equal(t, int64(2), s3.TransactionCount, "draft must not increase count")
 
 	// 4. Reversal: transaksi baru dengan amount 1000, reverses_transaction_id = ID transaksi income A
-	seedRWReversal(t, ctx, pool, rwID, catID, 1000.00, incomeID, "Reversal Income A")
+	seedRWReversal(t, ctx, pool, rwID, catID, "1000.00", incomeID, "Reversal Income A")
 
 	tx4, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -780,10 +825,10 @@ func TestGetTransactionsPagination(t *testing.T) {
 	catID := seedCategory(t, ctx, pool, rtID)
 
 	for i := 0; i < 5; i++ {
-		seedRWTransaction(t, ctx, pool, rwID, catID, 100.00, "income", "posted", fmt.Sprintf("Tx %d", i))
+		seedRWTransaction(t, ctx, pool, rwID, catID, "100.00", "income", "posted", fmt.Sprintf("Tx %d", i))
 	}
 
-	seedRWTransaction(t, ctx, pool, rwID, catID, 100.00, "income", "draft", "Draft Tx")
+	seedRWTransaction(t, ctx, pool, rwID, catID, "100.00", "income", "draft", "Draft Tx")
 
 	// Halaman 1, pageSize=2
 	tx1, err := pool.Raw().BeginTx(ctx, nil)
@@ -900,7 +945,7 @@ func TestDashboardOnlyOpeningBalance(t *testing.T) {
 	ctx := context.Background()
 	pool, repo, rwID, _, _, _, _ := setupRWTest(t)
 
-	seedOpeningBalance(t, ctx, pool, rwID, 2500000.00, "Modal awal")
+	seedOpeningBalance(t, ctx, pool, rwID, "2500000.00", "Modal awal")
 
 	tx, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -914,4 +959,112 @@ func TestDashboardOnlyOpeningBalance(t *testing.T) {
 	require.Equal(t, "0.00", summary.TotalExpense)
 	require.Equal(t, "2500000.00", summary.NetBalance)
 	require.Equal(t, int64(0), summary.TransactionCount)
+}
+
+// ===========================================================================
+// TEST: Known Test Gaps (from final audit)
+// ===========================================================================
+
+// TestSAAllowlistedRWRNotInDB verifies that when an SA's config includes a
+// rwId in SCOPED_RW_IDS but that RW does not exist in the rws table,
+// checkRWAccess returns ErrRWScopeInvalid.
+func TestSAAllowlistedRWRNotInDB(t *testing.T) {
+	pool, repo, _, _, _, _, _ := setupRWTest(t)
+	ctx := context.Background()
+
+	// Use a UUID that definitely does not exist in DB
+	nonExistentRWID := uuid.New().String()
+
+	ac := &auth.AuthContext{
+		UserID:     "sa-user-id",
+		SystemRole: "super_admin",
+		TenantRole: "",
+		Jabatan:    "",
+	}
+
+	// SA config includes nonExistentRWID in RWIDs allowlist, but RW not in DB
+	scopeCfg := &auth.ScopingConfig{
+		RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+		RWIDs: []string{nonExistentRWID},
+	}
+
+	svc := rw.NewService(pool, repo, scopeCfg)
+
+	// Act
+	_, err := svc.GetDashboard(ctx, ac, nonExistentRWID)
+
+	// Assert: SA scope validation should reject because RW not in DB
+	require.Error(t, err)
+	require.ErrorIs(t, err, auth.ErrRWScopeInvalid)
+}
+
+// TestSAAuthFailsBeforeDBQuery verifies that when an SA's requested rwID
+// is not in the configured allowlist, auth fails early without querying
+// the database for that RW.
+//
+// Note: We verify this by confirming the error is ErrRWScopeInvalid
+// (not ErrRWInfrastructure or a DB error). A true "repo not called"
+// proof would require Repository to be an interface with a mockable
+// implementation — since it is a concrete type, we rely on the error
+// type to prove auth fails before any DB read.
+func TestSAAuthFailsBeforeDBQuery(t *testing.T) {
+	pool, repo, rwID, _, _, _, _ := setupRWTest(t)
+	ctx := context.Background()
+
+	// Create an SA with valid scope but request a RW that is NOT in scope
+	nonScopedRWID := uuid.New().String()
+	ac := &auth.AuthContext{
+		UserID:     "sa-user-id",
+		SystemRole: "super_admin",
+		TenantRole: "",
+		Jabatan:    "",
+	}
+
+	// SA config includes rwID (exists in DB) but NOT nonScopedRWID.
+	// When GetDashboard is called with nonScopedRWID, checkRWAccess
+	// (via cfg.hasRW) should reject immediately without DB query.
+	scopeCfg := &auth.ScopingConfig{
+		RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+		RWIDs: []string{rwID}, // only rwID is in scope, not nonScopedRWID
+	}
+
+	svc := rw.NewService(pool, repo, scopeCfg)
+
+	// Act: try to access a RW not in scope — should fail without DB read
+	_, err := svc.GetDashboard(ctx, ac, nonScopedRWID)
+
+	// Assert: auth fails with scope error, not infrastructure/DB error
+	require.Error(t, err)
+	require.ErrorIs(t, err, auth.ErrRWScopeInvalid)
+	require.Contains(t, err.Error(), "rw access denied")
+}
+
+// TestRegularUserAuthFailsWithoutDBQuery verifies that when a regular user
+// has no RW membership (nil RWMemberships), auth fails without querying
+// the database.
+//
+// Note: Auth fails at checkRWAccess by iterating nil RWMemberships, which
+// returns empty — no DB read occurs. A true "repo not called" proof would
+// require Repository to be an interface with a mockable implementation.
+func TestRegularUserAuthFailsWithoutDBQuery(t *testing.T) {
+	pool, repo, rwID, _, _, _, _ := setupRWTest(t)
+	ctx := context.Background()
+
+	ac := &auth.AuthContext{
+		UserID:          "user-id",
+		TenantRole:      auth.RoleWarga,
+		Jabatan:         auth.JabatanAnggota,
+		RWMemberships:   nil, // no RW membership
+	}
+
+	svc := rw.NewService(pool, repo, nil)
+
+	// Act
+	_, err := svc.GetDashboard(ctx, ac, rwID)
+
+	// Assert: auth fails with scope error (no RW membership = no access)
+	require.Error(t, err)
+	// For regular users, checkRWAccess iterates nil memberships and returns
+	// "rw access denied" (no ErrRWScopeInvalid because that's SA-specific).
+	require.Contains(t, err.Error(), "rw access denied")
 }

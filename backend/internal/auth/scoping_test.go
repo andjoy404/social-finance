@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -739,14 +738,14 @@ func TestRequireRWScopeSuperAdminWithPool(t *testing.T) {
 
 	rwID := uuid.New()
 	rtID := uuid.New()
-	// Generate a random RT code to avoid uniqueness conflicts with existing test data
-	rtCode := fmt.Sprintf("%03d", 900+int(rwID[0]))
+	rwNumber := uniqueRWNumber(rwID)
+	rtCode := uniqueRTCode(rwID)
 
 	// Insert active RW into the test database
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO rws (id, name, rw_number, is_active)
-		VALUES ($1, 'RW Test', 16, true)
-	`, rwID)
+		VALUES ($1, 'RW Test', $2, true)
+	`, rwID, rwNumber)
 	if err != nil {
 		t.Fatalf("insert rw: %v", err)
 	}
@@ -754,8 +753,8 @@ func TestRequireRWScopeSuperAdminWithPool(t *testing.T) {
 	// Insert associated RT
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO rts (id, name, rt, rw, rw_id, is_active)
-		VALUES ($1, 'RT Test', $2, 16, $3, true)
-	`, rtID, rtCode, rwID)
+		VALUES ($1, 'RT Test', $2, $3, $4, true)
+	`, rtID, rtCode, rwNumber, rwID)
 	if err != nil {
 		t.Fatalf("insert rt: %v", err)
 	}
@@ -763,6 +762,36 @@ func TestRequireRWScopeSuperAdminWithPool(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
+
+	// Cleanup: delete only data created by this test, in FK-safe order.
+	// FK chain: rts.rw_id → rws(id) RESTRICT, users.rt_id → rts(id) (deleted by migration 003).
+	// user_rw_memberships.user_id → users(id) CASCADE, user_rw_memberships.rw_id → rws(id) CASCADE.
+	// user_rt_memberships.user_id → users(id) CASCADE, user_rt_memberships.rt_id → rts(id) CASCADE.
+	// Order: memberships → clear rts.rw_id → rws → rts (no users created by this test).
+	regRWID := rwID
+	regRTID := rtID
+	t.Cleanup(func() {
+		_, err := pool.Raw().ExecContext(ctx, "DELETE FROM user_rw_memberships WHERE rw_id = $1", regRWID)
+		if err != nil {
+			t.Errorf("cleanup: delete user_rw_memberships for rw %v: %v", regRWID, err)
+		}
+		_, err = pool.Raw().ExecContext(ctx, "DELETE FROM user_rt_memberships WHERE rt_id = $1", regRTID)
+		if err != nil {
+			t.Errorf("cleanup: delete user_rt_memberships for rt %v: %v", regRTID, err)
+		}
+		_, err = pool.Raw().ExecContext(ctx, "UPDATE rts SET rw_id = NULL WHERE id = $1", regRTID)
+		if err != nil {
+			t.Errorf("cleanup: clear rts.rw_id for rt %v: %v", regRTID, err)
+		}
+		_, err = pool.Raw().ExecContext(ctx, "DELETE FROM rws WHERE id = $1", regRWID)
+		if err != nil {
+			t.Errorf("cleanup: delete rws %v: %v", regRWID, err)
+		}
+		_, err = pool.Raw().ExecContext(ctx, "DELETE FROM rts WHERE id = $1", regRTID)
+		if err != nil {
+			t.Errorf("cleanup: delete rts %v: %v", regRTID, err)
+		}
+	})
 
 	cfg := ScopingConfig{
 		RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},

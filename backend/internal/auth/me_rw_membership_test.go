@@ -42,6 +42,24 @@ func makeMeRequest(handler http.Handler, ac *AuthContext) *httptest.ResponseReco
 	return rec
 }
 
+// uniqueRWNumber returns a deterministic RW number for test isolation.
+// Value: 10^6 + userID[0]*65536 + userID[1]*256 + userID[2].
+// Range: 1,000,000–17,777,215 (16,777,216 possibilities).
+// Using three bytes of a UUID v4 reduces collision probability to ~1 in 16.7M.
+// This is not a mathematical guarantee, but makes accidental collisions
+// practically impossible in serial test runs and very unlikely in parallel runs.
+// The unique rtCode (UUID-based) ensures the (rw, rt) pair avoids uniq_rts_active.
+func uniqueRWNumber(userID uuid.UUID) int {
+	return 1000000 + int(userID[0])*65536 + int(userID[1])*256 + int(userID[2])
+}
+
+// uniqueRTCode returns a unique RT code for test isolation.
+// Format: "test-" + first 8 chars of userID string. This ensures the (rw, rt)
+// pair is unique even if rwNumber accidentally matches, because rtCode is UUID-based.
+func uniqueRTCode(userID uuid.UUID) string {
+	return "test-" + userID.String()[:8]
+}
+
 // TestMeEndpointRWMembershipsSingle verifies /api/v1/auth/me returns rw_memberships
 // for a user with a single RW membership.
 func TestMeEndpointRWMembershipsSingle(t *testing.T) {
@@ -58,7 +76,8 @@ func TestMeEndpointRWMembershipsSingle(t *testing.T) {
 	rtID := uuid.New()
 	rwID := uuid.New()
 	membershipID := uuid.New()
-	rtCode := fmt.Sprintf("%03d", 900+int(userID[0])%100)
+	rtCode := uniqueRTCode(userID)
+	rwNumber := uniqueRWNumber(userID) // unique to avoid uniq_rts_active collision
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO users (id, full_name, email, password_hash, is_active, system_role)
@@ -68,7 +87,7 @@ func TestMeEndpointRWMembershipsSingle(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 
-	seedRWAndRT(t, ctx, tx, rwID, "RW Test", 2, rtID, "RT Single", rtCode)
+	seedRWAndRT(t, ctx, tx, rwID, "RW Test", rwNumber, rtID, "RT Single", rtCode)
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
@@ -89,6 +108,45 @@ func TestMeEndpointRWMembershipsSingle(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
+
+	// Cleanup: delete only data created by this test, in FK-safe order.
+	// Runs after assertions, even if they fail.
+	regID := userID
+	rtRegID := rtID
+	rwRegID := rwID
+	t.Cleanup(func() {
+		// FK chain (from pg_constraint):
+		//   user_rw_memberships.user_id → users(id) CASCADE
+		//   user_rw_memberships.rw_id   → rws(id)   CASCADE
+		//   user_rw_memberships.rt_id   → rts(id)   SET NULL
+		//   user_rt_memberships.user_id → users(id) CASCADE
+		//   user_rt_memberships.rt_id   → rts(id)   CASCADE
+		//   rts.rw_id                   → rws(id)   RESTRICT (blocks rws delete)
+		// NOTE: users.rt_id was dropped by migration 003, no FK from users to rts.
+
+		// 1. Delete child memberships first (CASCADE handles refs to users/rws/rts)
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM user_rw_memberships WHERE user_id = $1`, regID); err != nil {
+			t.Errorf("cleanup: failed to delete user_rw_memberships: %v", err)
+		}
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, regID); err != nil {
+			t.Errorf("cleanup: failed to delete user_rt_memberships: %v", err)
+		}
+		// 2. Clear FK rts.rw_id -> rws(id) ON DELETE RESTRICT
+		if _, err := pool.Raw().ExecContext(ctx, `UPDATE rts SET rw_id = NULL WHERE id = $1`, rtRegID); err != nil {
+			t.Errorf("cleanup: failed to clear rts.rw_id: %v", err)
+		}
+		// 3. Now safe to delete rws and rts
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM rws WHERE id = $1`, rwRegID); err != nil {
+			t.Errorf("cleanup: failed to delete rws: %v", err)
+		}
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM rts WHERE id = $1`, rtRegID); err != nil {
+			t.Errorf("cleanup: failed to delete rts: %v", err)
+		}
+		// 4. Delete user last (no FK to rts after migration 003; CASCADE handles refresh_tokens etc.)
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, regID); err != nil {
+			t.Errorf("cleanup: failed to delete users: %v", err)
+		}
+	})
 
 	ac := &AuthContext{
 		UserID:         userID.String(),
@@ -143,7 +201,8 @@ func TestMeEndpointRWMembershipsMultiple(t *testing.T) {
 	rwID1 := uuid.New()
 	rwID2 := uuid.New()
 	membershipID := uuid.New()
-	rtCode := fmt.Sprintf("%03d", 900+int(userID[0])%100)
+	rtCode := uniqueRTCode(userID)
+	rwNumber := uniqueRWNumber(userID) // unique to avoid uniq_rts_active collision
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO users (id, full_name, email, password_hash, is_active, system_role)
@@ -153,12 +212,15 @@ func TestMeEndpointRWMembershipsMultiple(t *testing.T) {
 		t.Fatalf("insert user: %v", err)
 	}
 
-	seedRWAndRT(t, ctx, tx, rwID1, "RW Test", 1, rtID, "RT Multi", rtCode)
+	seedRWAndRT(t, ctx, tx, rwID1, "RW Test", rwNumber, rtID, "RT Multi", rtCode)
+
+	// Use a second unique RW number to avoid conflicts
+	rw2Number := uniqueRWNumber(uuid.New()) // unique to avoid uniq_rws_active collision
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO rws (id, name, rw_number, is_active)
-		VALUES ($1, 'RW 002', 2, true)
-	`, rwID2)
+		VALUES ($1, 'RW 002', $2, true)
+	`, rwID2, rw2Number)
 	if err != nil {
 		t.Fatalf("insert rw2: %v", err)
 	}
@@ -182,6 +244,40 @@ func TestMeEndpointRWMembershipsMultiple(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
+
+	// Cleanup: delete only data created by this test, in FK-safe order.
+	// Runs after assertions, even if they fail.
+	regID := userID
+	rtRegID := rtID
+	rwRegID := rwID1
+	rw2RegID := rwID2
+	t.Cleanup(func() {
+		// 1. Delete child memberships first (CASCADE handles refs to users/rws/rts)
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM user_rw_memberships WHERE user_id = $1`, regID); err != nil {
+			t.Errorf("cleanup: failed to delete user_rw_memberships: %v", err)
+		}
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, regID); err != nil {
+			t.Errorf("cleanup: failed to delete user_rt_memberships: %v", err)
+		}
+		// 2. Clear FK rts.rw_id -> rws(id) ON DELETE RESTRICT
+		if _, err := pool.Raw().ExecContext(ctx, `UPDATE rts SET rw_id = NULL WHERE id = $1`, rtRegID); err != nil {
+			t.Errorf("cleanup: failed to clear rts.rw_id: %v", err)
+		}
+		// 3. Now safe to delete rws and rts
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM rws WHERE id = $1`, rwRegID); err != nil {
+			t.Errorf("cleanup: failed to delete rws: %v", err)
+		}
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM rws WHERE id = $1`, rw2RegID); err != nil {
+			t.Errorf("cleanup: failed to delete rws: %v", err)
+		}
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM rts WHERE id = $1`, rtRegID); err != nil {
+			t.Errorf("cleanup: failed to delete rts: %v", err)
+		}
+		// 4. Delete user last (no FK to rts after migration 003)
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, regID); err != nil {
+			t.Errorf("cleanup: failed to delete users: %v", err)
+		}
+	})
 
 	ac := &AuthContext{
 		UserID:         userID.String(),
@@ -230,7 +326,8 @@ func TestMeEndpointNoRWMembership(t *testing.T) {
 	userID := uuid.New()
 	rtID := uuid.New()
 	membershipID := uuid.New()
-	rtCode := fmt.Sprintf("%03d", 900+int(userID[0])%100)
+	rtCode := uniqueRTCode(userID)
+	rwNumber := uniqueRWNumber(userID) // unique to avoid uniq_rts_active collision
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO users (id, full_name, email, password_hash, is_active, system_role)
@@ -242,8 +339,8 @@ func TestMeEndpointNoRWMembership(t *testing.T) {
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO rts (id, name, rt, rw, rw_id, is_active)
-		VALUES ($1, 'RT None', $2, 998, NULL, true)
-	`, rtID, rtCode)
+		VALUES ($1, 'RT None', $2, $3, NULL, true)
+	`, rtID, rtCode, rwNumber)
 	if err != nil {
 		t.Fatalf("insert rt: %v", err)
 	}
@@ -259,6 +356,29 @@ func TestMeEndpointNoRWMembership(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
+
+	// Cleanup: delete only data created by this test, in FK-safe order.
+	// Runs after assertions, even if they fail.
+	regID := userID
+	rtRegID := rtID
+	t.Cleanup(func() {
+		// FK note: no rws created in this test, no user_rw_memberships.
+		// 1. Delete child memberships first (CASCADE handles refs to users/rts)
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, regID); err != nil {
+			t.Errorf("cleanup: failed to delete user_rt_memberships: %v", err)
+		}
+		// 2. Clear FK rts.rw_id -> rws(id) ON DELETE RESTRICT (no-op since rw_id is NULL)
+		if _, err := pool.Raw().ExecContext(ctx, `UPDATE rts SET rw_id = NULL WHERE id = $1`, rtRegID); err != nil {
+			t.Errorf("cleanup: failed to clear rts.rw_id: %v", err)
+		}
+		// 3. Delete rts, then user (no rws to delete; no FK from users to rts after migration 003)
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM rts WHERE id = $1`, rtRegID); err != nil {
+			t.Errorf("cleanup: failed to delete rts: %v", err)
+		}
+		if _, err := pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, regID); err != nil {
+			t.Errorf("cleanup: failed to delete users: %v", err)
+		}
+	})
 
 	ac := &AuthContext{
 		UserID:         userID.String(),
