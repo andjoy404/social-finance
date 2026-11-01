@@ -640,6 +640,9 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		order := r.URL.Query().Get("order")
 
 		if rtQuery != "" {
+			// Ensure bills are synchronized for the requested RT
+			_, _ = SyncBillsForRT(r.Context(), tx, rtQuery)
+
 			// Tenant-scoped query for specific RT (cross-tenant admin filtering)
 			total, err = BillCount(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive)
 			if err != nil {
@@ -651,6 +654,7 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
+			_ = tx.Commit()
 		} else {
 			// Cross-tenant query (admin viewing all RTs)
 			total, err = BillCountAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName)
@@ -759,6 +763,13 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	offset := (page - 1) * pageSize
 
 	order := r.URL.Query().Get("order")
+
+	// Synchronize bills for this occupancy or RT so new households joining mid-year have complete 12 bills
+	if occupancyID != nil {
+		_, _ = SyncHouseholdOccupancyBills(r.Context(), tx, ac.RTID, *occupancyID)
+	} else {
+		_, _ = SyncBillsForRT(r.Context(), tx, ac.RTID)
+	}
 
 	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive)
 	if err != nil {

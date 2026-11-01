@@ -191,39 +191,84 @@ func (h *Handler) handleResetPasswordWithCode(w http.ResponseWriter, r *http.Req
 		LIMIT 1
 	`, lowerEmail, canonPhone).Scan(&userID)
 	if errors.Is(err, sql.ErrNoRows) {
-		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_credentials", "identitas atau kode reset tidak valid")
+		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_identity", "identitas akun atau kode tidak cocok")
 		return
 	}
 	if err != nil {
-		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "database error")
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "terjadi kesalahan server")
 		return
 	}
 
-	// Fetch latest active reset code for this user
-	var codeID, codeHash, codeRTID string
-	var expiresAt time.Time
-	err = tx.QueryRowContext(ctx, `
-		SELECT id, code_hash, rt_id, expires_at
+	// Fetch recent reset codes for this user (including used and expired to provide accurate feedback)
+	type resetCodeRow struct {
+		id        string
+		codeHash  string
+		rtID      string
+		expiresAt time.Time
+		usedAt    sql.NullTime
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, code_hash, rt_id, expires_at, used_at
 		FROM resident_password_reset_codes
-		WHERE user_id = $1 AND used_at IS NULL AND expires_at > now()
+		WHERE user_id = $1
 		ORDER BY created_at DESC
-		LIMIT 1
+		LIMIT 10
 		FOR UPDATE
-	`, userID).Scan(&codeID, &codeHash, &codeRTID, &expiresAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_code", "kode reset tidak ditemukan atau sudah kadaluarsa")
+	`, userID)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "terjadi kesalahan server")
 		return
 	}
-	if err != nil {
-		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "database error")
+	defer rows.Close()
+
+	var codeRows []resetCodeRow
+	for rows.Next() {
+		var r resetCodeRow
+		if err := rows.Scan(&r.id, &r.codeHash, &r.rtID, &r.expiresAt, &r.usedAt); err != nil {
+			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "terjadi kesalahan server")
+			return
+		}
+		codeRows = append(codeRows, r)
+	}
+	if err := rows.Err(); err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "terjadi kesalahan server")
 		return
 	}
 
-	// Verify code
-	if err := VerifyCode(code, codeHash); err != nil {
+	if len(codeRows) == 0 {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_code", "identitas akun atau kode tidak cocok")
+		return
+	}
+
+	// Find if the entered code matches any recent code for this user
+	var matchedRow *resetCodeRow
+	for i := range codeRows {
+		if err := VerifyCode(code, codeRows[i].codeHash); err == nil {
+			matchedRow = &codeRows[i]
+			break
+		}
+	}
+
+	if matchedRow == nil {
 		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_code", "kode reset tidak sesuai")
 		return
 	}
+
+	// 1. Check if the matched code was already used
+	if matchedRow.usedAt.Valid {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "code_used", "kode reset sudah digunakan")
+		return
+	}
+
+	// 2. Check if the matched code has expired
+	if time.Now().After(matchedRow.expiresAt) {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "code_expired", "kode reset sudah kedaluwarsa")
+		return
+	}
+
+	codeID := matchedRow.id
+	codeRTID := matchedRow.rtID
 
 	// Hash new password
 	newHash, err := Hash(newPass)
@@ -314,7 +359,41 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("login failed", "error", err, "identifier", identifier, "has_password", req.Password != "")
 		switch err {
-		case ErrInvalidPassword, ErrUserNotFound:
+		case ErrInvalidPassword:
+			// If password failed and input looks like a 4-digit code, check if it matches an active reset code
+			trimmedPass := strings.TrimSpace(req.Password)
+			if len(trimmedPass) == 4 && regexp.MustCompile(`^[0-9]{4}$`).MatchString(trimmedPass) {
+				lowerIdent := strings.ToLower(strings.TrimSpace(identifier))
+				canonPhone := ""
+				if cp, err := NormalizePhone(identifier); err == nil {
+					canonPhone = cp
+				}
+				var uID string
+				_ = tx.QueryRowContext(ctx, `
+					SELECT id FROM users
+					WHERE (lower(email) = $1 OR ($2 != '' AND phone = $2)) AND is_active = true
+					LIMIT 1
+				`, lowerIdent, canonPhone).Scan(&uID)
+				if uID != "" {
+					var cHash string
+					var expAt time.Time
+					var uAt sql.NullTime
+					_ = tx.QueryRowContext(ctx, `
+						SELECT code_hash, expires_at, used_at
+						FROM resident_password_reset_codes
+						WHERE user_id = $1
+						ORDER BY created_at DESC LIMIT 1
+					`, uID).Scan(&cHash, &expAt, &uAt)
+					if cHash != "" && !uAt.Valid && time.Now().Before(expAt) {
+						if VerifyCode(trimmedPass, cHash) == nil {
+							httpx.ErrorJSON(w, http.StatusBadRequest, "reset_code_entered", "Kode 4 digit yang Anda masukkan adalah kode reset kata sandi. Silakan gunakan menu 'Lupa Kata Sandi?' untuk membuat kata sandi baru Anda.")
+							return
+						}
+					}
+				}
+			}
+			httpx.ErrorJSON(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
+		case ErrUserNotFound:
 			httpx.ErrorJSON(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
 		case ErrNotAuthorized:
 			httpx.ErrorJSON(w, http.StatusUnauthorized, "not_authorized", "account is not authorized to login")

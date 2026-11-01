@@ -656,6 +656,12 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	finSvc := finance.NewService(pool, store)
 	finH := finance.NewHandler(pool, finSvc, store)
 
+	// Wire household occupancy bill synchronization hook
+	household.SyncOccupancyBillsFn = func(ctx context.Context, tx *sql.Tx, rtID, occID string) error {
+		_, err := finance.SyncHouseholdOccupancyBills(ctx, tx, rtID, occID)
+		return err
+	}
+
 	// Financial read access & warga payments: warga, bendahara, pengurus
 	// jabatan-based users evaluated via position_permissions for finance.read.
 	// Self-submitted payments by warga/staff use finance.create permission.

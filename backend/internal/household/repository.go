@@ -394,6 +394,8 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 		}
 	}
 
+	triggerSyncBills(ctx, tx, in.RTID, occID)
+
 	return &item, nil
 }
 
@@ -1043,6 +1045,8 @@ func HouseholdMove(ctx context.Context, tx *sql.Tx, id, rtID string, in MoveHous
 			return nil, fmt.Errorf("create new residency period: %w", err)
 		}
 	}
+
+	triggerSyncBills(ctx, tx, rtID, newHOID)
 
 	return HouseholdGetByID(ctx, tx, id, rtID)
 }

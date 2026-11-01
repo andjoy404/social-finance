@@ -184,12 +184,19 @@ export async function apiResetPasswordWithCode(body: ApiResetPasswordWithCodeBod
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<{ status: string; message: string }>(res)
-  if (!res.ok || !data) {
-    const errBody = await json<ApiError>(res).catch(() => null)
-    throw new ApiError(errBody?.code ?? 'unexpected', errBody?.message ?? 'Gagal mengatur ulang kata sandi')
+  const raw = await res.text()
+  let parsed: any = null
+  try {
+    parsed = raw ? JSON.parse(raw) : null
+  } catch {
+    /* ignore */
   }
-  return data
+
+  if (!res.ok || !parsed) {
+    const errObj = parsed?.error || parsed
+    throw new ApiError(errObj?.code ?? 'unexpected', errObj?.message ?? 'Gagal mengatur ulang kata sandi')
+  }
+  return parsed
 }
 
 export interface ApiGenerateResetCodeResponse {
@@ -209,12 +216,19 @@ export async function apiGenerateResidentResetCode(token: string, residentId: st
     },
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
-  const data = await json<ApiGenerateResetCodeResponse>(res)
-  if (!res.ok || !data) {
-    const errBody = await json<ApiError>(res).catch(() => null)
-    throw new ApiError(errBody?.code ?? 'unexpected', errBody?.message ?? 'Gagal membuat kode reset kata sandi')
+  const raw = await res.text()
+  let parsed: any = null
+  try {
+    parsed = raw ? JSON.parse(raw) : null
+  } catch {
+    /* ignore */
   }
-  return data
+
+  if (!res.ok || !parsed) {
+    const errObj = parsed?.error || parsed
+    throw new ApiError(errObj?.code ?? 'unexpected', errObj?.message ?? 'Gagal membuat kode reset kata sandi')
+  }
+  return parsed
 }
 
 export interface ApiUpdateProfileBody {

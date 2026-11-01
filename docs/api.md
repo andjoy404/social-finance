@@ -1286,4 +1286,10 @@ Supports 3 categories: `rekening`, `brankas`, and `coh`. Dana Hibah/Donasi is el
       "message": "Kata sandi berhasil diubah. Silakan masuk dengan kata sandi baru."
     }
     ```
+  - Error responses (`400 Bad Request`):
+    - `invalid_identity`: identitas akun atau kode tidak cocok
+    - `invalid_code`: kode reset tidak sesuai
+    - `code_expired`: kode reset sudah kedaluwarsa
+    - `code_used`: kode reset sudah digunakan
+  - Note: Pada endpoint `/api/v1/auth/login`, jika pengguna memasukkan 4-digit kode reset aktif pada input kata sandi biasa, sistem mengembalikan error `reset_code_entered` (HTTP 400) yang mengarahkan pengguna ke dialog "Lupa Kata Sandi?".
 

@@ -443,12 +443,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   borderRadius: BorderRadius.circular(7),
                   border: Border.all(color: const Color(0x80F2495C)),
                 ),
-                child: Text(
-                  _error,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFFF98A6),
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _error,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFFF98A6),
+                      ),
+                    ),
+                    if (_error.contains('kode reset')) ...[
+                      const SizedBox(height: 6),
+                      GestureDetector(
+                        onTap: _showResetPasswordDialog,
+                        child: const Text(
+                          'Buka Menu Reset Kata Sandi →',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.accent,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
@@ -534,8 +554,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             const SizedBox(height: 10),
 
             // 6. Checkbox Ingat saya & Lupa Kata Sandi?
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 6,
               children: [
                 _buildRememberMeRow(isLoading),
                 GestureDetector(

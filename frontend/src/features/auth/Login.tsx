@@ -83,6 +83,12 @@ export function Login() {
     } catch (err) {
       if (err instanceof ApiError) {
         switch (err.code) {
+          case 'reset_code_entered':
+            setResetIdentifier(email.trim())
+            setResetCode(password.trim())
+            setShowResetModal(true)
+            setResetError(err.message)
+            break
           case 'invalid_credentials':
             setError('Email, nomor HP, atau kata sandi salah.')
             break

@@ -271,7 +271,7 @@ export function ResidentDetail() {
                   {resetCodeData.code}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--sf-text-muted, #94a3b8)', marginBottom: '12px' }}>
-                  Berikan kode ini kepada warga untuk mereset kata sandi pada halaman Login. Kode hanya dapat digunakan 1 kali.
+                  Berikan kode ini kepada warga untuk mereset kata sandi melalui menu &apos;Lupa Kata Sandi?&apos; pada halaman Login. Kode berlaku 24 jam dan hanya dapat digunakan 1 kali.
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
                   <button
