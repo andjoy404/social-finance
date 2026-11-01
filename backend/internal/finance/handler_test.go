@@ -516,7 +516,7 @@ func TestBillsAndPaymentsFlowWithLedgerIntegration(t *testing.T) {
 			RTID:   rtID,
 			Role:   string(auth.RoleWarga),
 		})
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"100000","method":"TRANSFER","notes":"Transfer via BCA"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"100000","method":"TRANSFER","notes":"Transfer via BCA","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -866,7 +866,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		billID2 := listResp.Data[0].ID
 
 		// Staff creates full payment
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100000","method":"CASH"}`, billID2)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID2)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -918,7 +918,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		billID3 := listResp.Data[0].ID
 
 		// Staff creates partial payment (60k of 100k)
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, billID3)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID3)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -967,7 +967,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		billID4 := listResp.Data[0].ID
 
 		// Staff tries to pay 100.001 (over by 1)
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100001","method":"CASH"}`, billID4)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100001","method":"CASH","proof_path":"proofs/test.jpg"}`, billID4)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1017,7 +1017,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 
 		// Warga submits payment that exceeds bill amount (100001 vs 100000)
 		// Now REJECTED at creation time (not just during verification)
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100001","method":"CASH"}`, billID5)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100001","method":"CASH","proof_path":"proofs/test.jpg"}`, billID5)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -1079,7 +1079,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		billID := listResp.Data[0].ID
 
 		// Step 1: Staff records approved payment of 60000
-		payBody1 := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, billID)
+		payBody1 := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody1))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1095,7 +1095,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		}
 
 		// Step 2: Warga submits PENDING payment of 50000 (exceeds remaining 40000)
-		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, billID)
+		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody2))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -1160,7 +1160,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		billID4 := listResp.Data[0].ID
 
 		// Warga submits PENDING payment (valid amount, e.g. 30000 for 100000 bill)
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"30000","method":"CASH"}`, billID4)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"30000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID4)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -1268,7 +1268,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		multiBillID := listResp.Data[0].ID
 
 		// First partial payment: 40000
-		payBody1 := fmt.Sprintf(`{"bill_id":"%s","amount":"40000","method":"CASH"}`, multiBillID)
+		payBody1 := fmt.Sprintf(`{"bill_id":"%s","amount":"40000","method":"CASH","proof_path":"proofs/test.jpg"}`, multiBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody1))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1290,7 +1290,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		}
 
 		// Second partial payment: 60000 (sum = 100000 = bill amount)
-		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, multiBillID)
+		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH","proof_path":"proofs/test.jpg"}`, multiBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody2))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1336,7 +1336,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		pendingBillID := listResp.Data[0].ID
 
 		// Warga submits 60000 -> PENDING
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, pendingBillID)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH","proof_path":"proofs/test.jpg"}`, pendingBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -1360,7 +1360,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		// Warga can submit another payment for same bill (while first is PENDING)
 		// Test that PENDING DOES reserve remaining balance — second 60000 must be rejected.
 		// Remaining = 100000 - 0 approved - 60000 pending = 40000, so 60000 > 40000 => 400.
-		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, pendingBillID)
+		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH","proof_path":"proofs/test.jpg"}`, pendingBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody2))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -1399,7 +1399,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		rejectBillID := listResp.Data[0].ID
 
 		// Warga submits payment
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, rejectBillID)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, rejectBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -1467,7 +1467,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		approveBillID := listResp.Data[0].ID
 
 		// Warga submits 60000 -> PENDING
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, approveBillID)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH","proof_path":"proofs/test.jpg"}`, approveBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -1507,7 +1507,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		}
 
 		// Warga submits remaining 40000 -> PENDING
-		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"40000","method":"CASH"}`, approveBillID)
+		payBody2 := fmt.Sprintf(`{"bill_id":"%s","amount":"40000","method":"CASH","proof_path":"proofs/test.jpg"}`, approveBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody2))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -1565,7 +1565,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		paidBillID := listResp.Data[0].ID
 
 		// Pay the bill fully
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100000","method":"CASH"}`, paidBillID)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100000","method":"CASH","proof_path":"proofs/test.jpg"}`, paidBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1576,7 +1576,7 @@ func TestDR03_DR04_PaymentFlow(t *testing.T) {
 		}
 
 		// Try to pay again -> should fail
-		payBody = fmt.Sprintf(`{"bill_id":"%s","amount":"10000","method":"CASH"}`, paidBillID)
+		payBody = fmt.Sprintf(`{"bill_id":"%s","amount":"10000","method":"CASH","proof_path":"proofs/test.jpg"}`, paidBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1748,7 +1748,7 @@ func TestBillCancellationGuard(t *testing.T) {
 			t.Fatal("expected at least 1 bill")
 		}
 		// Create partial payment for this bill
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, listResp.Data[0].ID)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, listResp.Data[0].ID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1815,7 +1815,7 @@ func TestBillCancellationGuard(t *testing.T) {
 		paidBillID := listResp.Data[0].ID
 
 		// Pay in full
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100000","method":"CASH"}`, paidBillID)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"100000","method":"CASH","proof_path":"proofs/test.jpg"}`, paidBillID)
 		req = httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1922,7 +1922,7 @@ func TestConcurrentPaymentRaceCondition(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, billID)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -1933,7 +1933,7 @@ func TestConcurrentPaymentRaceCondition(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH"}`, billID)
+		payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 		req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 		req.Header.Set("Content-Type", "application/json")
@@ -2984,7 +2984,7 @@ func TestPaymentProofEndpoints(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &bill)
 
 	// Create Payment as Warga
-	payReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(fmt.Sprintf(`{"bill_id":"%s","amount":"25000","method":"TRANSFER","origin":"WARGA"}`, bill.ID)))
+	payReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(fmt.Sprintf(`{"bill_id":"%s","amount":"25000","method":"TRANSFER","origin":"WARGA","proof_path":"proofs/test.jpg"}`, bill.ID)))
 	payReq.Header.Set("Authorization", "Bearer "+wargaToken)
 	payReq.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -3174,7 +3174,7 @@ func TestGetPaymentDetail(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &bill)
 
 	// Create Payment submitted by Warga 1
-	payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"25000.00","method":"TRANSFER","notes":"Bayar kebersihan"}`, bill.ID)
+	payBody := fmt.Sprintf(`{"bill_id":"%s","amount":"25000.00","method":"TRANSFER","notes":"Bayar kebersihan","proof_path":"proofs/test.jpg"}`, bill.ID)
 	payReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(payBody))
 	payReq.Header.Set("Authorization", "Bearer "+warga1Token)
 	payReq.Header.Set("Content-Type", "application/json")

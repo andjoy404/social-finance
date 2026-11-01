@@ -190,7 +190,9 @@ function IuranPaymentContent({
     if (!method) {
       errs.push('Metode pembayaran harus dipilih.')
     }
-    if (proofFile) {
+    if (!proofFile) {
+      errs.push('Bukti pembayaran wajib dilampirkan. Silakan unggah foto bukti pembayaran sebelum melanjutkan.')
+    } else {
       if (!ALLOWED_MIME_TYPES.includes(proofFile.type)) {
         errs.push('Format file bukti harus berupa gambar (JPG, PNG, atau WebP).')
       }
@@ -643,7 +645,7 @@ function IuranPaymentContent({
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="ip-proof">
               <FileImageOutlined style={{ marginRight: 4 }} />
-              Bukti Pembayaran (Opsional)
+              Bukti Pembayaran *
             </label>
 
             {!proofFile ? (

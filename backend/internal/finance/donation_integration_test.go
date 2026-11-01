@@ -82,7 +82,7 @@ func TestVoluntaryDonationLifecycleAndTenantScope(t *testing.T) {
 	postPayment := func(token, dueID, amount, idemKey string) *httptest.ResponseRecorder {
 		t.Helper()
 		body, err := json.Marshal(map[string]string{
-			"due_id": dueID, "amount": amount, "method": "TRANSFER",
+			"due_id": dueID, "amount": amount, "method": "TRANSFER", "proof_path": "proofs/test.jpg",
 		})
 		if err != nil {
 			t.Fatalf("marshal payment body: %v", err)
@@ -587,7 +587,7 @@ func TestVoluntaryDonationLifecycleAndTenantScope(t *testing.T) {
 
 func postOrdinaryBillPayment(t *testing.T, router http.Handler, token, billID, amount string) *httptest.ResponseRecorder {
 	t.Helper()
-	body := fmt.Sprintf(`{"bill_id":%q,"amount":%q,"method":"TRANSFER"}`, billID, amount)
+	body := fmt.Sprintf(`{"bill_id":%q,"amount":%q,"method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billID, amount)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")

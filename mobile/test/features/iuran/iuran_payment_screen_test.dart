@@ -6,6 +6,8 @@
 // - Payment method selection: Tunai/Transfer
 // - Loading state: spinner + button disable during save
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,9 +21,18 @@ import 'package:social_finance/features/iuran/presentation/screens/iuran_payment
 
 const _kBillId = 'test-bill-id';
 
+final _kValidTestPng = Uint8List.fromList([
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
+  0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+  0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+]);
+
 late IuranBill _kTestBill;
 
-Widget _buildApp({IuranBill? bill}) {
+Widget _buildApp({IuranBill? bill, Uint8List? initialProofBytes}) {
   _kTestBill = bill ??
       IuranBill(
         id: _kBillId,
@@ -39,14 +50,18 @@ Widget _buildApp({IuranBill? bill}) {
           (ref) async => _kTestBill,
         ),
       ],
-      child: IuranPaymentScreen(billId: _kBillId),
+      child: IuranPaymentScreen(
+        billId: _kBillId,
+        initialProofBytes: initialProofBytes,
+        initialProofFileName: initialProofBytes != null ? 'proof.jpg' : null,
+      ),
     ),
   );
 }
 
 /// Pump once to kick off futures, then wait for idle.
-Future<void> _pumpPage(WidgetTester tester, {IuranBill? bill}) async {
-  await tester.pumpWidget(_buildApp(bill: bill));
+Future<void> _pumpPage(WidgetTester tester, {IuranBill? bill, Uint8List? initialProofBytes}) async {
+  await tester.pumpWidget(_buildApp(bill: bill, initialProofBytes: initialProofBytes));
   await tester.pump();
   await tester.pumpAndSettle(const Duration(seconds: 5));
 }
@@ -251,13 +266,32 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'rejects save without proof',
+      (tester) async {
+        await _pumpPage(tester);
+
+        await tester.enterText(find.byType(TextField).at(0), '50000');
+        await tester.pumpAndSettle();
+
+        await _scrollToVisible(tester, find.text('Bayar', skipOffstage: false));
+        await tester.tap(find.text('Bayar', skipOffstage: false));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Bukti pembayaran wajib dilampirkan. Silakan unggah foto bukti pembayaran sebelum melanjutkan.', skipOffstage: false),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('IuranPaymentScreen — Loading State', () {
     testWidgets(
       'shows spinner and disables buttons while saving',
       (tester) async {
-        await _pumpPage(tester);
+        await _pumpPage(tester, initialProofBytes: _kValidTestPng);
 
         // Enter valid amount — _validate() will pass since PaymentMethod
         // defaults to .cash.  The repo call will fail (no API),

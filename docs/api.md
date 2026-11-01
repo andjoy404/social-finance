@@ -1036,7 +1036,7 @@ Optional query parameters. No implicit sorting unless specified.
 ### 9.2 Dues Configuration
 
 - `GET /api/v1/dues`: List dues (Bendahara, Pengurus, Warga). Each due includes `valid_until` (`YYYY-MM-DD` or `null`).
-- `POST /api/v1/dues`: Create dues (`name`, `amount`, `period_type`: `monthly`|`yearly`|`one_time`, optional `is_voluntary`, optional `valid_until`) (Bendahara, Pengurus). `valid_until` is accepted only for voluntary dues and must not be in the past.
+- `POST /api/v1/dues`: Create dues (`name`, `amount`, `period_type`: `monthly`|`yearly`|`one_time`, optional `is_voluntary`, optional `valid_until`, optional `due_type`: `regular`|`voluntary`|`multi_month`, optional `year`) (Bendahara, Pengurus). `valid_until` is accepted only for voluntary dues and must not be in the past. For `multi_month`, only 1 issuance is allowed per calendar year per RT; duplicate issuance returns 400 with message `"IPL Multi-Bulan untuk tahun {year} sudah pernah diterbitkan di RT ini."`.
 - `PATCH /api/v1/dues/{id}`: Update dues (Bendahara, Pengurus), including `valid_until` for voluntary dues. Send `valid_until: ""` to clear an existing deadline. Activating an expired voluntary due in the same request requires a `valid_until` of today or later; otherwise the request is rejected.
 - `DELETE /api/v1/dues/{id}`: Soft delete dues (Bendahara, Pengurus).
 

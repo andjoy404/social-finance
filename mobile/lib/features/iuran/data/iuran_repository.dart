@@ -335,6 +335,8 @@ class IuranRepository {
     String? proofPath,
     String? notes,
     String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
   }) async {
     return apiClient.createPayment(
       billId: billId,
@@ -343,6 +345,8 @@ class IuranRepository {
       proofPath: proofPath,
       notes: notes,
       idempotencyKey: idempotencyKey,
+      fileBytes: fileBytes,
+      filename: filename,
     );
   }
 
@@ -376,6 +380,8 @@ class IuranRepository {
     required PaymentMethod method,
     String? notes,
     String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
   }) async {
     if (dueId.trim().isEmpty || amount <= 0) {
       throw ArgumentError('Donation requires a due and a positive amount.');
@@ -386,6 +392,8 @@ class IuranRepository {
       method: method,
       notes: notes,
       idempotencyKey: idempotencyKey,
+      fileBytes: fileBytes,
+      filename: filename,
     );
   }
 

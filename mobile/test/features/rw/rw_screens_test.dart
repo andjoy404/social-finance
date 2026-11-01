@@ -7,6 +7,8 @@ import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/device_id_service.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_api_client.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
@@ -14,6 +16,7 @@ import 'package:social_finance/features/rw/data/rw_providers.dart';
 import 'package:social_finance/features/rw/presentation/screens/rw_dashboard_screen.dart';
 import 'package:social_finance/features/rw/presentation/screens/rw_fund_location_screen.dart';
 import 'package:social_finance/features/rw/presentation/screens/rw_kas_screen.dart';
+import 'package:social_finance/features/rw/presentation/screens/rw_keuangan_screen.dart';
 
 class MockRwApiClient extends RwApiClient {
   MockRwApiClient() : super(ApiClient(baseUrl: 'http://test.local'));
@@ -181,6 +184,8 @@ void main() {
       expect(find.text('TOTAL PENGELUARAN'), findsOneWidget);
       expect(find.text('Ringkasan Keuangan'), findsOneWidget);
       expect(find.text('Transaksi Terbaru'), findsOneWidget);
+      // Ensure redundant "Menu Keuangan RW" Card is completely removed
+      expect(find.text('Menu Keuangan RW'), findsNothing);
     });
 
     testWidgets('RwFundLocationScreen renders 3 categories and NO Dana Hibah/Donasi', (tester) async {
@@ -506,6 +511,293 @@ void main() {
       expect(tester.takeException(), isNull);
 
       // Reset physical size
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+    });
+
+    testWidgets('RwKeuanganScreen has 3 tabs (BERANDA, KAS, LOKASI DANA) and defaults to BERANDA', (tester) async {
+      final mockUser = {
+        'id': 'user-1',
+        'name': 'Pengurus RW Test',
+        'email': 'pengurus@rw.local',
+        'role': 'pengurus',
+        'system_role': 'warga',
+        'rw_memberships': [
+          {
+            'rw_id': 'rw-002',
+            'rw_number': 2,
+            'rw_name': 'RW 002 Sukamaju',
+            'jabatan': 'ketua',
+            'status': 'active',
+          }
+        ],
+      };
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(mockUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKeuanganScreen(rwId: 'rw-002'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Check the 3 Tab labels exist
+      expect(find.widgetWithText(Tab, 'BERANDA'), findsOneWidget);
+      expect(find.widgetWithText(Tab, 'KAS'), findsOneWidget);
+      expect(find.widgetWithText(Tab, 'LOKASI DANA'), findsOneWidget);
+
+      // Verify BERANDA is the default active tab showing welcome greeting
+      expect(find.textContaining('Selamat datang'), findsOneWidget);
+      expect(find.text('TOTAL SALDO'), findsOneWidget);
+      expect(find.text('TOTAL PEMASUKAN'), findsOneWidget);
+      expect(find.text('TOTAL PENGELUARAN'), findsOneWidget);
+    });
+
+    testWidgets('RwKeuanganScreen switches to KAS and LOKASI DANA tabs', (tester) async {
+      final mockUser = {
+        'id': 'user-1',
+        'name': 'Pengurus RW Test',
+        'email': 'pengurus@rw.local',
+        'role': 'pengurus',
+        'system_role': 'warga',
+        'rw_memberships': [
+          {
+            'rw_id': 'rw-002',
+            'rw_number': 2,
+            'rw_name': 'RW 002 Sukamaju',
+            'jabatan': 'ketua',
+            'status': 'active',
+          }
+        ],
+      };
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(mockUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKeuanganScreen(rwId: 'rw-002'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Tap KAS tab
+      await tester.tap(find.widgetWithText(Tab, 'KAS'));
+      await tester.pumpAndSettle();
+
+      // KAS tab content should be visible
+      expect(find.text('Catat Kas Masuk'), findsOneWidget);
+
+      // Tap LOKASI DANA tab
+      await tester.tap(find.widgetWithText(Tab, 'LOKASI DANA'));
+      await tester.pumpAndSettle();
+
+      // LOKASI DANA tab content should be visible
+      expect(find.text('Rekening Bank'), findsAtLeastNWidgets(1));
+      expect(find.text('Brankas Fisik'), findsAtLeastNWidgets(1));
+    });
+
+    testWidgets('RwDashboardScreen summary cards render without overflow at standard mobile width', (tester) async {
+      tester.view.physicalSize = const Size(400 * 2, 800 * 2);
+      tester.view.devicePixelRatio = 2.0;
+
+      final mockUser = {
+        'id': 'user-1',
+        'name': 'Pengurus RW Test',
+        'email': 'pengurus@rw.local',
+        'role': 'pengurus',
+        'system_role': 'warga',
+        'rw_memberships': [
+          {
+            'rw_id': 'rw-002',
+            'rw_number': 2,
+            'rw_name': 'RW 002 Sukamaju',
+            'jabatan': 'ketua',
+            'status': 'active',
+          }
+        ],
+      };
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(mockUser)),
+          ],
+          child: const MaterialApp(
+            home: RwDashboardScreen(rwId: 'rw-002'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('TOTAL SALDO'), findsOneWidget);
+      expect(find.text('TOTAL PEMASUKAN'), findsOneWidget);
+      expect(find.text('TOTAL PENGELUARAN'), findsOneWidget);
+
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+    });
+
+    testWidgets('Summary cards layout renders without overflow even at narrow 320px width', (tester) async {
+      tester.view.physicalSize = const Size(320 * 2, 640 * 2);
+      tester.view.devicePixelRatio = 2.0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      border: Border.all(color: AppColors.accent.withValues(alpha: 0.1)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                          ),
+                          child: const Icon(Icons.account_balance_wallet_outlined, size: 16, color: AppColors.accent),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('TOTAL SALDO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+                              SizedBox(height: 2),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text('Rp 15.000.000', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                              ),
+                              Text('Periode: Semua', style: TextStyle(fontSize: 11)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            border: Border.all(color: AppColors.success.withValues(alpha: 0.1)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: AppColors.success.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                                ),
+                                child: const Icon(Icons.arrow_downward_outlined, size: 16, color: AppColors.success),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('TOTAL PEMASUKAN', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600), maxLines: 1),
+                                    SizedBox(height: 2),
+                                    FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Text('Rp 5.000.000', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                    ),
+                                    Text('Periode: Semua', style: TextStyle(fontSize: 11)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.danger.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            border: Border.all(color: AppColors.danger.withValues(alpha: 0.1)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: AppColors.danger.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                                ),
+                                child: const Icon(Icons.arrow_upward_outlined, size: 16, color: AppColors.danger),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('TOTAL PENGELUARAN', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600), maxLines: 1),
+                                    SizedBox(height: 2),
+                                    FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Text('Rp 2.000.000', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                    ),
+                                    Text('Periode: Semua', style: TextStyle(fontSize: 11)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('TOTAL SALDO'), findsOneWidget);
+      expect(find.text('TOTAL PEMASUKAN'), findsOneWidget);
+      expect(find.text('TOTAL PENGELUARAN'), findsOneWidget);
+
       addTearDown(() {
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();

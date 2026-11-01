@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
@@ -188,6 +189,50 @@ void main() {
       const m = RWMembership(rwId: 'uuid-1234');
       expect(m.displayName, equals('RW'));
       expect(m.displayName.contains('uuid'), isFalse);
+    });
+  });
+
+  group('RwBadgeStyle Contrast & Theming', () {
+    double contrastRatio(Color c1, Color c2) {
+      final l1 = c1.computeLuminance();
+      final l2 = c2.computeLuminance();
+      final lighter = l1 > l2 ? l1 : l2;
+      final darker = l1 > l2 ? l2 : l1;
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    test('all styles provide high contrast (>4.5:1 WCAG AA) for light mode', () {
+      final styles = [
+        RwBadgeStyle.success(isDark: false),
+        RwBadgeStyle.danger(isDark: false),
+        RwBadgeStyle.warning(isDark: false),
+        RwBadgeStyle.info(isDark: false),
+        RwBadgeStyle.accent(isDark: false),
+        RwBadgeStyle.neutral(isDark: false),
+      ];
+
+      for (final s in styles) {
+        final cr = contrastRatio(s.background, s.text);
+        expect(cr, greaterThanOrEqualTo(4.5),
+            reason: 'Contrast ratio for light mode badge must meet WCAG AA');
+      }
+    });
+
+    test('all styles provide high contrast (>4.5:1 WCAG AA) for dark mode', () {
+      final styles = [
+        RwBadgeStyle.success(isDark: true),
+        RwBadgeStyle.danger(isDark: true),
+        RwBadgeStyle.warning(isDark: true),
+        RwBadgeStyle.info(isDark: true),
+        RwBadgeStyle.accent(isDark: true),
+        RwBadgeStyle.neutral(isDark: true),
+      ];
+
+      for (final s in styles) {
+        final cr = contrastRatio(s.background, s.text);
+        expect(cr, greaterThanOrEqualTo(4.5),
+            reason: 'Contrast ratio for dark mode badge must meet WCAG AA');
+      }
     });
   });
 }

@@ -14,8 +14,9 @@ import 'package:social_finance/features/rw/data/rw_providers.dart';
 
 class RwFundLocationScreen extends ConsumerStatefulWidget {
   final String rwId;
+  final bool isTabView;
 
-  const RwFundLocationScreen({super.key, required this.rwId});
+  const RwFundLocationScreen({super.key, required this.rwId, this.isTabView = false});
 
   @override
   ConsumerState<RwFundLocationScreen> createState() =>
@@ -23,7 +24,10 @@ class RwFundLocationScreen extends ConsumerStatefulWidget {
 }
 
 class _RwFundLocationScreenState
-    extends ConsumerState<RwFundLocationScreen> {
+    extends ConsumerState<RwFundLocationScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   List<RwFundLocation> _locations = [];
   bool _isLoading = true;
   String? _error;
@@ -148,13 +152,8 @@ class _RwFundLocationScreenState
         : resolveRwNumber(widget.rwId, rwMemberships);
     final rwDisplayName = currentMembership?.rwName ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
 
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: true,
-        centerTitle: false,
-        title: MenuAppBarTitle(title: 'Lokasi Dana RW', rw: rwNumberText),
-      ),
-      body: NestedScrollView(
+    super.build(context);
+    final body = NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
           SliverToBoxAdapter(
             child: Padding(
@@ -200,33 +199,38 @@ class _RwFundLocationScreenState
                   ),
                   const SizedBox(height: 12),
                   if (isReadOnly) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: AppColors.warning.withValues(alpha: 0.1),
-                        borderRadius:
-                            BorderRadius.circular(AppRadius.sm),
-                        border: Border.all(
-                            color: AppColors.warning.withValues(alpha: 0.3)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.info_outline,
-                              color: AppColors.warning, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Mode Read-Only: Anda hanya memiliki akses melihat lokasi dana RW.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textColor(context),
+                    Builder(builder: (context) {
+                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      final warningStyle = RwBadgeStyle.warning(isDark: isDark);
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: warningStyle.background,
+                          borderRadius:
+                              BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(
+                              color: warningStyle.border),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                color: warningStyle.text, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Mode Read-Only: Anda hanya memiliki akses melihat lokasi dana RW.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: warningStyle.text,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
+                          ],
+                        ),
+                      );
+                    }),
                   ],
                   _buildActionToolbar(context, canCreate: canCreate, canUpdate: canUpdate),
                 ],
@@ -251,7 +255,19 @@ class _RwFundLocationScreenState
             ),
           ),
         ),
+      );
+
+    if (widget.isTabView) {
+      return body;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: true,
+        centerTitle: false,
+        title: MenuAppBarTitle(title: 'Lokasi Dana RW', rw: rwNumberText),
       ),
+      body: body,
     );
   }
 
@@ -533,20 +549,23 @@ class _RwFundLocationScreenState
   }
 
   Widget _buildErrorBanner() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.danger.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        border:
-            Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        'Error: $_error',
-        style: const TextStyle(color: AppColors.danger, fontSize: 13),
-      ),
-    );
+    return Builder(builder: (context) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final dangerStyle = RwBadgeStyle.danger(isDark: isDark);
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: dangerStyle.background,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(color: dangerStyle.border),
+        ),
+        child: Text(
+          'Error: $_error',
+          style: TextStyle(color: dangerStyle.text, fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      );
+    });
   }
 
   Widget _buildLocationsTable(BuildContext context, {required bool canUpdate}) {
@@ -603,18 +622,25 @@ class _RwFundLocationScreenState
                   ),
                 ),
               ),
-              DataCell(AppBadge(
-                label: loc.category == 'rekening'
-                    ? 'Rekening Bank'
-                    : loc.category == 'brankas'
-                        ? 'Brankas Fisik'
-                        : 'Kas Di Tangan (COH)',
-                backgroundColor: loc.category == 'rekening'
-                    ? AppColors.info
-                    : loc.category == 'brankas'
-                        ? AppColors.warning
-                        : AppColors.success,
-              )),
+              DataCell(
+                Builder(builder: (context) {
+                  final isDark = Theme.of(context).brightness == Brightness.dark;
+                  final badgeStyle = loc.category == 'rekening'
+                      ? RwBadgeStyle.info(isDark: isDark)
+                      : loc.category == 'brankas'
+                          ? RwBadgeStyle.warning(isDark: isDark)
+                          : RwBadgeStyle.success(isDark: isDark);
+                  return AppBadge(
+                    label: loc.category == 'rekening'
+                        ? 'Rekening Bank'
+                        : loc.category == 'brankas'
+                            ? 'Brankas Fisik'
+                            : 'Kas Di Tangan (COH)',
+                    backgroundColor: badgeStyle.background,
+                    textColor: badgeStyle.text,
+                  );
+                }),
+              ),
               DataCell(Text(
                 detailText.isNotEmpty ? detailText : '—',
                 style: const TextStyle(fontSize: 12),
@@ -626,10 +652,19 @@ class _RwFundLocationScreenState
                   fontWeight: FontWeight.w600,
                 ),
               )),
-              DataCell(AppBadge(
-                label: loc.isActive ? 'Aktif' : 'Nonaktif',
-                backgroundColor: loc.isActive ? AppColors.success : AppColors.danger,
-              )),
+              DataCell(
+                Builder(builder: (context) {
+                  final isDark = Theme.of(context).brightness == Brightness.dark;
+                  final badgeStyle = loc.isActive
+                      ? RwBadgeStyle.success(isDark: isDark)
+                      : RwBadgeStyle.danger(isDark: isDark);
+                  return AppBadge(
+                    label: loc.isActive ? 'Aktif' : 'Nonaktif',
+                    backgroundColor: badgeStyle.background,
+                    textColor: badgeStyle.text,
+                  );
+                }),
+              ),
               DataCell(
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1204,10 +1239,17 @@ class _RwFundLocationScreenState
                                     t.transferDate,
                                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                                   ),
-                                  AppBadge(
-                                    label: isReversed ? 'Dibatalkan (Reversal)' : 'Berhasil',
-                                    backgroundColor: isReversed ? AppColors.danger : AppColors.success,
-                                  ),
+                                  Builder(builder: (context) {
+                                    final isDark = Theme.of(context).brightness == Brightness.dark;
+                                    final badgeStyle = isReversed
+                                        ? RwBadgeStyle.danger(isDark: isDark)
+                                        : RwBadgeStyle.success(isDark: isDark);
+                                    return AppBadge(
+                                      label: isReversed ? 'Dibatalkan (Reversal)' : 'Berhasil',
+                                      backgroundColor: badgeStyle.background,
+                                      textColor: badgeStyle.text,
+                                    );
+                                  }),
                                 ],
                               ),
                               const SizedBox(height: 4),
@@ -1431,41 +1473,43 @@ class _RwFundLocationScreenState
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: r.isReconciled
-                            ? AppColors.success.withValues(alpha: 0.1)
-                            : AppColors.danger.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        border: Border.all(
-                          color: r.isReconciled
-                              ? AppColors.success.withValues(alpha: 0.3)
-                              : AppColors.danger.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            r.isReconciled ? Icons.check_circle : Icons.warning_amber_rounded,
-                            color: r.isReconciled ? AppColors.success : AppColors.danger,
+                    Builder(builder: (context) {
+                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      final badgeStyle = r.isReconciled
+                          ? RwBadgeStyle.success(isDark: isDark)
+                          : RwBadgeStyle.danger(isDark: isDark);
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: badgeStyle.background,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(
+                            color: badgeStyle.border,
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              r.isReconciled
-                                  ? 'TEREKONSILIASI: Total saldo lokasi dana cocok dengan saldo ledger KAS RW.'
-                                  : 'SELISIH DITEMUKAN: Terdapat selisih sebesar ${RupiahFormatter.format(disc.toInt())}.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: r.isReconciled ? AppColors.success : AppColors.danger,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              r.isReconciled ? Icons.check_circle : Icons.warning_amber_rounded,
+                              color: badgeStyle.text,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                r.isReconciled
+                                    ? 'TEREKONSILIASI: Total saldo lokasi dana cocok dengan saldo ledger KAS RW.'
+                                    : 'SELISIH DITEMUKAN: Terdapat selisih sebesar ${RupiahFormatter.format(disc.toInt())}.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: badgeStyle.text,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
+                          ],
+                        ),
+                      );
+                    }),
                     const SizedBox(height: 16),
                     _buildReconcileRow('Saldo Ledger KAS RW:', RupiahFormatter.format(calc.toInt())),
                     _buildReconcileRow('Total Saldo Lokasi Dana:', RupiahFormatter.format(totalLoc.toInt())),

@@ -15,6 +15,7 @@ import { getSessionPair } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
 import { PageHeader } from '@/components/PageHeader'
 import { DashboardOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { resolveRwLabel } from '@/utils/rwUtils'
 import { apiGetRWDashboard, type ApiRWDashboardSummary } from './rw-api'
 
 const MONTH_NAMES = [
@@ -106,6 +107,9 @@ export function RwDashboard({
 
   const periodDisplayLabel = isAllPeriods ? 'Semua Periode' : `${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}`
 
+  const rwMemberships = (user as any)?.rwMemberships || (user as any)?.rw_memberships || []
+  const displayRwName = resolveRwLabel(rwId, rwMemberships, rwName)
+
   return (
     <>
       {/* PageHeader */}
@@ -113,7 +117,7 @@ export function RwDashboard({
         surface
         icon={<DashboardOutlined />}
         title={`Selamat datang, ${user.name}`}
-        subtitle={rwName || `RW ${rwId}`}
+        subtitle={displayRwName}
         actions={
           <span style={{ padding: '4px 10px', fontSize: 12, fontWeight: 600, borderRadius: 'var(--sf-radius-sm)', color: 'var(--sf-accent)', background: 'rgba(169, 112, 255, 0.1)' }}>
             Keuangan RW

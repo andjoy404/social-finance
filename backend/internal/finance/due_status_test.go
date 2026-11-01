@@ -282,7 +282,7 @@ func TestVoluntaryDueDeactivationBlocksNewDonationButKeepsHistory(t *testing.T) 
 		t.Fatalf("new voluntary due must default to active")
 	}
 
-	donationBody := fmt.Sprintf(`{"due_id":"%s","amount":"50000","method":"CASH"}`, due.ID)
+	donationBody := fmt.Sprintf(`{"due_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, due.ID)
 	rec = doFinanceRequest(t, router, http.MethodPost, "/api/v1/payments", tokenWarga, donationBody)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create donation while active: expected 201, got %d: %s", rec.Code, rec.Body.String())

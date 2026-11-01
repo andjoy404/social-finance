@@ -12,7 +12,6 @@ import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
-import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 
 import '../../data/iuran_api_models.dart';
@@ -23,8 +22,15 @@ import '../../data/iuran_repository.dart';
 /// Payment form screen for making iuran payments.
 class IuranPaymentScreen extends ConsumerStatefulWidget {
   final String billId;
+  final Uint8List? initialProofBytes;
+  final String? initialProofFileName;
 
-  const IuranPaymentScreen({super.key, required this.billId});
+  const IuranPaymentScreen({
+    super.key,
+    required this.billId,
+    this.initialProofBytes,
+    this.initialProofFileName,
+  });
 
   @override
   ConsumerState<IuranPaymentScreen> createState() => _IuranPaymentScreenState();
@@ -50,6 +56,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   @override
   void initState() {
     super.initState();
+    _proofBytes = widget.initialProofBytes;
+    _proofFileName = widget.initialProofFileName;
     _tanggalCtrl.text = DateTime.now().toLocal().toString().split(' ')[0];
   }
 
@@ -225,16 +233,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             notes: _catatanCtrl.text.trim().isEmpty
                 ? null
                 : _catatanCtrl.text.trim(),
+            fileBytes: _proofBytes,
+            filename: _proofFileName,
           );
-          if (_proofBytes != null && _proofFileName != null) {
-            try {
-              payment = await repo.uploadPaymentProof(
-                paymentId: payment.id,
-                fileBytes: _proofBytes!,
-                filename: _proofFileName!,
-              );
-            } catch (_) {}
-          }
         }
 
         if (mounted) {
@@ -281,40 +282,16 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         return;
       }
 
-      final payment = await repo.createPayment(
+      await repo.createPayment(
         billId: widget.billId,
         amount: amount,
         method: _selectedMethod ?? PaymentMethod.cash,
         notes: _catatanCtrl.text.trim().isEmpty
             ? null
             : _catatanCtrl.text.trim(),
+        fileBytes: _proofBytes,
+        filename: _proofFileName,
       );
-
-      // If proof image was picked, upload it for the newly created payment
-      if (_proofBytes != null && _proofFileName != null) {
-        try {
-          await repo.uploadPaymentProof(
-            paymentId: payment.id,
-            fileBytes: _proofBytes!,
-            filename: _proofFileName!,
-          );
-        } catch (proofErr) {
-          // Payment is created; notify user about proof upload retry if needed
-          if (mounted) {
-            final msg = proofErr is ServerException
-                ? proofErr.message
-                : proofErr.toString();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Pembayaran tersimpan, namun bukti gagal diunggah: $msg',
-                ),
-                backgroundColor: AppColors.warning,
-              ),
-            );
-          }
-        }
-      }
 
       // Invalidate cached providers so list/detail screens fetch fresh data
       if (mounted) {
@@ -410,6 +387,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         }
       }
     }
+
+    if (_proofBytes == null || _proofBytes!.isEmpty) {
+      setState(() => _error = 'Bukti pembayaran wajib dilampirkan. Silakan unggah foto bukti pembayaran sebelum melanjutkan.');
+      return false;
+    }
+
     return true;
   }
 

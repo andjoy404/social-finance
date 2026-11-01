@@ -17,14 +17,22 @@ import 'package:social_finance/features/rw/data/rw_providers.dart';
 
 class RwDashboardScreen extends ConsumerStatefulWidget {
   final String rwId;
+  final bool isTabView;
 
-  const RwDashboardScreen({super.key, required this.rwId});
+  const RwDashboardScreen({
+    super.key,
+    required this.rwId,
+    this.isTabView = false,
+  });
 
   @override
   ConsumerState<RwDashboardScreen> createState() => _RwDashboardScreenState();
 }
 
-class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
+class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   RwDashboardSummary? _data;
   List<RwTransaction> _recentTransactions = [];
   List<RwTransaction> _yearTransactions = [];
@@ -254,14 +262,10 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
     final rwDisplayName = (currentMembership?.rwName?.isNotEmpty == true)
         ? currentMembership!.rwName!
         : (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        centerTitle: false,
-        title: MenuAppBarTitle(title: 'Beranda RW', rw: rwNumberText),
-      ),
-      body: NestedScrollView(
+    super.build(context);
+    final body = NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
           SliverToBoxAdapter(
             child: Padding(
@@ -300,21 +304,25 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.accent.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                    ),
-                    child: const Text(
-                      'Keuangan RW',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.accent,
+                  Builder(builder: (context) {
+                    final badgeStyle = RwBadgeStyle.accent(isDark: isDark);
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: badgeStyle.background,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(color: badgeStyle.border),
                       ),
-                    ),
-                  ),
+                      child: Text(
+                        'Keuangan RW',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: badgeStyle.text,
+                        ),
+                      ),
+                    );
+                  }),
                 ],
               ),
             ),
@@ -391,47 +399,6 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Menu Keuangan RW',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  icon: const Icon(Icons.account_balance_wallet_outlined),
-                                  label: const Text('KAS RW'),
-                                  onPressed: () => context.push('/rw/${widget.rwId}/kas'),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  icon: const Icon(Icons.account_balance_outlined),
-                                  label: const Text('Lokasi Dana RW'),
-                                  onPressed: () => context.push('/rw/${widget.rwId}/lokasi-dana'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
                 // 2. Ringkasan Keuangan Chart
                 _buildFinancialChartCard(context),
                 const SizedBox(height: 16),
@@ -441,67 +408,85 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
             ),
           ),
         ),
+      );
+
+    if (widget.isTabView) {
+      return body;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        centerTitle: false,
+        title: MenuAppBarTitle(title: 'Beranda RW', rw: rwNumberText),
       ),
+      body: body,
     );
   }
 
   Widget _buildPeriodFilter(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
-    final infoSoft = isDark ? AppColors.darkInfoSoft : AppColors.lightInfoSoft;
-    final infoBorder = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final infoStyle = RwBadgeStyle.info(isDark: isDark);
+    final accentStyle = RwBadgeStyle.accent(isDark: isDark);
 
     return Container(
       color: surfaceColor,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Row(
         children: [
-          InkWell(
-            onTap: () => _pickMonth(context),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: infoSoft,
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                border: Border.all(color: infoBorder),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _isAllPeriods
-                        ? 'Semua Periode'
-                        : _formatMonthYear(_activeDate),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.accent,
+          Expanded(
+            child: InkWell(
+              onTap: () => _pickMonth(context),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: infoStyle.background,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(color: infoStyle.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        _isAllPeriods
+                            ? 'Semua Periode'
+                            : _formatMonthYear(_activeDate),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: infoStyle.text,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.arrow_drop_down, size: 18, color: AppColors.accent),
-                ],
+                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_drop_down, size: 18, color: infoStyle.text),
+                  ],
+                ),
               ),
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 8),
           GestureDetector(
             onTap: () {
               setState(() => _isAllPeriods = !_isAllPeriods);
               _fetch();
             },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: isDark
-                    ? (_isAllPeriods ? AppColors.darkAccentSoft : AppColors.darkSurfaceHover)
-                    : (_isAllPeriods ? AppColors.lightAccentSoft : AppColors.lightSurfaceHover),
+                color: _isAllPeriods
+                    ? accentStyle.background
+                    : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
                 borderRadius: BorderRadius.circular(AppRadius.sm),
                 border: Border.all(
-                  color: isDark
-                      ? (_isAllPeriods ? AppColors.accent.withValues(alpha: 0.5) : AppColors.darkBorder)
-                      : (_isAllPeriods ? AppColors.accent.withValues(alpha: 0.4) : AppColors.lightBorder),
+                  color: _isAllPeriods
+                      ? accentStyle.border
+                      : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
                 ),
               ),
               child: Text(
@@ -509,7 +494,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.accent,
+                  color: _isAllPeriods ? accentStyle.text : (isDark ? AppColors.darkText : AppColors.lightText),
                 ),
               ),
             ),
@@ -532,32 +517,23 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
 
     final periodLabel = _isAllPeriods ? 'Semua' : _monthShortNames[_activeDate.month];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final availableWidth = constraints.maxWidth - 40; // 20 padding each side
-        final cardWidth = availableWidth >= 520 ? (availableWidth - 24) / 3 : 160.0;
-
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          _buildSummaryCard(
+            context,
+            label: 'TOTAL SALDO',
+            period: periodLabel,
+            value: _isLoading && _data == null ? '...' : saldoStr,
+            color: AppColors.accent,
+            icon: Icons.account_balance_wallet_outlined,
+          ),
+          const SizedBox(height: 12),
+          Row(
             children: [
-              SizedBox(
-                width: cardWidth,
-                child: _buildMetricCard(
-                  context,
-                  label: 'TOTAL SALDO',
-                  period: periodLabel,
-                  value: _isLoading && _data == null ? '...' : saldoStr,
-                  color: AppColors.accent,
-                  icon: Icons.account_balance_wallet_outlined,
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                width: cardWidth,
-                child: _buildMetricCard(
+              Expanded(
+                child: _buildSummaryCard(
                   context,
                   label: 'TOTAL PEMASUKAN',
                   period: periodLabel,
@@ -567,9 +543,8 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
                 ),
               ),
               const SizedBox(width: 12),
-              SizedBox(
-                width: cardWidth,
-                child: _buildMetricCard(
+              Expanded(
+                child: _buildSummaryCard(
                   context,
                   label: 'TOTAL PENGELUARAN',
                   period: periodLabel,
@@ -580,12 +555,12 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
               ),
             ],
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
-  Widget _buildMetricCard(
+  Widget _buildSummaryCard(
     BuildContext context, {
     required String label,
     required String period,
@@ -594,52 +569,58 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
     required IconData icon,
   }) {
     return Container(
-      height: 105,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(AppRadius.base),
-        border: Border.all(color: color.withValues(alpha: 0.15)),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
                   label,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textMutedColor(context),
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.lightTextMuted,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              Icon(icon, size: 14, color: color),
-            ],
-          ),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: color,
-              ),
-            ),
-          ),
-          Text(
-            'Periode: $period',
-            style: TextStyle(
-              fontSize: 9,
-              color: AppColors.textMutedColor(context),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                ),
+                Text(
+                  'Periode: $period',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textMutedColor(context),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -660,11 +641,17 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
-        _buildStatItem(context, (_data?.totalRts ?? 0).toString(), 'Total RT', AppColors.accent),
-        _buildStatItem(context, (_data?.transactionCount ?? 0).toString(), 'Transaksi', AppColors.info,
-            onTap: () => context.push('/rw/${widget.rwId}/kas')),
-        _buildStatItem(context, (_data?.totalLocations ?? 0).toString(), 'Lokasi Dana', AppColors.success,
-            onTap: () => context.push('/rw/${widget.rwId}/lokasi-dana')),
+        Expanded(
+          child: _buildStatItem(context, (_data?.totalRts ?? 0).toString(), 'Total RT', AppColors.accent),
+        ),
+        Expanded(
+          child: _buildStatItem(context, (_data?.transactionCount ?? 0).toString(), 'Transaksi', AppColors.info,
+              onTap: () => context.push('/rw/${widget.rwId}/keuangan?tab=kas')),
+        ),
+        Expanded(
+          child: _buildStatItem(context, (_data?.totalLocations ?? 0).toString(), 'Lokasi Dana', AppColors.success,
+              onTap: () => context.push('/rw/${widget.rwId}/keuangan?tab=lokasi')),
+        ),
       ],
     );
   }
@@ -745,11 +732,15 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Transaksi Terbaru',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
+                  const Expanded(
+                    child: Text(
+                      'Transaksi Terbaru',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   if (_recentTransactions.isNotEmpty)
@@ -854,17 +845,26 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
                                       fontSize: 11,
                                       color: AppColors.textMutedColor(context),
                                     ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ],
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Text(
-                              amtStr,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: color,
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 85),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  amtStr,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: color,
+                                  ),
+                                ),
                               ),
                             ),
                           ],

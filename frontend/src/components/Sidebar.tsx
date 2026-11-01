@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationMenu, type RWMembership } from '@/app/AuthContext'
+import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationAdmin, type RWMembership } from '@/app/AuthContext'
 import { DownOutlined } from '@ant-design/icons'
 import {
   MenuFoldOutlined,
@@ -76,7 +76,7 @@ export function Sidebar() {
     )
 }
 
-  const canAccessNotifikasi = canAccessNotificationMenu(user)
+  const canAccessNotifikasi = canAccessNotificationAdmin(user)
   if (canAccessNotifikasi) {
     items.push({
       to: '/notifikasi',
@@ -96,8 +96,8 @@ export function Sidebar() {
     const rwIdForData = rwMemberships[0].rw_id
     // Build a label showing RW count if multiple
     const rwLabel = rwMemberships.length === 1
-      ? rwMemberships[0].rw_name || 'Lihat Data RW'
-      : `Lihat Data RW (${rwMemberships.length})`
+      ? rwMemberships[0].rw_name || 'DATA RW'
+      : `DATA RW (${rwMemberships.length})`
 
     items.push({
       to: `/rw-view/${rwIdForData}/dashboard`,
@@ -173,7 +173,7 @@ export function Sidebar() {
                         >
                           <span className="nav-item-icon" style={{ fontSize: 12 }}>{item.icon}</span>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {m.rw_name || `RW ${m.rw_id}`}{' '}
+                            {m.rw_name || `RW ${String(m.rw_number ?? '').padStart(3, '0')}`}{' '}
                             {m.jabatan && <span style={{ color: 'var(--sf-text-muted)', fontSize: 11 }}>({m.jabatan})</span>}
                           </span>
                         </Link>

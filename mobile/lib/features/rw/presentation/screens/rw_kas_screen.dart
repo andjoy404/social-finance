@@ -15,14 +15,18 @@ import 'package:social_finance/features/rw/data/rw_providers.dart';
 /// KAS screen untuk konteks RW — catatan transaksi KAS RW dan riwayat.
 class RwKasScreen extends ConsumerStatefulWidget {
   final String rwId;
+  final bool isTabView;
 
-  const RwKasScreen({super.key, required this.rwId});
+  const RwKasScreen({super.key, required this.rwId, this.isTabView = false});
 
   @override
   ConsumerState<RwKasScreen> createState() => _RwKasScreenState();
 }
 
-class _RwKasScreenState extends ConsumerState<RwKasScreen> {
+class _RwKasScreenState extends ConsumerState<RwKasScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   RwKasReport? _kasReport;
   List<RwTransaction> _transactions = [];
   bool _isLoading = true;
@@ -117,13 +121,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen> {
         : resolveRwNumber(widget.rwId, rwMemberships);
     final rwDisplayName = currentMembership?.rwName ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
 
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: true,
-        centerTitle: false,
-        title: MenuAppBarTitle(title: 'KAS RW', rw: rwNumberText),
-      ),
-      body: NestedScrollView(
+    super.build(context);
+    final body = NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
           SliverToBoxAdapter(
             child: Padding(
@@ -163,26 +162,34 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen> {
                   if (canCreate)
                     _buildActionToolbar(context)
                   else
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.warning.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.info_outline, color: AppColors.warning, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Mode Read-Only: Anda hanya memiliki akses melihat transaksi KAS RW.',
-                              style: TextStyle(fontSize: 12, color: AppColors.textColor(context)),
+                    Builder(builder: (context) {
+                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      final warningStyle = RwBadgeStyle.warning(isDark: isDark);
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: warningStyle.background,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(color: warningStyle.border),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, color: warningStyle.text, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Mode Read-Only: Anda hanya memiliki akses melihat transaksi KAS RW.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: warningStyle.text,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
+                          ],
+                        ),
+                      );
+                    }),
                 ],
               ),
             ),
@@ -203,7 +210,19 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen> {
             ),
           ),
         ),
+      );
+
+    if (widget.isTabView) {
+      return body;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: true,
+        centerTitle: false,
+        title: MenuAppBarTitle(title: 'KAS RW', rw: rwNumberText),
       ),
+      body: body,
     );
   }
 
@@ -249,22 +268,42 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         children: [
+          _buildSummaryCard(
+            'Saldo Bersih',
+            RupiahFormatter.format(RupiahFormatter.parseMoneyString(_kasReport!.netBalance)),
+            AppColors.accent,
+            Icons.account_balance,
+          ),
+          const SizedBox(height: 12),
+          _buildSummaryCard(
+            'Total Pemasukan',
+            RupiahFormatter.format(RupiahFormatter.parseMoneyString(_kasReport!.totalIncome)),
+            AppColors.success,
+            Icons.arrow_downward,
+          ),
+          const SizedBox(height: 12),
+          _buildSummaryCard(
+            'Total Pengeluaran',
+            RupiahFormatter.format(RupiahFormatter.parseMoneyString(_kasReport!.totalExpense)),
+            AppColors.danger,
+            Icons.arrow_upward,
+          ),
           if (openingBal > 0) ...[
+            const SizedBox(height: 12),
             _buildSummaryCard(
               'Saldo Awal KAS RW',
               RupiahFormatter.format(openingBal),
               AppColors.info,
               Icons.flag_outlined,
             ),
-            const SizedBox(height: 12),
           ],
-          _buildSummaryCard('Total Pemasukan', RupiahFormatter.format(RupiahFormatter.parseMoneyString(_kasReport!.totalIncome)), AppColors.success, Icons.arrow_downward),
           const SizedBox(height: 12),
-          _buildSummaryCard('Total Pengeluaran', RupiahFormatter.format(RupiahFormatter.parseMoneyString(_kasReport!.totalExpense)), AppColors.danger, Icons.arrow_upward),
-          const SizedBox(height: 12),
-          _buildSummaryCard('Saldo Bersih', RupiahFormatter.format(RupiahFormatter.parseMoneyString(_kasReport!.netBalance)), AppColors.accent, Icons.account_balance),
-          const SizedBox(height: 12),
-          _buildSummaryCard('Transaksi', _kasReport!.transactionCount.toString(), AppColors.lightTextMuted, Icons.receipt_long),
+          _buildSummaryCard(
+            'Transaksi',
+            _kasReport!.transactionCount.toString(),
+            AppColors.lightTextMuted,
+            Icons.receipt_long,
+          ),
         ],
       ),
     );
@@ -322,69 +361,104 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen> {
   }
 
   Widget _buildFilterToolbar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final infoStyle = RwBadgeStyle.info(isDark: isDark);
+    final accentStyle = RwBadgeStyle.accent(isDark: isDark);
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          onTap: _showMonthPicker,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.info.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-              border: Border.all(color: AppColors.info.withValues(alpha: 0.25)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.calendar_today, size: 14, color: AppColors.accent),
-                const SizedBox(width: 6),
-                Text(
-                  _isAllPeriods ? 'Semua Periode' : '${_monthName(_selectedMonth)} $_selectedYear',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.accent),
-                ),
-                const SizedBox(width: 4),
-                const Icon(Icons.arrow_drop_down, size: 18, color: AppColors.accent),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<String>(
-                value: _filterArus,
-                decoration: const InputDecoration(labelText: 'Arus Kas', isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8), border: OutlineInputBorder()),
-                items: const [
-                  DropdownMenuItem(value: 'all', child: Text('Semua Arus Kas')),
-                  DropdownMenuItem(value: 'income', child: Text('Pemasukan (+)')),
-                  DropdownMenuItem(value: 'expense', child: Text('Pengeluaran (-)')),
-                ],
-                onChanged: (v) { if (v != null) setState(() => _filterArus = v); },
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                onTap: _showMonthPicker,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: infoStyle.background,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: infoStyle.border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.calendar_today, size: 14, color: infoStyle.text),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          _isAllPeriods ? 'Semua Periode' : '${_monthName(_selectedMonth)} $_selectedYear',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: infoStyle.text),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_drop_down, size: 18, color: infoStyle.text),
+                    ],
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 8),
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () { setState(() => _isAllPeriods = !_isAllPeriods); _fetchData(); },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.accent.withValues(alpha: 0.1), elevation: 0,
-                  side: BorderSide(color: AppColors.accent.withValues(alpha: 0.5))),
-                child: Text(_isAllPeriods ? 'Tutup Semua' : 'Semua Periode',
-                    style: const TextStyle(color: AppColors.accent, fontSize: 12)),
+            GestureDetector(
+              onTap: () {
+                setState(() => _isAllPeriods = !_isAllPeriods);
+                _fetchData();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _isAllPeriods
+                      ? accentStyle.background
+                      : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                    color: _isAllPeriods
+                        ? accentStyle.border
+                        : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  ),
+                ),
+                child: Text(
+                  'Semua Periode',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _isAllPeriods ? accentStyle.text : (isDark ? AppColors.darkText : AppColors.lightText),
+                  ),
+                ),
               ),
             ),
           ],
         ),
         const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _filterArus,
+          decoration: const InputDecoration(
+            labelText: 'Arus Kas',
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'all', child: Text('Semua Arus Kas')),
+            DropdownMenuItem(value: 'income', child: Text('Pemasukan (+)')),
+            DropdownMenuItem(value: 'expense', child: Text('Pengeluaran (-)')),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => _filterArus = v);
+          },
+        ),
+        const SizedBox(height: 8),
         TextField(
           decoration: const InputDecoration(
-            hintText: 'Cari keterangan, RT, lokasi...', prefixIcon: Icon(Icons.search, size: 18),
-            isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8), border: OutlineInputBorder()),
+            hintText: 'Cari keterangan, RT, lokasi...',
+            prefixIcon: Icon(Icons.search, size: 18),
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            border: OutlineInputBorder(),
+          ),
           onChanged: (v) => setState(() => _searchQuery = v),
         ),
       ],
@@ -534,7 +608,19 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen> {
                   ),
                 ),
               ),
-              DataCell(AppBadge(label: isIncome ? '↓ Masuk' : '↑ Keluar', backgroundColor: isIncome ? AppColors.success : AppColors.danger)),
+              DataCell(
+                Builder(builder: (context) {
+                  final isDark = Theme.of(context).brightness == Brightness.dark;
+                  final badgeStyle = isIncome
+                      ? RwBadgeStyle.success(isDark: isDark)
+                      : RwBadgeStyle.danger(isDark: isDark);
+                  return AppBadge(
+                    label: isIncome ? '↓ Masuk' : '↑ Keluar',
+                    backgroundColor: badgeStyle.background,
+                    textColor: badgeStyle.text,
+                  );
+                }),
+              ),
               DataCell(Text(isIncome ? RupiahFormatter.format(RupiahFormatter.parseMoneyString(t.amount)) : '—',
                   style: TextStyle(fontSize: 13, color: isIncome ? AppColors.success : AppColors.lightTextMuted,
                       fontWeight: isIncome ? FontWeight.w600 : FontWeight.normal))),

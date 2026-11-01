@@ -25,6 +25,7 @@ export interface ApiUser {
   rw_memberships?: Array<{
     rw_id: string
     rw_name: string
+    rw_number?: number
     jabatan: string
   }>
 }

@@ -38,17 +38,21 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
     super.initState();
     _isWarga = _checkIsWarga();
     _tabController = TabController(length: _isWarga ? 1 : 3, vsync: this, initialIndex: 0);
+    _tabController.addListener(_onTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        final current = ref.read(iuranSelectedPeriodeProvider);
-        if (current.isEmpty) {
-          final now = DateTime.now();
+        final now = DateTime.now();
+        final currentWarga = ref.read(iuranSelectedPeriodeProvider);
+        if (currentWarga.isEmpty) {
           ref.read(iuranSelectedPeriodeProvider.notifier).state =
-              '${now.year}-${now.month.toString().padLeft(2, '0')}';
+              '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
+        }
+        final currentSaya = ref.read(iuranSayaSelectedPeriodeProvider);
+        if (currentSaya.isEmpty) {
+          ref.read(iuranSayaSelectedPeriodeProvider.notifier).state = '${now.year}';
         }
       }
     });
-    _tabController.addListener(_onTabChanged);
   }
 
   void _onTabChanged() {
@@ -240,14 +244,16 @@ class _BillListTab extends ConsumerWidget {
     final filtered = isMyBills
         ? ref.watch(filteredMyBillsProvider)
         : ref.watch(filteredBillsProvider);
-    final periode = ref.watch(iuranSelectedPeriodeProvider);
+    final periodeProvider =
+        isMyBills ? iuranSayaSelectedPeriodeProvider : iuranSelectedPeriodeProvider;
+    final periode = ref.watch(periodeProvider);
     final status = ref.watch(iuranSelectedStatusProvider);
     final paymentStatus = ref.watch(iuranSelectedPaymentStatusProvider);
 
     // Expanded state keyed by tab index (0=my bills, 1=warga bills)
     final filterIndex = isMyBills ? 0 : 1;
     final isExpanded = ref.watch(iuranFilterExpandedProvider(filterIndex));
-    final onToggleFilter = (bool v) =>
+    void onToggleFilter(bool v) =>
         ref.read(iuranFilterExpandedProvider(filterIndex).notifier).state = v;
 
     debugPrint(
@@ -361,7 +367,7 @@ class _BillListTab extends ConsumerWidget {
                           children: [
                             Expanded(
                               child: InkWell(
-                                onTap: () => _pickMonth(context, ref),
+                                onTap: () => _pickMonth(context, ref, periodeProvider),
                                 borderRadius: BorderRadius.circular(AppRadius.base),
                                 child: Container(
                                   height: 38,
@@ -393,7 +399,7 @@ class _BillListTab extends ConsumerWidget {
                             const SizedBox(width: AppSpacing.sm),
                             Expanded(
                               child: InkWell(
-                                onTap: () => _pickYear(context, ref),
+                                onTap: () => _pickYear(context, ref, periodeProvider),
                                 borderRadius: BorderRadius.circular(AppRadius.base),
                                 child: Container(
                                   height: 38,
@@ -597,7 +603,7 @@ class _BillListTab extends ConsumerWidget {
                               ? () {
                                   searchController.clear();
                                   ref.read(
-                                      iuranSelectedPeriodeProvider.notifier)
+                                      periodeProvider.notifier)
                                       .state = '';
                                   ref.read(
                                       iuranSelectedStatusProvider.notifier)
@@ -620,7 +626,7 @@ class _BillListTab extends ConsumerWidget {
                         AppSpacing.xl,
                       ),
                       itemCount: filtered.length,
-                      separatorBuilder: (_, __) =>
+                      separatorBuilder: (_, _) =>
                           const SizedBox(height: AppSpacing.sm),
                       itemBuilder: (context, index) =>
                           _IuranCard(
@@ -640,14 +646,18 @@ class _BillListTab extends ConsumerWidget {
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
   ];
 
-  static (int, int) _parseYearMonth(String periode) {
+  static (int, int?) _parseYearMonth(String periode) {
     final now = DateTime.now();
-    if (periode.isEmpty) return (now.year, now.month);
+    if (periode.isEmpty) return (now.year, null);
     if (periode.contains('-')) {
       final parts = periode.split('-');
       final y = int.tryParse(parts[0]) ?? now.year;
-      final m = (parts.length > 1 ? int.tryParse(parts[1]) : null) ?? now.month;
+      final m = parts.length > 1 ? int.tryParse(parts[1]) : null;
       return (y, m);
+    }
+    final yOnly = int.tryParse(periode);
+    if (yOnly != null && yOnly >= 2000) {
+      return (yOnly, null);
     }
     final parts = periode.split(' ');
     if (parts.length >= 2) {
@@ -656,11 +666,11 @@ class _BillListTab extends ConsumerWidget {
         'mei': 5, 'juni': 6, 'juli': 7, 'agustus': 8,
         'september': 9, 'oktober': 10, 'november': 11, 'desember': 12,
       };
-      final m = monthNames[parts[0].toLowerCase()] ?? now.month;
+      final m = monthNames[parts[0].toLowerCase()];
       final y = int.tryParse(parts[1]) ?? now.year;
       return (y, m);
     }
-    return (now.year, now.month);
+    return (now.year, null);
   }
 
   String _monthNameFromPeriode(String periode) {
@@ -668,10 +678,13 @@ class _BillListTab extends ConsumerWidget {
       return 'Semua Bulan';
     }
     final (_, month) = _parseYearMonth(periode);
+    if (month == null) {
+      return 'Semua Bulan';
+    }
     if (month >= 1 && month <= 12) {
       return _monthNames[month - 1];
     }
-    return _monthNames[DateTime.now().month - 1];
+    return 'Semua Bulan';
   }
 
   String _yearFromPeriode(String periode) {
@@ -679,8 +692,12 @@ class _BillListTab extends ConsumerWidget {
     return year.toString();
   }
 
-  Future<void> _pickMonth(BuildContext context, WidgetRef ref) async {
-    final periode = ref.read(iuranSelectedPeriodeProvider);
+  Future<void> _pickMonth(
+    BuildContext context,
+    WidgetRef ref,
+    StateProvider<String> periodeProvider,
+  ) async {
+    final periode = ref.read(periodeProvider);
     final (selYear, selMonth) = _parseYearMonth(periode);
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -723,15 +740,15 @@ class _BillListTab extends ConsumerWidget {
                   itemBuilder: (_, i) {
                     final isAll = i == 0;
                     final months = ['Semua Bulan', ...List.generate(12, (idx) => _monthNames[idx])];
-                    final currentPeriode = ref.read(iuranSelectedPeriodeProvider);
-                    final isSelected = isAll ? currentPeriode.isEmpty : (currentPeriode.isNotEmpty && i == selMonth);
+                    final currentPeriode = ref.read(periodeProvider);
+                    final isSelected = isAll ? (selMonth == null) : (currentPeriode.isNotEmpty && i == selMonth);
                     return InkWell(
                       onTap: () {
                         if (isAll) {
-                          ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
+                          ref.read(periodeProvider.notifier).state = '$selYear';
                         } else {
                           final newPeriode = '${selYear.toString().padLeft(4, '0')}-${i.toString().padLeft(2, '0')}';
-                          ref.read(iuranSelectedPeriodeProvider.notifier).state = newPeriode;
+                          ref.read(periodeProvider.notifier).state = newPeriode;
                         }
                         if (ctx.mounted) Navigator.of(ctx).pop();
                       },
@@ -767,8 +784,12 @@ class _BillListTab extends ConsumerWidget {
     );
   }
 
-  Future<void> _pickYear(BuildContext context, WidgetRef ref) async {
-    final periode = ref.read(iuranSelectedPeriodeProvider);
+  Future<void> _pickYear(
+    BuildContext context,
+    WidgetRef ref,
+    StateProvider<String> periodeProvider,
+  ) async {
+    final periode = ref.read(periodeProvider);
     final (selYear, selMonth) = _parseYearMonth(periode);
     final currentYear = DateTime.now().year;
 
@@ -815,12 +836,11 @@ class _BillListTab extends ConsumerWidget {
                     final isSelected = year == selYear;
                     return InkWell(
                       onTap: () {
-                        final currentPeriode = ref.read(iuranSelectedPeriodeProvider);
-                        if (currentPeriode.isEmpty) {
-                          ref.read(iuranSelectedPeriodeProvider.notifier).state = '';
+                        if (selMonth == null) {
+                          ref.read(periodeProvider.notifier).state = '$year';
                         } else {
                           final newPeriode = '${year.toString().padLeft(4, '0')}-${selMonth.toString().padLeft(2, '0')}';
-                          ref.read(iuranSelectedPeriodeProvider.notifier).state = newPeriode;
+                          ref.read(periodeProvider.notifier).state = newPeriode;
                         }
                         if (ctx.mounted) Navigator.of(ctx).pop();
                       },

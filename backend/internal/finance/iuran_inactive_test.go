@@ -80,7 +80,7 @@ func TestInactiveIuranPaymentRejection(t *testing.T) {
 	// ── Helper: post payment via API ──────────────────────────────
 	postPayment := func(token, billID string) *httptest.ResponseRecorder {
 		t.Helper()
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
@@ -319,7 +319,7 @@ func TestInactiveIuranPaymentRejection(t *testing.T) {
 		).Scan(&volDueID)
 		require.NoError(t, err)
 
-		body := fmt.Sprintf(`{"due_id":"%s","amount":"10000","method":"TRANSFER"}`, volDueID)
+		body := fmt.Sprintf(`{"due_id":"%s","amount":"10000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, volDueID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
@@ -338,7 +338,7 @@ func TestInactiveIuranPaymentRejection(t *testing.T) {
 		).Scan(&inactiveVolDueID)
 		require.NoError(t, err)
 
-		body := fmt.Sprintf(`{"due_id":"%s","amount":"5000","method":"TRANSFER"}`, inactiveVolDueID)
+		body := fmt.Sprintf(`{"due_id":"%s","amount":"5000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, inactiveVolDueID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
@@ -356,7 +356,7 @@ func TestInactiveIuranPaymentRejection(t *testing.T) {
 
 		idemKey := fmt.Sprintf("inactive-idem-%d", time.Now().UnixNano())
 		// First request
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, inactiveBill3ID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, inactiveBill3ID)
 		req1 := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req1.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req1.Header.Set("Content-Type", "application/json; charset=utf-8")
@@ -449,7 +449,7 @@ func TestInactiveIuranRaceCondition(t *testing.T) {
 	for i := 0; i < concurrentReqs; i++ {
 		go func() {
 			<-done
-			body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, billID)
+			body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 			req.Header.Set("Authorization", "Bearer "+tokenBendahara)
 			req.Header.Set("Content-Type", "application/json; charset=utf-8")

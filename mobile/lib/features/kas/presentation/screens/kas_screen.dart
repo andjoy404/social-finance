@@ -1343,7 +1343,8 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                           child: SummaryChip(
                             label: 'Saldo Awal',
                             value: RupiahFormatter.format(openingBalance),
-                            color: theme.colorScheme.onSurface,
+                            color: AppColors.info,
+                            icon: Icons.flag_outlined,
                             isEditable: canWrite,
                             onEdit: () =>
                                 _showEditOpeningBalanceDialog(openingBalance),
@@ -1355,6 +1356,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             label: 'Saldo Akhir',
                             value: RupiahFormatter.format(closingBalance),
                             color: AppColors.accent,
+                            icon: Icons.account_balance_wallet_rounded,
                           ),
                         ),
                       ],
@@ -1543,27 +1545,15 @@ class SummaryChip extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     return Container(
-      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        color: color.withValues(alpha: isDark ? 0.08 : 0.05),
         borderRadius: BorderRadius.circular(AppRadius.base),
         border: Border.all(
-          color: isDark
-              ? color.withValues(alpha: 0.35)
-              : color.withValues(alpha: 0.25),
+          color: color.withValues(alpha: isDark ? 0.25 : 0.15),
           width: 1,
         ),
-        boxShadow: isDark
-            ? [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.12),
-                  blurRadius: 8,
-                  spreadRadius: 0,
-                ),
-              ]
-            : null,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1571,16 +1561,23 @@ class SummaryChip extends StatelessWidget {
           Row(
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 10, color: color),
-                const SizedBox(width: 3),
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
+                  ),
+                  child: Icon(icon, size: 11, color: color),
+                ),
+                const SizedBox(width: 5),
               ],
               Expanded(
                 child: Text(
                   label,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                  style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
+                    color: AppColors.textMutedColor(context),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1596,16 +1593,16 @@ class SummaryChip extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
             child: Text(
               value,
-              style: theme.textTheme.titleSmall?.copyWith(
+              style: TextStyle(
                 color: color,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
               ),
               maxLines: 1,
             ),

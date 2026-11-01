@@ -50,8 +50,11 @@ String currentCalendarPeriod([DateTime? now]) {
   return '${months[dt.month - 1]} ${dt.year}';
 }
 
-/// Selected periode filter (e.g. 'Oktober 2026').
+/// Selected periode filter for Iuran Warga (default in IuranScreen: current month 'YYYY-MM').
 final iuranSelectedPeriodeProvider = StateProvider<String>((ref) => '');
+
+/// Selected periode filter for Iuran Saya (default in IuranScreen: current year 'YYYY').
+final iuranSayaSelectedPeriodeProvider = StateProvider<String>((ref) => '');
 
 /// Selected status filter (enum name: 'belumBayar', 'sebagian', 'lunas').
 final iuranSelectedStatusProvider = StateProvider<String>((ref) => '');
@@ -158,7 +161,7 @@ final filteredMyBillsProvider = Provider<List<IuranBill>>((ref) {
   return _filterBills(
     state,
     query: ref.watch(iuranSearchQueryProvider),
-    periode: ref.watch(iuranSelectedPeriodeProvider),
+    periode: ref.watch(iuranSayaSelectedPeriodeProvider),
     status: ref.watch(iuranSelectedStatusProvider),
     paymentStatus: ref.watch(iuranSelectedPaymentStatusProvider),
   );
@@ -180,13 +183,15 @@ List<IuranBill> _filterBills(
     _ => <IuranBill>[],
   };
 
-  // Normalize periode filter: "2026-10" → [2026, 10], empty → null
+  // Normalize periode filter: "2026-10" → [2026, 10], "2026" → [2026, null], empty → null
   int? filterYear, filterMonth;
   if (periode.isNotEmpty) {
     final parts = periode.split('-');
     if (parts.length == 2) {
       filterYear = int.tryParse(parts[0]);
       filterMonth = int.tryParse(parts[1]);
+    } else if (parts.length == 1) {
+      filterYear = int.tryParse(parts[0]);
     }
   }
 
@@ -196,13 +201,16 @@ List<IuranBill> _filterBills(
         b.householdName.toLowerCase().contains(normalizedQuery) ||
         b.iuranType.toLowerCase().contains(normalizedQuery);
 
-    // Period filter: match "Oktober 2026" OR "2026-10" formats
+    // Period filter: match "Oktober 2026", "2026-10", or year-only "2026"
     final periodMatch =
         periode.isEmpty ||
         b.periode == periode ||
         (filterYear != null &&
             filterMonth != null &&
-            _periodMatches(b.periode, filterYear, filterMonth));
+            _periodMatches(b.periode, filterYear, filterMonth)) ||
+        (filterYear != null &&
+            filterMonth == null &&
+            _yearMatches(b.periode, filterYear));
 
     final statusMatch = status.isEmpty || b.status.name == status;
     final paymentStatusMatch = switch (paymentStatus.toLowerCase()) {
@@ -285,6 +293,17 @@ bool _periodMatches(String period, int year, int month) {
   final pYear = int.tryParse(yearStr);
   final pMonth = monthNames[parts[0].toLowerCase()];
   return pYear == year && pMonth == month;
+}
+
+/// Check if a period string (e.g. "Oktober 2026" or "2026") matches the given year.
+bool _yearMatches(String period, int year) {
+  if (period.contains(year.toString())) return true;
+  final parts = period.split(' ');
+  if (parts.length >= 2) {
+    final pYear = int.tryParse(parts[1]);
+    return pYear == year;
+  }
+  return false;
 }
 
 // ─── Bill Detail (parameterized by ID) ────────────────────────────────

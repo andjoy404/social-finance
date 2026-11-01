@@ -16,17 +16,23 @@ import '../../data/iuran_models.dart';
 import '../../data/iuran_providers.dart';
 import '../../data/iuran_repository.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
+import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
 import '../widgets/payment_proof_thumbnail.dart';
 
 /// Detail screen for a single iuran bill.
 class IuranDetailScreen extends ConsumerStatefulWidget {
   final String billId;
   final String? initialPaymentId;
+  final String? initialAction;
+  final String? initialView;
 
   const IuranDetailScreen({
     super.key,
     required this.billId,
     this.initialPaymentId,
+    this.initialAction,
+    this.initialView,
   });
 
   @override
@@ -37,6 +43,14 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
   String get _billId => widget.billId;
   IuranBill? _cachedBill;
   bool _autoOpenedPayment = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialPaymentId != null) {
+      ref.read(billPaymentsProvider(_billId));
+    }
+  }
 
   void _checkAutoOpenPayment(List<BackendPayment> payments) {
     if (_autoOpenedPayment || widget.initialPaymentId == null) return;
@@ -52,7 +66,13 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
         target = payments.first;
       }
       if (mounted) {
-        _showPaymentDetailDialog(context, target);
+        if (widget.initialAction == 'verify' &&
+            ref.read(canVerifyPaymentProvider) &&
+            target.status == PaymentStatus.pending) {
+          _approvePayment(context, target.id, paymentMethod: target.method);
+        } else {
+          _showPaymentDetailDialog(context, target);
+        }
       }
     });
   }
@@ -568,166 +588,347 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
   Future<void> _approvePayment(
     BuildContext context,
     String paymentId, {
+    PaymentMethod? paymentMethod,
     VoidCallback? onSuccess,
   }) async {
+    PaymentMethod? method = paymentMethod;
+    if (method == null) {
+      final payments = ref.read(billPaymentsProvider(_billId)).valueOrNull;
+      if (payments != null) {
+        for (final p in payments) {
+          if (p.id == paymentId) {
+            method = p.method;
+            break;
+          }
+        }
+      }
+    }
+
+    List<FundLocation> locations = [];
+    try {
+      locations = await ref.read(fundLocationRepositoryProvider).fetchLocations(isActive: true);
+    } catch (_) {}
+
+    final filteredLocations = filterFundLocationsByPaymentMethod(locations, method);
+
+    final String emptyMessage;
+    if (method == PaymentMethod.transfer) {
+      emptyMessage =
+          'Tidak ada rekening bank aktif yang terdaftar sebagai Lokasi Dana. Harap tambahkan atau aktifkan rekening bank di menu Lokasi Dana terlebih dahulu.';
+    } else if (method == PaymentMethod.cash) {
+      emptyMessage =
+          'Tidak ada Brankas Fisik atau Kas Di Tangan (COH) aktif yang terdaftar sebagai Lokasi Dana. Harap tambahkan atau aktifkan lokasi dana tunai terlebih dahulu.';
+    } else {
+      emptyMessage =
+          'Metode pembayaran tidak dikenali atau tidak memiliki lokasi dana yang sesuai.';
+    }
+
+    String? selectedLocationId =
+        filteredLocations.isNotEmpty ? filteredLocations.first.id : null;
     final notesController = TextEditingController();
     final now = DateTime.now();
     final todayFormatted =
         '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final dateController = TextEditingController(text: todayFormatted);
 
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Konfirmasi Persetujuan'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Apakah Anda yakin ingin menyetujui pembayaran ini?',
-                  style: TextStyle(fontSize: 14),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: dateController,
-                  readOnly: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Tanggal Uang Diterima *',
-                    helperText: 'Tanggal dana masuk ke kas/rekening RT (KAS)',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.calendar_today_outlined),
-                  ),
-                  onTap: () async {
-                    final picked = await showDatePicker(
-                      context: dialogContext,
-                      initialDate:
-                          DateTime.tryParse(dateController.text) ?? now,
-                      firstDate: DateTime(2020),
-                      lastDate: now,
-                    );
-                    if (picked != null) {
-                      dateController.text =
-                          '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-                    }
-                  },
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: notesController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Catatan Pengurus (opsional)',
-                    border: OutlineInputBorder(),
-                    alignLabelWithHint: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actionsPadding: const EdgeInsets.fromLTRB(
-            AppSpacing.base,
-            0,
-            AppSpacing.base,
-            AppSpacing.base,
-          ),
-          actions: [
-            Row(
-              children: [
-                Expanded(
-                  child: _buildNeonVerifyButton(
-                    context: dialogContext,
-                    label: 'Setuju',
-                    icon: Icons.check_circle_outline,
-                    neonColor: AppColors.success,
-                    softBg:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkSuccessSoft
-                        : AppColors.lightSuccessSoft,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: 12,
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Konfirmasi Persetujuan'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Apakah Anda yakin ingin menyetujui pembayaran ini?',
+                      style: TextStyle(fontSize: 14),
                     ),
-                    onPressed: () async {
-                      final notes = notesController.text.trim();
-                      final actualDate = dateController.text.trim();
-                      if (actualDate.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Tanggal uang diterima wajib diisi'),
-                            backgroundColor: AppColors.danger,
+                    const SizedBox(height: AppSpacing.sm),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: method == PaymentMethod.transfer
+                            ? AppColors.info.withValues(alpha: 0.1)
+                            : (method == PaymentMethod.cash
+                                ? AppColors.success.withValues(alpha: 0.1)
+                                : AppColors.danger.withValues(alpha: 0.1)),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        border: Border.all(
+                          color: method == PaymentMethod.transfer
+                              ? AppColors.info.withValues(alpha: 0.3)
+                              : (method == PaymentMethod.cash
+                                  ? AppColors.success.withValues(alpha: 0.3)
+                                  : AppColors.danger.withValues(alpha: 0.3)),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            method == PaymentMethod.transfer
+                                ? Icons.account_balance_outlined
+                                : (method == PaymentMethod.cash
+                                    ? Icons.payments_outlined
+                                    : Icons.help_outline),
+                            size: 16,
+                            color: method == PaymentMethod.transfer
+                                ? AppColors.info
+                                : (method == PaymentMethod.cash
+                                    ? AppColors.success
+                                    : AppColors.danger),
                           ),
-                        );
-                        return;
-                      }
-
-                      Navigator.pop(dialogContext);
-
-                      final snackBar = SnackBar(
-                        content: const Text('Memverifikasi pembayaran...'),
-                        duration: const Duration(seconds: 1),
-                      );
-                      ScaffoldMessenger.of(context).showSnackBar(snackBar);
-
-                      try {
-                        final repository = ref.read(iuranRepositoryProvider);
-                        await repository.verifyPayment(
-                          paymentId,
-                          action: 'approve',
-                          officerNotes: notes.isNotEmpty ? notes : null,
-                          actualReceivedDate: actualDate,
-                        );
-
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Pembayaran berhasil diverifikasi'),
-                              backgroundColor: AppColors.success,
+                          const SizedBox(width: 6),
+                          Text(
+                            method == PaymentMethod.transfer
+                                ? 'Metode: Transfer Bank'
+                                : (method == PaymentMethod.cash
+                                    ? 'Metode: Tunai (CASH)'
+                                    : 'Metode: Tidak Diketahui'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: method == PaymentMethod.transfer
+                                  ? AppColors.info
+                                  : (method == PaymentMethod.cash
+                                      ? AppColors.success
+                                      : AppColors.danger),
                             ),
-                          );
-                          ref.invalidate(billDetailProvider(widget.billId));
-                          ref.invalidate(billPaymentsProvider(widget.billId));
-                          ref.invalidate(pendingPaymentsProvider);
-                          onSuccess?.call();
-                        }
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Gagal memverifikasi: $e'),
-                              backgroundColor: AppColors.warning,
-                            ),
-                          );
-                        }
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: _buildNeonVerifyButton(
-                    context: dialogContext,
-                    label: 'Batal',
-                    icon: Icons.cancel_outlined,
-                    neonColor: AppColors.danger,
-                    softBg:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.lightDangerSoft,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: 12,
+                          ),
+                        ],
+                      ),
                     ),
-                    onPressed: () => Navigator.pop(dialogContext),
-                  ),
+                    const SizedBox(height: AppSpacing.md),
+                    if (filteredLocations.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(
+                            color: AppColors.danger.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.warning_amber_rounded,
+                              color: AppColors.danger,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                emptyMessage,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.danger,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      DropdownButtonFormField<String>(
+                        value: selectedLocationId,
+                        decoration: InputDecoration(
+                          labelText: 'Lokasi Dana *',
+                          helperText: method == PaymentMethod.transfer
+                              ? 'Pilih rekening bank tujuan penerimaan transfer'
+                              : 'Pilih brankas fisik atau kas di tangan (COH)',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
+                        ),
+                        items: filteredLocations.map((loc) {
+                          final extra = loc.category == FundLocationCategory.rekening &&
+                                  loc.accountNumber != null &&
+                                  loc.accountNumber!.isNotEmpty
+                              ? ' (${loc.bankName ?? 'Bank'} - ${loc.accountNumber})'
+                              : '';
+                          return DropdownMenuItem<String>(
+                            value: loc.id,
+                            child: Text(
+                              '${loc.name}$extra',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setDialogState(() {
+                            selectedLocationId = val;
+                          });
+                        },
+                        validator: (val) =>
+                            val == null || val.isEmpty ? 'Lokasi Dana wajib dipilih' : null,
+                      ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      controller: dateController,
+                      readOnly: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Tanggal Uang Diterima *',
+                        helperText: 'Tanggal dana masuk ke kas/rekening RT (KAS)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.calendar_today_outlined),
+                      ),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: dialogCtx,
+                          initialDate:
+                              DateTime.tryParse(dateController.text) ?? now,
+                          firstDate: DateTime(2020),
+                          lastDate: now,
+                        );
+                        if (picked != null) {
+                          dateController.text =
+                              '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+                        }
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      controller: notesController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Catatan Pengurus (opsional)',
+                        border: OutlineInputBorder(),
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actionsPadding: const EdgeInsets.fromLTRB(
+                AppSpacing.base,
+                0,
+                AppSpacing.base,
+                AppSpacing.base,
+              ),
+              actions: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildNeonVerifyButton(
+                        context: dialogCtx,
+                        label: 'Setuju',
+                        icon: Icons.check_circle_outline,
+                        neonColor: AppColors.success,
+                        softBg:
+                            Theme.of(dialogCtx).brightness == Brightness.dark
+                            ? AppColors.darkSuccessSoft
+                            : AppColors.lightSuccessSoft,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                          vertical: 12,
+                        ),
+                        onPressed: () async {
+                          if (filteredLocations.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(emptyMessage),
+                                backgroundColor: AppColors.danger,
+                              ),
+                            );
+                            return;
+                          }
+                          if (selectedLocationId == null ||
+                              selectedLocationId!.isEmpty ||
+                              !filteredLocations.any((loc) => loc.id == selectedLocationId)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Lokasi Dana yang dipilih tidak sesuai dengan metode pembayaran'),
+                                backgroundColor: AppColors.danger,
+                              ),
+                            );
+                            return;
+                          }
+                          final notes = notesController.text.trim();
+                          final actualDate = dateController.text.trim();
+                          if (actualDate.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Tanggal uang diterima wajib diisi'),
+                                backgroundColor: AppColors.danger,
+                              ),
+                            );
+                            return;
+                          }
+
+                          Navigator.pop(dialogCtx);
+
+                          final snackBar = SnackBar(
+                            content: const Text('Memverifikasi pembayaran...'),
+                            duration: const Duration(seconds: 1),
+                          );
+                          ScaffoldMessenger.of(context).showSnackBar(snackBar);
+
+                          try {
+                            final repository = ref.read(iuranRepositoryProvider);
+                            await repository.verifyPayment(
+                              paymentId,
+                              action: 'approve',
+                              officerNotes: notes.isNotEmpty ? notes : null,
+                              actualReceivedDate: actualDate,
+                              locationId: selectedLocationId,
+                            );
+
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Pembayaran berhasil diverifikasi'),
+                                  backgroundColor: AppColors.success,
+                                ),
+                              );
+                              ref.invalidate(billDetailProvider(widget.billId));
+                              ref.invalidate(billPaymentsProvider(widget.billId));
+                              ref.invalidate(pendingPaymentsProvider);
+                              onSuccess?.call();
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Gagal memverifikasi: $e'),
+                                  backgroundColor: AppColors.warning,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: _buildNeonVerifyButton(
+                        context: dialogCtx,
+                        label: 'Batal',
+                        icon: Icons.cancel_outlined,
+                        neonColor: AppColors.danger,
+                        softBg: Theme.of(dialogCtx).brightness == Brightness.dark
+                            ? AppColors.darkDangerSoft
+                            : AppColors.lightDangerSoft,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                          vertical: 12,
+                        ),
+                        onPressed: () => Navigator.pop(dialogCtx),
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -1637,6 +1838,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                           _approvePayment(
                             context,
                             payment.id,
+                            paymentMethod: payment.method,
                             onSuccess: () {
                               if (Navigator.of(dialogCtx).canPop()) {
                                 Navigator.of(dialogCtx).pop();

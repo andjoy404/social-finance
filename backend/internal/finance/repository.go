@@ -528,7 +528,7 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		orderType = order[0]
 	}
 	if orderType == "unpaid_first" {
-		query += fmt.Sprintf(" ORDER BY CASE WHEN b.status = 'paid' THEN 1 ELSE 0 END ASC, CASE WHEN b.status != 'paid' THEN b.period END ASC, CASE WHEN b.status = 'paid' THEN b.period END DESC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
+		query += fmt.Sprintf(" ORDER BY CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING') THEN 0 WHEN b.status = 'paid' THEN 2 ELSE 1 END ASC, CASE WHEN b.status != 'paid' THEN b.period END ASC, CASE WHEN b.status = 'paid' THEN b.period END DESC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
 	} else if occupancyID != nil && *occupancyID != "" {
 		query += fmt.Sprintf(" ORDER BY b.period ASC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
 	} else {
@@ -2161,7 +2161,7 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pa
 		orderType = order[0]
 	}
 	if orderType == "unpaid_first" {
-		query += fmt.Sprintf(" ORDER BY CASE WHEN b.status = 'paid' THEN 1 ELSE 0 END ASC, CASE WHEN b.status != 'paid' THEN b.period END ASC, CASE WHEN b.status = 'paid' THEN b.period END DESC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
+		query += fmt.Sprintf(" ORDER BY CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING') THEN 0 WHEN b.status = 'paid' THEN 2 ELSE 1 END ASC, CASE WHEN b.status != 'paid' THEN b.period END ASC, CASE WHEN b.status = 'paid' THEN b.period END DESC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
 	} else if occupancyID != nil && *occupancyID != "" {
 		query += fmt.Sprintf(" ORDER BY b.period ASC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
 	} else {

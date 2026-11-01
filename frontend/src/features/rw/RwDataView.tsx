@@ -174,7 +174,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
                   fontSize: 13,
                 }}
               >
-                {m.rw_name || `RW ${m.rw_id}`}
+                {m.rw_name || `RW ${String(m.rw_number ?? '').padStart(3, '0')}`}
               </button>
             ))}
           </div>
@@ -184,7 +184,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   }
 
   const membership = rwMemberships.find((m) => m.rw_id === selectedRwId)
-  const displayName = membership?.rw_name || selectedRwName || `RW ${selectedRwId}`
+  const displayName = membership?.rw_name || selectedRwName || 'DATA RW'
   const jabatan = (membership?.jabatan || user?.jabatan || '').toLowerCase()
   const canCreate = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
   const canUpdate = isSuperAdmin || ['ketua', 'bendahara'].includes(jabatan)
@@ -215,7 +215,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
           >
             {rwMemberships.map((m) => (
               <Select.Option key={m.rw_id} value={m.rw_id}>
-                {m.rw_name || `RW ${m.rw_id}`} {m.jabatan ? `(${m.jabatan})` : ''}
+                {m.rw_name || `RW ${String(m.rw_number ?? '').padStart(3, '0')}`} {m.jabatan ? `(${m.jabatan})` : ''}
               </Select.Option>
             ))}
           </Select>
@@ -275,8 +275,8 @@ export function RwDataView({ rwId }: { rwId?: string }) {
       {/* RW View Content */}
       <div style={{ padding: 16 }}>
         {activeTab === 'dashboard' && <RwDashboard rwId={selectedRwId} rwName={displayName || undefined} />}
-        {activeTab === 'kas' && <RwKasList rwId={selectedRwId} />}
-        {activeTab === 'lokasi-dana' && <RwFundLocationList rwId={selectedRwId} />}
+        {activeTab === 'kas' && <RwKasList rwId={selectedRwId} rwName={displayName || undefined} />}
+        {activeTab === 'lokasi-dana' && <RwFundLocationList rwId={selectedRwId} rwName={displayName || undefined} />}
       </div>
     </div>
   )

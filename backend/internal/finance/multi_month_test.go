@@ -222,7 +222,7 @@ func TestMultiMonth_Payment1Month_2Months_FIFOAndSingleKAS(t *testing.T) {
 			{"bill_id": "%s", "amount": "40000.00"},
 			{"bill_id": "%s", "amount": "40000.00"}
 		],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, bills[0].id, bills[1].id, bills[0].id, bills[1].id)
 
 	reqPay := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payBody))
@@ -323,7 +323,7 @@ func TestMultiMonth_FIFOBypassRejected(t *testing.T) {
 			{"bill_id": "%s", "amount": "30000.00"},
 			{"bill_id": "%s", "amount": "30000.00"}
 		],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, billIDs[1], billIDs[2], billIDs[1], billIDs[2])
 
 	reqBypass := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(bypassBody))
@@ -366,7 +366,7 @@ func TestMultiMonth_PendingBlocksDuplicateAllocation(t *testing.T) {
 	payBody1 := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "50000.00"}],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, billID, billID)
 	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payBody1))
 	req1.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -379,7 +379,7 @@ func TestMultiMonth_PendingBlocksDuplicateAllocation(t *testing.T) {
 	payBody2 := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "50000.00"}],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, billID, billID)
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payBody2))
 	req2.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -485,7 +485,7 @@ func TestMultiMonth_ActiveInactiveManagementAndFIFO(t *testing.T) {
 	payJanBody := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "30000.00"}],
-		"method": "CASH"
+		"method": "CASH", "proof_path": "proofs/test.jpg"
 	}`, janBill.ID, janBill.ID)
 	reqPayJan := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payJanBody))
 	reqPayJan.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -498,7 +498,7 @@ func TestMultiMonth_ActiveInactiveManagementAndFIFO(t *testing.T) {
 	payFebBody := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "30000.00"}],
-		"method": "CASH"
+		"method": "CASH", "proof_path": "proofs/test.jpg"
 	}`, febBill.ID, febBill.ID)
 	reqPayFeb := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payFebBody))
 	reqPayFeb.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -542,7 +542,7 @@ func TestMultiMonth_ActiveInactiveManagementAndFIFO(t *testing.T) {
 	payMarBody := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "30000.00"}],
-		"method": "CASH"
+		"method": "CASH", "proof_path": "proofs/test.jpg"
 	}`, marBill.ID, marBill.ID)
 	reqPayMar := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payMarBody))
 	reqPayMar.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -555,7 +555,7 @@ func TestMultiMonth_ActiveInactiveManagementAndFIFO(t *testing.T) {
 	payJanPending := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "30000.00"}],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, janBill.ID, janBill.ID)
 	reqPayPending := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payJanPending))
 	reqPayPending.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -903,7 +903,7 @@ func TestMultiMonth_SyncBills_NewHouseholdMidYear_Comprehensive(t *testing.T) {
 	bodyPayOct := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "75000.00"}],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, octBillID, octBillID)
 	reqPayOct := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(bodyPayOct))
 	reqPayOct.Header.Set("Authorization", "Bearer "+tokenWarga2)
@@ -933,7 +933,7 @@ func TestMultiMonth_SyncBills_NewHouseholdMidYear_Comprehensive(t *testing.T) {
 	bodyPayFIFO := fmt.Sprintf(`{
 		"bill_ids": [%s],
 		"allocations": [%s],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, strings.Join(janToOctIDs, ","), strings.Join(allocParts, ","))
 	reqPayFIFO := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(bodyPayFIFO))
 	reqPayFIFO.Header.Set("Authorization", "Bearer "+tokenWarga2)

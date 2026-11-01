@@ -28,6 +28,7 @@ import { SearchBox } from '@/components/SearchBox'
 import { useAuth } from '@/app/AuthContext'
 import { getSessionPair } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
+import { resolveRwLabel } from '@/utils/rwUtils'
 import {
   apiListRWLocations,
   apiCreateRWLocation,
@@ -44,12 +45,13 @@ import {
   type ApiRWReconciliation,
 } from './rw-api'
 
-export function RwFundLocationList({ rwId }: { rwId: string }) {
+export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const { user } = useAuth()
 
   const isSuperAdmin = user?.systemRole === 'super_admin' || user?.role === 'super_admin'
   const rwMemberships = (user as any)?.rw_memberships || (user as any)?.rwMemberships || []
   const currentRw = rwMemberships.find((m: any) => m.rw_id === rwId)
+  const displayRwLabel = resolveRwLabel(rwId, rwMemberships, rwName)
   const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
 
   const canCreate = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
@@ -433,7 +435,7 @@ export function RwFundLocationList({ rwId }: { rwId: string }) {
             <BankOutlined style={{ fontSize: 14 }} />
           </span>
           <div className="sf-page-header-copy">
-            <div className="sf-page-header-title-text">Lokasi Dana RW — {rwId}</div>
+            <div className="sf-page-header-title-text">Lokasi Dana RW — {displayRwLabel}</div>
             <div className="sf-page-header-subtitle">
               {canCreate || canUpdate ? 'Kelola rekening, brankas fisik, dan kas di tangan tingkat RW' : 'Lokasi dana RW (Mode Read-Only)'}
             </div>

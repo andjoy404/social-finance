@@ -190,6 +190,11 @@ describe('IuranPayment Regression Tests', () => {
     const cashBtn = screen.getByRole('button', { name: 'Tunai' })
     fireEvent.click(cashBtn)
 
+    // Attach proof file
+    const fileInput = document.getElementById('ip-proof') as HTMLInputElement
+    const file = new File(['dummy content'], 'proof.png', { type: 'image/png' })
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
     // Submit payment
     const submitBtn = screen.getByRole('button', { name: 'Bayar' })
     fireEvent.click(submitBtn)
@@ -245,6 +250,11 @@ describe('IuranPayment Regression Tests', () => {
 
     // Pilih metode pembayaran
     fireEvent.click(screen.getByRole('button', { name: 'Tunai' }))
+
+    // Attach proof file
+    const fileInput = document.getElementById('ip-proof') as HTMLInputElement
+    const file = new File(['dummy content'], 'proof.png', { type: 'image/png' })
+    fireEvent.change(fileInput, { target: { files: [file] } })
 
     // Klik Bayar
     const bayarBtn = screen.getByRole('button', { name: 'Bayar' })
@@ -417,6 +427,11 @@ describe('IuranPayment Regression Tests', () => {
     const transferBtn = screen.getByRole('button', { name: 'Transfer' })
     fireEvent.click(transferBtn)
 
+    // Attach proof file
+    const fileInput = document.getElementById('ip-proof') as HTMLInputElement
+    const file = new File(['dummy content'], 'proof.png', { type: 'image/png' })
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
     // Klik Bayar
     fireEvent.click(bayarBtn)
 
@@ -491,5 +506,32 @@ describe('IuranPayment Regression Tests', () => {
     expect(screen.getByText(/Semua tagihan untuk iuran ini telah lunas/i)).toBeInTheDocument()
     const bayarBtn = screen.getByRole('button', { name: 'Bayar' })
     expect(bayarBtn).toBeDisabled()
+  })
+
+  it('14. Menolak submit dan menampilkan error jika bukti pembayaran belum diunggah', async () => {
+    vi.spyOn(apiModule, 'apiGetBill').mockResolvedValue(mockBillResponse as any)
+    vi.spyOn(apiModule, 'apiListPayments').mockResolvedValue(mockPaymentsResponse as any)
+    const createPaymentMock = vi.spyOn(apiModule, 'apiCreatePayment')
+
+    render(
+      <MemoryRouter>
+        <IuranPayment billId="bill-123" open={true} />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Pembayaran Iuran')).toBeInTheDocument()
+    })
+
+    // Pilih metode pembayaran
+    fireEvent.click(screen.getByRole('button', { name: 'Tunai' }))
+
+    // Klik Bayar tanpa mengunggah bukti
+    fireEvent.click(screen.getByRole('button', { name: 'Bayar' }))
+
+    expect(
+      screen.getByText('Bukti pembayaran wajib dilampirkan. Silakan unggah foto bukti pembayaran sebelum melanjutkan.')
+    ).toBeInTheDocument()
+    expect(createPaymentMock).not.toHaveBeenCalled()
   })
 })

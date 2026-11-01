@@ -130,6 +130,8 @@ export function getStatusLabel(status: IuranStatus): string {
   switch (status) {
     case 'belum_bayar':
       return 'Belum Bayar'
+    case 'menunggu_verifikasi':
+      return 'Tertunda'
     case 'sebagian':
       return 'Sebagian'
     case 'lunas':
@@ -153,7 +155,7 @@ export type PaymentStatusDisplay = 'PENDING' | 'APPROVED' | 'REJECTED'
 export function getPaymentStatusLabel(status: PaymentStatusDisplay): string {
   switch (status) {
     case 'PENDING':
-      return 'Menunggu Verifikasi'
+      return 'Tertunda'
     case 'APPROVED':
       return 'Terverifikasi'
     case 'REJECTED':
@@ -296,12 +298,20 @@ export function parseMoney(
 
 
 export function formatPeriodeLabel(periode: string): string {
-  const [year, month] = periode.split('-')
+  if (!periode) return ''
+  const parts = periode.split('-')
+  if (parts.length === 1 && parts[0].length === 4) {
+    return `Semua Bulan (${parts[0]})`
+  }
+  const [year, month] = parts
   const monthNames = [
     'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
     'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
   ]
   const m = parseInt(month, 10)
+  if (isNaN(m) || m < 1 || m > 12) {
+    return periode
+  }
   return `${monthNames[m - 1]} ${year}`
 }
 

@@ -77,7 +77,12 @@ class _MockKasApiClient implements KasApiClient {
     return transactions;
   }
 
-  Future<BackendBalance> fetchBalance({String? period}) async {
+  @override
+  Future<BackendBalance> fetchBalance({
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
     callCount++;
     if (shouldFail) throw Exception('Network error');
     return balance;
@@ -174,7 +179,11 @@ class _MockKasApiClient implements KasApiClient {
   }) async => throw UnimplementedError();
 
   @override
-  Future<BackendBalance> getBalance({String? period}) async {
+  Future<BackendBalance> getBalance({
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
     callCount++;
     if (shouldFail) throw Exception('Network error');
     return balance;

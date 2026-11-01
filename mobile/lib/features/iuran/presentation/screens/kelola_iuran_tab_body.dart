@@ -36,7 +36,7 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
   String _filterJenis = 'all';
   String _filterFrekuensi = 'all';
   bool _filtersExpanded = false;
-  bool _isYearFilterActive = false; // Track if "Semua Bulan" is active
+  bool _isYearFilterActive = true; // Default to "Semua Bulan"
 
   @override
   void initState() {
@@ -272,7 +272,11 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
         }
       }
       final refDate = due.createdAt ?? due.updatedAt;
-      if (!_isYearFilterActive && refDate != null &&
+      if (_isYearFilterActive) {
+        if (refDate != null && refDate.year != _activeDate.year) {
+          return false;
+        }
+      } else if (refDate != null &&
           (refDate.year != _activeDate.year ||
               refDate.month != _activeDate.month)) {
         return false;

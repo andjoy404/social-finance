@@ -126,7 +126,7 @@ describe('IuranList - Payment Status Filter', () => {
     expect(statusPembayaranBtn).toBeInTheDocument()
   })
 
-  it('selecting Status Pembayaran displays trigger with Menunggu Verifikasi, Disetujui, and Ditolak', async () => {
+  it('selecting Status Pembayaran displays trigger with Tertunda, Disetujui, and Ditolak', async () => {
     render(
       <MemoryRouter>
         <IuranList />
@@ -147,12 +147,12 @@ describe('IuranList - Payment Status Filter', () => {
     // Click trigger to open dropdown
     fireEvent.click(trigger)
 
-    expect(screen.getByRole('button', { name: 'Menunggu Verifikasi' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tertunda' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Disetujui' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ditolak' })).toBeInTheDocument()
   })
 
-  it('selecting "Menunggu Verifikasi" calls apiListBills with payment_status=pending', async () => {
+  it('selecting "Tertunda" calls apiListBills with payment_status=pending', async () => {
     render(
       <MemoryRouter>
         <IuranList />
@@ -167,11 +167,11 @@ describe('IuranList - Payment Status Filter', () => {
     const statusPembayaranItem = screen.getByRole('button', { name: 'Status Pembayaran' })
     fireEvent.click(statusPembayaranItem)
 
-    // Open dropdown and select 'Menunggu Verifikasi'
+    // Open dropdown and select 'Tertunda'
     const trigger = screen.getByRole('button', { name: /Pilih Status Pembayaran/i })
     fireEvent.click(trigger)
 
-    const pendingOption = screen.getByRole('button', { name: 'Menunggu Verifikasi' })
+    const pendingOption = screen.getByRole('button', { name: 'Tertunda' })
     fireEvent.click(pendingOption)
 
     await waitFor(() => {
@@ -184,7 +184,7 @@ describe('IuranList - Payment Status Filter', () => {
     })
 
     // Active badge is shown
-    expect(screen.getByText('Menunggu Verifikasi')).toBeInTheDocument()
+    expect(screen.getAllByText('Tertunda').length).toBeGreaterThanOrEqual(1)
   })
 
   it('clearing payment status filter removes payment_status from apiListBills query', async () => {

@@ -18,6 +18,7 @@ import { Pagination } from '@/components/Pagination'
 import { useAuth } from '@/app/AuthContext'
 import { getSessionPair } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
+import { resolveRwLabel } from '@/utils/rwUtils'
 import {
   apiListRWTransactions,
   apiGetRWKAS,
@@ -40,12 +41,13 @@ function formatTanggal(dateStr: string): string {
   return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-export function RwKasList({ rwId }: { rwId: string }) {
+export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const { user } = useAuth()
 
   const isSuperAdmin = user?.systemRole === 'super_admin' || user?.role === 'super_admin'
   const rwMemberships = (user as any)?.rw_memberships || (user as any)?.rwMemberships || []
   const currentRw = rwMemberships.find((m: any) => m.rw_id === rwId)
+  const displayRwLabel = resolveRwLabel(rwId, rwMemberships, rwName)
   const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
   const canCreate = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
   const canUpdate = isSuperAdmin || ['ketua', 'bendahara'].includes(jabatan)
@@ -224,7 +226,7 @@ export function RwKasList({ rwId }: { rwId: string }) {
             <WalletOutlined style={{ fontSize: 14 }} />
           </span>
           <div className="sf-page-header-copy">
-            <div className="sf-page-header-title-text">KAS RW — {rwId}</div>
+            <div className="sf-page-header-title-text">KAS RW — {displayRwLabel}</div>
             <div className="sf-page-header-subtitle">
               {isReadOnly ? 'Buku kas RW (Mode Read-Only)' : 'Pencatatan dan monitoring kas keuangan tingkat RW'}
             </div>

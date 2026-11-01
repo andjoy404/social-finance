@@ -1309,6 +1309,11 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if in.ProofPath == nil || strings.TrimSpace(*in.ProofPath) == "" {
+		httpx.WriteValidationError(targetW, "Bukti pembayaran wajib dilampirkan. Silakan unggah foto bukti pembayaran sebelum melanjutkan.", nil)
+		return
+	}
+
 	tx, err := idem.BeginTx(r.Context(), h.pool)
 	if err != nil {
 		if uploadedKey != "" {

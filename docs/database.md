@@ -280,6 +280,8 @@ Indexes & Constraints:
 | `period_type` | `text` | NOT NULL, CHECK IN (`monthly`, `yearly`, `one_time`) | Billing interval |
 | `payment_rule` | `text` | NOT NULL, CHECK IN (`full`, `partial`) | Bill payment rule |
 | `is_voluntary` | `boolean` | NOT NULL, default `false` | Whether this due definition accepts voluntary donations |
+| `due_type` | `text` | NOT NULL, default `'regular'`, CHECK IN (`regular`, `voluntary`, `multi_month`) | Due category |
+| `year` | `integer` | NULL | Calendar year for multi-month dues |
 | `is_active` | `boolean` | NOT NULL, default `true` | Active status |
 | `valid_until` | `date` | NULL, CHECK `valid_until IS NULL OR is_voluntary` | Optional last valid date for a voluntary due |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
@@ -287,6 +289,8 @@ Indexes & Constraints:
 
 Indexes:
 - Index on `(rt_id)`
+- Index on `(due_type)`
+- Unique partial index on `(rt_id, year)` WHERE `due_type = 'multi_month'` (enforces at most one multi-month IPL issuance per calendar year per RT)
 - Partial index on `(valid_until)` WHERE `is_voluntary AND is_active AND valid_until IS NOT NULL` for the daily expiry job
 
 Automatic expiry semantics:

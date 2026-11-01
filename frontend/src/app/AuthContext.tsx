@@ -12,6 +12,7 @@ export const ALLOWED_RT_IDS = [
 export interface RWMembership {
   rw_id: string
   rw_name: string
+  rw_number?: number
   jabatan: string
 }
 
@@ -74,6 +75,7 @@ function mapUser(raw: ApiUser): AuthUser {
     ? raw.rw_memberships.map((m) => ({
         rw_id: m.rw_id,
         rw_name: m.rw_name,
+        rw_number: m.rw_number,
         jabatan: m.jabatan,
       }))
     : []

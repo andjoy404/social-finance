@@ -16,7 +16,6 @@ import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
-import 'package:social_finance/core/widgets/summary_card.dart';
 import '../../data/mock_dashboard_data.dart';
 import 'package:go_router/go_router.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -329,7 +328,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       // Year filter: send "YYYY" only (backend will use Jan-Dec of that year)
       // Month filter: send "YYYY-MM"
       final periodParam = _isYearFilterActive
-          ? '${_selectedYear}'
+          ? '$_selectedYear'
           : '${_activeDate.year}-${_activeDate.month.toString().padLeft(2, '0')}';
 
       final json = await api.getDashboardSummary(periodParam);
@@ -461,94 +460,41 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
               // ── Saldo Kas ──
               const SizedBox(height: _panelGap),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.darkSurface
-                      : AppColors.lightSurface,
-                  border: Border.all(
-                    color: isDark
-                        ? AppColors.darkBorder.withValues(alpha: 0.5)
-                        : AppColors.lightBorder,
-                    width: 1.5,
-                  ),
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: AppColors.accent,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(width: 20),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.account_balance_wallet_rounded,
-                                size: 16,
-                                color: AppColors.accent,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Saldo Kas',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: AppColors.textMutedColor(context),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            RupiahFormatter.format(summary.saldoKas),
-                            style: theme.textTheme.headlineLarge?.copyWith(
-                              color: isDark
-                                  ? AppColors.darkTextPrimary
-                                  : AppColors.lightTextPrimary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              _buildSummaryCard(
+                context: context,
+                title: 'Saldo Kas',
+                value: RupiahFormatter.format(summary.saldoKas),
+                color: AppColors.accent,
+                icon: Icons.account_balance_wallet_rounded,
               ),
 
               // ── Pemasukan / Pengeluaran ──
-              const SizedBox(height: _panelGap),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: SummaryCard(
+                    child: _buildSummaryCard(
+                      context: context,
                       title: _isCurrentMonth
                           ? 'Pemasukan Bulan Ini'
                           : 'Pemasukan (${_formatMonthYearShort(_activeDate)})',
                       value: RupiahFormatter.format(summary.pemasukanBulanIni),
+                      color: AppColors.income,
                       icon: Icons.arrow_downward,
-                      accentColor: AppColors.income,
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: SummaryCard(
+                    child: _buildSummaryCard(
+                      context: context,
                       title: _isCurrentMonth
                           ? 'Pengeluaran Bulan Ini'
                           : 'Pengeluaran (${_formatMonthYearShort(_activeDate)})',
                       value: RupiahFormatter.format(
                         summary.pengeluaranBulanIni,
                       ),
+                      color: AppColors.expense,
                       icon: Icons.arrow_upward,
-                      accentColor: AppColors.expense,
                     ),
                   ),
                 ],
@@ -1077,6 +1023,75 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSummaryCard({
+    required BuildContext context,
+    required String title,
+    required String value,
+    required Color color,
+    required IconData icon,
+    String? subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(AppRadius.base),
+        border: Border.all(color: color.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.lightTextMuted,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                ),
+                if (subtitle != null && subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textMutedColor(context),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

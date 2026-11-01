@@ -128,7 +128,8 @@ func TestMultiMonth_BugA_PaymentDoesNotDeactivatePeriodOrOtherResidents(t *testi
 			{"bill_id": "%s", "amount": "50000.00"},
 			{"bill_id": "%s", "amount": "50000.00"}
 		],
-		"method": "CASH"
+		"method": "CASH",
+		"proof_path": "proofs/test.jpg"
 	}`, billAJan.ID, billAFeb.ID, billAJan.ID, billAFeb.ID)
 	reqPayA := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payBodyA))
 	reqPayA.Header.Set("Authorization", "Bearer "+tokenWargaA)
@@ -217,7 +218,8 @@ func TestMultiMonth_BugA_PaymentDoesNotDeactivatePeriodOrOtherResidents(t *testi
 	payJanB := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "50000.00"}],
-		"method": "CASH"
+		"method": "CASH",
+		"proof_path": "proofs/test.jpg"
 	}`, billBJan.ID, billBJan.ID)
 	reqPayJanB := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payJanB))
 	reqPayJanB.Header.Set("Authorization", "Bearer "+tokenWargaB)
@@ -230,7 +232,8 @@ func TestMultiMonth_BugA_PaymentDoesNotDeactivatePeriodOrOtherResidents(t *testi
 	payFebB := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "50000.00"}],
-		"method": "CASH"
+		"method": "CASH",
+		"proof_path": "proofs/test.jpg"
 	}`, billBFeb.ID, billBFeb.ID)
 	reqPayFebB := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payFebB))
 	reqPayFebB.Header.Set("Authorization", "Bearer "+tokenWargaB)
@@ -260,7 +263,8 @@ func TestMultiMonth_BugA_PaymentDoesNotDeactivatePeriodOrOtherResidents(t *testi
 	payMarB := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "50000.00"}],
-		"method": "CASH"
+		"method": "CASH",
+		"proof_path": "proofs/test.jpg"
 	}`, billBMar.ID, billBMar.ID)
 	reqPayMarB := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payMarB))
 	reqPayMarB.Header.Set("Authorization", "Bearer "+tokenWargaB)

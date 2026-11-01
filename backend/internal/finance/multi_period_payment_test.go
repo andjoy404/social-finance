@@ -142,7 +142,7 @@ func TestMultiPeriod_LegacySinglePeriod(t *testing.T) {
 	// Warga creates single payment
 	var createdPaymentID string
 	{
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method": "CASH", "proof_path": "proofs/test.jpg"}`, billID)
 		idemKey := "legacy-test-001"
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -225,7 +225,7 @@ func TestMultiPeriod_ThreeBillsApproval(t *testing.T) {
 
 	// Warga submits multi-period payment
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -339,7 +339,7 @@ func TestMultiPeriod_Reject(t *testing.T) {
 
 	// Warga submits
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -442,7 +442,7 @@ func TestMultiPeriod_WargaOwnership(t *testing.T) {
 
 	// Warga 2 (different household/phone) tries to create multi-period payment
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			bills[0].ID, bills[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga2)
@@ -456,7 +456,7 @@ func TestMultiPeriod_WargaOwnership(t *testing.T) {
 
 	// Warga 1 should succeed
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			bills[0].ID, bills[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga1)
@@ -553,7 +553,7 @@ func TestMultiPeriod_CrossRTAccess(t *testing.T) {
 
 	// Warga from RT A tries to pay bill from RT B — should FAIL
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			billsB[0].ID, billsB[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -568,7 +568,7 @@ func TestMultiPeriod_CrossRTAccess(t *testing.T) {
 
 	// Warga from RT A pays own RT A bill — should succeed
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			billsA[0].ID, billsA[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -609,7 +609,7 @@ func TestMultiPeriod_Idempotency(t *testing.T) {
 	}
 
 	idemKey := "idem-test-key-001"
-	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs), mustMarshal(t, allocations))
 
 	// First request
@@ -698,7 +698,7 @@ func TestMultiPeriod_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+			body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 				bills[0].ID, bills[0].ID)
 			idemKey := fmt.Sprintf("concurrent-key-%d", idx)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
@@ -780,7 +780,7 @@ func TestMultiPeriod_PaymentRuleFull(t *testing.T) {
 		{BillID: billIDs[1], Amount: "100000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -798,7 +798,7 @@ func TestMultiPeriod_PaymentRuleFull(t *testing.T) {
 		{BillID: billIDs[1], Amount: "100000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -839,7 +839,7 @@ func TestMultiPeriod_PaymentRulePartial(t *testing.T) {
 		{BillID: bills[1].ID, Amount: "100000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -926,7 +926,7 @@ func TestMultiPeriod_StaffAutoApprove(t *testing.T) {
 		{BillID: bills[1].ID, Amount: "100000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenPengurus)
@@ -985,7 +985,7 @@ func TestMultiPeriod_NoDoubleCounting(t *testing.T) {
 		{BillID: bills[1].ID, Amount: "100000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1089,7 +1089,7 @@ func TestMultiPeriod_AllocationRollback(t *testing.T) {
 		{BillID: "00000000-0000-0000-0000-000000000000", Amount: "100000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1153,7 +1153,7 @@ func TestMultiPeriod_ExactOneKASTransaction(t *testing.T) {
 	}
 	// Warga submits
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1258,7 +1258,7 @@ func TestMultiPeriod_NoDeadlock(t *testing.T) {
 			pair := idxBills[idx]
 			bid1, bid2 := bills[pair[0]].ID, bills[pair[1]].ID
 
-			body := fmt.Sprintf(`{"bill_ids":["%s","%s"],"allocations":[{"bill_id":"%s","amount":"100000"},{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+			body := fmt.Sprintf(`{"bill_ids":["%s","%s"],"allocations":[{"bill_id":"%s","amount":"100000"},{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 				bid1, bid2, bid1, bid2)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 			req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1309,7 +1309,7 @@ func TestMultiPeriod_PendingReservation(t *testing.T) {
 		{BillID: bills[0].ID, Amount: "100000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1326,7 +1326,7 @@ func TestMultiPeriod_PendingReservation(t *testing.T) {
 	// remaining = billAmount - approvedCents - pendingCents = 0.
 	// Second payment creation must be REJECTED (400).
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			bills[0].ID, bills[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1394,7 +1394,7 @@ func TestMultiPeriod_PendingReleaseAfterReject(t *testing.T) {
 		{BillID: bills[0].ID, Amount: "100000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1408,7 +1408,7 @@ func TestMultiPeriod_PendingReleaseAfterReject(t *testing.T) {
 
 	// Second submission must be rejected (PENDING reservation)
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			bills[0].ID, bills[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1466,7 +1466,7 @@ func TestMultiPeriod_PendingReleaseAfterReject(t *testing.T) {
 
 	// Second submission now succeeds — pending reservation was released
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			bills[0].ID, bills[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1531,7 +1531,7 @@ func TestMultiPeriod_PendingApprovalRemaining(t *testing.T) {
 		{BillID: bills[0].ID, Amount: "60000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1610,7 +1610,7 @@ func TestMultiPeriod_PendingApprovalRemaining(t *testing.T) {
 		{BillID: bills[0].ID, Amount: "40000"},
 	}
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations2))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1692,7 +1692,7 @@ func TestMultiPeriod_PerBillReservation(t *testing.T) {
 			{BillID: bills[0].ID, Amount: "50000"},
 			{BillID: bills[1].ID, Amount: "80000"},
 		}
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1708,7 +1708,7 @@ func TestMultiPeriod_PerBillReservation(t *testing.T) {
 	// B1 has pending=50000, remaining=50000. FIFO passes (B1 is oldest)
 	// but remaining capacity check rejects 60000 > 50000.
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"60000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"60000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			bills[0].ID, bills[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1723,7 +1723,7 @@ func TestMultiPeriod_PerBillReservation(t *testing.T) {
 	// ── Step 3: Second submission for B1 (allocation 50000) — ACCEPTED ─
 	// B1 has pending=50000, remaining=50000. 50000 ≤ remaining → passes.
 	{
-		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			bills[0].ID, bills[0].ID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -1768,7 +1768,7 @@ func TestMultiPeriod_ConcurrentPendingReservation(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"CASH"}`,
+			body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 				bills[0].ID, bills[0].ID)
 			idemKey := fmt.Sprintf("con-pend-key-%d-%d", idx, time.Now().UnixNano())
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
@@ -1863,7 +1863,7 @@ func TestMultiPeriod_StaffAutoApproveUnaffected(t *testing.T) {
 
 	// First staff submission (auto-approve)
 	{
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenPengurus)
@@ -1905,7 +1905,7 @@ func TestMultiPeriod_StaffAutoApproveUnaffected(t *testing.T) {
 	// Idempotency: same idempotency key returns 200 (cached response), not 201
 	{
 		idemKey := "staff-idempotency-test-001"
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenPengurus)
@@ -1919,7 +1919,7 @@ func TestMultiPeriod_StaffAutoApproveUnaffected(t *testing.T) {
 	}
 	{
 		idemKey := "staff-idempotency-test-001"
-		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+		body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 			mustMarshal(t, billIDs), mustMarshal(t, allocations))
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenPengurus)

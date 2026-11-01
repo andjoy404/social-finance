@@ -112,6 +112,8 @@ class _FakeRepo extends KasRepository {
   Future<List<BackendTransaction>> fetchAllBackendTransactions({
     String? status,
     String? period,
+    String? startDate,
+    String? endDate,
   }) async {
     if (fail) throw Exception('boom');
     return txs;
@@ -124,7 +126,11 @@ class _FakeRepo extends KasRepository {
   }
 
   @override
-  Future<BackendBalance> fetchBalance({String? period}) async {
+  Future<BackendBalance> fetchBalance({
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
     if (fail) throw Exception('boom');
     return BackendBalance(
       openingBalance: '0',

@@ -554,6 +554,7 @@ func TestFIFO_MultiPeriodPayment(t *testing.T) {
 	svc := NewService(pool, store)
 
 	// Pay both bills at once (oldest included) — should SUCCEED
+	proofPath := "proofs/test.jpg"
 	in := CreateMultiPeriodPaymentInput{
 		BillIDs: []string{oldestID, newerID},
 		Allocations: []AllocationEntry{
@@ -561,6 +562,7 @@ func TestFIFO_MultiPeriodPayment(t *testing.T) {
 			{BillID: newerID, Amount: "50000.00"},
 		},
 		Method: PaymentMethodTransfer,
+		ProofPath: &proofPath,
 	}
 
 	tx, err := pool.BeginTx(ctx)
@@ -602,12 +604,14 @@ func TestFIFO_MultiPeriodPaymentRejectedOutOfOrder(t *testing.T) {
 	svc := NewService(pool, store)
 
 	// Multi-period with only the newer bill — should FAIL
+	proofPath := "proofs/test.jpg"
 	in := CreateMultiPeriodPaymentInput{
 		BillIDs: []string{newerID},
 		Allocations: []AllocationEntry{
 			{BillID: newerID, Amount: "50000.00"},
 		},
 		Method: PaymentMethodTransfer,
+		ProofPath: &proofPath,
 	}
 
 	tx, err := pool.BeginTx(ctx)
@@ -888,12 +892,14 @@ func TestFIFO_MultiPeriodVoluntaryOnly(t *testing.T) {
 	store := storage.NewMockStorage()
 	svc := NewService(pool, store)
 
+	proofPath := "proofs/test.jpg"
 	in := CreateMultiPeriodPaymentInput{
 		BillIDs: []string{volBillID},
 		Allocations: []AllocationEntry{
 			{BillID: volBillID, Amount: "10000.00"},
 		},
-		Method: PaymentMethodTransfer,
+		Method:    PaymentMethodTransfer,
+		ProofPath: &proofPath,
 	}
 
 	tx, err := pool.BeginTx(ctx)
@@ -935,13 +941,15 @@ func TestFIFO_MultiPeriodMixedVoluntaryAndRegular(t *testing.T) {
 	svc := NewService(pool, store)
 
 	// Oldest regular + voluntary — should SUCCEED (oldest regular is first)
+	proofPath := "proofs/test.jpg"
 	in := CreateMultiPeriodPaymentInput{
 		BillIDs: []string{oldestID, volBillID},
 		Allocations: []AllocationEntry{
 			{BillID: oldestID, Amount: "50000.00"},
 			{BillID: volBillID, Amount: "10000.00"},
 		},
-		Method: PaymentMethodTransfer,
+		Method:    PaymentMethodTransfer,
+		ProofPath: &proofPath,
 	}
 
 	tx, err := pool.BeginTx(ctx)

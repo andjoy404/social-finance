@@ -212,8 +212,27 @@ func (s *Service) CreateDue(ctx context.Context, tx *sql.Tx, rtID, userID string
 			in.ValidUntil = &normalized
 		}
 	}
+	if in.DueType == DueTypeMultiMonth && in.Year != nil {
+		lockKey := fmt.Sprintf("multi_month:%s:%d", rtID, *in.Year)
+		var lockAcquired bool
+		_ = tx.QueryRowContext(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", lockKey).Scan(&lockAcquired)
+
+		var exists bool
+		err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM dues 
+				WHERE rt_id = $1 AND due_type = 'multi_month' AND year = $2
+			)
+		`, rtID, *in.Year).Scan(&exists)
+		if err == nil && exists {
+			return nil, fmt.Errorf("IPL Multi-Bulan untuk tahun %d sudah pernah diterbitkan di RT ini.", *in.Year)
+		}
+	}
 	due, err := DueCreate(ctx, tx, rtID, in)
 	if err != nil {
+		if in.DueType == DueTypeMultiMonth && in.Year != nil && (strings.Contains(err.Error(), "idx_dues_rt_multi_month_year") || strings.Contains(err.Error(), "unique constraint")) {
+			return nil, fmt.Errorf("IPL Multi-Bulan untuk tahun %d sudah pernah diterbitkan di RT ini.", *in.Year)
+		}
 		return nil, err
 	}
 
@@ -1752,6 +1771,10 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		if err != nil || reqCents <= 0 || reqCents != totalCents {
 			return nil, errors.New("nominal pembayaran tidak sesuai total tagihan yang dipilih")
 		}
+	}
+
+	if in.ProofPath == nil || strings.TrimSpace(*in.ProofPath) == "" {
+		return nil, errors.New("Bukti pembayaran wajib dilampirkan. Silakan unggah foto bukti pembayaran sebelum melanjutkan.")
 	}
 
 	// ── 2. Lock and validate all bills ─────────────────────────────────
