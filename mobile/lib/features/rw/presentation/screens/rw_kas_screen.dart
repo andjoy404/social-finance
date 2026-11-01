@@ -5,6 +5,7 @@ import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -111,13 +112,16 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen> {
         .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
         .toList() ?? <RWMembership>[];
     final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
-    final rwDisplayName = currentMembership?.rwName ?? 'RW ${widget.rwId}';
+    final rwNumberText = currentMembership?.rwNumber != null
+        ? currentMembership!.rwNumber!.toString().padLeft(3, '0')
+        : resolveRwNumber(widget.rwId, rwMemberships);
+    final rwDisplayName = currentMembership?.rwName ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
 
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: true,
         centerTitle: false,
-        title: MenuAppBarTitle(title: 'KAS RW', rw: widget.rwId),
+        title: MenuAppBarTitle(title: 'KAS RW', rw: rwNumberText),
       ),
       body: NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [

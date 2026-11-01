@@ -14,7 +14,7 @@ import (
 // a slice of RWMembership. Returns nil (not error) when no memberships exist.
 func loadRWMemberships(ctx context.Context, tx *sql.Tx, userID string) ([]RWMembership, error) {
 	rows, err := tx.QueryContext(ctx,
-		`SELECT urm.rw_id, w.name, urm.jabatan FROM user_rw_memberships urm
+		`SELECT urm.rw_id, w.rw_number, w.name, urm.jabatan FROM user_rw_memberships urm
 		 LEFT JOIN rws w ON w.id = urm.rw_id
 		 WHERE urm.user_id = $1 AND urm.is_active = true`,
 		userID,
@@ -26,14 +26,17 @@ func loadRWMemberships(ctx context.Context, tx *sql.Tx, userID string) ([]RWMemb
 
 	var result []RWMembership
 	for rows.Next() {
-		var rwID, rwName, jabatan string
-		if err := rows.Scan(&rwID, &rwName, &jabatan); err != nil {
+		var rwID string
+		var rwNumber int
+		var rwName, jabatan string
+		if err := rows.Scan(&rwID, &rwNumber, &rwName, &jabatan); err != nil {
 			return nil, fmt.Errorf("scan rw membership: %w", err)
 		}
 		result = append(result, RWMembership{
-			RWID:   rwID,
-			Name:   rwName,
-			Jabatan: jabatan,
+			RWID:     rwID,
+			RWNumber: rwNumber,
+			RWName:   rwName,
+			Jabatan:  jabatan,
 		})
 	}
 	if err := rows.Err(); err != nil {

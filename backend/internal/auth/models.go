@@ -5,9 +5,10 @@ import "social-finance/internal/database"
 // RWMembership represents a user's active membership in a Rukun Warga (RW).
 // Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara')
 type RWMembership struct {
-	RWID    string `json:"rw_id"`
-	Name    string `json:"rw_name"`
-	Jabatan string `json:"jabatan"`
+	RWID     string `json:"rw_id"`
+	RWNumber int    `json:"rw_number"`
+	RWName   string `json:"rw_name"`
+	Jabatan  string `json:"jabatan"`
 }
 
 // SystemRole represents a global-level role (not tied to an RT).

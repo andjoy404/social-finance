@@ -11,6 +11,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
@@ -382,7 +383,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final userName = user?['name'] ?? 'Pengguna';
     final roleUser = user?['role'] as AppRole? ?? AppRole.warga;
     final rt = user?['rt'] ?? '';
-    final rw = user?['rw'] ?? '';
+    final rawRw = user?['rw']?.toString() ?? '';
+    final rw = looksLikeUuid(rawRw)
+        ? (resolveRwNumber(rawRw, user?['rw_memberships']) ?? '')
+        : rawRw;
+    final rtRwDisplay = [
+      if (rt.isNotEmpty) 'RT $rt',
+      if (rw.isNotEmpty) 'RW $rw',
+    ].join(' / ');
 
     final isDark = theme.brightness == Brightness.dark;
 
@@ -439,7 +447,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         const SizedBox(height: 4),
                         Text(userName, style: theme.textTheme.headlineMedium),
                         Text(
-                          'RT $rt / RW $rw',
+                          rtRwDisplay.isNotEmpty ? rtRwDisplay : 'RT / RW',
                           style: theme.textTheme.bodySmall,
                         ),
                       ],

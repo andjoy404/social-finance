@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_saver/file_saver.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/kas/data/kas_api_models.dart';
@@ -98,7 +99,10 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
         .trim();
     final rwName = (rtDetail?.rwName ?? user?['rw_name'])?.toString().trim();
     final rtCode = rtDetail?.rt ?? rt;
-    final rwCode = rtDetail?.rw?.toString() ?? rw;
+    final rawRwCode = rtDetail?.rw?.toString() ?? rw;
+    final rwCode = looksLikeUuid(rawRwCode)
+        ? resolveRwNumber(rawRwCode, user?['rw_memberships'])
+        : rawRwCode;
     return KasReportIdentity(
       orgName: rtName != null && rtName.isNotEmpty ? rtName : '',
       rtLabel: rtCode != null && rtCode.isNotEmpty ? 'RT $rtCode' : null,

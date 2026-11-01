@@ -354,8 +354,6 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			ac := &auth.AuthContext{
 				UserID:     "test-user-id",
 				SystemRole: tc.systemRole,
@@ -503,8 +501,6 @@ func TestRequireAllowedRT_NotFoundAuthContext(t *testing.T) {
 // TestRequireAllowedRT_IntegrationWithNotificationLogs verifies notification logs
 // are protected by the same whitelist enforcement.
 func TestRequireAllowedRT_IntegrationWithNotificationLogs(t *testing.T) {
-	t.Parallel()
-
 	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
@@ -555,8 +551,6 @@ func TestRequireAllowedRT_IntegrationWithNotificationLogs(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			ac := &auth.AuthContext{
 				UserID:     "test-user-id",
 				SystemRole: tc.systemRole,

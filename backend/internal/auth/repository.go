@@ -485,6 +485,7 @@ type UserForMe struct {
 	RTName               string          `json:"rt_name"`
 	RT_rw                int             `json:"rt_rw"`
 	RT_rt                string          `json:"rt_rt"`
+	RW                   int             `json:"rw"`
 	RWID                 *string         `json:"rw_id,omitempty"`
 	RWName               *string         `json:"rw_name,omitempty"`
 	RWMemberships        []RWMembership  `json:"rw_memberships,omitempty"`
@@ -537,6 +538,7 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 		}
 		return nil, fmt.Errorf("get user for me: %w", err)
 	}
+	u.RW = u.RT_rw
 	if sysRole.Valid {
 		u.SystemRole = sysRole.String
 	}

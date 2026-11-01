@@ -824,7 +824,6 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/notifications/waste-truck", notifH.TriggerWasteTruckArrival)
 		r.Post("/api/v1/notifications/manual", notifH.TriggerManualPush)
 	})

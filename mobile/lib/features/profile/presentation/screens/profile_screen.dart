@@ -5,6 +5,7 @@ import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/utils/phone_utils.dart';
+import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
@@ -44,7 +45,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final userName = user?['name'] ?? 'Pengguna';
     final role = user?['role'] as AppRole? ?? AppRole.warga;
     final rt = user?['rt'] ?? '';
-    final rw = user?['rw'] ?? '';
+    final rawRw = (user?['rw'] as String?) ?? '';
+    final rwMemberships = (user?['rw_memberships'] as List?)
+        ?.whereType<Map<String, dynamic>>().toList() ?? <Map<String, dynamic>>[];
+    final resolvedRw = looksLikeUuid(rawRw)
+        ? resolveRwNumber(rawRw, rwMemberships)
+        : rawRw;
+    final rw = resolvedRw ?? '';
+    final rtRwDisplay = [
+      if (rt.isNotEmpty) 'RT $rt',
+      if (rw.isNotEmpty) 'RW $rw',
+    ].join(' / ');
     final rawPhone = user?['phone'] as String?;
     final phoneDisplay = PhoneUtils.formatDisplay(rawPhone);
     final emailDisplay = (user?['email'] as String?) ?? '-';
@@ -91,7 +102,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     : theme.colorScheme.primary.withValues(alpha: 0.12),
               ),
               const SizedBox(height: 4),
-              Text('RT $rt / RW $rw', style: theme.textTheme.bodySmall),
+              Text(rtRwDisplay.isNotEmpty ? rtRwDisplay : 'RT / RW', style: theme.textTheme.bodySmall),
               const SizedBox(height: 32),
 
               // Profile items
@@ -99,7 +110,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 _ProfileItemData(
                   icon: Icons.home,
                   title: 'RT / RW',
-                  subtitle: 'RT $rt / RW $rw',
+                  subtitle: rtRwDisplay.isNotEmpty ? rtRwDisplay : '-',
                 ),
                 _ProfileItemData(
                   icon: Icons.location_on_outlined,

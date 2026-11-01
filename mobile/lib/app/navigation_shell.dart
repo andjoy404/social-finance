@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/notification/data/models/notification_models.dart';
@@ -348,7 +349,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                 mainAxisSize: MainAxisSize.min,
                 children: rwMemberships.map((m) {
                   return ListTile(
-                    title: Text(((m.rwName ?? '').isNotEmpty) ? m.rwName! : 'RW ${m.rwId}'),
+                    title: Text(((m.rwName ?? '').isNotEmpty) ? m.rwName! : m.displayName),
                     subtitle: ((m.jabatan ?? '').isNotEmpty)
                         ? Text('Jabatan: ${m.jabatan}')
                         : null,
@@ -497,7 +498,10 @@ class _AppDrawer extends StatelessWidget {
     final role = user?['role']?.toString().split('.').last ?? '';
     final jabatan = user?['jabatan'] as String? ?? '';
     final rt = user?['rt']?.toString() ?? '';
-    final rw = user?['rw']?.toString() ?? '';
+    final rawRw = user?['rw']?.toString() ?? '';
+    final rw = looksLikeUuid(rawRw)
+        ? (resolveRwNumber(rawRw, user?['rw_memberships']) ?? '')
+        : rawRw;
     final rtRwText = [
       if (rt.isNotEmpty) 'RT $rt',
       if (rw.isNotEmpty) 'RW $rw',

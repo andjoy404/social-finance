@@ -238,10 +238,9 @@ func setupManagementRouter(repo notification.Repository, svc notification.Servic
 	})
 
 	// Manual push and waste-truck: separate group mirroring production
-	// Requires RolePengurus + AllowedRT (like production)
+	// Requires RequireAllowedRT + isOfficerUser check inside handler (like production)
 	r.Group(func(r chi.Router) {
 		r.Use(requireAllowedRT)
-		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/notifications/manual", h.TriggerManualPush)
 		r.Post("/api/v1/notifications/waste-truck", h.TriggerWasteTruckArrival)
 	})
@@ -1009,5 +1008,293 @@ func TestSuperAdminWhitelistBypass(t *testing.T) {
 	// is that we do NOT get 200.
 	if rec.Code == http.StatusOK {
 		t.Fatalf("expected 400 or 403 (bypass blocked), got 200 — whitelist bypass NOT fixed! %s", rec.Body.String())
+	}
+}
+
+// ===========================================================================
+// TEST: Manual Push Authorization for Ketua RT and Officer Roles
+// ===========================================================================
+
+// TestManualPush_KetuaRT_CanSend verifies that a Ketua RT (TenantRole=warga,
+// Jabatan=ketua) can send manual notifications to their own RT.
+func TestManualPush_KetuaRT_CanSend(t *testing.T) {
+	repo := newMockManagementRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+	router := setupManagementRouter(repo, svc)
+
+	// Ketua RT with TenantRole=warga, Jabatan=ketua
+	ac := &auth.AuthContext{
+		UserID:     "user-ketua-rt2",
+		RTID:       "rt-002",
+		TenantRole: auth.RoleWarga,
+		Jabatan:    auth.JabatanKetua,
+		RWMemberships: []auth.RWMembership{
+			{RWID: "rw-002", Jabatan: "ketua"},
+		},
+	}
+
+	_ = repo.RegisterDevice(context.Background(), "user-ketua-rt2", "tok-ketua-rt2", "android", nil)
+	repo.rtUsers["rt-002"] = []string{"user-ketua-rt2"}
+
+	body, _ := json.Marshal(notification.ManualPushInput{
+		Title: "Pengumuman Umum",
+		Body:  "Rapat RT akan dimulai jam 19:00 WIB.",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/notifications/manual", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withAuth(req, ac)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for Ketua RT manual push, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message dispatched, got %d", len(msgs))
+	}
+	if msgs[0].Token != "tok-ketua-rt2" {
+		t.Errorf("expected message to ketua RT device, got token %s", msgs[0].Token)
+	}
+}
+
+// TestManualPush_WakilKetua_CanSend verifies that a Wakil Ketua RT
+// (TenantRole=warga, Jabatan=wakil_ketua) can send manual notifications.
+func TestManualPush_WakilKetua_CanSend(t *testing.T) {
+	repo := newMockManagementRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+	router := setupManagementRouter(repo, svc)
+
+	ac := &auth.AuthContext{
+		UserID:     "user-wk-rt2",
+		RTID:       "rt-002",
+		TenantRole: auth.RoleWarga,
+		Jabatan:    auth.JabatanWakilKetua,
+		RWMemberships: []auth.RWMembership{
+			{RWID: "rw-002", Jabatan: "wakil_ketua"},
+		},
+	}
+
+	_ = repo.RegisterDevice(context.Background(), "user-wk-rt2", "tok-wk-rt2", "android", nil)
+	repo.rtUsers["rt-002"] = []string{"user-wk-rt2"}
+
+	body, _ := json.Marshal(notification.ManualPushInput{
+		Title: "Info Keamanan",
+		Body:  "Jaga kesuburan lingkungan RT.",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/notifications/manual", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withAuth(req, ac)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for Wakil Ketua manual push, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message dispatched, got %d", len(msgs))
+	}
+	if msgs[0].Token != "tok-wk-rt2" {
+		t.Errorf("expected message to wakil ketua device, got token %s", msgs[0].Token)
+	}
+}
+
+// TestManualPush_Bendahara_CanSend verifies that a Bendahara can send manual notifications.
+func TestManualPush_Bendahara_CanSend(t *testing.T) {
+	repo := newMockManagementRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+	router := setupManagementRouter(repo, svc)
+
+	ac := &auth.AuthContext{
+		UserID:     "user-bendahara-rt2",
+		RTID:       "rt-002",
+		TenantRole: auth.RoleBendahara,
+		RWMemberships: []auth.RWMembership{
+			{RWID: "rw-002", Jabatan: "bendahara"},
+		},
+	}
+
+	_ = repo.RegisterDevice(context.Background(), "user-bendahara-rt2", "tok-bendahara-rt2", "android", nil)
+	repo.rtUsers["rt-002"] = []string{"user-bendahara-rt2"}
+
+	body, _ := json.Marshal(notification.ManualPushInput{
+		Title: "Pembayaran Iuran",
+		Body:  "Silakan melunasi iuran RT bulan ini.",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/notifications/manual", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withAuth(req, ac)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for Bendahara manual push, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message dispatched, got %d", len(msgs))
+	}
+	if msgs[0].Token != "tok-bendahara-rt2" {
+		t.Errorf("expected message to bendahara device, got token %s", msgs[0].Token)
+	}
+}
+
+// TestManualPush_WargaCannotSend verifies that a plain warga (no jabatan)
+// cannot send manual notifications.
+func TestManualPush_WargaCannotSend(t *testing.T) {
+	repo := newMockManagementRepo()
+	svc := notification.NewService(repo, nil)
+	router := setupManagementRouter(repo, svc)
+
+	ac := &auth.AuthContext{
+		UserID:     "user-warga-rt2",
+		RTID:       "rt-002",
+		TenantRole: auth.RoleWarga,
+		Jabatan:    "", // no jabatan - plain warga
+		RWMemberships: []auth.RWMembership{
+			{RWID: "rw-002", Jabatan: ""},
+		},
+	}
+
+	body, _ := json.Marshal(notification.ManualPushInput{
+		Title: "Coba Kirim",
+		Body:  "Warga mencoba kirim notifikasi.",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/notifications/manual", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withAuth(req, ac)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for warga manual push, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestManualPush_KetuaCannotAccessOtherRT verifies that a Ketua RT cannot
+// send manual notification to a different RT.
+func TestManualPush_KetuaCannotAccessOtherRT(t *testing.T) {
+	repo := newMockManagementRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+	router := setupManagementRouter(repo, svc)
+
+	// Ketua of rt-002 acting in rt-003 context (where they are only a regular warga / anggota, not officer)
+	ac := &auth.AuthContext{
+		UserID:     "user-ketua-rt2",
+		RTID:       "rt-003", // trying to access different RT
+		TenantRole: auth.RoleWarga,
+		Jabatan:    auth.JabatanAnggota,
+		RWMemberships: []auth.RWMembership{
+			{RWID: "rw-002", Jabatan: "ketua"},
+			{RWID: "rw-003", Jabatan: "anggota"}, // member of rt-003 but not officer
+		},
+	}
+
+	body, _ := json.Marshal(notification.ManualPushInput{
+		Title: "Coba Akses RT Lain",
+		Body:  "Ketua RT 002 mencoba mengirim ke RT 003.",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/notifications/manual", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withAuth(req, ac)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Should be forbidden because RTID in JWT doesn't match any whitelisted RT
+	// or user doesn't have officer role in target RT
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Ketua RT accessing other RT, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestManualPush_Unauthenticated verifies that unauthenticated requests are rejected.
+func TestManualPush_Unauthenticated(t *testing.T) {
+	repo := newMockManagementRepo()
+	svc := notification.NewService(repo, nil)
+	router := setupManagementRouter(repo, svc)
+
+	body, _ := json.Marshal(notification.ManualPushInput{
+		Title: "Tanpa Auth",
+		Body:  "Tanpa token autentikasi.",
+	})
+	req := httptest.NewRequest("POST", "/api/v1/notifications/manual", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated request, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestManualPush_WasteTruck_KetuaCanSend verifies that a Ketua RT can trigger
+// waste truck arrival notification.
+func TestManualPush_WasteTruck_KetuaCanSend(t *testing.T) {
+	repo := newMockManagementRepo()
+	svc := notification.NewService(repo, nil)
+	router := setupManagementRouter(repo, svc)
+
+	ac := &auth.AuthContext{
+		UserID:     "user-ketua-rt2",
+		RTID:       "rt-002",
+		TenantRole: auth.RoleWarga,
+		Jabatan:    auth.JabatanKetua,
+		RWMemberships: []auth.RWMembership{
+			{RWID: "rw-002", Jabatan: "ketua"},
+		},
+	}
+
+	body, _ := json.Marshal(notification.WasteTruckNotificationInput{
+		Message:   "Sampah telah diangkut.",
+		ImageURL:  nil,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/notifications/waste-truck", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withAuth(req, ac)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for Ketua RT waste truck, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestManualPush_WasteTruck_WargaCannotSend verifies that a plain warga
+// cannot trigger waste truck notification.
+func TestManualPush_WasteTruck_WargaCannotSend(t *testing.T) {
+	repo := newMockManagementRepo()
+	svc := notification.NewService(repo, nil)
+	router := setupManagementRouter(repo, svc)
+
+	ac := &auth.AuthContext{
+		UserID:     "user-warga-rt2",
+		RTID:       "rt-002",
+		TenantRole: auth.RoleWarga,
+		Jabatan:    "", // no jabatan
+		RWMemberships: []auth.RWMembership{
+			{RWID: "rw-002", Jabatan: ""},
+		},
+	}
+
+	body, _ := json.Marshal(notification.WasteTruckNotificationInput{
+		Message:   "Coba kirim sampah.",
+		ImageURL:  nil,
+	})
+	req := httptest.NewRequest("POST", "/api/v1/notifications/waste-truck", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = withAuth(req, ac)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for warga waste truck, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

@@ -156,7 +156,7 @@ func TestMeEndpointRWMembershipsSingle(t *testing.T) {
 		TenantRole:     RoleWarga,
 		Jabatan:        JabatanAnggota,
 		RWMemberships: []RWMembership{
-			{RWID: rwID.String(), Name: "RW Test", Jabatan: "sekretaris"},
+			{RWID: rwID.String(), RWName: "RW Test", Jabatan: "sekretaris"},
 		},
 	}
 
@@ -180,8 +180,8 @@ func TestMeEndpointRWMembershipsSingle(t *testing.T) {
 	if meResp.RWMemberships[0].RWID != rwID.String() {
 		t.Errorf("expected rw_id %s, got %s", rwID, meResp.RWMemberships[0].RWID)
 	}
-	if meResp.RWMemberships[0].Name != "RW Test" {
-		t.Errorf("expected rw_name 'RW Test', got %s", meResp.RWMemberships[0].Name)
+	if meResp.RWMemberships[0].RWName != "RW Test" {
+		t.Errorf("expected rw_name 'RW Test', got %s", meResp.RWMemberships[0].RWName)
 	}
 }
 
@@ -287,8 +287,8 @@ func TestMeEndpointRWMembershipsMultiple(t *testing.T) {
 		TenantRole:     RoleWarga,
 		Jabatan:        JabatanAnggota,
 		RWMemberships: []RWMembership{
-			{RWID: rwID1.String(), Name: "RW Test", Jabatan: "sekretaris"},
-			{RWID: rwID2.String(), Name: "RW Test 2", Jabatan: "bendahara"},
+			{RWID: rwID1.String(), RWName: "RW Test", Jabatan: "sekretaris"},
+			{RWID: rwID2.String(), RWName: "RW Test 2", Jabatan: "bendahara"},
 		},
 	}
 
@@ -422,7 +422,7 @@ func TestRequireRWScopeRejectsOutOfScopeRW(t *testing.T) {
 		RTID:       "rt-uuid-1",
 		TenantRole: RoleBendahara,
 		RWMemberships: []RWMembership{
-			{RWID: "rw-uuid-1", Name: "RW 1", Jabatan: "ketua"},
+			{RWID: "rw-uuid-1", RWName: "RW 1", Jabatan: "ketua"},
 		},
 	}
 
@@ -446,8 +446,8 @@ func TestRequireRWScopeAcceptsInScopeRW(t *testing.T) {
 		RTID:       "rt-uuid-1",
 		TenantRole: RoleBendahara,
 		RWMemberships: []RWMembership{
-			{RWID: "rw-uuid-1", Name: "RW 1", Jabatan: "ketua"},
-			{RWID: "rw-uuid-2", Name: "RW 2", Jabatan: "bendahara"},
+			{RWID: "rw-uuid-1", RWName: "RW 1", Jabatan: "ketua"},
+			{RWID: "rw-uuid-2", RWName: "RW 2", Jabatan: "bendahara"},
 		},
 	}
 

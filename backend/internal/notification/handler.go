@@ -100,6 +100,10 @@ func (h *Handler) TriggerWasteTruckArrival(w http.ResponseWriter, r *http.Reques
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+	if !isOfficerUser(ac) {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT yang berwenang memicu notifikasi waste truck")
+		return
+	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
@@ -124,6 +128,10 @@ func (h *Handler) TriggerManualPush(w http.ResponseWriter, r *http.Request) {
 	ac := auth.GetAuthContext(r)
 	if ac == nil || ac.UserID == "" {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if !isOfficerUser(ac) {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT yang berwenang mengirim notifikasi manual")
 		return
 	}
 	rtID, err := h.resolveTenantRT(r, ac)

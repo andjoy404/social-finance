@@ -1,10 +1,12 @@
 class RWMembership {
   final String rwId;
+  final int? rwNumber;
   final String? rwName;
   final String? jabatan;
 
   const RWMembership({
     required this.rwId,
+    this.rwNumber,
     this.rwName,
     this.jabatan,
   });
@@ -12,6 +14,9 @@ class RWMembership {
   factory RWMembership.fromJson(Map<String, dynamic> json) {
     return RWMembership(
       rwId: json['rw_id'] as String? ?? '',
+      rwNumber: json['rw_number'] != null
+          ? (json['rw_number'] as num).toInt()
+          : null,
       rwName: json['rw_name'] as String?,
       jabatan: json['jabatan'] as String?,
     );
@@ -20,9 +25,22 @@ class RWMembership {
   Map<String, dynamic> toJson() {
     return {
       'rw_id': rwId,
+      if (rwNumber != null) 'rw_number': rwNumber,
       if (rwName != null) 'rw_name': rwName,
       if (jabatan != null) 'jabatan': jabatan,
     };
+  }
+
+  /// Returns display name like "RW 016" using rw_number (preferred)
+  /// or rw_name / "RW" as fallback (never raw UUID).
+  String get displayName {
+    if (rwNumber != null) {
+      return 'RW ${rwNumber!.toString().padLeft(3, "0")}';
+    }
+    if (rwName != null && rwName!.trim().isNotEmpty) {
+      return rwName!.trim();
+    }
+    return 'RW';
   }
 }
 

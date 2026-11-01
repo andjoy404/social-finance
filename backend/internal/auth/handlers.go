@@ -378,7 +378,7 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 				args[i] = id
 			}
 			q := fmt.Sprintf(`
-				SELECT id, name
+				SELECT id, rw_number, name
 				FROM rws
 				WHERE id IN (%s) AND is_active = true
 				ORDER BY rw_number ASC, name ASC
@@ -389,12 +389,15 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 				defer rows.Close()
 				var saMemberships []RWMembership
 				for rows.Next() {
-					var sID, sName string
-					if errScan := rows.Scan(&sID, &sName); errScan == nil {
+					var sID string
+					var sNumber int
+					var sName string
+					if errScan := rows.Scan(&sID, &sNumber, &sName); errScan == nil {
 						saMemberships = append(saMemberships, RWMembership{
-							RWID:    sID,
-							Name:    sName,
-							Jabatan: "super_admin",
+							RWID:     sID,
+							RWNumber: sNumber,
+							RWName:   sName,
+							Jabatan:  "super_admin",
 						})
 					}
 				}
@@ -411,7 +414,7 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 					}
 					if !found {
 						profile.RWID = &saMemberships[0].RWID
-						profile.RWName = &saMemberships[0].Name
+						profile.RWName = &saMemberships[0].RWName
 					}
 				}
 			}
@@ -545,7 +548,7 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 				args[i] = id
 			}
 			q := fmt.Sprintf(`
-				SELECT id, name
+				SELECT id, rw_number, name
 				FROM rws
 				WHERE id IN (%s) AND is_active = true
 				ORDER BY rw_number ASC, name ASC
@@ -556,12 +559,15 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 				defer rows.Close()
 				var saMemberships []RWMembership
 				for rows.Next() {
-					var sID, sName string
-					if errScan := rows.Scan(&sID, &sName); errScan == nil {
+					var sID string
+					var sNumber int
+					var sName string
+					if errScan := rows.Scan(&sID, &sNumber, &sName); errScan == nil {
 						saMemberships = append(saMemberships, RWMembership{
-							RWID:    sID,
-							Name:    sName,
-							Jabatan: "super_admin",
+							RWID:     sID,
+							RWNumber: sNumber,
+							RWName:   sName,
+							Jabatan:  "super_admin",
 						})
 					}
 				}
@@ -578,7 +584,7 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 					}
 					if !found {
 						profile.RWID = &saMemberships[0].RWID
-						profile.RWName = &saMemberships[0].Name
+						profile.RWName = &saMemberships[0].RWName
 					}
 				}
 			}

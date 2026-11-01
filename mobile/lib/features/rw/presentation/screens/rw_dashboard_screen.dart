@@ -7,6 +7,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
+import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/dashboard/data/mock_dashboard_data.dart';
@@ -247,17 +248,18 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
         .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
         .toList() ?? <RWMembership>[];
     final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
+    final rwNumberText = currentMembership?.rwNumber != null
+        ? currentMembership!.rwNumber!.toString().padLeft(3, '0')
+        : resolveRwNumber(widget.rwId, rwMemberships);
     final rwDisplayName = (currentMembership?.rwName?.isNotEmpty == true)
         ? currentMembership!.rwName!
-        : ((user != null && user['rw'] != null && user['rw'].toString().isNotEmpty)
-            ? 'RW ${user['rw']}'
-            : 'RW ${widget.rwId}');
+        : (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
 
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
         centerTitle: false,
-        title: MenuAppBarTitle(title: 'Beranda RW', rw: widget.rwId),
+        title: MenuAppBarTitle(title: 'Beranda RW', rw: rwNumberText),
       ),
       body: NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
@@ -444,8 +446,13 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
   }
 
   Widget _buildPeriodFilter(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final infoSoft = isDark ? AppColors.darkInfoSoft : AppColors.lightInfoSoft;
+    final infoBorder = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+
     return Container(
-      color: Colors.white,
+      color: surfaceColor,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Row(
         children: [
@@ -455,9 +462,9 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: AppColors.info.withValues(alpha: 0.1),
+                color: infoSoft,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
-                border: Border.all(color: AppColors.info.withValues(alpha: 0.25)),
+                border: Border.all(color: infoBorder),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -487,17 +494,17 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: _isAllPeriods
-                    ? AppColors.accent.withValues(alpha: 0.15)
-                    : AppColors.accent.withValues(alpha: 0.08),
+                color: isDark
+                    ? (_isAllPeriods ? AppColors.darkAccentSoft : AppColors.darkSurfaceHover)
+                    : (_isAllPeriods ? AppColors.lightAccentSoft : AppColors.lightSurfaceHover),
                 borderRadius: BorderRadius.circular(AppRadius.sm),
                 border: Border.all(
-                  color: _isAllPeriods
-                      ? AppColors.accent.withValues(alpha: 0.6)
-                      : AppColors.accent.withValues(alpha: 0.4),
+                  color: isDark
+                      ? (_isAllPeriods ? AppColors.accent.withValues(alpha: 0.5) : AppColors.darkBorder)
+                      : (_isAllPeriods ? AppColors.accent.withValues(alpha: 0.4) : AppColors.lightBorder),
                 ),
               ),
-              child: const Text(
+              child: Text(
                 'Semua Periode',
                 style: TextStyle(
                   fontSize: 12,
