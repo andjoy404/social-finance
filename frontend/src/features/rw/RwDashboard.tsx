@@ -46,9 +46,6 @@ const MONTH_SHORT = [
 ]
 
 function formatRupiahShort(val: number): string {
-  if (val >= 1000000000) return `Rp ${(val / 1000000000).toFixed(1)} M`
-  if (val >= 1000000) return `Rp ${(val / 1000000).toFixed(1)} Jt`
-  if (val >= 1000) return `Rp ${(val / 1000).toFixed(0)} Rb`
   return formatRupiah(val)
 }
 
