@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -442,6 +445,10 @@ class _NotificationManagementScreenState
     final bodyController = TextEditingController(text: template?.body ?? '');
     final imageController = TextEditingController(text: template?.imageUrl ?? '');
 
+    Uint8List? pickedImageBytes;
+    bool isUploadingImage = false;
+    String? imageUploadError;
+
     String selectedEvent = template?.eventType ??
         defaultEventType ??
         (systemTypes?.isNotEmpty == true ? systemTypes!.first.eventType : 'iuran_bill_created');
@@ -640,9 +647,276 @@ class _NotificationManagementScreenState
                       ),
                       const SizedBox(height: 10),
 
-                      // Image URL input (only for events supporting images)
-                      if (selectedEvent == 'waste_truck_arrival' ||
-                          selectedEvent == 'manual_push') ...[
+                      // Image input section for events supporting images
+                      if (selectedEvent == 'manual_push') ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Gambar Lampiran Pengumuman (Opsional)',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (pickedImageBytes != null || imageController.text.isNotEmpty)
+                              TextButton(
+                                onPressed: () {
+                                  setSheetState(() {
+                                    pickedImageBytes = null;
+                                    imageController.clear();
+                                    imageUploadError = null;
+                                  });
+                                },
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  foregroundColor: AppColors.danger,
+                                ),
+                                child: const Text('Hapus Gambar', style: TextStyle(fontSize: 12)),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        if (imageUploadError != null)
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: AppColors.danger.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
+                            child: Text(
+                              imageUploadError!,
+                              style: const TextStyle(color: AppColors.danger, fontSize: 12),
+                            ),
+                          ),
+                        if (isUploadingImage)
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            alignment: Alignment.center,
+                            child: const Column(
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 8),
+                                Text('Mengunggah gambar ke server...', style: TextStyle(fontSize: 12)),
+                              ],
+                            ),
+                          )
+                        else if (pickedImageBytes != null) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            child: AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: Image.memory(
+                                pickedImageBytes!,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  setSheetState(() {
+                                    imageUploadError = null;
+                                    isUploadingImage = true;
+                                  });
+                                  try {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.gallery,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked == null) {
+                                      setSheetState(() => isUploadingImage = false);
+                                      return;
+                                    }
+                                    final bytes = await picked.readAsBytes();
+                                    final repo = ref.read(notificationRepositoryProvider);
+                                    final url = await repo.uploadImage(
+                                      eventType: selectedEvent,
+                                      bytes: bytes,
+                                      filename: picked.name,
+                                    );
+                                    setSheetState(() {
+                                      pickedImageBytes = bytes;
+                                      imageController.text = url;
+                                      isUploadingImage = false;
+                                      imageUploadError = null;
+                                    });
+                                  } catch (e) {
+                                    setSheetState(() {
+                                      isUploadingImage = false;
+                                      imageUploadError = 'Gagal mengunggah gambar: $e';
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('Ganti Gambar', style: TextStyle(fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                        ] else if (imageController.text.isNotEmpty) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            child: AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: Image.network(
+                                ApiConfig.resolveImageUrl(imageController.text) ?? imageController.text,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(
+                                  color: Colors.grey.withValues(alpha: 0.1),
+                                  alignment: Alignment.center,
+                                  child: const Text('Gagal menampilkan gambar pratinjau', style: TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  setSheetState(() {
+                                    imageUploadError = null;
+                                    isUploadingImage = true;
+                                  });
+                                  try {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.gallery,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked == null) {
+                                      setSheetState(() => isUploadingImage = false);
+                                      return;
+                                    }
+                                    final bytes = await picked.readAsBytes();
+                                    final repo = ref.read(notificationRepositoryProvider);
+                                    final url = await repo.uploadImage(
+                                      eventType: selectedEvent,
+                                      bytes: bytes,
+                                      filename: picked.name,
+                                    );
+                                    setSheetState(() {
+                                      pickedImageBytes = bytes;
+                                      imageController.text = url;
+                                      isUploadingImage = false;
+                                      imageUploadError = null;
+                                    });
+                                  } catch (e) {
+                                    setSheetState(() {
+                                      isUploadingImage = false;
+                                      imageUploadError = 'Gagal mengunggah gambar: $e';
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('Ganti Gambar', style: TextStyle(fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                        ] else ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    setSheetState(() {
+                                      imageUploadError = null;
+                                      isUploadingImage = true;
+                                    });
+                                    try {
+                                      final picker = ImagePicker();
+                                      final picked = await picker.pickImage(
+                                        source: ImageSource.camera,
+                                        maxWidth: 1920,
+                                        maxHeight: 1920,
+                                        imageQuality: 85,
+                                      );
+                                      if (picked == null) {
+                                        setSheetState(() => isUploadingImage = false);
+                                        return;
+                                      }
+                                      final bytes = await picked.readAsBytes();
+                                      final repo = ref.read(notificationRepositoryProvider);
+                                      final url = await repo.uploadImage(
+                                        eventType: selectedEvent,
+                                        bytes: bytes,
+                                        filename: picked.name,
+                                      );
+                                      setSheetState(() {
+                                        pickedImageBytes = bytes;
+                                        imageController.text = url;
+                                        isUploadingImage = false;
+                                        imageUploadError = null;
+                                      });
+                                    } catch (e) {
+                                      setSheetState(() {
+                                        isUploadingImage = false;
+                                        imageUploadError = 'Gagal mengunggah gambar: $e';
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(Icons.camera_alt, size: 16),
+                                  label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    setSheetState(() {
+                                      imageUploadError = null;
+                                      isUploadingImage = true;
+                                    });
+                                    try {
+                                      final picker = ImagePicker();
+                                      final picked = await picker.pickImage(
+                                        source: ImageSource.gallery,
+                                        maxWidth: 1920,
+                                        maxHeight: 1920,
+                                        imageQuality: 85,
+                                      );
+                                      if (picked == null) {
+                                        setSheetState(() => isUploadingImage = false);
+                                        return;
+                                      }
+                                      final bytes = await picked.readAsBytes();
+                                      final repo = ref.read(notificationRepositoryProvider);
+                                      final url = await repo.uploadImage(
+                                        eventType: selectedEvent,
+                                        bytes: bytes,
+                                        filename: picked.name,
+                                      );
+                                      setSheetState(() {
+                                        pickedImageBytes = bytes;
+                                        imageController.text = url;
+                                        isUploadingImage = false;
+                                        imageUploadError = null;
+                                      });
+                                    } catch (e) {
+                                      setSheetState(() {
+                                        isUploadingImage = false;
+                                        imageUploadError = 'Gagal mengunggah gambar: $e';
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(Icons.photo_library, size: 16),
+                                  label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      ] else if (selectedEvent == 'waste_truck_arrival') ...[
                         Text(
                           'URL Gambar Lampiran (Opsional)',
                           style: theme.textTheme.labelMedium?.copyWith(

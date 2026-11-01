@@ -10,6 +10,8 @@ import {
   ApiError,
   clearSessionPair,
   getSessionPair,
+  apiGenerateResidentResetCode,
+  type ApiGenerateResetCodeResponse,
   type ApiResident,
   type ApiUpdateHouseholdBody,
   type ApiHousehold,
@@ -27,6 +29,9 @@ import {
   LockOutlined,
   CalendarOutlined,
   EnvironmentOutlined,
+  KeyOutlined,
+  CopyOutlined,
+  CheckOutlined,
 } from '@ant-design/icons'
 import { formatPhoneDisplay } from '@/styles/format'
 
@@ -54,6 +59,12 @@ export function ResidentDetail() {
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
+
+  // Reset password code state
+  const [resetCodeData, setResetCodeData] = useState<ApiGenerateResetCodeResponse | null>(null)
+  const [generatingCode, setGeneratingCode] = useState(false)
+  const [copiedCode, setCopiedCode] = useState(false)
+  const [resetCodeError, setResetCodeError] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
     fullName: '',
     nik: '',
@@ -100,6 +111,32 @@ export function ResidentDetail() {
     setIsEditing(false)
     setValidationErrors([])
     setEditError(null)
+  }
+
+  const handleGenerateResetCode = async () => {
+    if (!resident) return
+    setGeneratingCode(true)
+    setResetCodeError(null)
+    try {
+      const session = getSessionPair()
+      if (!session?.accessToken) return
+      const res = await apiGenerateResidentResetCode(session.accessToken, resident.id)
+      setResetCodeData(res)
+      setCopiedCode(false)
+    } catch (err: any) {
+      setResetCodeError(err.message || 'Gagal membuat kode reset password')
+    } finally {
+      setGeneratingCode(false)
+    }
+  }
+
+  const handleCopyCode = async () => {
+    if (!resetCodeData) return
+    try {
+      await navigator.clipboard.writeText(resetCodeData.code)
+      setCopiedCode(true)
+      setTimeout(() => setCopiedCode(false), 2000)
+    } catch {}
   }
 
   const handleClose = useCallback(() => {
@@ -211,6 +248,65 @@ export function ResidentDetail() {
       {resident && !isEditing && (
         <>
           <ModalBody>
+            {resetCodeData && (
+              <div style={{
+                background: 'var(--sf-surface, #1e293b)',
+                border: '1px solid var(--sf-accent, #3b82f6)',
+                borderRadius: '8px',
+                padding: '16px',
+                marginBottom: '16px',
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '13px', color: 'var(--sf-text-muted, #94a3b8)', marginBottom: '4px' }}>
+                  Kode Reset Kata Sandi Warga (Berlaku 24 Jam)
+                </div>
+                <div style={{
+                  fontSize: '32px',
+                  fontWeight: 'bold',
+                  letterSpacing: '8px',
+                  fontFamily: 'monospace',
+                  color: 'var(--sf-accent, #38bdf8)',
+                  margin: '8px 0',
+                }}>
+                  {resetCodeData.code}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--sf-text-muted, #94a3b8)', marginBottom: '12px' }}>
+                  Berikan kode ini kepada warga untuk mereset kata sandi pada halaman Login. Kode hanya dapat digunakan 1 kali.
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    onClick={handleCopyCode}
+                    style={{ fontSize: '12px', padding: '6px 14px' }}
+                  >
+                    {copiedCode ? <CheckOutlined style={{ marginRight: 4 }} /> : <CopyOutlined style={{ marginRight: 4 }} />}
+                    {copiedCode ? 'Tersalin!' : 'Salin Kode'}
+                  </button>
+                  <button
+                    type="button"
+                    className="sf-btn-ghost"
+                    onClick={() => setResetCodeData(null)}
+                    style={{ fontSize: '12px', padding: '6px 14px' }}
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </div>
+            )}
+            {resetCodeError && (
+              <div style={{
+                background: 'var(--color-expense-subtle, rgba(255, 59, 48, 0.1))',
+                color: 'var(--color-expense, #ff3b30)',
+                border: '1px solid rgba(255, 59, 48, 0.3)',
+                borderRadius: 'var(--radius-sm, 6px)',
+                padding: '10px 14px',
+                fontSize: '13px',
+                marginBottom: '16px',
+              }}>
+                {resetCodeError}
+              </div>
+            )}
             <ResidentDetailFields resident={resident} showNik={showNik} />
           </ModalBody>
           <ModalFooter>
@@ -218,14 +314,26 @@ export function ResidentDetail() {
               Tutup
             </button>
             {canWrite && (
-              <button
-                type="button"
-                className="sf-btn-primary"
-                onClick={handleStartEdit}
-              >
-                <EditOutlined style={{ marginRight: 4 }} />
-                Ubah
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="sf-btn-ghost"
+                  onClick={handleGenerateResetCode}
+                  disabled={generatingCode}
+                  title="Buat kode reset kata sandi 4 digit untuk warga"
+                >
+                  <KeyOutlined style={{ marginRight: 4 }} />
+                  {generatingCode ? 'Membuat Kode...' : 'Reset Password'}
+                </button>
+                <button
+                  type="button"
+                  className="sf-btn-primary"
+                  onClick={handleStartEdit}
+                >
+                  <EditOutlined style={{ marginRight: 4 }} />
+                  Ubah
+                </button>
+              </>
             )}
           </ModalFooter>
         </>

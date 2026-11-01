@@ -153,6 +153,8 @@ class RwTransaction {
   final String status;
   final String? paymentId;
   final String? paymentMethod;
+  final String? proofPath;
+  final String? proofUrl;
   final DateTime occurredAt;
   final DateTime createdAt;
 
@@ -173,6 +175,8 @@ class RwTransaction {
     required this.status,
     this.paymentId,
     this.paymentMethod,
+    this.proofPath,
+    this.proofUrl,
     required this.occurredAt,
     required this.createdAt,
   });
@@ -204,6 +208,8 @@ class RwTransaction {
       status: json['status'] as String? ?? '',
       paymentId: json['payment_id'] as String?,
       paymentMethod: json['payment_method'] as String?,
+      proofPath: json['proof_path'] as String?,
+      proofUrl: json['proof_url'] as String?,
       occurredAt: parseDate(json['occurred_at'] as String?),
       createdAt: parseDate(json['created_at'] as String?),
     );

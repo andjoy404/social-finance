@@ -7,6 +7,7 @@ import (
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	"social-finance/internal/finance"
+	"social-finance/internal/storage"
 )
 
 // Service provides RW-scoped operations with authorization enforcement.
@@ -196,6 +197,40 @@ func (s *Service) CreateTransaction(ctx context.Context, ac *auth.AuthContext, r
 	}
 
 	return entry, nil
+}
+
+// AttachTransactionProof saves the uploaded proof metadata for an RW transaction.
+func (s *Service) AttachTransactionProof(ctx context.Context, ac *auth.AuthContext, rwID, txID string, meta *storage.ObjectMetadata) error {
+	if err := s.requirePermission(ctx, ac, rwID, "finance.create"); err != nil {
+		return err
+	}
+
+	tx, err := s.pool.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := s.repo.AttachTransactionProof(ctx, tx, rwID, txID, ac.UserID, meta); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// GetTransactionProofInfo returns the proof path and mime type for an RW transaction.
+func (s *Service) GetTransactionProofInfo(ctx context.Context, ac *auth.AuthContext, rwID, txID string) (proofPath, mimeType string, err error) {
+	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+		return "", "", err
+	}
+
+	tx, err := s.pool.BeginTx(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	return s.repo.GetTransactionProofInfo(ctx, tx, rwID, txID)
 }
 
 // =========================================================================

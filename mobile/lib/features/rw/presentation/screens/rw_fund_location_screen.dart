@@ -1115,8 +1115,12 @@ class _RwFundLocationScreenState
                     TextField(
                       controller: amountCtrl,
                       keyboardType: TextInputType.number,
+                      inputFormatters: const [
+                        RupiahInputFormatter.withPrefix(),
+                      ],
                       decoration: InputDecoration(
-                        labelText: 'Nominal Transfer (Rp) *',
+                        labelText: 'Nominal Transfer *',
+                        hintText: 'Rp 0',
                         helperText: fromLoc != null
                             ? 'Saldo tersedia: ${RupiahFormatter.format(fromBal.toInt())}'
                             : null,

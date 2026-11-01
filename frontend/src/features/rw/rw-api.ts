@@ -29,7 +29,9 @@ const BASE = '/api/v1'
 export interface ApiRWDashboardSummary {
   total_rts: number
   total_locations: number
-  total_balance: string
+  total_opening_balance?: string
+  total_balance?: string
+  net_balance?: string
   total_income: string
   total_expense: string
   transaction_count: number
@@ -37,6 +39,7 @@ export interface ApiRWDashboardSummary {
 
 /** KAS report aggregate dari seluruh RT di bawah RW. */
 export interface ApiRWKASReport {
+  opening_balance?: string
   total_income: string
   total_expense: string
   net_balance: string
@@ -46,8 +49,9 @@ export interface ApiRWKASReport {
 /** Satu transaksi dari RT tertentu di bawah RW. */
 export interface ApiRWTransaction {
   id: string
-  rt_id: string
-  rt_name: string
+  rt_id?: string
+  rt_name?: string
+  rw_id?: string
   type: string // 'income' | 'expense'
   amount: string
   description: string
@@ -55,10 +59,12 @@ export interface ApiRWTransaction {
   category_name?: string | null
   location_id?: string | null
   location_name?: string | null
+  location_category?: string | null
   source_rt_id?: string | null
   source_rt_name?: string | null
   status: string
   payment_id?: string | null
+  payment_method?: string | null
   occurred_at: string
   created_at: string
 }

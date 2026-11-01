@@ -40,7 +40,7 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   const tabs: { key: RwViewTab; label: string; icon: React.ReactNode }[] = useMemo(() => [
     {
       key: 'dashboard',
-      label: 'Dashboard',
+      label: 'BERANDA',
       icon: <DashboardOutlined />,
     },
     {
@@ -274,7 +274,13 @@ export function RwDataView({ rwId }: { rwId?: string }) {
 
       {/* RW View Content */}
       <div style={{ padding: 16 }}>
-        {activeTab === 'dashboard' && <RwDashboard rwId={selectedRwId} rwName={displayName || undefined} />}
+        {activeTab === 'dashboard' && (
+          <RwDashboard
+            rwId={selectedRwId}
+            rwName={displayName || undefined}
+            onNavigateToKas={() => handleTabChange('kas')}
+          />
+        )}
         {activeTab === 'kas' && <RwKasList rwId={selectedRwId} rwName={displayName || undefined} />}
         {activeTab === 'lokasi-dana' && <RwFundLocationList rwId={selectedRwId} rwName={displayName || undefined} />}
       </div>

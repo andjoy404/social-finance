@@ -170,6 +170,53 @@ export async function apiLogin(identifier: string, password: string): Promise<Ap
   return data
 }
 
+export interface ApiResetPasswordWithCodeBody {
+  identifier: string
+  code: string
+  new_password: string
+  confirm_password: string
+}
+
+export async function apiResetPasswordWithCode(body: ApiResetPasswordWithCodeBody): Promise<{ status: string; message: string }> {
+  const res = await fetch(BASE + '/auth/reset-password-with-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ status: string; message: string }>(res)
+  if (!res.ok || !data) {
+    const errBody = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(errBody?.code ?? 'unexpected', errBody?.message ?? 'Gagal mengatur ulang kata sandi')
+  }
+  return data
+}
+
+export interface ApiGenerateResetCodeResponse {
+  code: string
+  expires_at: string
+  resident_id: string
+  resident_name: string
+  identifier: string
+}
+
+export async function apiGenerateResidentResetCode(token: string, residentId: string): Promise<ApiGenerateResetCodeResponse> {
+  const res = await fetch(BASE + `/residents/${residentId}/reset-password-code`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiGenerateResetCodeResponse>(res)
+  if (!res.ok || !data) {
+    const errBody = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(errBody?.code ?? 'unexpected', errBody?.message ?? 'Gagal membuat kode reset kata sandi')
+  }
+  return data
+}
+
 export interface ApiUpdateProfileBody {
   full_name: string
   phone?: string

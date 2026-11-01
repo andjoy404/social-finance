@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"social-finance/internal/storage"
 )
 
 // Repository provides RW-scoped queries.
@@ -1043,7 +1045,8 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		       t.source_rt_id, rt.name as source_rt_name,
 		       t.type, t.amount::numeric(15,2)::text, t.description,
 		       t.category_id, c.name as category_name, t.status,
-		       t.payment_id, t.occurred_at::text, t.created_at::text
+		       t.payment_id, t.occurred_at::text, t.created_at::text,
+		       t.proof_path
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
@@ -1139,11 +1142,12 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		var entry TransactionEntry
 		var locID, locName, srcRTID, srcRTName sql.NullString
 		var categoryID, categoryName sql.NullString
-		var paymentID sql.NullString
+		var paymentID, proofPath sql.NullString
 		err := rows.Scan(
 			&entry.ID, &entry.RWID, &locID, &locName, &srcRTID, &srcRTName,
 			&entry.Type, &entry.Amount, &entry.Description,
 			&categoryID, &categoryName, &entry.Status, &paymentID, &entry.OccurredAt, &entry.CreatedAt,
+			&proofPath,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan transaction: %w", err)
@@ -1169,6 +1173,11 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		if paymentID.Valid {
 			entry.PaymentID = &paymentID.String
 		}
+		if proofPath.Valid && proofPath.String != "" {
+			entry.ProofPath = &proofPath.String
+			url := fmt.Sprintf("/api/v1/rw/%s/kas/transactions/%s/proof", rwID, entry.ID)
+			entry.ProofURL = &url
+		}
 		list = append(list, &entry)
 	}
 
@@ -1185,7 +1194,8 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 		       t.source_rt_id, rt.name as source_rt_name,
 		       t.type, t.amount::numeric(15,2)::text, t.description,
 		       t.category_id, c.name as category_name, t.status,
-		       t.payment_id, t.occurred_at::text, t.created_at::text
+		       t.payment_id, t.occurred_at::text, t.created_at::text,
+		       t.proof_path
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
@@ -1195,11 +1205,12 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 	var entry TransactionEntry
 	var locID, locName, srcRTID, srcRTName sql.NullString
 	var categoryID, categoryName sql.NullString
-	var paymentID sql.NullString
+	var paymentID, proofPath sql.NullString
 	err := tx.QueryRowContext(ctx, query, rwID, id).Scan(
 		&entry.ID, &entry.RWID, &locID, &locName, &srcRTID, &srcRTName,
 		&entry.Type, &entry.Amount, &entry.Description,
 		&categoryID, &categoryName, &entry.Status, &paymentID, &entry.OccurredAt, &entry.CreatedAt,
+		&proofPath,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
@@ -1229,8 +1240,58 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 	if paymentID.Valid {
 		entry.PaymentID = &paymentID.String
 	}
+	if proofPath.Valid && proofPath.String != "" {
+		entry.ProofPath = &proofPath.String
+		url := fmt.Sprintf("/api/v1/rw/%s/kas/transactions/%s/proof", rwID, entry.ID)
+		entry.ProofURL = &url
+	}
 
 	return &entry, nil
+}
+
+// AttachTransactionProof saves the uploaded proof metadata for an RW transaction.
+func (r *Repository) AttachTransactionProof(ctx context.Context, tx *sql.Tx, rwID, txID, userID string, meta *storage.ObjectMetadata) error {
+	res, err := tx.ExecContext(ctx, `
+		UPDATE rw_transactions SET
+			proof_path = $1,
+			proof_original_name = $2,
+			proof_mime_type = $3,
+			proof_size_bytes = $4,
+			proof_uploaded_at = NOW(),
+			proof_uploaded_by = $5
+		WHERE rw_id = $6 AND id = $7
+	`, meta.Key, meta.OriginalName, meta.ContentType, meta.Size, userID, rwID, txID)
+	if err != nil {
+		return fmt.Errorf("update transaction proof: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetTransactionProofInfo returns the proof path and mime type for an RW transaction.
+func (r *Repository) GetTransactionProofInfo(ctx context.Context, tx *sql.Tx, rwID, txID string) (proofPath, mimeType string, err error) {
+	var pPath, mMime sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT proof_path, proof_mime_type
+		FROM rw_transactions
+		WHERE rw_id = $1 AND id = $2
+	`, rwID, txID).Scan(&pPath, &mMime)
+	if err == sql.ErrNoRows {
+		return "", "", ErrNotFound
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("get transaction proof: %w", err)
+	}
+	if !pPath.Valid || pPath.String == "" {
+		return "", "", ErrNotFound
+	}
+	return pPath.String, mMime.String, nil
 }
 
 func nextMonth(_ string, year, month string) string {

@@ -15,9 +15,12 @@ import {
   AreaChartOutlined,
 } from '@ant-design/icons'
 
-function isActive(route: string, pathname: string): boolean {
+function isActive(route: string, pathname: string, itemId?: string): boolean {
   if (route === '/') return pathname === '/'
-  return pathname.startsWith(route)
+  if (itemId === 'rw-data') {
+    return pathname.startsWith('/rw-view')
+  }
+  return pathname === route || pathname.startsWith(route + '/')
 }
 
 type NavItem = {
@@ -96,8 +99,8 @@ export function Sidebar() {
     const rwIdForData = rwMemberships[0].rw_id
     // Build a label showing RW count if multiple
     const rwLabel = rwMemberships.length === 1
-      ? rwMemberships[0].rw_name || 'DATA RW'
-      : `DATA RW (${rwMemberships.length})`
+      ? 'Data RW'
+      : `Data RW (${rwMemberships.length})`
 
     items.push({
       to: `/rw-view/${rwIdForData}/dashboard`,
@@ -142,7 +145,7 @@ export function Sidebar() {
         {/* Nav */}
         <div className="sidebar-nav">
           {items.map((item) => {
-            const active = isActive(item.to, location.pathname)
+            const active = isActive(item.to, location.pathname, item.id)
 
             // Render RW memberships dropdown for multi-RW users
             const isRWDataItem = item.id === 'rw-data'

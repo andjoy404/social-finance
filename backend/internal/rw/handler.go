@@ -3,6 +3,8 @@ package rw
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -12,18 +14,25 @@ import (
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	httpx "social-finance/internal/http"
+	"social-finance/internal/storage"
 )
 
 // Handler provides HTTP handlers for RW operational endpoints.
 type Handler struct {
-	pool *database.Pool
-	svc  *Service
+	pool    *database.Pool
+	svc     *Service
+	storage storage.Service
 }
 
-func NewHandler(pool *database.Pool, svc *Service) *Handler {
+func NewHandler(pool *database.Pool, svc *Service, store ...storage.Service) *Handler {
+	var s storage.Service
+	if len(store) > 0 {
+		s = store[0]
+	}
 	return &Handler{
-		pool: pool,
-		svc:  svc,
+		pool:    pool,
+		svc:     svc,
+		storage: s,
 	}
 }
 
@@ -198,6 +207,124 @@ func (h *Handler) CreateKASTransaction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"data": entry,
 	})
+}
+
+// UploadProof handles POST /api/v1/rw/{rwId}/kas/transactions/{id}/proof
+func (h *Handler) UploadProof(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
+	rwID := chi.URLParam(r, "rwId")
+	txID := chi.URLParam(r, "id")
+	if rwID == "" || txID == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "rwId and id are required")
+		return
+	}
+
+	if h.storage == nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "storage service unavailable")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		httpx.WriteValidationError(w, "invalid multipart form or file too large (max 5MB)", nil)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		file, header, err = r.FormFile("proof")
+	}
+	if err != nil {
+		httpx.WriteValidationError(w, "missing file in 'file' or 'proof' field", nil)
+		return
+	}
+	defer file.Close()
+
+	if header.Size <= 0 {
+		httpx.WriteValidationError(w, "uploaded file is empty", nil)
+		return
+	}
+	if header.Size > 5*1024*1024 {
+		httpx.WriteValidationError(w, "file size exceeds 5MB limit", nil)
+		return
+	}
+
+	meta, err := h.storage.UploadProof(r.Context(), rwID, txID, header.Filename, file, header.Size)
+	if err != nil {
+		if errors.Is(err, storage.ErrInvalidFormat) || errors.Is(err, storage.ErrFileTooLarge) || errors.Is(err, storage.ErrEmptyFile) {
+			httpx.WriteValidationError(w, err.Error(), nil)
+			return
+		}
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to upload proof")
+		return
+	}
+
+	if err := h.svc.AttachTransactionProof(r.Context(), ac, rwID, txID, meta); err != nil {
+		_ = h.storage.DeleteProof(r.Context(), meta.Key)
+		h.handleError(w, err)
+		return
+	}
+
+	proofURL := fmt.Sprintf("/api/v1/rw/%s/kas/transactions/%s/proof", rwID, txID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     "uploaded",
+		"proof_url":  proofURL,
+		"proof_path": meta.Key,
+	})
+}
+
+// GetProof handles GET /api/v1/rw/{rwId}/kas/transactions/{id}/proof
+func (h *Handler) GetProof(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
+	rwID := chi.URLParam(r, "rwId")
+	txID := chi.URLParam(r, "id")
+	if rwID == "" || txID == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "rwId and id are required")
+		return
+	}
+
+	if h.storage == nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "storage service unavailable")
+		return
+	}
+
+	proofPath, mimeType, err := h.svc.GetTransactionProofInfo(r.Context(), ac, rwID, txID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	reader, err := h.storage.GetProof(r.Context(), proofPath)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			httpx.ErrorJSON(w, http.StatusNotFound, "not_found", "proof image not found")
+			return
+		}
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to fetch proof image")
+		return
+	}
+	defer reader.Body.Close()
+
+	if mimeType != "" {
+		w.Header().Set("Content-Type", mimeType)
+	} else if reader.ContentType != "" {
+		w.Header().Set("Content-Type", reader.ContentType)
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
+
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	_, _ = io.Copy(w, reader.Body)
 }
 
 // GetLocations handles GET /api/v1/rw/{rwId}/locations

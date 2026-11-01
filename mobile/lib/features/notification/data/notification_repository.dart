@@ -118,6 +118,22 @@ class NotificationRepository {
     }
   }
 
+  Future<String> uploadImage({
+    required String eventType,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    try {
+      return await apiClient.uploadImage(
+        eventType: eventType,
+        bytes: bytes,
+        filename: filename,
+      );
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   Future<NotificationLogsResponse> fetchLogs({
     int page = 1,
     int perPage = 20,

@@ -2,6 +2,9 @@
 ///
 /// Mirip dengan pattern kas_api_client.dart tetapi untuk data agregat RW.
 
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
 
@@ -214,6 +217,39 @@ class RwApiClient {
       final response = await _apiClient.post(url, data: body);
       final data = response.data as Map<String, dynamic>;
       return RwTransaction.fromJson(data['data'] as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// POST /api/v1/rw/{rwId}/kas/transactions/{id}/proof
+  Future<Map<String, dynamic>> uploadTransactionProof(
+    String rwId,
+    String transactionId,
+    List<int> fileBytes,
+    String filename,
+  ) async {
+    final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/kas/transactions/${Uri.encodeComponent(transactionId)}/proof';
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(fileBytes, filename: filename),
+    });
+    try {
+      final response = await _apiClient.dio.post(url, data: formData);
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// GET /api/v1/rw/{rwId}/kas/transactions/{id}/proof
+  Future<Uint8List> getTransactionProofBytes(String rwId, String transactionId) async {
+    final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/kas/transactions/${Uri.encodeComponent(transactionId)}/proof';
+    try {
+      final response = await _apiClient.dio.get<List<int>>(
+        url,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      return Uint8List.fromList(response.data!);
     } catch (e) {
       rethrow;
     }

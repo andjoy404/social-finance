@@ -205,6 +205,8 @@ type TransactionEntry struct {
 	PaymentID    *string `json:"payment_id,omitempty"`
 	OccurredAt   string  `json:"occurred_at"`
 	CreatedAt    string  `json:"created_at"`
+	ProofPath    *string `json:"proof_path,omitempty"`
+	ProofURL     *string `json:"proof_url,omitempty"`
 }
 
 // CreateTransactionInput defines payload for creating a new KAS Masuk or KAS Keluar transaction.

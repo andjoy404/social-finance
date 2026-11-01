@@ -1217,6 +1217,10 @@ Permissions:
 - `POST /api/v1/rw/{rwId}/kas/transactions`
   - Body: `{"type": "income" | "expense", "amount": "100000.00", "location_id": "uuid", "description": "...", "payment_method": "transfer" | "cash", "source_rt_id": "uuid" (optional)}`
   - Records KAS transaction, appends `rw_location_balance_changes` mutation, checks sufficient balance on expense.
+- `POST /api/v1/rw/{rwId}/kas/transactions/{id}/proof`
+  - Multipart form upload for transaction proof (`file` field). Max 5MB.
+- `GET /api/v1/rw/{rwId}/kas/transactions/{id}/proof`
+  - Streams the proof image for an authorized RW transaction.
 
 ### 12.3 RW Fund Locations CRUD & Management
 Supports 3 categories: `rekening`, `brankas`, and `coh`. Dana Hibah/Donasi is eliminated.
@@ -1244,3 +1248,42 @@ Supports 3 categories: `rekening`, `brankas`, and `coh`. Dana Hibah/Donasi is el
 - `POST /api/v1/rw/{rwId}/transfers/{id}/reverse`
   - Body: `{"reason": "..."}`
   - Reverses previous transfer if recipient has sufficient balance to refund. Restores sender balance.
+
+## 13. Resident Password Reset via 4-Digit Code
+
+### 13.1 Generate Reset Code (Pengurus RT / Super Admin)
+- `POST /api/v1/residents/{id}/reset-password-code`
+  - Authorization: Pengurus of the resident's RT or Super Admin.
+  - Action: Generates a cryptographically secure 4-digit numeric code, hashes it with Argon2id, invalidates previous active codes for this resident, and stores with a 24-hour expiration window.
+  - Response:
+    ```json
+    {
+      "code": "0037",
+      "expires_at": "2026-11-02T18:00:00Z",
+      "resident_id": "uuid",
+      "resident_name": "Budi Santoso",
+      "identifier": "budi@example.com"
+    }
+    ```
+
+### 13.2 Redeem Reset Code (Public / Resident)
+- `POST /api/v1/auth/reset-password-with-code`
+  - Rate limited: 5 requests per 15 minutes per IP/identifier.
+  - Body:
+    ```json
+    {
+      "identifier": "budi@example.com",
+      "code": "0037",
+      "new_password": "NewSecurePassword123",
+      "confirm_password": "NewSecurePassword123"
+    }
+    ```
+  - Validates 4-digit code against latest non-expired active code hash, atomically updates password hash in `users`, marks code as used, revokes active refresh tokens, and writes audit trail.
+  - Response: `200 OK`
+    ```json
+    {
+      "status": "success",
+      "message": "Kata sandi berhasil diubah. Silakan masuk dengan kata sandi baru."
+    }
+    ```
+

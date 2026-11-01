@@ -859,6 +859,12 @@ Indexes:
 | `status` | `varchar(20)` | NOT NULL, default `'posted'`, CHECK (`draft`, `posted`, `cancelled`) | Immutability status |
 | `location_id` | `uuid` | NULL, FK → `(location_id, rw_id)` REFERENCES `rw_fund_locations` | Source/destination fund location |
 | `source_rt_id` | `uuid` | NULL, FK → `rts.id` ON DELETE SET NULL | Source RT for incoming dues/funds |
+| `proof_path` | `text` | NULL | Uploaded receipt/transaction proof file path |
+| `proof_original_name` | `text` | NULL | Original filename of uploaded proof |
+| `proof_mime_type` | `varchar(100)` | NULL | MIME type of proof image |
+| `proof_size_bytes` | `bigint` | NULL | File size in bytes |
+| `proof_uploaded_at` | `timestamptz` | NULL | Upload timestamp |
+| `proof_uploaded_by` | `uuid` | NULL, FK → `users.id` | User who uploaded proof |
 | `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Officer recording transaction |
 | `transaction_date` | `date` | NOT NULL, default `CURRENT_DATE` | Date of financial event |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | Audit timestamp |
@@ -924,4 +930,29 @@ Append-only immutable balance changes for RW fund locations.
 | `notes` | `text` | NULL | Mutation notes |
 | `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Author |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | Timestamp |
+
+## 14. Resident Password Reset Codes (Migration 048)
+
+Enables RT Pengurus to generate temporary 4-digit numeric reset codes for residents in their RT. Codes are hashed in the database, valid for 24 hours, strictly single-use, and rate-limited.
+
+### 14.1 `resident_password_reset_codes`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Reset request identifier |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE CASCADE | Associated user account |
+| `resident_id` | `uuid` | NOT NULL, FK → `residents.id` ON DELETE CASCADE | Target resident record |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | Scoped RT tenant |
+| `code_hash` | `text` | NOT NULL | Argon2id hash of the 4-digit code |
+| `expires_at` | `timestamptz` | NOT NULL | Expiration timestamp (default now() + 24 hours) |
+| `used_at` | `timestamptz` | NULL | Timestamp when code was successfully redeemed |
+| `created_by` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Pengurus or Admin who issued the code |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | Creation timestamp |
+
+Indexes:
+- `idx_reset_codes_user_id (user_id)`
+- `idx_reset_codes_resident_id (resident_id)`
+- `idx_reset_codes_rt_id (rt_id)`
+- `idx_reset_codes_active (user_id, expires_at) WHERE used_at IS NULL`
+
 

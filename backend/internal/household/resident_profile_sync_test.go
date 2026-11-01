@@ -33,9 +33,9 @@ func TestResidentUpdateSyncsToUserProfile(t *testing.T) {
 	auth.DefaultAccessTokenLifetime = 15 * time.Minute
 
 	const (
-		rt03ID      = "8dfa1e36-6727-45be-8fea-24d958efc155" // RT 003
-		wargaUserID = "22220001-0000-4000-8000-000000000001" // warga.rt03@local.com
-		wargaEmail  = "warga.rt03@local.com"
+		rt03ID      = "8dfa1e36-6727-45be-8fea-24d958efc155" // RT 001
+		wargaUserID = "22220001-0000-4000-8000-000000000001" // warga.rt01@local.com
+		wargaEmail  = "warga.rt01@local.com"
 		wargaPass   = devseed.DefaultSeedPassword
 		oldPhone    = "+6281300000030"
 		newPhone    = "+6281399999999"
@@ -191,8 +191,8 @@ func TestResidentUpdateSyncsToUserProfile(t *testing.T) {
 	if err := json.Unmarshal(meRec.Body.Bytes(), &meFull); err != nil {
 		t.Fatalf("unmarshal /auth/me: %v", err)
 	}
-	if meFull.Fullname != "Warga RT 03" {
-		t.Errorf("expected full_name unchanged 'Warga RT 03', got %q", meFull.Fullname)
+	if meFull.Fullname != "Warga RT 01" {
+		t.Errorf("expected full_name unchanged 'Warga RT 01', got %q", meFull.Fullname)
 	}
 	if meFull.Email != wargaEmail {
 		t.Errorf("expected email unchanged %q, got %q", wargaEmail, meFull.Email)

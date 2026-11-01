@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
@@ -667,7 +670,55 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
             const Text('Keterangan:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
             const SizedBox(height: 2),
             Text(t.description, style: const TextStyle(fontSize: 13)),
+            if (t.proofUrl != null || t.proofPath != null) ...[
+              const SizedBox(height: 12),
+              const Text('Bukti Transaksi:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: () => _showProofImageDialog(context, t),
+                icon: const Icon(Icons.image_outlined, size: 16),
+                label: const Text('Lihat Bukti Foto'),
+              ),
+            ],
           ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showProofImageDialog(BuildContext context, RwTransaction t) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Bukti Transaksi'),
+        content: FutureBuilder<Uint8List>(
+          future: ref.read(rwApiClientProvider).getTransactionProofBytes(widget.rwId, t.id),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const SizedBox(
+                height: 180,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError || !snapshot.hasData) {
+              return const SizedBox(
+                height: 120,
+                child: Center(child: Text('Gagal memuat gambar bukti')),
+              );
+            }
+            return InteractiveViewer(
+              child: Image.memory(
+                snapshot.data!,
+                fit: BoxFit.contain,
+              ),
+            );
+          },
         ),
         actions: [
           TextButton(
@@ -703,6 +754,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     final isIncome = type == 'income';
     final amountCtrl = TextEditingController();
     final descCtrl = TextEditingController();
+    XFile? proofFile;
+    Uint8List? proofBytes;
     String? selectedLocationId;
     String paymentMethod = 'transfer';
     bool saving = false;
@@ -785,8 +838,12 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       TextField(
                         controller: amountCtrl,
                         keyboardType: TextInputType.number,
+                        inputFormatters: const [
+                          RupiahInputFormatter.withPrefix(),
+                        ],
                         decoration: InputDecoration(
-                          labelText: 'Nominal (Rp) *',
+                          labelText: 'Nominal *',
+                          hintText: 'Rp 0',
                           helperText: !isIncome && selectedLoc != null
                               ? 'Saldo tersedia: ${RupiahFormatter.format(locBal.toInt())}'
                               : null,
@@ -821,6 +878,112 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         ),
                         maxLines: 2,
                       ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Bukti Transaksi (Opsional)',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          if (proofBytes != null)
+                            TextButton(
+                              onPressed: () => setDialogState(() {
+                                proofFile = null;
+                                proofBytes = null;
+                              }),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                foregroundColor: AppColors.danger,
+                              ),
+                              child: const Text('Hapus', style: TextStyle(fontSize: 12)),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      if (proofBytes != null) ...[
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          child: Image.memory(
+                            proofBytes!,
+                            height: 120,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final picker = ImagePicker();
+                              final picked = await picker.pickImage(
+                                source: ImageSource.gallery,
+                                maxWidth: 1920,
+                                maxHeight: 1920,
+                                imageQuality: 85,
+                              );
+                              if (picked != null) {
+                                final bytes = await picked.readAsBytes();
+                                setDialogState(() {
+                                  proofFile = picked;
+                                  proofBytes = bytes;
+                                });
+                              }
+                            },
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('Ganti Foto', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final picker = ImagePicker();
+                                  final picked = await picker.pickImage(
+                                    source: ImageSource.camera,
+                                    maxWidth: 1920,
+                                    maxHeight: 1920,
+                                    imageQuality: 85,
+                                  );
+                                  if (picked != null) {
+                                    final bytes = await picked.readAsBytes();
+                                    setDialogState(() {
+                                      proofFile = picked;
+                                      proofBytes = bytes;
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.camera_alt, size: 16),
+                                label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final picker = ImagePicker();
+                                  final picked = await picker.pickImage(
+                                    source: ImageSource.gallery,
+                                    maxWidth: 1920,
+                                    maxHeight: 1920,
+                                    imageQuality: 85,
+                                  );
+                                  if (picked != null) {
+                                    final bytes = await picked.readAsBytes();
+                                    setDialogState(() {
+                                      proofFile = picked;
+                                      proofBytes = bytes;
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.photo_library, size: 16),
+                                label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ],
                 ),
@@ -857,13 +1020,27 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
 
                     try {
                       final api = ref.read(rwApiClientProvider);
-                      await api.createTransaction(widget.rwId, {
+                      final tx = await api.createTransaction(widget.rwId, {
                         'type': type,
                         'amount': '${amt.toInt()}.00',
                         'location_id': selectedLocationId,
                         'description': descCtrl.text.trim(),
                         'payment_method': paymentMethod,
                       });
+
+                      if (proofBytes != null && proofFile != null) {
+                        try {
+                          await api.uploadTransactionProof(
+                            widget.rwId,
+                            tx.id,
+                            proofBytes!,
+                            proofFile!.name,
+                          );
+                        } catch (uploadErr) {
+                          // Notification of proof upload issue but transaction created
+                        }
+                      }
+
                       if (context.mounted) {
                         Navigator.pop(dialogCtx);
                         ScaffoldMessenger.of(context).showSnackBar(

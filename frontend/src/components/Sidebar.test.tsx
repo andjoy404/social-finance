@@ -397,6 +397,34 @@ describe('Sidebar — active route detection', () => {
     expect(rwLink).toHaveClass('nav-item-active')
   })
 
+  it('marks Data RW as active on /rw-view and does NOT highlight Kelola RW', () => {
+    const userWithRw: AuthUser = {
+      ...mockSuperAdminUser,
+      rwMemberships: [
+        { rw_id: 'rw-002', rw_name: 'RW 016', jabatan: 'bendahara' },
+      ],
+    }
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: userWithRw,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-002/dashboard']}>
+        <Sidebar />
+      </MemoryRouter>,
+    )
+    const dataRwLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Data RW'))
+    expect(dataRwLink).toBeInTheDocument()
+    expect(dataRwLink).toHaveClass('nav-item-active')
+
+    const kelolaRwLink = screen.getAllByRole('link').find(l => l.textContent?.includes('Kelola RW'))
+    expect(kelolaRwLink).toBeInTheDocument()
+    expect(kelolaRwLink).not.toHaveClass('nav-item-active')
+  })
+
 })
 
 describe('Sidebar — layout classes', () => {

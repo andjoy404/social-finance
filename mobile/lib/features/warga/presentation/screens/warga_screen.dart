@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,6 +15,7 @@ import 'package:social_finance/core/widgets/empty_state.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_providers.dart';
+import '../../data/warga_repository.dart';
 import '../dialogs/data_choice_dialog.dart';
 import 'package:social_finance/core/models/role.dart';
 import '../../../auth/data/mock_auth_repository.dart';
@@ -615,7 +617,13 @@ class _ResidentCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              if (canWrite && !kIsWeb)
+              if (canWrite && !kIsWeb) ...[
+                IconButton(
+                  icon: const Icon(Icons.vpn_key_outlined, size: 20),
+                  tooltip: 'Reset Password',
+                  color: AppColors.accent,
+                  onPressed: () => _handleResetPassword(context, ref, resident),
+                ),
                 IconButton(
                   icon: const Icon(Icons.edit_outlined, size: 20),
                   tooltip: 'Ubah',
@@ -633,6 +641,7 @@ class _ResidentCard extends ConsumerWidget {
                     ref.read(wargaListProvider.notifier).refresh();
                   },
                 ),
+              ],
             ],
           ),
           const Divider(height: 20),
@@ -793,5 +802,107 @@ class _ResidentCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _handleResetPassword(
+    BuildContext context,
+    WidgetRef ref,
+    MappedResident resident,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset Password Warga'),
+        content: Text(
+          'Buat 4 digit kode reset kata sandi untuk ${resident.name}?\n\nKode ini berlaku selama 24 jam.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Buat Kode'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !context.mounted) return;
+
+    try {
+      final res = await ref
+          .read(wargaRepositoryProvider)
+          .generateResetPasswordCode(resident.id);
+      if (!context.mounted) return;
+
+      final code = res['code']?.toString() ?? '';
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Kode Reset Kata Sandi'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                resident.name,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  code,
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 8,
+                    fontFamily: 'monospace',
+                    color: AppColors.accent,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Berikan 4 digit kode ini kepada warga untuk mereset kata sandi melalui menu "Lupa Kata Sandi?" pada halaman Login.\n\nKode berlaku 24 jam dan hanya dapat digunakan 1 kali.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Tutup'),
+            ),
+            FilledButton.icon(
+              icon: const Icon(Icons.copy, size: 16),
+              label: const Text('Salin Kode'),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: code));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Kode reset berhasil disalin')),
+                );
+                Navigator.of(ctx).pop();
+              },
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal membuat kode: $e'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
   }
 }

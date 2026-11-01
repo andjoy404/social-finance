@@ -78,6 +78,22 @@ Widget _dashboardViaMaterialApp() {
   );
 }
 
+Widget _profileViaMaterialApp() {
+  return rp.ProviderScope(
+    overrides: [
+      authRepositoryProvider.overrideWith(((ref) {
+        return _createTestAuthRepo({
+          'name': 'Heri Prastyo',
+          'role': AppRole.bendahara,
+          'rt': '002',
+          'rw': '016',
+        });
+      })),
+    ],
+    child: MaterialApp(home: const ProfileScreen()),
+  );
+}
+
 void main() {
   // ── App Lifecycle ──
 
@@ -347,24 +363,47 @@ void main() {
   });
 
   testWidgets('Theme popup contains all three options', (tester) async {
-    await tester.pumpWidget(_dashboardViaMaterialApp());
+    await tester.pumpWidget(_profileViaMaterialApp());
     await tester.pump();
-    // Theme palette icon
-    expect(find.byIcon(Icons.palette_outlined), findsOneWidget);
+    // Theme palette icon in profile AppBar
+    final themeButtonInAppBar = find.descendant(
+      of: find.byType(AppBar),
+      matching: find.byIcon(Icons.palette_outlined),
+    );
+    expect(themeButtonInAppBar, findsOneWidget);
     // Tap to open theme popup
-    await tester.tap(find.byIcon(Icons.palette_outlined));
+    await tester.tap(themeButtonInAppBar);
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Ikuti Sistem'), findsOneWidget);
-    expect(find.text('Terang'), findsOneWidget);
-    expect(find.text('Gelap'), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(PopupMenuItem<AppThemeMode>), matching: find.text('Ikuti Sistem')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: find.byType(PopupMenuItem<AppThemeMode>), matching: find.text('Terang')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: find.byType(PopupMenuItem<AppThemeMode>), matching: find.text('Gelap')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Theme popup does NOT contain Logout', (tester) async {
+    await tester.pumpWidget(_profileViaMaterialApp());
+    await tester.pump();
+    final themeButtonInAppBar = find.descendant(
+      of: find.byType(AppBar),
+      matching: find.byIcon(Icons.palette_outlined),
+    );
+    await tester.tap(themeButtonInAppBar);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.descendant(of: find.byType(PopupMenuItem), matching: find.text('Keluar')), findsNothing);
+  });
+
+  testWidgets('Dashboard no longer has theme palette icon', (tester) async {
     await tester.pumpWidget(_dashboardViaMaterialApp());
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.palette_outlined));
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Keluar'), findsNothing);
+    expect(find.byIcon(Icons.palette_outlined), findsNothing);
   });
 
   testWidgets('Dashboard renders greeting with user info', (tester) async {

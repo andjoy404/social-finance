@@ -61,8 +61,21 @@ int? parseRupiahInput(String input) {
 }
 
 /// Text input formatter that keeps only digits and groups them with dot
-/// thousand separators while typing (e.g. "1500000" → "1.500.000").
+/// thousand separators while typing (e.g. "1500000" → "1.500.000" or "Rp 1.500.000").
+/// Maintains natural cursor position when editing anywhere in the string.
 class RupiahInputFormatter extends TextInputFormatter {
+  final bool withPrefix;
+  final String prefix;
+
+  const RupiahInputFormatter({
+    this.withPrefix = false,
+    this.prefix = 'Rp ',
+  });
+
+  const RupiahInputFormatter.withPrefix({
+    this.prefix = 'Rp ',
+  }) : withPrefix = true;
+
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
@@ -72,23 +85,59 @@ class RupiahInputFormatter extends TextInputFormatter {
     if (digits.isEmpty) {
       return const TextEditingValue(text: '');
     }
+
+    // Number of digits before the cursor in newValue
+    final cursor = newValue.selection.baseOffset.clamp(0, newValue.text.length);
+    final textBeforeCursor = newValue.text.substring(0, cursor);
+    int digitsBefore = textBeforeCursor.replaceAll(RegExp(r'[^0-9]'), '').length;
+
     // Drop leading zeros (but keep a single "0").
+    final leadingZeros = RegExp(r'^0+(?=\d)').firstMatch(digits)?.group(0)?.length ?? 0;
     final normalized = digits.replaceFirst(RegExp(r'^0+(?=\d)'), '');
-    final formatted = normalized.replaceAllMapped(
+    if (leadingZeros > 0) {
+      digitsBefore = (digitsBefore - leadingZeros).clamp(0, normalized.length);
+    }
+
+    final formattedDigits = normalized.replaceAllMapped(
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
       (Match m) => '${m[1]}.',
     );
+
+    final formatted = withPrefix ? '$prefix$formattedDigits' : formattedDigits;
+
+    // Find the offset in formatted that corresponds to having seen digitsBefore digits
+    int newOffset = 0;
+    int digitsSeen = 0;
+    if (digitsBefore == 0) {
+      newOffset = withPrefix ? prefix.length : 0;
+    } else {
+      for (int i = 0; i < formatted.length; i++) {
+        if (RegExp(r'[0-9]').hasMatch(formatted[i])) {
+          digitsSeen++;
+        }
+        if (digitsSeen == digitsBefore) {
+          newOffset = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (withPrefix && newOffset < prefix.length) {
+      newOffset = prefix.length;
+    }
+
     return TextEditingValue(
       text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
+      selection: TextSelection.collapsed(offset: newOffset),
     );
   }
 
-  /// Formats an integer for pre-filling an input controller ("1.500.000").
-  static String formatForInput(int amount) {
-    return amount.abs().toString().replaceAllMapped(
+  /// Formats an integer for pre-filling an input controller ("1.500.000" or "Rp 1.500.000").
+  static String formatForInput(int amount, {bool withPrefix = false, String prefix = 'Rp '}) {
+    final digits = amount.abs().toString().replaceAllMapped(
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
       (Match m) => '${m[1]}.',
     );
+    return withPrefix ? '$prefix$digits' : digits;
   }
 }

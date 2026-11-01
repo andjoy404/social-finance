@@ -142,6 +142,27 @@ class NotificationApiClient {
     await dio.delete('/api/v1/notifications/templates/$id');
   }
 
+  /// POST /api/v1/notifications/upload-image
+  Future<String> uploadImage({
+    required String eventType,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    final formData = FormData.fromMap({
+      'event_type': eventType,
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final response = await dio.post(
+      '/api/v1/notifications/upload-image',
+      data: formData,
+    );
+    final data = response.data;
+    if (data is Map && data['image_url'] != null) {
+      return data['image_url'] as String;
+    }
+    throw const FormatException('Unexpected response uploading image');
+  }
+
   /// GET /api/v1/notifications/logs
   Future<NotificationLogsResponse> getLogs({
     int page = 1,

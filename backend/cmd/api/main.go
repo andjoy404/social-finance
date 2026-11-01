@@ -430,12 +430,20 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		refreshLimiter = auth.NewRateLimiter(1000, 15*time.Minute)
 	}
 
+	resetLimiter := auth.NewRateLimiter(5, 15*time.Minute)
+	if appEnv == "development" || appEnv == "test" {
+		resetLimiter = auth.NewRateLimiter(1000, 15*time.Minute)
+	}
+
 	r.Post("/api/v1/auth/login", loginLimiter.LimitFunc(func(r *http.Request) string {
 		return auth.ClientIP(r)
 	})(authH.Login()).(http.HandlerFunc))
 	r.Post("/api/v1/auth/refresh", refreshLimiter.LimitFunc(func(r *http.Request) string {
 		return auth.ClientIP(r)
 	})(authH.Refresh()).(http.HandlerFunc))
+	r.Post("/api/v1/auth/reset-password-with-code", resetLimiter.LimitFunc(func(r *http.Request) string {
+		return auth.ClientIP(r)
+	})(authH.ResetPasswordWithCode()).(http.HandlerFunc))
 
 	// Protected auth routes.
 	r.Group(func(r chi.Router) {
@@ -616,6 +624,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Post("/api/v1/residents/{id}/move", hh.MoveResident)
 		r.Patch("/api/v1/residents/{id}", hh.UpdateResident)
 		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
+		r.Post("/api/v1/residents/{id}/reset-password-code", hh.GenerateResetPasswordCode)
 		r.Patch("/api/v1/residents/special/{id}", hh.UpdateSpecialResident)
 	})
 
@@ -745,7 +754,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 
 	rwRepo := rw.NewRepository(pool.Raw())
 	rwSvc := rw.NewService(pool, rwRepo, scopingCfg)
-	rwHandler := rw.NewHandler(pool, rwSvc)
+	rwHandler := rw.NewHandler(pool, rwSvc, store)
 
 	// RW operational endpoints
 	// Requires RW membership via RequireRWScope (from scoping.go)
@@ -758,6 +767,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/rw/{rwId}/kas/transactions", rwHandler.GetKASTransactions)
 		r.Post("/api/v1/rw/{rwId}/kas/transactions", rwHandler.CreateKASTransaction)
 		r.Get("/api/v1/rw/{rwId}/kas/transactions/{id}", rwHandler.GetKASTransactionByID)
+		r.Post("/api/v1/rw/{rwId}/kas/transactions/{id}/proof", rwHandler.UploadProof)
+		r.Get("/api/v1/rw/{rwId}/kas/transactions/{id}/proof", rwHandler.GetProof)
 
 		r.Get("/api/v1/rw/{rwId}/locations", rwHandler.GetLocations)
 		r.Post("/api/v1/rw/{rwId}/locations", rwHandler.CreateLocation)
