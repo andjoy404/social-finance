@@ -770,6 +770,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/rw/{rwId}/dashboard", rwHandler.GetDashboard)
 		r.Get("/api/v1/rw/{rwId}/kas", rwHandler.GetKAS)
 		r.Post("/api/v1/rw/{rwId}/kas", rwHandler.CreateKASTransaction)
+		r.Post("/api/v1/rw/{rwId}/opening-balance", rwHandler.UpdateOpeningBalance)
 		r.Get("/api/v1/rw/{rwId}/kas/transactions", rwHandler.GetKASTransactions)
 		r.Post("/api/v1/rw/{rwId}/kas/transactions", rwHandler.CreateKASTransaction)
 		r.Get("/api/v1/rw/{rwId}/kas/transactions/{id}", rwHandler.GetKASTransactionByID)

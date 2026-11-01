@@ -147,6 +147,7 @@ type Bill struct {
 	DueDate              string     `json:"due_date"`
 	Status               BillStatus `json:"status"`
 	IsActive             bool       `json:"is_active"`
+	IsObligatory         bool       `json:"is_obligatory"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 
@@ -157,6 +158,8 @@ type Bill struct {
 	DueYear       *int    `json:"due_year,omitempty"`
 	HouseNumber   *string `json:"house_number,omitempty"`
 	HeadName      *string `json:"head_name,omitempty"`
+	MoveInDate    *string `json:"move_in_date,omitempty"`
+	MoveOutDate   *string `json:"move_out_date,omitempty"`
 	IsVoluntary   bool    `json:"is_voluntary"`
 	PaidAmount    *string `json:"paid_amount,omitempty"`
 	PendingAmount *string `json:"pending_amount,omitempty"`
@@ -372,6 +375,7 @@ type Transaction struct {
 	HouseNumber   *string `json:"house_number,omitempty"`
 	LocationID    *string `json:"location_id,omitempty"`
 	LocationName  *string `json:"location_name,omitempty"`
+	ExpenseCategory *string `json:"expense_category,omitempty"`
 }
 
 type CreateTransactionInput struct {
@@ -382,6 +386,7 @@ type CreateTransactionInput struct {
 	OccurredAt    *string         `json:"occurred_at,omitempty"` // RFC3339 or YYYY-MM-DD
 	PaymentMethod *string         `json:"payment_method,omitempty"`
 	LocationID    *string         `json:"location_id,omitempty"`
+	ExpenseCategory *string       `json:"expense_category,omitempty"`
 }
 
 type UpdateTransactionInput struct {
@@ -392,6 +397,7 @@ type UpdateTransactionInput struct {
 	OccurredAt    *string          `json:"occurred_at,omitempty"`
 	PaymentMethod *string          `json:"payment_method,omitempty"`
 	LocationID    *string          `json:"location_id,omitempty"`
+	ExpenseCategory *string        `json:"expense_category,omitempty"`
 }
 
 type DashboardPaymentMethodBreakdown struct {

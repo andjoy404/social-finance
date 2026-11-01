@@ -1297,3 +1297,26 @@ func seedRWLocation(t *testing.T, ctx context.Context, pool *database.Pool, rwID
 	return locID
 }
 
+func TestSetOpeningBalanceAndExpenseCategory(t *testing.T) {
+	ctx := context.Background()
+	pool, repo, rwID, userID, _, _, _ := setupRWTest(t)
+
+	tx, err := pool.Raw().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	err = repo.SetOpeningBalance(ctx, tx, rwID, "2500000.00", userID)
+	require.NoError(t, err)
+	err = tx.Commit()
+	require.NoError(t, err)
+
+	txKAS, err := pool.Raw().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	kas, err := repo.GetKASReport(ctx, txKAS, rwID, "")
+	require.NoError(t, err)
+	err = txKAS.Commit()
+	require.NoError(t, err)
+
+	require.Equal(t, "2500000.00", kas.OpeningBalance)
+	require.Equal(t, "2500000.00", kas.NetBalance)
+}
+
+

@@ -187,10 +187,12 @@ func scanHouseholdRow(scan func(...interface{}) error) (*Household, error) {
 	if hoStartDate.Valid {
 		sd := hoStartDate.Time.Format("2006-01-02")
 		item.StartDate = &sd
+		item.MoveInDate = &sd
 	}
 	if hoEndDate.Valid {
 		ed := hoEndDate.Time.Format("2006-01-02")
 		item.EndDate = &ed
+		item.MoveOutDate = &ed
 	}
 
 	return &item, nil
@@ -309,6 +311,16 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 	}
 
 	// 3. Create household occupancy
+	if in.StartDate == nil || strings.TrimSpace(*in.StartDate) == "" {
+		if in.MoveInDate != nil && strings.TrimSpace(*in.MoveInDate) != "" {
+			in.StartDate = in.MoveInDate
+		}
+	}
+	if in.EndDate == nil || strings.TrimSpace(*in.EndDate) == "" {
+		if in.MoveOutDate != nil && strings.TrimSpace(*in.MoveOutDate) != "" {
+			in.EndDate = in.MoveOutDate
+		}
+	}
 	var startDate *time.Time
 	if in.StartDate != nil && *in.StartDate != "" {
 		d, parseErr := time.Parse("2006-01-02", *in.StartDate)
@@ -348,10 +360,12 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 	if startDate != nil {
 		sd := startDate.Format("2006-01-02")
 		item.StartDate = &sd
+		item.MoveInDate = &sd
 	}
 	if endDate != nil {
 		ed := endDate.Format("2006-01-02")
 		item.EndDate = &ed
+		item.MoveOutDate = &ed
 	}
 
 	// 4. Create head resident & residency period
@@ -698,6 +712,14 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 		hasChanges = true
 	}
 
+	if in.StartDate == nil && in.MoveInDate != nil {
+		in.StartDate = in.MoveInDate
+	}
+	if in.EndDate == nil && in.MoveOutDate != nil {
+		in.EndDate = in.MoveOutDate
+	}
+
+	occupancyDateChanged := false
 	if hoID.Valid && in.StartDate != nil && strings.TrimSpace(*in.StartDate) != "" {
 		trimmedDate := strings.TrimSpace(*in.StartDate)
 		_, err = tx.ExecContext(ctx,
@@ -712,6 +734,7 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 			trimmedDate, hoID.String,
 		)
 		hasChanges = true
+		occupancyDateChanged = true
 	}
 
 	if hoID.Valid && in.EndDate != nil {
@@ -742,6 +765,25 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 			)
 		}
 		hasChanges = true
+		occupancyDateChanged = true
+	}
+
+	if hoID.Valid && occupancyDateChanged {
+		// Recalculate obligation status on unpaid bills for this occupancy
+		_, _ = tx.ExecContext(ctx, `
+			UPDATE bills b
+			SET is_obligatory = CASE
+				WHEN ho.start_date IS NOT NULL AND b.period < to_char(ho.start_date, 'YYYY-MM') THEN false
+				WHEN ho.end_date IS NOT NULL AND b.period > to_char(ho.end_date, 'YYYY-MM') THEN false
+				ELSE true
+			END,
+			updated_at = CURRENT_TIMESTAMP
+			FROM household_occupancies ho
+			WHERE b.household_occupancy_id = ho.id
+			  AND ho.id = $1
+			  AND b.status = 'unpaid'
+		`, hoID.String)
+		triggerSyncBills(ctx, tx, rtID, hoID.String)
 	}
 
 	var headResID sql.NullString

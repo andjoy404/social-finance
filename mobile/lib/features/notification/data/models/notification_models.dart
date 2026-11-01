@@ -146,6 +146,7 @@ class NotificationLogEntry {
   final String body;
   final String? imageUrl;
   final Map<String, dynamic> variables;
+  final Map<String, dynamic>? payload;
   final int recipientsCount;
   final DateTime? createdAt;
   final bool isRead;
@@ -160,6 +161,7 @@ class NotificationLogEntry {
     required this.body,
     this.imageUrl,
     required this.variables,
+    this.payload,
     required this.recipientsCount,
     this.createdAt,
     this.isRead = false,
@@ -178,6 +180,9 @@ class NotificationLogEntry {
       variables: json['variables'] is Map
           ? (json['variables'] as Map).cast<String, dynamic>()
           : const {},
+      payload: json['payload'] is Map
+          ? (json['payload'] as Map).cast<String, dynamic>()
+          : null,
       recipientsCount: (json['recipients_count'] as num?)?.toInt() ?? 0,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'].toString())
@@ -198,6 +203,7 @@ class NotificationLogEntry {
         'body': body,
         if (imageUrl != null) 'image_url': imageUrl,
         'variables': variables,
+        if (payload != null) 'payload': payload,
         'recipients_count': recipientsCount,
         'created_at': createdAt?.toIso8601String(),
         'is_read': isRead,
@@ -213,6 +219,7 @@ class NotificationLogEntry {
     String? body,
     String? imageUrl,
     Map<String, dynamic>? variables,
+    Map<String, dynamic>? payload,
     int? recipientsCount,
     DateTime? createdAt,
     bool? isRead,
@@ -227,6 +234,7 @@ class NotificationLogEntry {
       body: body ?? this.body,
       imageUrl: imageUrl ?? this.imageUrl,
       variables: variables ?? this.variables,
+      payload: payload ?? this.payload,
       recipientsCount: recipientsCount ?? this.recipientsCount,
       createdAt: createdAt ?? this.createdAt,
       isRead: isRead ?? this.isRead,

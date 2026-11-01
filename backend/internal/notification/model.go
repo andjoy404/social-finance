@@ -174,9 +174,10 @@ type NotificationLogEntry struct {
 	UserID    *string    `json:"user_id,omitempty"`
 	EventType string     `json:"event_type"`
 	DedupKey  string     `json:"dedup_key"`
-	Title     string     `json:"title"`
-	Body      string     `json:"body"`
-	ImageURL  *string    `json:"image_url,omitempty"`
+	Title     string         `json:"title"`
+	Body      string         `json:"body"`
+	Payload   map[string]any `json:"payload,omitempty"`
+	ImageURL  *string        `json:"image_url,omitempty"`
 	Status    string     `json:"status"`
 	CreatedAt time.Time  `json:"created_at"`
 	IsRead    bool       `json:"is_read"`

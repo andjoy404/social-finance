@@ -313,6 +313,7 @@ Automatic expiry semantics:
 | `due_date` | `date` | NOT NULL | Payment deadline |
 | `status` | `text` | NOT NULL, default `'unpaid'`, CHECK IN (`unpaid`, `partial`, `paid`, `cancelled`) | Bill status |
 | `is_active` | `boolean` | NOT NULL, default `true` | Active/inactive status of the bill |
+| `is_obligatory` | `boolean` | NOT NULL, default `true` | Indicates whether the bill period is an obligation based on move_in_date |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
 
@@ -324,6 +325,7 @@ Indexes & Constraints:
 - Index on `(status)`
 - Index on `(rt_id, is_active)`
 - Index on `(household_occupancy_id, due_id, is_active)`
+- Index on `(household_occupancy_id, due_id, is_obligatory)`
 
 ### 4.4 `payments` — Payment Records
 
@@ -370,6 +372,7 @@ Exactly one of `bill_id` or `due_id` must be non-NULL. A due-targeted payment is
 | `reference_no` | `text` | NULL, UNIQUE | System-generated transaction reference number (e.g. `KAS-YYYYMMDD-XXXXX`) |
 | `payment_method` | `text` | NULL, CHECK IN (`CASH`, `TRANSFER`) | Payment method (`CASH` or `TRANSFER`) |
 | `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Officer who recorded the manual transaction |
+| `expense_category` | `text` | NULL | Standardized expense category for expense transactions |
 | `description` | `text` | NOT NULL | Audit ledger note |
 | `occurred_at` | `timestamptz` | NOT NULL, default `now()` | Event date |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
@@ -426,6 +429,7 @@ Indexes & Constraints:
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `payment_method` | `text` | NULL, CHECK IN (`CASH`, `TRANSFER`) | Payment method |
 | `created_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Officer who recorded the manual transaction |
+| `expense_category` | `text` | NULL | Standardized expense category for expense transactions |
 | `reference_no` | `text` | NULL | System-generated transaction reference number |
 
 Indexes & Constraints:
@@ -467,6 +471,7 @@ Indexes & Constraints:
 | 027 | `027_rw_domain_and_transaction_reference.up.sql` | Creates `rws` domain table, adds `rts.rw_id` foreign key, and adds `transactions.reference_no` for auto-generated KAS transaction references | false |
 | 032 | `032_dues_valid_until.up.sql` | Adds nullable `dues.valid_until` for voluntary-due auto-expiry plus a partial expiry index | false |
 | 042 | `042_rw_transactions.up.sql` | Creates `rw_transactions` table — RW-level independent financial ledger separate from RT transactions (Brief 2: Koreksi Fundamental) | false |
+| 049 | `049_bills_is_obligatory.up.sql` | Adds `is_obligatory` to `bills` and indexes obligation status based on `move_in_date` | false |
 
 Migration execution: `docker compose run --rm migrate up`
 

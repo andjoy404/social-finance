@@ -528,6 +528,9 @@ class _KasScreenState extends ConsumerState<KasScreen> {
           !tx.keterangan.toLowerCase().contains(query) &&
           !tx.kategori.label.toLowerCase().contains(query) &&
           !(tx.referensi ?? '').toLowerCase().contains(query) &&
+          !(tx.citizenName ?? '').toLowerCase().contains(query) &&
+          !(tx.officerName ?? '').toLowerCase().contains(query) &&
+          !(tx.houseNumber ?? '').toLowerCase().contains(query) &&
           !(tx.dueName ?? '').toLowerCase().contains(query)) {
         return false;
       }
@@ -552,6 +555,105 @@ class _KasScreenState extends ConsumerState<KasScreen> {
       }
       return true;
     }).toList();
+  }
+
+  void _showSummaryChipDetail({
+    required BuildContext context,
+    required String label,
+    required String value,
+    required Color color,
+    IconData? icon,
+    String? subtitle,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.base),
+                Row(
+                  children: [
+                    if (icon != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Icon(icon, size: 20, color: color),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            label,
+                            style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          SelectableText(
+                            value,
+                            style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(
+                              color: color,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    subtitle,
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.base),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Tutup'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _showEditOpeningBalanceDialog(int currentOpening) async {
@@ -1348,6 +1450,14 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             isEditable: canWrite,
                             onEdit: () =>
                                 _showEditOpeningBalanceDialog(openingBalance),
+                            onTap: () => _showSummaryChipDetail(
+                              context: context,
+                              label: 'Saldo Awal',
+                              value: RupiahFormatter.format(openingBalance),
+                              color: AppColors.info,
+                              icon: Icons.flag_outlined,
+                              subtitle: 'Saldo awal pada periode aktif.',
+                            ),
                           ),
                         ),
                         const SizedBox(width: AppSpacing.sm),
@@ -1357,6 +1467,14 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             value: RupiahFormatter.format(closingBalance),
                             color: AppColors.accent,
                             icon: Icons.account_balance_wallet_rounded,
+                            onTap: () => _showSummaryChipDetail(
+                              context: context,
+                              label: 'Saldo Akhir',
+                              value: RupiahFormatter.format(closingBalance),
+                              color: AppColors.accent,
+                              icon: Icons.account_balance_wallet_rounded,
+                              subtitle: 'Saldo akhir berjalan (Saldo Awal + Total Masuk - Total Keluar).',
+                            ),
                           ),
                         ),
                       ],
@@ -1370,6 +1488,14 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             value: '+${RupiahFormatter.format(totalMasuk)}',
                             color: AppColors.success,
                             icon: Icons.arrow_downward,
+                            onTap: () => _showSummaryChipDetail(
+                              context: context,
+                              label: 'Total Masuk',
+                              value: '+${RupiahFormatter.format(totalMasuk)}',
+                              color: AppColors.success,
+                              icon: Icons.arrow_downward,
+                              subtitle: 'Total seluruh penerimaan kas RT pada periode ini.',
+                            ),
                           ),
                         ),
                         const SizedBox(width: AppSpacing.sm),
@@ -1379,6 +1505,14 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             value: '-${RupiahFormatter.format(totalKeluar)}',
                             color: AppColors.danger,
                             icon: Icons.arrow_upward,
+                            onTap: () => _showSummaryChipDetail(
+                              context: context,
+                              label: 'Total Keluar',
+                              value: '-${RupiahFormatter.format(totalKeluar)}',
+                              color: AppColors.danger,
+                              icon: Icons.arrow_upward,
+                              subtitle: 'Total seluruh pengeluaran kas RT pada periode ini.',
+                            ),
                           ),
                         ),
                         const SizedBox(width: AppSpacing.sm),
@@ -1391,6 +1525,14 @@ class _KasScreenState extends ConsumerState<KasScreen> {
                             icon: netMovement >= 0
                                 ? Icons.arrow_downward
                                 : Icons.arrow_upward,
+                            onTap: () => _showSummaryChipDetail(
+                              context: context,
+                              label: 'Mutasi Bersih',
+                              value: '${netMovement >= 0 ? '+' : '-'}${RupiahFormatter.format(netMovement.abs())}',
+                              color: AppColors.info,
+                              icon: netMovement >= 0 ? Icons.arrow_downward : Icons.arrow_upward,
+                              subtitle: 'Selisih total penerimaan dikurangi total pengeluaran.',
+                            ),
                           ),
                         ),
                       ],
@@ -1528,6 +1670,7 @@ class SummaryChip extends StatelessWidget {
   final Color color;
   final bool isEditable;
   final VoidCallback? onEdit;
+  final VoidCallback? onTap;
   final IconData? icon;
 
   const SummaryChip({
@@ -1537,6 +1680,7 @@ class SummaryChip extends StatelessWidget {
     required this.color,
     this.isEditable = false,
     this.onEdit,
+    this.onTap,
     this.icon,
   });
 
@@ -1544,70 +1688,74 @@ class SummaryChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: isDark ? 0.08 : 0.05),
-        borderRadius: BorderRadius.circular(AppRadius.base),
-        border: Border.all(
-          color: color.withValues(alpha: isDark ? 0.25 : 0.15),
-          width: 1,
+    return InkWell(
+      onTap: onTap ?? (isEditable ? onEdit : null),
+      borderRadius: BorderRadius.circular(AppRadius.base),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: isDark ? 0.08 : 0.05),
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          border: Border.all(
+            color: color.withValues(alpha: isDark ? 0.25 : 0.15),
+            width: 1,
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            children: [
-              if (icon != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: isDark ? 0.2 : 0.1),
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                if (icon != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
+                    ),
+                    child: Icon(icon, size: 11, color: color),
                   ),
-                  child: Icon(icon, size: 11, color: color),
+                  const SizedBox(width: 5),
+                ],
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textMutedColor(context),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                const SizedBox(width: 5),
+                if (isEditable)
+                  InkWell(
+                    onTap: onEdit,
+                    child: const Padding(
+                      padding: EdgeInsets.only(left: 2),
+                      child: Icon(Icons.edit, size: 12, color: AppColors.accent),
+                    ),
+                  ),
               ],
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textMutedColor(context),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (isEditable)
-                InkWell(
-                  onTap: onEdit,
-                  child: const Padding(
-                    padding: EdgeInsets.only(left: 2),
-                    child: Icon(Icons.edit, size: 12, color: AppColors.accent),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-              ),
-              maxLines: 1,
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+                maxLines: 1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

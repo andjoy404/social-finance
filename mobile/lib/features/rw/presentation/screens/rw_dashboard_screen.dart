@@ -530,30 +530,22 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
             icon: Icons.account_balance_wallet_outlined,
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildSummaryCard(
-                  context,
-                  label: 'TOTAL PEMASUKAN',
-                  period: periodLabel,
-                  value: _isLoading && _data == null ? '...' : incomeStr,
-                  color: AppColors.success,
-                  icon: Icons.arrow_downward_outlined,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildSummaryCard(
-                  context,
-                  label: 'TOTAL PENGELUARAN',
-                  period: periodLabel,
-                  value: _isLoading && _data == null ? '...' : expenseStr,
-                  color: AppColors.danger,
-                  icon: Icons.arrow_upward_outlined,
-                ),
-              ),
-            ],
+          _buildSummaryCard(
+            context,
+            label: 'TOTAL PEMASUKAN',
+            period: periodLabel,
+            value: _isLoading && _data == null ? '...' : incomeStr,
+            color: AppColors.success,
+            icon: Icons.arrow_downward_outlined,
+          ),
+          const SizedBox(height: 12),
+          _buildSummaryCard(
+            context,
+            label: 'TOTAL PENGELUARAN',
+            period: periodLabel,
+            value: _isLoading && _data == null ? '...' : expenseStr,
+            color: AppColors.danger,
+            icon: Icons.arrow_upward_outlined,
           ),
         ],
       ),

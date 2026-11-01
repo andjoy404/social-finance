@@ -230,28 +230,39 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
   }
 
   Widget _buildActionToolbar(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    return Row(
       children: [
-        ElevatedButton.icon(
-          onPressed: () => _showCreateTransactionDialog(context, 'income'),
-          icon: const Icon(Icons.arrow_downward, size: 16),
-          label: const Text('Catat Kas Masuk', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.success,
-            foregroundColor: Colors.white,
-            visualDensity: VisualDensity.compact,
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: () => _showCreateTransactionDialog(context, 'income'),
+            icon: const Icon(Icons.arrow_downward, size: 16),
+            label: const FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('Catat Kas Masuk', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.success,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              visualDensity: VisualDensity.compact,
+            ),
           ),
         ),
-        ElevatedButton.icon(
-          onPressed: () => _showCreateTransactionDialog(context, 'expense'),
-          icon: const Icon(Icons.arrow_upward, size: 16),
-          label: const Text('Catat Kas Keluar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.danger,
-            foregroundColor: Colors.white,
-            visualDensity: VisualDensity.compact,
+        const SizedBox(width: 8),
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: () => _showCreateTransactionDialog(context, 'expense'),
+            icon: const Icon(Icons.arrow_upward, size: 16),
+            label: const FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('Catat Kas Keluar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              visualDensity: VisualDensity.compact,
+            ),
           ),
         ),
       ],
@@ -266,16 +277,28 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     if (_kasReport == null) return const SizedBox.shrink();
 
     final openingBal = RupiahFormatter.parseMoneyString(_kasReport!.openingBalance);
+    final netBal = RupiahFormatter.parseMoneyString(_kasReport!.netBalance);
+    final totalSaldo = openingBal + netBal;
+    final canCreate = _canCreateRw(ref.watch(authRepositoryProvider)?.valueOrNull);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         children: [
           _buildSummaryCard(
-            'Saldo Bersih',
-            RupiahFormatter.format(RupiahFormatter.parseMoneyString(_kasReport!.netBalance)),
+            'Total Saldo',
+            RupiahFormatter.format(totalSaldo),
             AppColors.accent,
             Icons.account_balance,
+          ),
+          const SizedBox(height: 12),
+          _buildSummaryCard(
+            'Saldo Awal',
+            RupiahFormatter.format(openingBal),
+            AppColors.info,
+            Icons.flag_outlined,
+            onTap: canCreate ? () => _showEditOpeningBalanceDialog(context, openingBal) : null,
+            trailing: canCreate ? const Icon(Icons.edit_outlined, size: 16, color: AppColors.info) : null,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(
@@ -291,15 +314,13 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
             AppColors.danger,
             Icons.arrow_upward,
           ),
-          if (openingBal > 0) ...[
-            const SizedBox(height: 12),
-            _buildSummaryCard(
-              'Saldo Awal KAS RW',
-              RupiahFormatter.format(openingBal),
-              AppColors.info,
-              Icons.flag_outlined,
-            ),
-          ],
+          const SizedBox(height: 12),
+          _buildSummaryCard(
+            'Saldo Bersih',
+            RupiahFormatter.format(netBal),
+            AppColors.accent,
+            Icons.account_balance_wallet_outlined,
+          ),
           const SizedBox(height: 12),
           _buildSummaryCard(
             'Transaksi',
@@ -312,33 +333,45 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     );
   }
 
-  Widget _buildSummaryCard(String title, String value, Color color, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(AppRadius.base),
-        border: Border.all(color: color.withValues(alpha: 0.1)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(AppRadius.sm)),
-            child: Icon(icon, size: 16, color: color),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.lightTextMuted)),
-                const SizedBox(height: 2),
-                Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: color)),
-              ],
+  Widget _buildSummaryCard(
+    String title,
+    String value,
+    Color color,
+    IconData icon, {
+    VoidCallback? onTap,
+    Widget? trailing,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.base),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          border: Border.all(color: color.withValues(alpha: 0.1)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(AppRadius.sm)),
+              child: Icon(icon, size: 16, color: color),
             ),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.lightTextMuted)),
+                  const SizedBox(height: 2),
+                  Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: color)),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing,
+          ],
+        ),
       ),
     );
   }
@@ -661,6 +694,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           children: [
             _buildDetailRow('Tanggal:', _formatDate(t.occurredAt)),
             _buildDetailRow('Jenis Transaksi:', isIncome ? 'Pemasukan (KAS Masuk)' : 'Pengeluaran (KAS Keluar)'),
+            if (t.expenseCategory != null && t.expenseCategory!.isNotEmpty)
+              _buildDetailRow('Kategori Kas Keluar:', t.expenseCategory!),
             _buildDetailRow('Sumber / Tujuan:', sourceDisplay),
             _buildDetailRow('Lokasi Dana:', t.locationName ?? '—'),
             _buildDetailRow('Metode Pembayaran:', (t.paymentMethod ?? '—').toUpperCase()),
@@ -750,6 +785,124 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     );
   }
 
+  static const List<String> _kExpenseCategories = [
+    'Konsumsi',
+    'ATK',
+    'Kebersihan',
+    'Keamanan',
+    'Pemeliharaan dan Perbaikan',
+    'Kegiatan Warga',
+    'Sosial dan Santunan',
+    'Operasional',
+    'Transportasi',
+    'Listrik dan Air',
+    'Komunikasi dan Internet',
+    'Administrasi dan Dokumentasi',
+    'Perlengkapan dan Peralatan',
+    'Sewa',
+    'Lain-lain',
+  ];
+
+  static String _formatFundLocationCategory(String cat) {
+    final c = cat.trim().toLowerCase();
+    if (c == 'cash' || c == 'coh') return 'COH';
+    if (c == 'rekening' || c == 'bank') return 'Rekening';
+    if (c == 'brankas') return 'Brankas';
+    return cat.toUpperCase();
+  }
+
+  Future<void> _showEditOpeningBalanceDialog(BuildContext context, int currentOpening) async {
+    final nominalCtrl = TextEditingController(
+      text: currentOpening > 0 ? RupiahFormatter.format(currentOpening) : '',
+    );
+    bool saving = false;
+    String? error;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (statefulCtx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Ubah Saldo Awal KAS RW'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Saldo Awal digunakan sebagai dasar perhitungan Total Saldo KAS RW.',
+                    style: TextStyle(fontSize: 12, color: AppColors.lightTextMuted),
+                  ),
+                  const SizedBox(height: 12),
+                  if (error != null)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                      ),
+                      child: Text(error!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                    ),
+                  TextField(
+                    controller: nominalCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: const [
+                      RupiahInputFormatter.withPrefix(),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: 'Saldo Awal *',
+                      hintText: 'Rp 0',
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: saving ? null : () => Navigator.pop(dialogCtx),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  onPressed: saving ? null : () async {
+                    final raw = nominalCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+                    final amt = int.tryParse(raw) ?? 0;
+                    if (amt < 0) {
+                      setDialogState(() => error = 'Nominal tidak boleh negatif');
+                      return;
+                    }
+                    setDialogState(() {
+                      saving = true;
+                      error = null;
+                    });
+                    try {
+                      final api = ref.read(rwApiClientProvider);
+                      await api.updateOpeningBalance(widget.rwId, '$amt.00');
+                      if (context.mounted) {
+                        Navigator.pop(dialogCtx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Saldo Awal KAS RW berhasil disimpan')),
+                        );
+                        _fetchData();
+                      }
+                    } catch (e) {
+                      setDialogState(() {
+                        saving = false;
+                        error = e.toString();
+                      });
+                    }
+                  },
+                  child: saving
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Simpan'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _showCreateTransactionDialog(BuildContext context, String type) async {
     final isIncome = type == 'income';
     final amountCtrl = TextEditingController();
@@ -757,6 +910,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     XFile? proofFile;
     Uint8List? proofBytes;
     String? selectedLocationId;
+    String? selectedExpenseCategory;
     String paymentMethod = 'transfer';
     bool saving = false;
     String? error;
@@ -819,9 +973,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         ),
                         items: locations.map((loc) {
                           final bal = double.tryParse(loc.currentBalance) ?? 0;
+                          final catLabel = _formatFundLocationCategory(loc.category);
                           return DropdownMenuItem(
                             value: loc.id,
-                            child: Text('${loc.name} (${RupiahFormatter.format(bal.toInt())})'),
+                            child: Text('$catLabel - ${loc.name} (${RupiahFormatter.format(bal.toInt())})'),
                           );
                         }).toList(),
                         onChanged: (val) {
@@ -835,6 +990,21 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         },
                       ),
                       const SizedBox(height: 8),
+                      if (!isIncome) ...[
+                        DropdownButtonFormField<String>(
+                          value: selectedExpenseCategory,
+                          decoration: const InputDecoration(
+                            labelText: 'Kategori Kas Keluar *',
+                          ),
+                          items: _kExpenseCategories.map((cat) {
+                            return DropdownMenuItem(value: cat, child: Text(cat));
+                          }).toList(),
+                          onChanged: (val) {
+                            setDialogState(() => selectedExpenseCategory = val);
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       TextField(
                         controller: amountCtrl,
                         keyboardType: TextInputType.number,
@@ -855,16 +1025,13 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         decoration: InputDecoration(
                           labelText: 'Metode Pembayaran *',
                           helperText: isBank
-                              ? 'Otomatis Transfer Bank untuk kategori Rekening'
-                              : 'Otomatis Tunai (Cash) untuk kategori Brankas/Kas',
+                              ? 'Disarankan Transfer Bank untuk kategori Rekening'
+                              : 'Disarankan Tunai (Cash) untuk kategori Brankas/Kas',
                         ),
-                        items: isBank
-                            ? const [
-                                DropdownMenuItem(value: 'transfer', child: Text('Transfer Bank')),
-                              ]
-                            : const [
-                                DropdownMenuItem(value: 'cash', child: Text('Tunai (Cash)')),
-                              ],
+                        items: const [
+                          DropdownMenuItem(value: 'transfer', child: Text('Transfer Bank')),
+                          DropdownMenuItem(value: 'cash', child: Text('Tunai (Cash)')),
+                        ],
                         onChanged: (val) {
                           if (val != null) setDialogState(() => paymentMethod = val);
                         },
@@ -999,6 +1166,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       setDialogState(() => error = 'Pilih lokasi dana');
                       return;
                     }
+                    if (!isIncome && (selectedExpenseCategory == null || selectedExpenseCategory!.isEmpty)) {
+                      setDialogState(() => error = 'Pilih kategori kas keluar');
+                      return;
+                    }
                     final amt = double.tryParse(amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
                     if (amt <= 0) {
                       setDialogState(() => error = 'Nominal harus lebih dari 0');
@@ -1010,6 +1181,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                     }
                     if (descCtrl.text.trim().isEmpty) {
                       setDialogState(() => error = 'Keterangan transaksi wajib diisi');
+                      return;
+                    }
+                    if (!isIncome && selectedExpenseCategory == 'Lain-lain' && descCtrl.text.trim().isEmpty) {
+                      setDialogState(() => error = 'Keterangan wajib diisi untuk kategori Lain-lain');
                       return;
                     }
 
@@ -1026,6 +1201,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         'location_id': selectedLocationId,
                         'description': descCtrl.text.trim(),
                         'payment_method': paymentMethod,
+                        if (!isIncome && selectedExpenseCategory != null)
+                          'expense_category': selectedExpenseCategory,
                       });
 
                       if (proofBytes != null && proofFile != null) {

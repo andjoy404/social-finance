@@ -94,6 +94,41 @@ func (h *Handler) GetKAS(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UpdateOpeningBalance handles POST /api/v1/rw/{rwId}/opening-balance
+func (h *Handler) UpdateOpeningBalance(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
+	rwID := chi.URLParam(r, "rwId")
+	if rwID == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "rwId is required")
+		return
+	}
+
+	var in UpdateOpeningBalanceInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	if in.OpeningBalance == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "opening_balance is required")
+		return
+	}
+
+	if err := h.svc.SetOpeningBalance(r.Context(), ac, rwID, in.OpeningBalance); err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message": "opening balance updated successfully",
+	})
+}
+
 // GetKASTransactions handles GET /api/v1/rw/{rwId}/kas/transactions
 func (h *Handler) GetKASTransactions(w http.ResponseWriter, r *http.Request) {
 	ac, ok := getAuthContext(r)

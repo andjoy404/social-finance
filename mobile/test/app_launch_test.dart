@@ -89,6 +89,7 @@ Widget _profileViaMaterialApp() {
           'rw': '016',
         });
       })),
+      wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
     ],
     child: MaterialApp(home: const ProfileScreen()),
   );
@@ -362,42 +363,30 @@ void main() {
     notifier.dispose();
   });
 
-  testWidgets('Theme popup contains all three options', (tester) async {
+  testWidgets('Profile AppBar no longer has theme palette icon (Item G)', (tester) async {
     await tester.pumpWidget(_profileViaMaterialApp());
-    await tester.pump();
-    // Theme palette icon in profile AppBar
+    await tester.pumpAndSettle();
+    // Theme palette icon in profile AppBar is removed
     final themeButtonInAppBar = find.descendant(
       of: find.byType(AppBar),
       matching: find.byIcon(Icons.palette_outlined),
     );
-    expect(themeButtonInAppBar, findsOneWidget);
-    // Tap to open theme popup
-    await tester.tap(themeButtonInAppBar);
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(
-      find.descendant(of: find.byType(PopupMenuItem<AppThemeMode>), matching: find.text('Ikuti Sistem')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: find.byType(PopupMenuItem<AppThemeMode>), matching: find.text('Terang')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: find.byType(PopupMenuItem<AppThemeMode>), matching: find.text('Gelap')),
-      findsOneWidget,
-    );
+    expect(themeButtonInAppBar, findsNothing);
   });
 
-  testWidgets('Theme popup does NOT contain Logout', (tester) async {
+  testWidgets('Profile central card has theme selector dialog', (tester) async {
     await tester.pumpWidget(_profileViaMaterialApp());
-    await tester.pump();
-    final themeButtonInAppBar = find.descendant(
-      of: find.byType(AppBar),
-      matching: find.byIcon(Icons.palette_outlined),
-    );
-    await tester.tap(themeButtonInAppBar);
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.descendant(of: find.byType(PopupMenuItem), matching: find.text('Keluar')), findsNothing);
+    await tester.pumpAndSettle();
+    final themeTile = find.text('Tema Tampilan');
+    expect(themeTile, findsOneWidget);
+    await tester.ensureVisible(themeTile);
+    await tester.pumpAndSettle();
+    await tester.tap(themeTile);
+    await tester.pumpAndSettle();
+    expect(find.text('Pilih Tema'), findsOneWidget);
+    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Ikuti Sistem')), findsOneWidget);
+    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Terang')), findsOneWidget);
+    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Gelap')), findsOneWidget);
   });
 
   testWidgets('Dashboard no longer has theme palette icon', (tester) async {

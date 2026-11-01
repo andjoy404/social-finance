@@ -77,6 +77,18 @@ class KasStatementRow {
   });
 }
 
+class KasFundLocationItem {
+  final String name;
+  final String category;
+  final int balanceCents;
+
+  const KasFundLocationItem({
+    required this.name,
+    required this.category,
+    required this.balanceCents,
+  });
+}
+
 class KasReportModel {
   final KasReportIdentity identity;
   final String? period;
@@ -86,6 +98,7 @@ class KasReportModel {
   final BucketAmounts expense;
   final Map<String, List<KasCategoryRow>> incomeCategories;
   final List<KasCategoryRow> expenseCategories;
+  final List<KasFundLocationItem> fundLocations;
   final int closingCents;
   final int? apiClosingCents;
   final int transactionCount;
@@ -99,6 +112,7 @@ class KasReportModel {
     required this.expense,
     required this.incomeCategories,
     required this.expenseCategories,
+    this.fundLocations = const [],
     required this.closingCents,
     required this.apiClosingCents,
     required this.transactionCount,
@@ -289,10 +303,27 @@ class KasReportModel {
       );
     }
 
+    // Baris Saldo Lokasi Dana (jika tersedia)
+    if (fundLocations.isNotEmpty) {
+      for (final loc in fundLocations) {
+        final catUpper = loc.category.toUpperCase();
+        rows.add(
+          KasStatementRow(
+            label: 'Saldo ${loc.name} ($catUpper)',
+            saldo: loc.balanceCents,
+            kind: KasRowKind.subtotal,
+          ),
+        );
+      }
+    }
+
     // Saldo akhir — satu-satunya baris yang menampilkan nilai akhir sebenarnya
+    final grandLabel = fundLocations.isNotEmpty
+        ? 'Saldo akhir bulan rekening+cash on hand'
+        : 'Saldo akhir (saldo awal + penerimaan - pengeluaran)';
     rows.add(
       KasStatementRow(
-        label: 'Saldo akhir (saldo awal + penerimaan - pengeluaran)',
+        label: grandLabel,
         saldo: runningBalance,
         kind: KasRowKind.grand,
       ),
@@ -396,6 +427,7 @@ KasReportModel buildKasReport({
   String? apiClosingBalance,
   required String? period,
   required KasReportIdentity identity,
+  List<KasFundLocationItem> fundLocations = const [],
   DateTime? generatedAt,
 }) {
   // Sort kronologis ascending sebelum agregasi → saldo berjalan reliabel
@@ -460,6 +492,7 @@ KasReportModel buildKasReport({
       'other': rows(incByCat['other']!),
     },
     expenseCategories: rows(expByCat),
+    fundLocations: fundLocations,
     closingCents: opening + income.total - expense.total,
     apiClosingCents: apiClosingBalance == null
         ? null

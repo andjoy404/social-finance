@@ -413,6 +413,7 @@ export async function apiCreateRWTransaction(
     description: string
     payment_method: 'transfer' | 'cash'
     source_rt_id?: string
+    expense_category?: string
   },
 ): Promise<ApiRWTransaction> {
   const url = `${BASE}/rw/${encodeURIComponent(rwId)}/kas/transactions`
@@ -422,6 +423,21 @@ export async function apiCreateRWTransaction(
   })
   const body = await res.json()
   return body.data as ApiRWTransaction
+}
+
+/** POST /api/v1/rw/{rwId}/opening-balance */
+export async function apiUpdateRWOpeningBalance(
+  token: string,
+  rwId: string,
+  openingBalance: string,
+): Promise<{ message: string }> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/opening-balance`
+  const res = await authenticatedFetch(url, token, {
+    method: 'POST',
+    body: JSON.stringify({ opening_balance: openingBalance }),
+  })
+  const body = await res.json()
+  return body as { message: string }
 }
 
 // ---------------------------------------------------------------------------

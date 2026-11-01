@@ -985,21 +985,21 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 
 	// 5. Insert transaction into rw_transactions
 	var entry TransactionEntry
-	var catID, payID, srcRTID sql.NullString
+	var catID, payID, srcRTID, expCat sql.NullString
 	var occAt, createdAt time.Time
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO rw_transactions (
 			rw_id, location_id, source_rt_id, category_id, amount, type, status,
-			description, occurred_at, payment_method, created_by
+			description, occurred_at, payment_method, created_by, expense_category
 		) VALUES (
 			$1, $2, $3, $4, $5::numeric(15,2), $6, 'posted',
-			$7, $8, $9, $10
+			$7, $8, $9, $10, $11
 		) RETURNING id, rw_id, location_id, source_rt_id, category_id, amount::numeric(15,2)::text,
-		            type, status, payment_id, description, occurred_at, created_at`,
+		            type, status, payment_id, description, occurred_at, created_at, expense_category`,
 		rwID, in.LocationID, in.SourceRTID, in.CategoryID, in.Amount, in.Type,
-		in.Description, occDate, paymentMethod, userID,
+		in.Description, occDate, paymentMethod, userID, in.ExpenseCategory,
 	).Scan(&entry.ID, &entry.RWID, &entry.LocationID, &srcRTID, &catID, &entry.Amount,
-		&entry.Type, &entry.Status, &payID, &entry.Description, &occAt, &createdAt)
+		&entry.Type, &entry.Status, &payID, &entry.Description, &occAt, &createdAt, &expCat)
 	if err != nil {
 		return nil, fmt.Errorf("insert rw_transaction: %w", err)
 	}
@@ -1007,6 +1007,9 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 	entry.OccurredAt = occAt.Format(time.RFC3339)
 	entry.CreatedAt = createdAt.Format(time.RFC3339)
 	entry.LocationName = &loc.Name
+	if expCat.Valid && expCat.String != "" {
+		entry.ExpenseCategory = &expCat.String
+	}
 	if catID.Valid {
 		entry.CategoryID = &catID.String
 	}
@@ -1046,7 +1049,7 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		       t.type, t.amount::numeric(15,2)::text, t.description,
 		       t.category_id, c.name as category_name, t.status,
 		       t.payment_id, t.occurred_at::text, t.created_at::text,
-		       t.proof_path
+		       t.proof_path, t.expense_category
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
@@ -1142,15 +1145,18 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		var entry TransactionEntry
 		var locID, locName, srcRTID, srcRTName sql.NullString
 		var categoryID, categoryName sql.NullString
-		var paymentID, proofPath sql.NullString
+		var paymentID, proofPath, expCat sql.NullString
 		err := rows.Scan(
 			&entry.ID, &entry.RWID, &locID, &locName, &srcRTID, &srcRTName,
 			&entry.Type, &entry.Amount, &entry.Description,
 			&categoryID, &categoryName, &entry.Status, &paymentID, &entry.OccurredAt, &entry.CreatedAt,
-			&proofPath,
+			&proofPath, &expCat,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan transaction: %w", err)
+		}
+		if expCat.Valid && expCat.String != "" {
+			entry.ExpenseCategory = &expCat.String
 		}
 		if locID.Valid {
 			entry.LocationID = &locID.String
@@ -1195,7 +1201,7 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 		       t.type, t.amount::numeric(15,2)::text, t.description,
 		       t.category_id, c.name as category_name, t.status,
 		       t.payment_id, t.occurred_at::text, t.created_at::text,
-		       t.proof_path
+		       t.proof_path, t.expense_category
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
@@ -1205,18 +1211,21 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 	var entry TransactionEntry
 	var locID, locName, srcRTID, srcRTName sql.NullString
 	var categoryID, categoryName sql.NullString
-	var paymentID, proofPath sql.NullString
+	var paymentID, proofPath, expCat sql.NullString
 	err := tx.QueryRowContext(ctx, query, rwID, id).Scan(
 		&entry.ID, &entry.RWID, &locID, &locName, &srcRTID, &srcRTName,
 		&entry.Type, &entry.Amount, &entry.Description,
 		&categoryID, &categoryName, &entry.Status, &paymentID, &entry.OccurredAt, &entry.CreatedAt,
-		&proofPath,
+		&proofPath, &expCat,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get transaction by id: %w", err)
+	}
+	if expCat.Valid && expCat.String != "" {
+		entry.ExpenseCategory = &expCat.String
 	}
 
 	if locID.Valid {
@@ -1308,4 +1317,19 @@ func nextMonth(_ string, year, month string) string {
 		return fmt.Sprintf("%d-01-01T00:00:00+07:00", y+1)
 	}
 	return fmt.Sprintf("%d-%02d-01T00:00:00+07:00", y, m+1)
+}
+
+func (r *Repository) SetOpeningBalance(ctx context.Context, tx *sql.Tx, rwID, amount, userID string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM rw_opening_balances WHERE rw_id = $1`, rwID)
+	if err != nil {
+		return fmt.Errorf("delete old rw_opening_balance: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO rw_opening_balances (rw_id, amount, description)
+		VALUES ($1, $2::numeric(15,2), 'Saldo Awal KAS RW')
+	`, rwID, amount)
+	if err != nil {
+		return fmt.Errorf("insert rw_opening_balance: %w", err)
+	}
+	return nil
 }

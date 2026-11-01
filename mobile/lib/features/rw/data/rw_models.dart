@@ -155,6 +155,7 @@ class RwTransaction {
   final String? paymentMethod;
   final String? proofPath;
   final String? proofUrl;
+  final String? expenseCategory;
   final DateTime occurredAt;
   final DateTime createdAt;
 
@@ -177,6 +178,7 @@ class RwTransaction {
     this.paymentMethod,
     this.proofPath,
     this.proofUrl,
+    this.expenseCategory,
     required this.occurredAt,
     required this.createdAt,
   });
@@ -210,6 +212,7 @@ class RwTransaction {
       paymentMethod: json['payment_method'] as String?,
       proofPath: json['proof_path'] as String?,
       proofUrl: json['proof_url'] as String?,
+      expenseCategory: json['expense_category'] as String?,
       occurredAt: parseDate(json['occurred_at'] as String?),
       createdAt: parseDate(json['created_at'] as String?),
     );

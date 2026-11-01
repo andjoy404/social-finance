@@ -67,6 +67,9 @@ export interface IuranBill {
   paidDate?: string
   payments?: IuranPaymentRecord[]
   isVoluntary?: boolean
+  isObligatory?: boolean
+  moveInDate?: string
+  moveOutDate?: string
   dueId?: string
   dueIsActive?: boolean
   isActive?: boolean

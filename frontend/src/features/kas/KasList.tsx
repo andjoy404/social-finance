@@ -162,6 +162,7 @@ export function KasList() {
           pageSize,
           period: activePeriodStr,
           status: 'posted',
+          search: search.trim() || undefined,
         }),
       ])
 
@@ -174,7 +175,7 @@ export function KasList() {
     } finally {
       setLoading(false)
     }
-  }, [activePeriodStr, page, pageSize])
+  }, [activePeriodStr, page, pageSize, search])
 
   useEffect(() => {
     loadData()
@@ -268,6 +269,7 @@ export function KasList() {
       txs = txs.filter((t) =>
         t.description.toLowerCase().includes(q) ||
         (t.category_name && t.category_name.toLowerCase().includes(q)) ||
+        (t.expense_category && t.expense_category.toLowerCase().includes(q)) ||
         (t.payment_no && t.payment_no.toLowerCase().includes(q)) ||
         (t.reference_no && t.reference_no.toLowerCase().includes(q)) ||
         (t.citizen_name && t.citizen_name.toLowerCase().includes(q)) ||

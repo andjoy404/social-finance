@@ -849,12 +849,19 @@ export function IuranPayment({
           pendingAmount: 0, // calculated separately from PENDING payments
           status,
           isVoluntary,
+          isObligatory: apiBill.is_obligatory !== false,
+          moveInDate: apiBill.move_in_date ?? undefined,
+          moveOutDate: apiBill.move_out_date ?? undefined,
           dueId: apiBill.due_id,
           dueIsActive: apiBill.due_is_active ?? true,
           isActive: apiBill.is_active ?? true,
           dueType: (apiBill.due_type as DueType) ?? (isVoluntary ? 'voluntary' : 'regular'),
           year: apiBill.due_year ?? undefined,
           payments: [],
+        }
+
+        if (apiBill.is_obligatory === false) {
+          setError('Tagihan periode ini tidak wajib dibayar karena sebelum tanggal mulai menempati rumah.')
         }
 
         // Load payments for this bill to calculate paidAmount + pendingAmount
@@ -906,9 +913,10 @@ export function IuranPayment({
                     b.household_occupancy_id === apiBill.household_occupancy_id &&
                     b.due_id === apiBill.due_id &&
                     b.status === 'unpaid' &&
-                    b.is_active !== false
+                    b.is_active !== false &&
+                    b.is_obligatory !== false
                 )
-                if (apiBill.status === 'unpaid' && apiBill.is_active !== false && !matched.some((b) => b.id === apiBill.id)) {
+                if (apiBill.status === 'unpaid' && apiBill.is_active !== false && apiBill.is_obligatory !== false && !matched.some((b) => b.id === apiBill.id)) {
                   matched.push(apiBill)
                 }
                 matched.sort((a, b) => a.period.localeCompare(b.period))

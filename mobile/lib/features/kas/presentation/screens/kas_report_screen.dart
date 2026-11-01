@@ -18,6 +18,7 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
 import 'package:social_finance/features/kas/data/kas_api_models.dart';
 import 'package:social_finance/features/kas/data/kas_repository.dart';
 import 'package:social_finance/features/kas/export/kas_export_utils.dart';
@@ -143,6 +144,18 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
           // Silently ignore; the report uses fallback identity from user.
         }
       }
+
+      List<KasFundLocationItem> reportLocations = [];
+      try {
+        final locRepo = ref.read(fundLocationRepositoryProvider);
+        final locs = await locRepo.fetchLocations(isActive: true);
+        reportLocations = locs.map((l) => KasFundLocationItem(
+          name: l.name,
+          category: l.category.name,
+          balanceCents: l.balanceRupiah * 100,
+        )).toList();
+      } catch (_) {}
+
       if (!mounted) return;
       final model = buildKasReport(
         transactions: txs,
@@ -150,6 +163,7 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
         apiClosingBalance: balance.closingBalance,
         period: widget.period,
         identity: _identity(rtDetail: rtDetail),
+        fundLocations: reportLocations,
       );
       setState(() {
         _transactions = txs;

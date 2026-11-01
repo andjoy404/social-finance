@@ -226,9 +226,9 @@ function HouseholdFormFields({
 
         {showStartDate && onStartDateChange ? (
           <div className="sf-form-field">
-            <label className="sf-form-label" htmlFor="hf-start-date">
+            <label className="sf-form-label" htmlFor="hf-start-date" aria-label="Tanggal Mulai Menempati Rumah">
               <CalendarOutlined style={{ marginRight: 4 }} />
-              Tanggal Mulai Hunian <span style={{ color: 'var(--sf-danger)' }}>*</span>
+              Tanggal Mulai Menempati Rumah <span style={{ color: 'var(--sf-danger)' }}>*</span>
             </label>
             <input
               id="hf-start-date"
@@ -451,6 +451,7 @@ export function HouseholdCreate() {
         is_active: form.is_active,
         address: form.address.trim() || null,
         start_date: startDate,
+        move_in_date: startDate,
         end_date: endDate.trim() || undefined,
         password: form.password?.trim() || undefined,
       }
@@ -680,6 +681,7 @@ export function HouseholdEdit({ id: extId, onClose: propOnClose, onSaved: propOn
         address: form.address.trim() || null,
         occupancy_status: form.occupancy_status,
         start_date: startDate.trim() || undefined,
+        move_in_date: startDate.trim() || undefined,
         end_date: endDate.trim() || "",
         is_active: form.is_active,
         password: form.password?.trim() || undefined,

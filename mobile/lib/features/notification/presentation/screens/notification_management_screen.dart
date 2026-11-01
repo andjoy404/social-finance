@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:social_finance/app/app.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -120,27 +121,31 @@ class _NotificationManagementScreenState
       }).catchError((_) {});
     }
 
-    final id = log.id.trim();
+    final combinedPayload = <String, dynamic>{
+      if (log.payload != null) ...log.payload!,
+      if (log.variables.isNotEmpty) ...log.variables,
+      'type': log.eventType,
+      'title': log.title,
+      'body': log.body,
+      if (log.imageUrl != null) 'image_url': log.imageUrl,
+      if (log.createdAt != null) 'sent_at': log.createdAt!.toIso8601String(),
+      'notification_id': log.id,
+    };
+
+    final deepLink = log.payload?['deep_link'] as String?;
+    var target = normalizeNotificationTarget(deepLink, payload: combinedPayload);
+    if (target.contains('/notifikasi/detail') && !target.contains('from=')) {
+      final sep = target.contains('?') ? '&' : '?';
+      target = '$target${sep}from=notifikasi';
+    }
+
     final router = GoRouter.maybeOf(context);
     if (router != null) {
-      final path = id.isNotEmpty
-          ? '/home/notifikasi/detail/$id'
-          : '/home/notifikasi/detail';
-      final queryParams = <String, String>{
-        'from': 'notifikasi',
-        if (log.title.trim().isNotEmpty) 'title': log.title.trim(),
-        if (log.body.trim().isNotEmpty) 'body': log.body.trim(),
-        if (log.eventType.trim().isNotEmpty) 'type': log.eventType.trim(),
-        if (log.imageUrl != null && log.imageUrl!.trim().isNotEmpty)
-          'image_url': log.imageUrl!.trim(),
-        if (log.createdAt != null)
-          'sent_at': log.createdAt!.toIso8601String(),
-      };
-      final uri = Uri(path: path, queryParameters: queryParams);
-      router.push(uri.toString());
+      router.push(target);
       return;
     }
 
+    final id = log.id.trim();
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => NotificationDetailScreen(

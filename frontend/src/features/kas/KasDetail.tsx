@@ -126,6 +126,17 @@ export function KasDetail() {
               </div>
             </div>
 
+            {/* Kategori Pengeluaran */}
+            {transaction.expense_category && (
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Kategori Pengeluaran</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--sf-text)', fontWeight: 600 }}>
+                  <TagOutlined style={{ color: 'var(--sf-accent)', fontSize: 14 }} />
+                  {transaction.expense_category}
+                </div>
+              </div>
+            )}
+
             {/* Status */}
             <div>
               <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Status</div>

@@ -156,26 +156,24 @@ void main() {
 
   group('IuranPaymentScreen — Payment Method', () {
     testWidgets(
-      'default payment method is Tunai (cash)',
+      'default payment method is Transfer (Item B)',
       (tester) async {
         await _pumpPage(tester);
         final segButt = _findSegmentedButton().evaluate().first.widget as SegmentedButton<PaymentMethod>;
-        expect(segButt.selected, contains(PaymentMethod.cash));
-        expect(segButt.selected, isNot(contains(PaymentMethod.transfer)));
+        expect(segButt.selected, contains(PaymentMethod.transfer));
+        expect(segButt.selected, isNot(contains(PaymentMethod.cash)));
       },
     );
 
     testWidgets(
-      'tapping Transfer segment selects transfer method',
+      'tapping Tunai segment selects cash method',
       (tester) async {
         await _pumpPage(tester);
-        // Tap "Transfer" text inside SegmentedButton (visible on screen)
-        await tester.tap(find.text('Transfer', skipOffstage: false));
+        // Tap "Tunai" text inside SegmentedButton
+        await tester.tap(find.text('Tunai', skipOffstage: false));
         await tester.pumpAndSettle();
-
         final segButt = _findSegmentedButton().evaluate().first.widget as SegmentedButton<PaymentMethod>;
-        expect(segButt.selected, contains(PaymentMethod.transfer));
-        expect(segButt.selected, isNot(contains(PaymentMethod.cash)));
+        expect(segButt.selected, contains(PaymentMethod.cash));
       },
     );
   });

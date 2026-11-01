@@ -8,6 +8,7 @@ import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import { apiCreateTransaction, apiListFundLocations, getSessionPair, type FundLocation } from '@/app/api'
 import { toJakartaIso8601, getJakartaDateString } from '@/utils/jakartaTime'
 import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
+import { EXPENSE_CATEGORIES } from './kasTypes'
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
@@ -27,6 +28,7 @@ interface FormState {
   paymentMethod: 'CASH' | 'TRANSFER'
   jenis: 'masuk' | 'keluar'
   locationId: string
+  expenseCategory: string
 }
 
 const emptyForm: FormState = {
@@ -37,6 +39,7 @@ const emptyForm: FormState = {
   paymentMethod: 'CASH',
   jenis: 'keluar',
   locationId: '',
+  expenseCategory: '',
 }
 
 export function KasExpense() {
@@ -175,11 +178,14 @@ export function KasExpense() {
         errs.push('Nominal harus berupa angka lebih dari 0.')
       }
     }
-    // Kategori bersifat opsional
-    if (form.kategori && form.kategori.trim()) {
-      // validasi kategori jika diisi
+    if (!form.expenseCategory) {
+      errs.push('Kategori kas keluar harus dipilih.')
     }
-    if (!form.keterangan.trim()) errs.push('Keterangan harus diisi.')
+    if (!form.keterangan.trim()) {
+      errs.push('Keterangan harus diisi.')
+    } else if (form.expenseCategory === 'Lain-lain' && !form.keterangan.trim()) {
+      errs.push('Keterangan wajib diisi untuk kategori Lain-lain.')
+    }
     if (form.jenis === 'keluar' && form.locationId) {
       const selected = fundLocations.find((l) => l.id === form.locationId)
       if (selected) {
@@ -210,6 +216,7 @@ export function KasExpense() {
         occurred_at: toJakartaIso8601(form.tanggal),
         payment_method: form.paymentMethod,
         location_id: form.locationId || undefined,
+        expense_category: form.expenseCategory || undefined,
       })
       navigate('/kas')
     } catch (err: any) {
@@ -398,6 +405,33 @@ export function KasExpense() {
               }
               return null
             })()}
+          </div>
+
+          {/* Kategori Kas Keluar (Wajib, 15 Standar Kategori) */}
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="ke-expense-category">
+              <WalletOutlined style={{ marginRight: 4 }} />
+              Kategori Kas Keluar <span style={{ color: 'var(--sf-danger)' }}>*</span>
+            </label>
+            <select
+              id="ke-expense-category"
+              className="sf-form-input"
+              value={form.expenseCategory}
+              onChange={(e) => {
+                handleChange('expenseCategory', e.target.value)
+                setValidationErrors([])
+              }}
+              style={{
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">-- Pilih Kategori Pengeluaran --</option>
+              {EXPENSE_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Kategori */}

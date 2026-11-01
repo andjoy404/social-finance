@@ -190,6 +190,7 @@ class IuranApiClient {
 
   /// GET /api/v1/bills
   Future<PaginatedResponse<BackendBill>> listBills({
+    String? search,
     String? dueId,
     String? status,
     String? paymentStatus,
@@ -203,6 +204,7 @@ class IuranApiClient {
       'page': page.toString(),
       'page_size': pageSize.toString(),
     };
+    if (search != null && search.isNotEmpty) query['search'] = search;
     if (dueId != null && dueId.isNotEmpty) query['due_id'] = dueId;
     if (status != null && status.isNotEmpty) query['status'] = status;
     if (paymentStatus != null && paymentStatus.isNotEmpty) {

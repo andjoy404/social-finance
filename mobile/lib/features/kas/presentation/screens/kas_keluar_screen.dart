@@ -37,6 +37,24 @@ String _generateUuid() {
 class KasKeluarScreen extends ConsumerStatefulWidget {
   const KasKeluarScreen({super.key});
 
+  static const List<String> kExpenseCategories = [
+    'Konsumsi',
+    'ATK',
+    'Kebersihan',
+    'Keamanan',
+    'Pemeliharaan dan Perbaikan',
+    'Kegiatan Warga',
+    'Sosial dan Santunan',
+    'Operasional',
+    'Transportasi',
+    'Listrik dan Air',
+    'Komunikasi dan Internet',
+    'Administrasi dan Dokumentasi',
+    'Perlengkapan dan Peralatan',
+    'Sewa',
+    'Lain-lain',
+  ];
+
   @override
   ConsumerState<KasKeluarScreen> createState() => _KasKeluarScreenState();
 }
@@ -49,6 +67,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
 
   List<BackendCategory> _expenseCategories = [];
   String? _selectedCategoryId;
+  String? _selectedExpenseCategory;
   bool _loadingCategories = true;
 
   List<FundLocation> _locations = [];
@@ -136,6 +155,11 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
         }
       }
     }
+    if (_selectedExpenseCategory == null || _selectedExpenseCategory!.isEmpty) {
+      errors.add('Kategori kas keluar harus dipilih.');
+    } else if (_selectedExpenseCategory == 'Lain-lain' && _keteranganCtrl.text.trim().isEmpty) {
+      errors.add('Keterangan wajib diisi untuk kategori Lain-lain.');
+    }
     if (_keteranganCtrl.text.trim().isEmpty) {
       errors.add('Keterangan harus diisi.');
     }
@@ -186,6 +210,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
         occurredAt: occurredAt,
         paymentMethod: _paymentMethod,
         locationId: _selectedLocationId,
+        expenseCategory: _selectedExpenseCategory,
         idempotencyKey: _generateUuid(),
       );
 
@@ -381,6 +406,67 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
 
               const SectionHeader(title: 'Detail Transaksi'),
               const SizedBox(height: AppSpacing.sm),
+
+              // Kategori Kas Keluar (Wajib, 15 Standar Kategori)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RichText(
+                    text: TextSpan(
+                      text: 'Kategori Kas Keluar',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      children: const [
+                        TextSpan(
+                          text: ' *',
+                          style: TextStyle(color: AppColors.danger),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: isDark
+                            ? AppColors.darkBorder
+                            : AppColors.lightBorder,
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      color: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurface,
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedExpenseCategory,
+                        hint: const Text('-- Pilih Kategori Pengeluaran --'),
+                        isExpanded: true,
+                        dropdownColor: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                        items: KasKeluarScreen.kExpenseCategories.map((cat) {
+                          return DropdownMenuItem<String>(
+                            value: cat,
+                            child: Text(cat),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedExpenseCategory = val;
+                            _validationErrors = [];
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
 
               // Kategori
               Column(

@@ -111,6 +111,7 @@ class IuranRepository {
     int pageSize = 20,
   }) async {
     final billResponse = await apiClient.listBills(
+      search: search,
       dueId: dueId,
       status: status,
       paymentStatus: paymentStatus,
@@ -169,6 +170,12 @@ class IuranRepository {
           .where((p) => p.status == PaymentStatus.rejected)
           .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
 
+      final paymentNumbers = payments.data
+          .map((p) => p.paymentNo)
+          .whereType<String>()
+          .where((no) => no.trim().isNotEmpty)
+          .toList();
+
       final nominalVal = moneyToDisplayRupiah(bill.amount);
       final isVol = bill.isVoluntary;
       final isActive = bill.dueIsActive ?? true;
@@ -194,6 +201,10 @@ class IuranRepository {
           householdOccupancyId: bill.householdOccupancyId,
           dueType: bill.dueType,
           year: bill.year,
+          isObligatory: bill.isObligatory,
+          moveInDate: bill.moveInDate,
+          moveOutDate: bill.moveOutDate,
+          paymentNumbers: paymentNumbers,
         ),
       );
     }
@@ -217,6 +228,7 @@ class IuranRepository {
 
     do {
       final response = await fetchBills(
+        search: search,
         status: status,
         paymentStatus: paymentStatus,
         myBills: myBills,
@@ -234,7 +246,8 @@ class IuranRepository {
       final query = search.trim().toLowerCase();
       return allBills.where((b) {
         return b.householdName.toLowerCase().contains(query) ||
-            b.iuranType.toLowerCase().contains(query);
+            b.iuranType.toLowerCase().contains(query) ||
+            b.paymentNumbers.any((no) => no.toLowerCase().contains(query));
       }).toList();
     }
 
@@ -302,6 +315,14 @@ class IuranRepository {
       householdOccupancyId: bill.householdOccupancyId,
       dueType: bill.dueType,
       year: bill.year,
+      isObligatory: bill.isObligatory,
+      moveInDate: bill.moveInDate,
+      moveOutDate: bill.moveOutDate,
+      paymentNumbers: payments.data
+          .map((p) => p.paymentNo)
+          .whereType<String>()
+          .where((no) => no.trim().isNotEmpty)
+          .toList(),
     );
   }
 

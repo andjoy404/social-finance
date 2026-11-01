@@ -49,6 +49,18 @@ class RwApiClient {
     }
   }
 
+  /// POST /api/v1/rw/{rwId}/opening-balance
+  Future<void> updateOpeningBalance(String rwId, String openingBalance) async {
+    final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/opening-balance';
+    try {
+      await _apiClient.post(url, data: {
+        'opening_balance': openingBalance,
+      });
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   /// GET /api/v1/rw/{rwId}/kas/transactions
   Future<RwTransactionsResponse> getTransactions({
     required String rwId,

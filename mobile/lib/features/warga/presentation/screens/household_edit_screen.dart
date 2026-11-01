@@ -531,12 +531,12 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Tanggal Mulai Hunian
+              // Tanggal Mulai Menempati Rumah
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Tanggal Mulai Hunian',
+                    'Tanggal Mulai Menempati Rumah',
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),

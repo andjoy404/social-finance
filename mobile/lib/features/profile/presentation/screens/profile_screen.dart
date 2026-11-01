@@ -73,14 +73,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           automaticallyImplyLeading: false,
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Profil'),
-          actions: [
-            _ThemeActionButton(
-              onSelected: (mode) {
-                ref.read(themeProvider.notifier).setMode(mode);
-              },
-            ),
-            const SizedBox(width: 8),
-          ],
         ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
@@ -869,72 +861,4 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
   }
 }
 
-/// Separate theme action button for profile header.
-/// Opens a popup with three theme mode options.
-class _ThemeActionButton extends ConsumerWidget {
-  final void Function(AppThemeMode) onSelected;
 
-  const _ThemeActionButton({required this.onSelected});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final currentMode = ref.watch(themeProvider);
-    return PopupMenuButton<AppThemeMode>(
-      icon: Icon(
-        Icons.palette_outlined,
-        size: 18,
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-      tooltip: 'Tampilan',
-      onSelected: onSelected,
-      itemBuilder: (_) => [
-        _popupItem(
-          context,
-          currentMode,
-          icon: Icons.settings_brightness,
-          label: 'Ikuti Sistem',
-          value: AppThemeMode.system,
-        ),
-        _popupItem(
-          context,
-          currentMode,
-          icon: Icons.wb_sunny,
-          label: 'Terang',
-          value: AppThemeMode.light,
-        ),
-        _popupItem(
-          context,
-          currentMode,
-          icon: Icons.nightlight,
-          label: 'Gelap',
-          value: AppThemeMode.dark,
-        ),
-      ],
-    );
-  }
-
-  PopupMenuItem<AppThemeMode> _popupItem(
-    BuildContext context,
-    AppThemeMode currentMode, {
-    required IconData icon,
-    required String label,
-    required AppThemeMode value,
-  }) {
-    final isSelected = currentMode == value;
-    return PopupMenuItem<AppThemeMode>(
-      value: value,
-      child: Row(
-        children: [
-          Icon(
-            isSelected ? Icons.check : icon,
-            size: 18,
-            color: isSelected ? Theme.of(context).colorScheme.primary : null,
-          ),
-          const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 14)),
-        ],
-      ),
-    );
-  }
-}

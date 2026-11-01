@@ -267,6 +267,7 @@ export function IuranList() {
     const paidAmount = b.paid_amount ? parseMoney(b.paid_amount) : 0
     const pendingAmount = b.pending_amount ? parseMoney(b.pending_amount) : 0
     const isVoluntary = Boolean(b.is_voluntary || nominal === 0)
+    const isObligatory = b.is_obligatory !== false
     // Prioritas utama: jika ada pembayaran yang menunggu verifikasi → status tersendiri
     let status: IuranStatus
     if (isVoluntary && nominal === 0) {
@@ -290,6 +291,9 @@ export function IuranList() {
       pendingAmount,
       status,
       isVoluntary,
+      isObligatory,
+      moveInDate: b.move_in_date ?? undefined,
+      moveOutDate: b.move_out_date ?? undefined,
       isActive: b.is_active !== false,
       dueId: b.due_id,
       dueType: (b.due_type as DueType) ?? (isVoluntary ? 'voluntary' : 'regular'),
@@ -1611,6 +1615,8 @@ export function IuranList() {
                           <td style={{ textAlign: 'center' }}>
                             {bill.isActive === false ? (
                               <Badge variant="gray">Tidak Aktif</Badge>
+                            ) : bill.isObligatory === false ? (
+                              <Badge variant="gray">Tidak Wajib</Badge>
                             ) : (
                               <Badge variant={getStatusVariant(bill.status)}>
                                 {getStatusLabel(bill.status)}

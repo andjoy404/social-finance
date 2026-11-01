@@ -37,6 +37,8 @@ type Household struct {
 	OccupancyStatus *OccupancyStatus `json:"occupancy_status,omitempty"`
 	StartDate       *string          `json:"start_date,omitempty"`
 	EndDate         *string          `json:"end_date,omitempty"`
+	MoveInDate      *string          `json:"move_in_date,omitempty"`
+	MoveOutDate     *string          `json:"move_out_date,omitempty"`
 	Nik             *string          `json:"nik,omitempty"`
 	Phone           *string          `json:"phone,omitempty"`
 	Email           *string          `json:"email,omitempty"`
@@ -59,8 +61,10 @@ type CreateHouseholdInput struct {
 	Email           *string         `json:"email,omitempty"`
 	Address         *string         `json:"address,omitempty"`
 	OccupancyStatus OccupancyStatus `json:"occupancy_status"`
-	StartDate       *string         `json:"start_date,omitempty"` // YYYY-MM-DD
-	EndDate         *string         `json:"end_date,omitempty"`   // YYYY-MM-DD
+	StartDate       *string         `json:"start_date,omitempty"`   // YYYY-MM-DD
+	EndDate         *string         `json:"end_date,omitempty"`     // YYYY-MM-DD
+	MoveInDate      *string         `json:"move_in_date,omitempty"` // YYYY-MM-DD
+	MoveOutDate     *string         `json:"move_out_date,omitempty"`// YYYY-MM-DD
 	IsActive        *bool           `json:"is_active,omitempty"`
 	Password        *string         `json:"password,omitempty"`
 }
@@ -76,6 +80,8 @@ type UpdateHouseholdInput struct {
 	Address         *string          `json:"address,omitempty"`
 	StartDate       *string          `json:"start_date,omitempty"`
 	EndDate         *string          `json:"end_date,omitempty"`
+	MoveInDate      *string          `json:"move_in_date,omitempty"`
+	MoveOutDate     *string          `json:"move_out_date,omitempty"`
 	OccupancyStatus *OccupancyStatus `json:"occupancy_status,omitempty"`
 	IsActive        *bool            `json:"is_active,omitempty"`
 	Password        *string          `json:"password,omitempty"`
@@ -86,6 +92,7 @@ type MoveHouseholdInput struct {
 	HouseNumber     string           `json:"house_number"`
 	Address         *string          `json:"address,omitempty"`
 	StartDate       string           `json:"start_date"` // YYYY-MM-DD (Required)
+	MoveInDate      *string          `json:"move_in_date,omitempty"`
 	OccupancyStatus *OccupancyStatus `json:"occupancy_status,omitempty"`
 }
 
@@ -100,6 +107,8 @@ type Resident struct {
 	Email       *string   `json:"email,omitempty"`
 	StartDate   *string   `json:"start_date,omitempty"` // YYYY-MM-DD
 	EndDate     *string   `json:"end_date,omitempty"`   // YYYY-MM-DD
+	MoveInDate  *string   `json:"move_in_date,omitempty"`
+	MoveOutDate *string   `json:"move_out_date,omitempty"`
 	IsActive    bool      `json:"is_active"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -123,6 +132,8 @@ type CreateResidentInput struct {
 	Email       *string `json:"email"`
 	StartDate   *string `json:"start_date,omitempty"` // YYYY-MM-DD
 	EndDate     *string `json:"end_date,omitempty"`   // YYYY-MM-DD
+	MoveInDate  *string `json:"move_in_date,omitempty"`
+	MoveOutDate *string `json:"move_out_date,omitempty"`
 	Password    *string `json:"password,omitempty"`
 }
 
@@ -130,6 +141,7 @@ type CreateResidentInput struct {
 type MoveResidentInput struct {
 	DestinationHouseholdID string  `json:"destination_household_id"`
 	StartDate              string  `json:"start_date"` // YYYY-MM-DD (Required)
+	MoveInDate             *string `json:"move_in_date,omitempty"`
 }
 
 // TrimAndValidateHouseNumber trims whitespace and validates the house_number.
@@ -144,14 +156,16 @@ func (in *CreateHouseholdInput) TrimAndValidateHouseNumber() error {
 
 // UpdateResidentInput holds optional fields for updating a resident.
 type UpdateResidentInput struct {
-	FullName  *string `json:"full_name"`
-	Phone     *string `json:"phone"`
-	Nik       *string `json:"nik"`
-	Email     *string `json:"email"`
-	IsActive  *bool   `json:"is_active"`
-	StartDate *string `json:"start_date,omitempty"`
-	EndDate   *string `json:"end_date,omitempty"`
-	Password  *string `json:"password,omitempty"`
+	FullName    *string `json:"full_name"`
+	Phone       *string `json:"phone"`
+	Nik         *string `json:"nik"`
+	Email       *string `json:"email"`
+	IsActive    *bool   `json:"is_active"`
+	StartDate   *string `json:"start_date,omitempty"`
+	EndDate     *string `json:"end_date,omitempty"`
+	MoveInDate  *string `json:"move_in_date,omitempty"`
+	MoveOutDate *string `json:"move_out_date,omitempty"`
+	Password    *string `json:"password,omitempty"`
 }
 
 // ValidateNik validates that the NIK (national ID) is exactly 16 digits.

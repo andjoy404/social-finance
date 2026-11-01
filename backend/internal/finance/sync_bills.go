@@ -109,17 +109,33 @@ func SyncHouseholdOccupancyBills(ctx context.Context, tx *sql.Tx, rtID, occupanc
 				}
 				monthDueDate := fmt.Sprintf("%04d-%02d-%02d", year, m, day)
 
-				var billID string
+				isObligatory := true
+				if occStartDate.Valid {
+					moveInMonth := occStartDate.Time.Format("2006-01")
+					if period < moveInMonth {
+						isObligatory = false
+					}
+				}
+				if occEndDate.Valid {
+					moveOutMonth := occEndDate.Time.Format("2006-01")
+					if period > moveOutMonth {
+						isObligatory = false
+					}
+				}
+
+				var isInserted bool
 				err := tx.QueryRowContext(ctx, `
-					INSERT INTO bills (rt_id, household_occupancy_id, due_id, amount, period, due_date, status, is_active)
-					VALUES ($1, $2, $3, $4, $5, $6, 'unpaid', true)
-					ON CONFLICT (household_occupancy_id, due_id, period) DO NOTHING
-					RETURNING id
-				`, rtID, occID, d.id, d.amount, period, monthDueDate).Scan(&billID)
+					INSERT INTO bills (rt_id, household_occupancy_id, due_id, amount, period, due_date, status, is_active, is_obligatory)
+					VALUES ($1, $2, $3, $4, $5, $6, 'unpaid', true, $7)
+					ON CONFLICT (household_occupancy_id, due_id, period) DO UPDATE
+					SET is_obligatory = EXCLUDED.is_obligatory
+					WHERE bills.status = 'unpaid'
+					RETURNING (xmax = 0)
+				`, rtID, occID, d.id, d.amount, period, monthDueDate, isObligatory).Scan(&isInserted)
 				if err != nil && !errors.Is(err, sql.ErrNoRows) {
 					return createdCount, fmt.Errorf("sync multi-month bill (%s): %w", period, err)
 				}
-				if billID != "" {
+				if isInserted {
 					createdCount++
 				}
 			}
@@ -148,17 +164,33 @@ func SyncHouseholdOccupancyBills(ctx context.Context, tx *sql.Tx, rtID, occupanc
 			pRows.Close()
 
 			for _, pi := range issuedPeriods {
-				var billID string
+				isObligatory := true
+				if occStartDate.Valid {
+					moveInMonth := occStartDate.Time.Format("2006-01")
+					if pi.period < moveInMonth {
+						isObligatory = false
+					}
+				}
+				if occEndDate.Valid {
+					moveOutMonth := occEndDate.Time.Format("2006-01")
+					if pi.period > moveOutMonth {
+						isObligatory = false
+					}
+				}
+
+				var isInserted bool
 				err := tx.QueryRowContext(ctx, `
-					INSERT INTO bills (rt_id, household_occupancy_id, due_id, amount, period, due_date, status, is_active)
-					VALUES ($1, $2, $3, $4, $5, $6, 'unpaid', true)
-					ON CONFLICT (household_occupancy_id, due_id, period) DO NOTHING
-					RETURNING id
-				`, rtID, occID, d.id, d.amount, pi.period, pi.dueDate).Scan(&billID)
+					INSERT INTO bills (rt_id, household_occupancy_id, due_id, amount, period, due_date, status, is_active, is_obligatory)
+					VALUES ($1, $2, $3, $4, $5, $6, 'unpaid', true, $7)
+					ON CONFLICT (household_occupancy_id, due_id, period) DO UPDATE
+					SET is_obligatory = EXCLUDED.is_obligatory
+					WHERE bills.status = 'unpaid'
+					RETURNING (xmax = 0)
+				`, rtID, occID, d.id, d.amount, pi.period, pi.dueDate, isObligatory).Scan(&isInserted)
 				if err != nil && !errors.Is(err, sql.ErrNoRows) {
 					return createdCount, fmt.Errorf("sync regular bill (%s): %w", pi.period, err)
 				}
-				if billID != "" {
+				if isInserted {
 					createdCount++
 				}
 			}

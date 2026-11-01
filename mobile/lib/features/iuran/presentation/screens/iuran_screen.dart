@@ -922,9 +922,17 @@ class _IuranCard extends StatelessWidget {
                       ),
                     ),
                   AppBadge(
-                    label: getStatusLabel(bill.status),
-                    textColor: getStatusColor(bill.status, context),
-                    backgroundColor: getStatusColor(bill.status, context)
+                    label: !bill.isObligatory
+                        ? 'Tidak Wajib'
+                        : getStatusLabel(bill.status),
+                    textColor: !bill.isObligatory
+                        ? AppColors.textMutedColor(context)
+                        : getStatusColor(bill.status, context),
+                    backgroundColor: (!bill.isObligatory
+                            ? (isDark
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder)
+                            : getStatusColor(bill.status, context))
                         .withValues(alpha: isDark ? 0.18 : 0.10),
                   ),
                 ],

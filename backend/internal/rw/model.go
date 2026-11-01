@@ -207,6 +207,7 @@ type TransactionEntry struct {
 	CreatedAt    string  `json:"created_at"`
 	ProofPath    *string `json:"proof_path,omitempty"`
 	ProofURL     *string `json:"proof_url,omitempty"`
+	ExpenseCategory *string `json:"expense_category,omitempty"`
 }
 
 // CreateTransactionInput defines payload for creating a new KAS Masuk or KAS Keluar transaction.
@@ -219,6 +220,11 @@ type CreateTransactionInput struct {
 	Description   string  `json:"description"`
 	OccurredAt    *string `json:"occurred_at,omitempty"`
 	PaymentMethod *string `json:"payment_method,omitempty"` // "CASH" | "TRANSFER"
+	ExpenseCategory *string `json:"expense_category,omitempty"`
+}
+
+type UpdateOpeningBalanceInput struct {
+	OpeningBalance string `json:"opening_balance"`
 }
 
 // PaginationInfo metadata returned alongside list responses.

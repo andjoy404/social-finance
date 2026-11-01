@@ -1048,8 +1048,8 @@ Voluntary expiry rule:
 
 ### 9.3 Bills
 
-- `GET /api/v1/bills`: List bills (Bendahara, Pengurus, Warga [scoped to own household occupancy]). Query parameters: `page`, `page_size`, `household_occupancy_id`, `due_id`, `status`, `payment_status`, `is_active`, `period`, `search` / `q` (case-insensitive substring filter matching bill/due name), `order` (`unpaid_first` for unpaid/partial bills first chronologically, followed by paid bills in reverse chronological order).
-- `GET /api/v1/bills/{id}`: Get bill by ID.
+- `GET /api/v1/bills`: List bills (Bendahara, Pengurus, Warga [scoped to own household occupancy]). Query parameters: `page`, `page_size`, `household_occupancy_id`, `due_id`, `status`, `payment_status`, `is_active`, `is_obligatory`, `period`, `search` / `q` (case-insensitive substring filter matching bill/due name), `order` (`unpaid_first` for unpaid/partial bills first chronologically, followed by paid bills in reverse chronological order). Each item includes `is_obligatory` (boolean indicating if the period is an obligation based on `move_in_date`), `move_in_date`, and `move_out_date`.
+- `GET /api/v1/bills/{id}`: Get bill by ID. Includes `is_obligatory`, `move_in_date`, and `move_out_date`.
 - `POST /api/v1/bills/generate`: Batch generate bills for a due & period across active occupancies (Bendahara, Pengurus).
 - `POST /api/v1/bills`: Create single bill (Bendahara, Pengurus).
 - `PATCH /api/v1/bills/{id}/status`: Update bill active status (`{"is_active": boolean}`) (Bendahara, Pengurus). Rejects deactivation if bill is already paid.
@@ -1060,13 +1060,15 @@ Voluntary expiry rule:
 
 - `GET /api/v1/payments`: List payments (Bendahara, Pengurus, Warga [scoped to own payments]).
 - `GET /api/v1/payments/{id}`: Get payment by ID.
-- `POST /api/v1/payments`: Create payment (Warga [self-submitted with proof], Bendahara/Pengurus [staff-recorded]). Supports `Idempotency-Key` header. Concurrent requests with the same key are serialized in PostgreSQL; an identical request replays its stored response, while reusing the key with a different user, path, or payload returns `409 Conflict`. The payment and its idempotency response are committed atomically. The request must contain exactly one target: `bill_id` for ordinary bill payments or `due_id` for donations against an active, voluntary, Rp0 due in the authenticated RT. Donation responses include `bill_id: null` and the selected `due_id`. `amount` must be positive and `method` must be `CASH` or `TRANSFER`. A voluntary Rp0 due creates no bill; pending donations do not affect the ledger.
+- `POST /api/v1/payments`: Create payment (Warga [self-submitted with proof], Bendahara/Pengurus [staff-recorded]). Supports `Idempotency-Key` header. Concurrent requests with the same key are serialized in PostgreSQL; an identical request replays its stored response, while reusing the key with a different user, path, or payload returns `409 Conflict`. The payment and its idempotency response are committed atomically. The request must contain exactly one target: `bill_id` for ordinary bill payments or `due_id` for donations against an active, voluntary, Rp0 due in the authenticated RT. Donation responses include `bill_id: null` and the selected `due_id`. `amount` must be positive and `method` must be `CASH` or `TRANSFER`. A voluntary Rp0 due creates no bill; pending donations do not affect the ledger. Attempting to pay a non-obligatory bill (`is_obligatory = false`) returns `400 Bad Request`.
+- `POST /api/v1/payments/multi-period`: Multi-period payment across consecutive periods in FIFO order (Warga, Bendahara, Pengurus). Non-obligatory periods (`is_obligatory = false`) are excluded from FIFO validation and cannot be paid. Trying to pay a non-obligatory period returns `400 Bad Request`.
 - `POST /api/v1/payments/{id}/verify`: Verify payment (`action`: `approve`|`reject`) (Bendahara, Pengurus). Approval marks an ordinary bill paid and posts one income transaction to the ledger; approval of a donation posts one income transaction without attempting to update a bill. Rejected payments do not affect the ledger. Only the submitter can read or manage their own donation as a Warga.
 
 ### 9.5 Transactions & Ledger
 
 - `GET /api/v1/transactions`: Query immutable ledger entries (Bendahara, Pengurus, Warga). Supports query parameters: `category_id`, `type`, `status`, `period` (`YYYY-MM`), `start_date`, `end_date`, `page`, `per_page`. Results are ordered by `occurred_at DESC, created_at DESC`. Each transaction includes `reference_no` and `payment_no` (for manual KAS transactions, the server auto-generates `KAS-YYYYMMDD-XXXXX`; for Iuran payments, `PAY-YYYYMMDD-XXXXX`).
-- `POST /api/v1/transactions`: Create manual ledger transaction (Bendahara, Pengurus). Supports `Idempotency-Key` header. Automatically generates a unique `reference_no` (`KAS-YYYYMMDD-XXXXX`) persisted in the database and returned in the response.
+- `POST /api/v1/transactions`: Create manual ledger transaction (Bendahara, Pengurus). Supports `Idempotency-Key` header. Automatically generates a unique `reference_no` (`KAS-YYYYMMDD-XXXXX`) persisted in the database and returned in the response. Supports `expense_category` for expense transactions.
+- `GET /api/v1/transactions`: List ledger transactions with pagination and filters (`type`, `status`, `category_id`, `start_date`, `end_date`, `search` by reference_no/payment_no/description).
 - `POST /api/v1/transactions/{id}/reverse`: Create compensating reversal transaction (Bendahara, Pengurus).
 - `GET /api/v1/reports/balance`: Calculate real-time balance from posted transactions (Bendahara, Pengurus, Warga).
   - Without parameters: returns cumulative net balance (`total_income`, `total_expense`, `net_balance`, `transaction_count`).
@@ -1215,8 +1217,11 @@ Permissions:
 - `GET /api/v1/rw/{rwId}/kas/transactions?page=1&page_size=20&period=YYYY-MM`
   - Paginated transactions with `rt_name`, `location_name`, and `source_rt_name`.
 - `POST /api/v1/rw/{rwId}/kas/transactions`
-  - Body: `{"type": "income" | "expense", "amount": "100000.00", "location_id": "uuid", "description": "...", "payment_method": "transfer" | "cash", "source_rt_id": "uuid" (optional)}`
+  - Body: `{"type": "income" | "expense", "amount": "100000.00", "location_id": "uuid", "description": "...", "payment_method": "transfer" | "cash", "source_rt_id": "uuid" (optional), "expense_category": "string" (optional)}`
   - Records KAS transaction, appends `rw_location_balance_changes` mutation, checks sufficient balance on expense.
+- `POST /api/v1/rw/{rwId}/opening-balance`
+  - Body: `{"opening_balance": "1000000.00"}`
+  - Sets or updates persistent opening balance for RW. Formula: `Total Saldo = Saldo Awal + Saldo Bersih`.
 - `POST /api/v1/rw/{rwId}/kas/transactions/{id}/proof`
   - Multipart form upload for transaction proof (`file` field). Max 5MB.
 - `GET /api/v1/rw/{rwId}/kas/transactions/{id}/proof`

@@ -135,7 +135,7 @@ func setupTestOccupancy(t *testing.T, pool *database.Pool, rtID string) string {
 	var occID string
 	err = db.QueryRowContext(ctx,
 		`INSERT INTO household_occupancies (household_id, physical_house_id, occupancy_status, start_date)
-		 VALUES ($1, $2, 'OWNER', CURRENT_DATE) RETURNING id`,
+		 VALUES ($1, $2, 'OWNER', '2025-01-01') RETURNING id`,
 		hhID, houseID,
 	).Scan(&occID)
 	if err != nil {

@@ -732,6 +732,10 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		return nil, errors.New("cannot pay an inactive bill (tagihan tidak aktif)")
 	}
 
+	if !isVoluntary && !bill.IsObligatory {
+		return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
+	}
+
 	if !isVoluntary && !due.IsActive {
 		return nil, errors.New("cannot pay bill for an inactive due (iuran tidak aktif)")
 	}
@@ -744,6 +748,9 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	}
 	if !bill.IsActive {
 		return nil, errors.New("cannot approve payment: bill is inactive (tagihan tidak aktif)")
+	}
+	if !isVoluntary && !bill.IsObligatory {
+		return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
 	}
 
 	if userRole == "warga" {
@@ -1156,6 +1163,9 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 	if !bill.IsActive {
 		return nil, errors.New("cannot approve payment: bill is inactive (tagihan tidak aktif)")
 	}
+	if !isVoluntary && !bill.IsObligatory {
+		return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
+	}
 
 	// Validate overpayment BEFORE approving payment.
 	// approved_total_before does NOT include this payment yet (still PENDING).
@@ -1322,6 +1332,9 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 		}
 		if !bill.IsActive {
 			return nil, fmt.Errorf("bill %s is inactive (tagihan tidak aktif)", billID)
+		}
+		if !bill.IsObligatory {
+			return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
 		}
 
 		billCents, _, err := ParseMoney(bill.Amount)
@@ -1807,6 +1820,9 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		}
 		if !bill.IsActive {
 			return nil, fmt.Errorf("bill %s is inactive (tagihan tidak aktif)", billID)
+		}
+		if !bill.IsObligatory {
+			return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
 		}
 
 		due, err := DueGetByID(ctx, tx, bill.DueID, rtID)
@@ -2423,7 +2439,7 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 	}
 
 	statusPosted := string(TransactionStatusPosted)
-	recent, err := TransactionList(ctx, tx, rtID, nil, nil, &statusPosted, nil, nil, 0, 5)
+	recent, err := TransactionList(ctx, tx, rtID, nil, nil, &statusPosted, nil, nil, nil, 0, 5)
 	if err != nil {
 		recent = []*Transaction{}
 	}

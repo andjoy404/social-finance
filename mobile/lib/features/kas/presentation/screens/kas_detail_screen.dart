@@ -276,6 +276,16 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                   isDark: isDark,
                   theme: theme,
                 ),
+                if (tx.expenseCategory != null &&
+                    tx.expenseCategory!.isNotEmpty) ...[
+                  const Divider(height: 24),
+                  _DetailRow(
+                    label: 'Kategori Kas Keluar',
+                    value: tx.expenseCategory!,
+                    isDark: isDark,
+                    theme: theme,
+                  ),
+                ],
                 const Divider(height: 24),
                 _DetailRow(
                   label: 'Keterangan',

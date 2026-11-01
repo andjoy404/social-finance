@@ -584,7 +584,7 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, st
 		SELECT
 			nl.id, nl.rt_id, nl.user_id, nl.event_type, nl.dedup_key, nl.title, nl.body, nl.status, nl.created_at, nl.image_url,
 			(nr.read_at IS NOT NULL) AS is_read,
-			nr.read_at
+			nr.read_at, nl.payload
 		FROM notification_logs nl
 		LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
 		WHERE nl.rt_id = $2
@@ -643,10 +643,11 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, st
 		var entry NotificationLogEntry
 		var isRead sql.NullBool
 		var readAt sql.NullTime
+		var payloadBytes []byte
 		if err := rows.Scan(
 			&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey,
 			&entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL,
-			&isRead, &readAt,
+			&isRead, &readAt, &payloadBytes,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -654,6 +655,9 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, st
 		if readAt.Valid {
 			t := readAt.Time
 			entry.ReadAt = &t
+		}
+		if len(payloadBytes) > 0 {
+			_ = json.Unmarshal(payloadBytes, &entry.Payload)
 		}
 		logs = append(logs, entry)
 	}
@@ -785,20 +789,24 @@ func (r *pgRepository) GetUnreadCount(ctx context.Context, rtID, userID string, 
 
 func (r *pgRepository) GetLogByID(ctx context.Context, rtID, id string) (*NotificationLogEntry, error) {
 	query := `
-		SELECT id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at, image_url
+		SELECT id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at, image_url, payload
 		FROM notification_logs
 		WHERE id = $1 AND rt_id = $2
 		LIMIT 1;
 	`
 	var entry NotificationLogEntry
+	var payloadBytes []byte
 	err := r.pool.Raw().QueryRowContext(ctx, query, id, rtID).Scan(
-		&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL,
+		&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL, &payloadBytes,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if len(payloadBytes) > 0 {
+		_ = json.Unmarshal(payloadBytes, &entry.Payload)
 	}
 	return &entry, nil
 }

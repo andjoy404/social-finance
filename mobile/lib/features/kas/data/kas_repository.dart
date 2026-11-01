@@ -27,6 +27,7 @@ class KasRepository {
 
   /// Fetch paginated transactions with optional filters.
   Future<PaginatedResponse<KasTransaction>> listTransactions({
+    String? search,
     String? categoryId,
     KasJenis? jenis,
     String? status,
@@ -37,6 +38,7 @@ class KasRepository {
     int pageSize = 20,
   }) async {
     final response = await apiClient.listTransactions(
+      search: search,
       categoryId: categoryId,
       type: jenis?.value,
       status: status,
@@ -148,6 +150,7 @@ class KasRepository {
     DateTime? occurredAt,
     String? paymentMethod,
     String? locationId,
+    String? expenseCategory,
     required String idempotencyKey,
   }) async {
     final backendTx = await apiClient.createTransaction(
@@ -158,6 +161,7 @@ class KasRepository {
       occurredAt: occurredAt,
       paymentMethod: paymentMethod,
       locationId: locationId,
+      expenseCategory: expenseCategory,
       idempotencyKey: idempotencyKey,
     );
     return _toUiTransaction(backendTx);
@@ -229,6 +233,7 @@ class KasRepository {
       nominal: bt.amount,
       saldo: '0', // Balance is computed server-side, not per-transaction
       reversesTransactionId: bt.reversesTransactionId,
+      expenseCategory: bt.expenseCategory,
     );
   }
 

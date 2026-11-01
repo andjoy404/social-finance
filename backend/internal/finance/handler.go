@@ -618,6 +618,12 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 				isActive = &v
 			}
 		}
+		var isObligatory *bool
+		if io := r.URL.Query().Get("is_obligatory"); io != "" {
+			if v, err := strconv.ParseBool(io); err == nil {
+				isObligatory = &v
+			}
+		}
 
 		tx, err := h.pool.BeginTx(r.Context())
 		if err != nil {
@@ -644,12 +650,12 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 			_, _ = SyncBillsForRT(r.Context(), tx, rtQuery)
 
 			// Tenant-scoped query for specific RT (cross-tenant admin filtering)
-			total, err = BillCount(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive)
+			total, err = BillCount(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive, isObligatory)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
-			bills, err = BillList(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive, offset, pageSize, order)
+			bills, err = BillList(r.Context(), tx, rtQuery, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive, isObligatory, offset, pageSize, order)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
@@ -657,12 +663,12 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 			_ = tx.Commit()
 		} else {
 			// Cross-tenant query (admin viewing all RTs)
-			total, err = BillCountAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName)
+			total, err = BillCountAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName, isObligatory)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
-			bills, err = BillListAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName, offset, pageSize, order)
+			bills, err = BillListAll(r.Context(), tx, occupancyID, dueID, status, paymentStatus, period, search, dueName, isObligatory, offset, pageSize, order)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
@@ -758,6 +764,12 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		activeTrue := true
 		isActive = &activeTrue
 	}
+	var isObligatory *bool
+	if io := r.URL.Query().Get("is_obligatory"); io != "" {
+		if v, err := strconv.ParseBool(io); err == nil {
+			isObligatory = &v
+		}
+	}
 
 	page, pageSize := parsePagination(r)
 	offset := (page - 1) * pageSize
@@ -771,13 +783,13 @@ func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 		_, _ = SyncBillsForRT(r.Context(), tx, ac.RTID)
 	}
 
-	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive)
+	total, err := BillCount(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive, isObligatory)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
 
-	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive, offset, pageSize, order)
+	bills, err := BillList(r.Context(), tx, ac.RTID, occupancyID, dueID, status, paymentStatus, period, search, dueName, isActive, isObligatory, offset, pageSize, order)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
@@ -1859,26 +1871,31 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		var total int
 		var transactions []*Transaction
 
+		var search *string
+		if q := strings.TrimSpace(r.URL.Query().Get("search")); q != "" {
+			search = &q
+		}
+
 		if rtQuery != "" {
 			// Tenant-scoped query for specific RT (cross-tenant admin filtering)
-			total, err = TransactionCount(r.Context(), tx, rtQuery, categoryID, transType, status, startDate, endDate)
+			total, err = TransactionCount(r.Context(), tx, rtQuery, categoryID, transType, status, startDate, endDate, search)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
-			transactions, err = TransactionList(r.Context(), tx, rtQuery, categoryID, transType, status, startDate, endDate, offset, pageSize)
+			transactions, err = TransactionList(r.Context(), tx, rtQuery, categoryID, transType, status, startDate, endDate, search, offset, pageSize)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
 		} else {
 			// Cross-tenant query (admin viewing all RTs)
-			total, err = TransactionCountAll(r.Context(), tx, categoryID, transType, status, startDate, endDate)
+			total, err = TransactionCountAll(r.Context(), tx, categoryID, transType, status, startDate, endDate, search)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
 			}
-			transactions, err = TransactionListAll(r.Context(), tx, categoryID, transType, status, startDate, endDate, offset, pageSize)
+			transactions, err = TransactionListAll(r.Context(), tx, categoryID, transType, status, startDate, endDate, search, offset, pageSize)
 			if err != nil {
 				httpx.WriteInternalServerError(w, err.Error())
 				return
@@ -1940,6 +1957,11 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 		endDate = &edStr
 	}
 
+	var search *string
+	if q := strings.TrimSpace(r.URL.Query().Get("search")); q != "" {
+		search = &q
+	}
+
 	page, pageSize := parsePagination(r)
 	offset := (page - 1) * pageSize
 
@@ -1950,13 +1972,13 @@ func (h *Handler) ListTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	total, err := TransactionCount(r.Context(), tx, ac.RTID, categoryID, transType, status, startDate, endDate)
+	total, err := TransactionCount(r.Context(), tx, ac.RTID, categoryID, transType, status, startDate, endDate, search)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return
 	}
 
-	transactions, err := TransactionList(r.Context(), tx, ac.RTID, categoryID, transType, status, startDate, endDate, offset, pageSize)
+	transactions, err := TransactionList(r.Context(), tx, ac.RTID, categoryID, transType, status, startDate, endDate, search, offset, pageSize)
 	if err != nil {
 		httpx.WriteInternalServerError(w, err.Error())
 		return

@@ -123,7 +123,7 @@ func TestVerifyPaymentGAPBAndReversePaymentGAPD(t *testing.T) {
 
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO household_occupancies (household_id, physical_house_id, occupancy_status, start_date)
-		 VALUES ($1, $2, 'OWNER', CURRENT_DATE) RETURNING id`,
+		 VALUES ($1, $2, 'OWNER', '2025-01-01') RETURNING id`,
 		hhID, houseID,
 	).Scan(&occID)
 	require.NoError(t, err)

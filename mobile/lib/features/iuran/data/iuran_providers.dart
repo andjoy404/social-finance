@@ -199,7 +199,8 @@ List<IuranBill> _filterBills(
     final searchMatch =
         normalizedQuery.isEmpty ||
         b.householdName.toLowerCase().contains(normalizedQuery) ||
-        b.iuranType.toLowerCase().contains(normalizedQuery);
+        b.iuranType.toLowerCase().contains(normalizedQuery) ||
+        b.paymentNumbers.any((no) => no.toLowerCase().contains(normalizedQuery));
 
     // Period filter: match "Oktober 2026", "2026-10", or year-only "2026"
     final periodMatch =

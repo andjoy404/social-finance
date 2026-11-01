@@ -124,9 +124,14 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
       ),
       floatingActionButton:
           currentBill != null &&
-              (currentBill.status != IuranStatus.lunas ||
+              (!currentBill.isObligatory ||
+                  currentBill.status != IuranStatus.lunas ||
                   currentBill.isVoluntary)
-          ? _buildAndroidFAB(context, accentSoft)
+          ? _buildAndroidFAB(
+              context,
+              accentSoft,
+              isEnabled: currentBill.isObligatory,
+            )
           : null,
       body: currentBill != null
           ? _buildBillDetail(context, theme, isDark, currentBill, accentSoft)
@@ -190,6 +195,59 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     );
   }
 
+  static const _indoMonths = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  _ObligatorySummary _getObligatorySummary(String? moveInDate, String periode) {
+    int year = DateTime.now().year;
+    if (periode.length >= 4) {
+      final y = int.tryParse(periode.substring(0, 4));
+      if (y != null) year = y;
+    }
+    if (moveInDate == null || moveInDate.isEmpty) {
+      return _ObligatorySummary(
+        moveInFormatted: '—',
+        obligRange: 'Januari–Desember $year',
+        obligCount: '12 Bulan',
+      );
+    }
+    try {
+      final d = DateTime.parse(moveInDate).toLocal();
+      final moveInYear = d.year;
+      final moveInMonth = d.month;
+      String obligRange;
+      int count;
+
+      if (moveInYear < year) {
+        obligRange = 'Januari–Desember $year';
+        count = 12;
+      } else if (moveInYear > year) {
+        obligRange = '0 Bulan ($year)';
+        count = 0;
+      } else {
+        count = 12 - moveInMonth + 1;
+        if (count <= 1) {
+          obligRange = 'Desember $year';
+        } else {
+          obligRange = '${_indoMonths[moveInMonth - 1]}–Desember $year';
+        }
+      }
+      return _ObligatorySummary(
+        moveInFormatted: '${d.day} ${_indoMonths[d.month - 1]} ${d.year}',
+        obligRange: obligRange,
+        obligCount: '$count Bulan',
+      );
+    } catch (_) {
+      return _ObligatorySummary(
+        moveInFormatted: moveInDate,
+        obligRange: 'Januari–Desember $year',
+        obligCount: '12 Bulan',
+      );
+    }
+  }
+
   Widget _buildBillDetail(
     BuildContext context,
     ThemeData theme,
@@ -197,6 +255,8 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     IuranBill bill,
     Color accentSoft,
   ) {
+    final obligSummary = _getObligatorySummary(bill.moveInDate, bill.periode);
+
     return RefreshIndicator(
       onRefresh: _onRefresh,
       child: SingleChildScrollView(
@@ -229,12 +289,20 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                         ),
                       ),
                       AppBadge(
-                        label: getStatusLabel(bill.status),
-                        textColor: getStatusColor(bill.status, context),
-                        backgroundColor: getStatusColor(
-                          bill.status,
-                          context,
-                        ).withValues(alpha: isDark ? 0.18 : 0.10),
+                        label: bill.isObligatory
+                            ? getStatusLabel(bill.status)
+                            : 'Tidak Wajib',
+                        textColor: bill.isObligatory
+                            ? getStatusColor(bill.status, context)
+                            : (isDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted),
+                        backgroundColor: (bill.isObligatory
+                                ? getStatusColor(bill.status, context)
+                                : (isDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder))
+                            .withValues(alpha: isDark ? 0.18 : 0.10),
                       ),
                     ],
                   ),
@@ -246,6 +314,48 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                 ],
               ),
             ),
+
+            if (!bill.isObligatory) ...[
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.darkSurfaceSubtle
+                      : AppColors.lightSurfaceSubtle,
+                  borderRadius: BorderRadius.circular(AppRadius.base),
+                  border: Border.all(
+                    color: isDark
+                        ? AppColors.darkBorder
+                        : AppColors.lightBorder,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 20,
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        'Tagihan ini sebelum tanggal mulai menempati rumah (tidak wajib dibayar & bukan tunggakan).',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: isDark
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             const SizedBox(height: AppSpacing.lg),
 
@@ -277,6 +387,27 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
                     icon: Icons.calendar_today_outlined,
                     label: 'Periode',
                     trailing: _buildPeriodeBadge(bill.periode),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildDetailRow(
+                    context,
+                    icon: Icons.calendar_month_outlined,
+                    label: 'Tanggal Mulai Menempati',
+                    value: obligSummary.moveInFormatted,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildDetailRow(
+                    context,
+                    icon: Icons.date_range_outlined,
+                    label: 'Bulan Wajib Dibayar',
+                    value: obligSummary.obligRange,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  _buildDetailRow(
+                    context,
+                    icon: Icons.timelapse_outlined,
+                    label: 'Jumlah Periode Wajib',
+                    value: obligSummary.obligCount,
                   ),
                 ],
               ),
@@ -1347,7 +1478,52 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     );
   }
 
-  Widget _buildAndroidFAB(BuildContext context, Color accentSoft) {
+  Widget _buildAndroidFAB(
+    BuildContext context,
+    Color accentSoft, {
+    bool isEnabled = true,
+  }) {
+    if (!isEnabled) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      return Container(
+        decoration: BoxDecoration(
+          color: isDark
+              ? AppColors.darkSurfaceSubtle
+              : AppColors.lightSurfaceSubtle,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+            width: 1,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.block,
+                size: 20,
+                color: isDark
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Tidak Wajib Bayar',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isDark
+                      ? AppColors.darkTextMuted
+                      : AppColors.lightTextMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Container(
       decoration: BoxDecoration(
         color: accentSoft,
@@ -1897,3 +2073,16 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
     );
   }
 }
+
+class _ObligatorySummary {
+  final String moveInFormatted;
+  final String obligRange;
+  final String obligCount;
+
+  _ObligatorySummary({
+    required this.moveInFormatted,
+    required this.obligRange,
+    required this.obligCount,
+  });
+}
+

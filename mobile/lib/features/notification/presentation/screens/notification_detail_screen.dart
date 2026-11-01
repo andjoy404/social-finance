@@ -167,7 +167,7 @@ class _NotificationDetailScreenState
     if (widget.openedFromNotificationList) {
       // Case B: Detail opened from in-app notification list
       if (router != null) {
-        if (_hasNotificationListInStack(router) && router.canPop()) {
+        if (router.canPop()) {
           router.pop();
         } else {
           router.go('/home/notifikasi');

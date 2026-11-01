@@ -57,6 +57,7 @@ class BackendTransaction {
   final String? citizenName;
   final String? houseNumber;
   final String? paymentMethod;
+  final String? expenseCategory;
 
   const BackendTransaction({
     required this.id,
@@ -77,6 +78,7 @@ class BackendTransaction {
     this.citizenName,
     this.houseNumber,
     this.paymentMethod,
+    this.expenseCategory,
   });
 
   factory BackendTransaction.fromJson(Map<String, dynamic> json) {
@@ -99,6 +101,7 @@ class BackendTransaction {
       citizenName: json['citizen_name'] as String?,
       houseNumber: json['house_number'] as String?,
       paymentMethod: json['payment_method'] as String?,
+      expenseCategory: json['expense_category'] as String?,
     );
   }
 }

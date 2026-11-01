@@ -125,6 +125,29 @@ func (s *Service) GetKASReport(ctx context.Context, ac *auth.AuthContext, rwID, 
 	return report, nil
 }
 
+// SetOpeningBalance sets or updates the RW opening balance.
+func (s *Service) SetOpeningBalance(ctx context.Context, ac *auth.AuthContext, rwID, amount string) error {
+	if err := s.requirePermission(ctx, ac, rwID, "finance.create"); err != nil {
+		return err
+	}
+	cents, _, err := ParseMoney(amount)
+	if err != nil || cents < 0 {
+		return fmt.Errorf("invalid opening balance: %w", ErrValidation)
+	}
+
+	tx, err := s.pool.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := s.repo.SetOpeningBalance(ctx, tx, rwID, FormatMoney(cents), ac.UserID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // GetTransactions returns a paginated list of posted transactions from RW's independent ledger.
 func (s *Service) GetTransactions(ctx context.Context, ac *auth.AuthContext, rwID string,
 	period string, page, pageSize int, startDate, endDate string,

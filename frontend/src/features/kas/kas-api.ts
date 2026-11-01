@@ -43,6 +43,7 @@ export async function fetchKasTransactions(
     categoryId?: string
     startDate?: string
     endDate?: string
+    search?: string
   },
 ): Promise<ApiTransactionPaginated> {
   return apiListTransactions(token, {
@@ -54,6 +55,7 @@ export async function fetchKasTransactions(
     category_id: params?.categoryId,
     start_date: params?.startDate,
     end_date: params?.endDate,
+    search: params?.search,
   })
 }
 
