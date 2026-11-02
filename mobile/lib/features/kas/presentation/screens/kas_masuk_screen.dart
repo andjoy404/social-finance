@@ -4,6 +4,7 @@
 /// UUID to the POST /api/v1/transactions body.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -544,70 +545,122 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Bukti Bayar',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  InkWell(
-                    onTap: _saving
-                        ? null
-                        : () => _pickImage(ImageSource.gallery),
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: _proofFile != null
-                              ? AppColors.accent
-                              : (isDark
-                                    ? AppColors.darkBorder
-                                    : AppColors.lightBorder),
-                          width: _proofFile != null ? 2 : 1,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Bukti Bayar',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        color: _proofFile != null
-                            ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                            : (isDark
-                                  ? AppColors.darkSurface
-                                  : AppColors.lightSurface),
                       ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.photo_library_outlined,
-                            color: AppColors.accent,
-                            size: 16,
+                      if (_proofFile != null)
+                        TextButton(
+                          onPressed: _saving
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _proofFile = null;
+                                    _proofPreviewPath = null;
+                                  });
+                                },
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: AppColors.danger,
                           ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              _proofFile?.name ?? 'Pilih Berkas Bukti Bayar',
-                              style: theme.textTheme.bodyLarge,
-                            ),
-                          ),
-                          const Spacer(),
-                          if (_proofFile != null)
-                            IconButton(
-                              icon: const Icon(
-                                Icons.close,
-                                size: 18,
-                                color: AppColors.danger,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _proofFile = null;
-                                  _proofPreviewPath = null;
-                                });
-                              },
-                            ),
-                        ],
+                          child: const Text('Hapus', style: TextStyle(fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  if (_proofFile != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: Image.file(
+                        File(_proofPreviewPath!),
+                        height: 120,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: _saving
+                            ? null
+                            : () async {
+                                final picker = ImagePicker();
+                                final picked = await picker.pickImage(
+                                  source: ImageSource.camera,
+                                  maxWidth: 1920,
+                                  maxHeight: 1920,
+                                  imageQuality: 85,
+                                );
+                                if (picked != null && mounted) {
+                                  setState(() {
+                                    _proofFile = picked;
+                                    _proofPreviewPath = picked.path;
+                                  });
+                                }
+                              },
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Ganti Foto', style: TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () async {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.camera,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked != null && mounted) {
+                                      setState(() {
+                                        _proofFile = picked;
+                                        _proofPreviewPath = picked.path;
+                                      });
+                                    }
+                                  },
+                            icon: const Icon(Icons.camera_alt, size: 16),
+                            label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () async {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.gallery,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked != null && mounted) {
+                                      setState(() {
+                                        _proofFile = picked;
+                                        _proofPreviewPath = picked.path;
+                                      });
+                                    }
+                                  },
+                            icon: const Icon(Icons.photo_library, size: 16),
+                            label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
 
