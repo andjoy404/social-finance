@@ -425,38 +425,84 @@ export function RwDashboard({
       </div>
 
       {/* Metrics row */}
-      <div className="sf-metrics-row">
-        <div className="sf-metric-card">
-          <div className="sf-metric-label">Total Saldo ({metricScopeLabel})</div>
-          <div className="sf-metric-value sf-metric-default">
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: 12,
+        marginTop: 8,
+        marginBottom: 2,
+      }}>
+        {/* Total Saldo */}
+        <div style={{
+          background: 'rgba(59, 130, 246, 0.05)',
+          borderRadius: 'var(--sf-radius-md)',
+          padding: '14px 16px',
+          border: '1px solid rgba(59, 130, 246, 0.1)',
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Total Saldo ({metricScopeLabel})
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-accent)' }}>
             {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(totalSaldoNum)}
           </div>
         </div>
 
-        <div className="sf-metric-card">
-          <div className="sf-metric-label">Saldo Awal</div>
-          <div className="sf-metric-value sf-metric-default">
+        {/* Saldo Awal */}
+        <div style={{
+          background: 'rgba(100, 116, 139, 0.05)',
+          borderRadius: 'var(--sf-radius-md)',
+          padding: '14px 16px',
+          border: '1px solid rgba(100, 116, 139, 0.1)',
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Saldo Awal
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-text)' }}>
             {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(openingBalNum)}
           </div>
         </div>
 
-        <div className="sf-metric-card">
-          <div className="sf-metric-label">Total Pemasukan ({metricScopeLabel})</div>
-          <div className="sf-metric-value sf-metric-income">
+        {/* Total Pemasukan */}
+        <div style={{
+          background: 'rgba(34, 197, 94, 0.05)',
+          borderRadius: 'var(--sf-radius-md)',
+          padding: '14px 16px',
+          border: '1px solid rgba(34, 197, 94, 0.1)',
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Total Pemasukan ({metricScopeLabel})
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-success)' }}>
             {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(totalIncomeNum)}
           </div>
         </div>
 
-        <div className="sf-metric-card">
-          <div className="sf-metric-label">Total Pengeluaran ({metricScopeLabel})</div>
-          <div className="sf-metric-value sf-metric-expense">
+        {/* Total Pengeluaran */}
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.05)',
+          borderRadius: 'var(--sf-radius-md)',
+          padding: '14px 16px',
+          border: '1px solid rgba(239, 68, 68, 0.1)',
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Total Pengeluaran ({metricScopeLabel})
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444' }}>
             {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(totalExpenseNum)}
           </div>
         </div>
 
-        <div className="sf-metric-card">
-          <div className="sf-metric-label">Saldo Bersih ({metricScopeLabel})</div>
-          <div className={`sf-metric-value ${netBalNum >= 0 ? 'sf-metric-income' : 'sf-metric-expense'}`}>
+        {/* Saldo Bersih */}
+        <div style={{
+          background: netBalNum >= 0 ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)',
+          borderRadius: 'var(--sf-radius-md)',
+          padding: '14px 16px',
+          border: `1px solid ${netBalNum >= 0 ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'}`,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Saldo Bersih ({metricScopeLabel})
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: netBalNum >= 0 ? 'var(--sf-success)' : '#ef4444' }}>
             {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(netBalNum)}
           </div>
         </div>
