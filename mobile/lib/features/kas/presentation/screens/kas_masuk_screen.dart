@@ -481,11 +481,11 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                 ),
               const SizedBox(height: AppSpacing.sm),
 
-              // Lokasi Dana (Opsional)
+              // Lokasi Dana
               DropdownButtonFormField<String?>(
                 value: _selectedLocationId,
                 decoration: InputDecoration(
-                  labelText: 'Lokasi Dana (Opsional)',
+                  labelText: 'Lokasi Dana',
                   hintText: 'Pilih lokasi penyimpanan dana',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
