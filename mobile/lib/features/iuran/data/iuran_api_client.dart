@@ -198,7 +198,8 @@ class IuranApiClient {
     String? householdOccupancyId,
     bool myBills = false,
     int page = 1,
-    int pageSize = 20,
+    int pageSize = 30,
+    String? order,
   }) async {
     final query = <String, dynamic>{
       'page': page.toString(),
@@ -215,6 +216,7 @@ class IuranApiClient {
       query['household_occupancy_id'] = householdOccupancyId;
     }
     if (myBills) query['my_bills'] = 'true';
+    if (order != null && order.isNotEmpty) query['order'] = order;
 
     final response = await dio.get('/api/v1/bills', queryParameters: query);
     return _parsePaginatedBills(response.data);

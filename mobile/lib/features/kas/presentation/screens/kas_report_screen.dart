@@ -13,6 +13,7 @@ import 'package:flutter/services.dart' show rootBundle;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_saver/file_saver.dart';
+import 'package:printing/printing.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
@@ -30,8 +31,18 @@ import 'package:social_finance/features/kas/export/kas_report_model.dart';
 
 class KasReportAccess {
   final bool canView;
-  final bool canExport;
-  const KasReportAccess({required this.canView, required this.canExport});
+  final bool canExportPdf;
+  final bool canExportXlsx;
+  final bool canPrint;
+
+  bool get canExport => canExportPdf || canExportXlsx;
+
+  const KasReportAccess({
+    required this.canView,
+    required this.canExportPdf,
+    required this.canExportXlsx,
+    required this.canPrint,
+  });
 
   factory KasReportAccess.from({
     String? systemRole,
@@ -40,13 +51,26 @@ class KasReportAccess {
   }) {
     final j = (jabatan ?? '').toLowerCase().trim();
     final r = (role ?? '').toLowerCase().trim();
+    final isSuperAdmin = systemRole == 'super_admin';
     final blocked = j == 'keamanan' || j == 'operasional';
+    final canView = isSuperAdmin || !blocked;
+
+    final isPrivileged = canView &&
+        (isSuperAdmin ||
+            r == 'bendahara' ||
+            r == 'pengurus' ||
+            r == 'ketua' ||
+            r == 'admin' ||
+            j == 'ketua' ||
+            j == 'wakil_ketua' ||
+            j == 'sekretaris' ||
+            j == 'bendahara');
+
     return KasReportAccess(
-      canView: systemRole == 'super_admin' || !blocked,
-      canExport: j == 'ketua' ||
-          j == 'wakil_ketua' ||
-          j == 'bendahara' ||
-          r == 'bendahara',
+      canView: canView,
+      canExportPdf: canView,
+      canExportXlsx: isPrivileged,
+      canPrint: isPrivileged,
     );
   }
 }
@@ -254,6 +278,25 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
     }
   }
 
+  Future<void> _printReport() async {
+    final model = _model;
+    if (model == null || _exporting) return;
+    try {
+      final logo = await _logoBytes();
+      await Printing.layoutPdf(
+        onLayout: (format) async => await generateKasReportPdf(
+          model: model,
+          transactions: _transactions,
+          logoBytes: logo,
+        ),
+        name: getKasReportPdfFileName(model),
+      );
+    } catch (e, st) {
+      debugPrint('Print laporan kas gagal: $e\n$st');
+      _showToast('Gagal mencetak laporan: $e');
+    }
+  }
+
   void _showToast(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -323,33 +366,49 @@ class _KasReportScreenState extends ConsumerState<KasReportScreen> {
       padding: const EdgeInsets.only(top: 12),
       child: Column(
         children: [
-          // ---- Toolbar ekspor ----
-          if (access.canExport)
+          // ---- Toolbar ekspor & cetak ----
+          if (access.canExportPdf || access.canExportXlsx || access.canPrint)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  Expanded(
-                    child: _simpleExportButton(
-                      key: const Key('kas-report-export-pdf'),
-                      label: _exporting ? 'Membuat PDF…' : 'PDF',
-                      icon: Icons.picture_as_pdf,
-                      color: AppColors.danger,
-                      onPressed: _exporting ? null : _exportPdf,
-                      isLoading: _exporting,
+                  if (access.canExportPdf)
+                    Expanded(
+                      child: _simpleExportButton(
+                        key: const Key('kas-report-export-pdf'),
+                        label: _exporting ? 'Membuat PDF…' : 'PDF',
+                        icon: Icons.picture_as_pdf,
+                        color: AppColors.danger,
+                        onPressed: _exporting ? null : _exportPdf,
+                        isLoading: _exporting,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _simpleExportButton(
-                      key: const Key('kas-report-export-xlsx'),
-                      label: _exporting ? 'Membuat XLSX…' : 'XLSX',
-                      icon: Icons.table_chart,
-                      color: AppColors.success,
-                      onPressed: _exporting ? null : _exportXlsx,
-                      isLoading: _exporting,
+                  if (access.canExportPdf && (access.canExportXlsx || access.canPrint))
+                    const SizedBox(width: 8),
+                  if (access.canExportXlsx)
+                    Expanded(
+                      child: _simpleExportButton(
+                        key: const Key('kas-report-export-xlsx'),
+                        label: _exporting ? 'Membuat XLSX…' : 'XLSX',
+                        icon: Icons.table_chart,
+                        color: AppColors.success,
+                        onPressed: _exporting ? null : _exportXlsx,
+                        isLoading: _exporting,
+                      ),
                     ),
-                  ),
+                  if (access.canExportXlsx && access.canPrint)
+                    const SizedBox(width: 8),
+                  if (access.canPrint)
+                    Expanded(
+                      child: _simpleExportButton(
+                        key: const Key('kas-report-export-print'),
+                        label: 'Cetak',
+                        icon: Icons.print,
+                        color: AppColors.accent,
+                        onPressed: _exporting ? null : _printReport,
+                        isLoading: false,
+                      ),
+                    ),
                 ],
               ),
             ),

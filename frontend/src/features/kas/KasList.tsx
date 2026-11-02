@@ -346,7 +346,7 @@ export function KasList() {
         keterangan: t.description,
         dueName: t.due_name,
         citizenName: t.citizen_name,
-        kategori: t.category_name || '—',
+        kategori: t.expense_category || t.category_name || '—',
         metode,
         pengurus: (isIncome && Boolean(t.payment_id || t.due_name || (t.payment_no && t.payment_no.startsWith('PAY-')))) ? 'Sistem' : (t.officer_name || '—'),
         referensi: resolvedRef,
@@ -878,7 +878,7 @@ export function KasList() {
                     Kategori
                   </div>
                   <div style={{ fontSize: 14, color: 'var(--sf-text)', fontWeight: 500 }}>
-                    {selectedTx.category_name || '—'}
+                    {selectedTx.expense_category || selectedTx.category_name || '—'}
                   </div>
                 </div>
 

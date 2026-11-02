@@ -299,9 +299,10 @@ void main() {
       expect(last[0]?.value.toString(), 'Grand Total');
       expect((last[4]?.value as IntCellValue).value, 550000);
       final s3 = book['Detail Transaksi'];
-      // header + 6 posted + total
-      expect(s3.rows.length, 8);
-      expect((s3.rows[1][6]?.value as IntCellValue).value, 1000000);
+      // header + 1 agregasi Iuran Warga + 4 transaksi lainnya + total = 7 baris
+      expect(s3.rows.length, 7);
+      expect(s3.rows[1][4]?.value.toString(), 'Akumulasi Iuran Warga');
+      expect((s3.rows[1][6]?.value as IntCellValue).value, 1500000);
     });
   });
 
@@ -317,25 +318,41 @@ void main() {
         ).canView,
         isTrue,
       );
-      expect(KasReportAccess.from(role: 'bendahara').canExport, isTrue);
-      expect(KasReportAccess.from(jabatan: 'bendahara').canExport, isTrue);
+      expect(KasReportAccess.from(role: 'bendahara').canExportPdf, isTrue);
+      expect(KasReportAccess.from(role: 'bendahara').canExportXlsx, isTrue);
+      expect(KasReportAccess.from(role: 'bendahara').canPrint, isTrue);
+      expect(KasReportAccess.from(jabatan: 'bendahara').canExportPdf, isTrue);
+      expect(KasReportAccess.from(jabatan: 'bendahara').canExportXlsx, isTrue);
+      expect(KasReportAccess.from(jabatan: 'bendahara').canPrint, isTrue);
       expect(
-        KasReportAccess.from(role: 'pengurus', jabatan: 'bendahara').canExport,
+        KasReportAccess.from(role: 'pengurus', jabatan: 'bendahara').canExportPdf,
         isTrue,
       );
       expect(
-        KasReportAccess.from(role: 'warga', jabatan: 'bendahara').canExport,
+        KasReportAccess.from(role: 'warga', jabatan: 'bendahara').canExportPdf,
         isTrue,
       );
-      expect(KasReportAccess.from(jabatan: 'ketua').canExport, isTrue);
-      expect(KasReportAccess.from(jabatan: 'wakil_ketua').canExport, isTrue);
-      expect(KasReportAccess.from(role: 'warga').canExport, isFalse);
-      expect(KasReportAccess.from(role: 'pengurus').canExport, isFalse);
-      expect(KasReportAccess.from(jabatan: 'sekretaris').canExport, isFalse);
-      expect(
-        KasReportAccess.from(role: 'pengurus', jabatan: 'sekretaris').canExport,
-        isFalse,
-      );
+      expect(KasReportAccess.from(jabatan: 'ketua').canExportPdf, isTrue);
+      expect(KasReportAccess.from(jabatan: 'ketua').canExportXlsx, isTrue);
+      expect(KasReportAccess.from(jabatan: 'ketua').canPrint, isTrue);
+      expect(KasReportAccess.from(jabatan: 'wakil_ketua').canExportPdf, isTrue);
+      expect(KasReportAccess.from(jabatan: 'wakil_ketua').canExportXlsx, isTrue);
+      expect(KasReportAccess.from(jabatan: 'wakil_ketua').canPrint, isTrue);
+
+      // Warga: boleh PDF, tidak boleh XLSX dan print
+      expect(KasReportAccess.from(role: 'warga').canExportPdf, isTrue);
+      expect(KasReportAccess.from(role: 'warga').canExportXlsx, isFalse);
+      expect(KasReportAccess.from(role: 'warga').canPrint, isFalse);
+
+      // Pengurus: boleh PDF, XLSX, print
+      expect(KasReportAccess.from(role: 'pengurus').canExportPdf, isTrue);
+      expect(KasReportAccess.from(role: 'pengurus').canExportXlsx, isTrue);
+      expect(KasReportAccess.from(role: 'pengurus').canPrint, isTrue);
+
+      // Super admin: boleh PDF, XLSX, print
+      expect(KasReportAccess.from(systemRole: 'super_admin').canExportPdf, isTrue);
+      expect(KasReportAccess.from(systemRole: 'super_admin').canExportXlsx, isTrue);
+      expect(KasReportAccess.from(systemRole: 'super_admin').canPrint, isTrue);
     });
   });
 
@@ -355,6 +372,7 @@ void main() {
       );
       expect(find.byKey(const Key('kas-report-export-pdf')), findsOneWidget);
       expect(find.byKey(const Key('kas-report-export-xlsx')), findsOneWidget);
+      expect(find.byKey(const Key('kas-report-export-print')), findsOneWidget);
     });
 
     testWidgets(
@@ -371,6 +389,7 @@ void main() {
         expect(find.byKey(const Key('kas-report-document')), findsOneWidget);
         expect(find.byKey(const Key('kas-report-export-pdf')), findsOneWidget);
         expect(find.byKey(const Key('kas-report-export-xlsx')), findsOneWidget);
+        expect(find.byKey(const Key('kas-report-export-print')), findsOneWidget);
       },
     );
 
@@ -396,7 +415,7 @@ void main() {
       expect(find.text('Desa Gondang, Kecamatan Cileungsi'), findsOneWidget);
     });
 
-    testWidgets('warga: dokumen tampil tanpa tombol ekspor', (tester) async {
+    testWidgets('warga: dokumen tampil dengan tombol PDF, tanpa XLSX dan cetak', (tester) async {
       await pumpScreen(
         tester,
         _FakeRepo(txs: fixture, closing: '3200000.00'),
@@ -404,7 +423,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('kas-report-document')), findsOneWidget);
-      expect(find.byKey(const Key('kas-report-export-pdf')), findsNothing);
+      expect(find.byKey(const Key('kas-report-export-pdf')), findsOneWidget);
+      expect(find.byKey(const Key('kas-report-export-xlsx')), findsNothing);
+      expect(find.byKey(const Key('kas-report-export-print')), findsNothing);
     });
 
     testWidgets('jabatan keamanan ditolak', (tester) async {

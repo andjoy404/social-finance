@@ -193,7 +193,7 @@ class _IuranScreenState extends ConsumerState<IuranScreen>
 
 // ── Shared Bill List Tab (reused for both Iuran Saya & Iuran Warga) ────
 
-class _BillListTab extends ConsumerWidget {
+class _BillListTab extends ConsumerStatefulWidget {
   final bool isMyBills;
   final TextEditingController searchController;
 
@@ -201,6 +201,37 @@ class _BillListTab extends ConsumerWidget {
     required this.isMyBills,
     required this.searchController,
   });
+
+  @override
+  ConsumerState<_BillListTab> createState() => _BillListTabState();
+}
+
+class _BillListTabState extends ConsumerState<_BillListTab> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!widget.isMyBills && _scrollController.hasClients) {
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final currentScroll = _scrollController.position.pixels;
+      if (maxScroll - currentScroll <= 200) {
+        ref.read(billsProvider.notifier).loadMore();
+      }
+    }
+  }
 
   /// Determine whether the household name should be shown in the bill card.
   ///
@@ -211,14 +242,14 @@ class _BillListTab extends ConsumerWidget {
   bool _shouldShowHouseholdName(WidgetRef ref) {
     final authState = ref.read(authRepositoryProvider);
     final user = authState?.valueOrNull;
-    if (user == null) return false;
+    if (user == null) return true;
 
     final role = _roleValue(user['role']);
     // WARGA: always hide household name
     if (role == 'warga') return false;
 
     // Non-warga (pengurus/bendahara): show only on "Iuran Warga" tab
-    return !isMyBills;
+    return !widget.isMyBills;
   }
 
   static String? _roleValue(Object? role) {
@@ -235,32 +266,35 @@ class _BillListTab extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
     final billsState =
-        isMyBills ? ref.watch(myBillsProvider) : ref.watch(billsProvider);
-    final filtered = isMyBills
+        widget.isMyBills ? ref.watch(myBillsProvider) : ref.watch(billsProvider);
+    final filtered = widget.isMyBills
         ? ref.watch(filteredMyBillsProvider)
         : ref.watch(filteredBillsProvider);
+    final paginated = ref.watch(paginatedBillsProvider);
     final periodeProvider =
-        isMyBills ? iuranSayaSelectedPeriodeProvider : iuranSelectedPeriodeProvider;
+        widget.isMyBills ? iuranSayaSelectedPeriodeProvider : iuranSelectedPeriodeProvider;
     final periode = ref.watch(periodeProvider);
     final status = ref.watch(iuranSelectedStatusProvider);
     final paymentStatus = ref.watch(iuranSelectedPaymentStatusProvider);
 
     // Expanded state keyed by tab index (0=my bills, 1=warga bills)
-    final filterIndex = isMyBills ? 0 : 1;
+    final filterIndex = widget.isMyBills ? 0 : 1;
     final isExpanded = ref.watch(iuranFilterExpandedProvider(filterIndex));
     void onToggleFilter(bool v) =>
         ref.read(iuranFilterExpandedProvider(filterIndex).notifier).state = v;
 
     debugPrint(
-        '[IuranDebug] Tab ${isMyBills ? "my" : "warga"} filtered=${filtered.length} billsState=${billsState.when(data: (d) => d.length, loading: () => '-', error: (e, _) => "err")}');
+        '[IuranDebug] Tab ${widget.isMyBills ? "my" : "warga"} filtered=${filtered.length} billsState=${billsState.when(data: (d) => d.length, loading: () => '-', error: (e, _) => "err")}');
+
+    final totalCount = paginated.total > 0 ? paginated.total : filtered.length;
 
     return RefreshIndicator(
-      onRefresh: isMyBills
+      onRefresh: widget.isMyBills
           ? () => ref.read(myBillsProvider.notifier).refresh()
           : () => ref.read(billsProvider.notifier).refresh(),
       child: Column(
@@ -527,7 +561,7 @@ class _BillListTab extends ConsumerWidget {
             child: SizedBox(
               height: 38,
               child: AppTextField(
-                controller: searchController,
+                controller: widget.searchController,
                 hintText: 'Cari nama, jenis iuran, atau RT...',
                 isDense: true,
                 fillColor: isDark
@@ -541,19 +575,19 @@ class _BillListTab extends ConsumerWidget {
                 suffixIconConstraints:
                     const BoxConstraints(minWidth: 36, minHeight: 38),
                 prefixIcon: const Icon(Icons.search, size: 18),
-                suffixIcon: searchController.text.isNotEmpty
+                suffixIcon: widget.searchController.text.isNotEmpty
                     ? IconButton(
                         padding: EdgeInsets.zero,
                         icon: const Icon(Icons.clear, size: 18),
                         onPressed: () {
-                          searchController.clear();
+                          widget.searchController.clear();
                           ref.read(iuranSearchQueryProvider.notifier).state = '';
                         },
                       )
                     : null,
                 onChanged: (_) {
                   ref.read(iuranSearchQueryProvider.notifier).state =
-                      searchController.text.trim();
+                      widget.searchController.text.trim();
                 },
               ),
             ),
@@ -565,7 +599,22 @@ class _BillListTab extends ConsumerWidget {
                 : const SizedBox.shrink(),
           ),
 
-          const SizedBox(height: AppSpacing.sm),
+          if (totalCount > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.base,
+                vertical: 4,
+              ),
+              child: Text(
+                '$totalCount Iuran',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.accent,
+                ),
+              ),
+            ),
+
+          const SizedBox(height: AppSpacing.xs),
 
           // ── Bill list ──
           Expanded(
@@ -601,7 +650,7 @@ class _BillListTab extends ConsumerWidget {
                           onAction: (billsState.valueOrNull?.isNotEmpty ??
                                   false)
                               ? () {
-                                  searchController.clear();
+                                  widget.searchController.clear();
                                   ref.read(
                                       periodeProvider.notifier)
                                       .state = '';
@@ -618,6 +667,7 @@ class _BillListTab extends ConsumerWidget {
                       ),
                     )
                   : ListView.separated(
+                      controller: _scrollController,
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(
                         AppSpacing.base,
@@ -625,14 +675,70 @@ class _BillListTab extends ConsumerWidget {
                         AppSpacing.base,
                         AppSpacing.xl,
                       ),
-                      itemCount: filtered.length,
+                      itemCount: filtered.length +
+                          ((paginated.isLoadingMore ||
+                                  paginated.loadMoreError != null)
+                              ? 1
+                              : 0),
                       separatorBuilder: (_, _) =>
                           const SizedBox(height: AppSpacing.sm),
-                      itemBuilder: (context, index) =>
-                          _IuranCard(
-                            bill: filtered[index],
-                            showHouseholdName: _shouldShowHouseholdName(ref),
-                          ),
+                      itemBuilder: (context, index) {
+                        if (index >= filtered.length) {
+                          if (paginated.isLoadingMore) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16.0),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                          if (paginated.loadMoreError != null) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12.0,
+                                horizontal: 16.0,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Gagal memuat data lanjutan',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: AppColors.danger,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  TextButton(
+                                    onPressed: () => ref
+                                        .read(
+                                          widget.isMyBills
+                                              ? myBillsProvider.notifier
+                                              : billsProvider.notifier,
+                                        )
+                                        .retryLoadMore(),
+                                    child: const Text('Coba Lagi'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                        }
+                        return _IuranCard(
+                          bill: filtered[index],
+                          showHouseholdName: _shouldShowHouseholdName(ref),
+                        );
+                      },
                     ),
             },
           ),

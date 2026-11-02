@@ -162,6 +162,39 @@ export async function generateKasReportPdf(
   // Lampiran rincian transaksi
   const posted = transactions.filter((t) => t.status === 'posted')
   if (posted.length > 0) {
+    const isIuranWargaIncome = (t: ApiTransaction) =>
+      t.type === 'income' && (t.category_name ?? '').trim().toLowerCase() === 'iuran warga'
+
+    const iuranWargaTxs = posted.filter(isIuranWargaIncome)
+    const otherTxs = posted.filter((t) => !isIuranWargaIncome(t))
+
+    const bodyRows: (string | number)[][] = []
+
+    if (iuranWargaTxs.length > 0) {
+      const totalIuranCents = iuranWargaTxs.reduce((sum, t) => sum + parseCents(t.amount), 0)
+      bodyRows.push([
+        '-',
+        'Masuk',
+        'Iuran Warga',
+        '-',
+        'Akumulasi Iuran Warga',
+        formatRp(totalIuranCents),
+        '',
+      ])
+    }
+
+    for (const t of otherTxs) {
+      bodyRows.push([
+        formatTanggal(t.occurred_at),
+        t.type === 'income' ? 'Masuk' : 'Keluar',
+        t.category_name ?? '-',
+        methodLabel(t.payment_method),
+        t.description || '-',
+        t.type === 'income' ? formatRp(parseCents(t.amount)) : '',
+        t.type === 'expense' ? formatRp(parseCents(t.amount)) : '',
+      ])
+    }
+
     doc.addPage()
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(11)
@@ -170,15 +203,7 @@ export async function generateKasReportPdf(
       startY: 20,
       margin: { left: margin, right: margin },
       head: [['Tanggal', 'Jenis', 'Kategori', 'Metode Pembayaran', 'Uraian', 'Debet', 'Kredit']],
-      body: posted.map((t) => [
-        formatTanggal(t.occurred_at),
-        t.type === 'income' ? 'Masuk' : 'Keluar',
-        t.category_name ?? '-',
-        methodLabel(t.payment_method),
-        t.description || '-',
-        t.type === 'income' ? formatRp(parseCents(t.amount)) : '',
-        t.type === 'expense' ? formatRp(parseCents(t.amount)) : '',
-      ]),
+      body: bodyRows,
       theme: 'grid',
       styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.15, overflow: 'linebreak' },
       headStyles: { fillColor: [235, 235, 235], textColor: [0, 0, 0], fontStyle: 'bold' },
@@ -297,8 +322,32 @@ export async function generateKasReportXlsx(
   const h3 = s3.addRow(['Tanggal', 'Referensi', 'Jenis', 'Kategori', 'Keterangan', 'Metode', 'Debet', 'Kredit', 'Status'])
   h3.font = { bold: true }
   h3.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEFEF' } } })
-  for (const t of transactions) {
-    if (t.status !== 'posted') continue
+
+  const posted = transactions.filter((t) => t.status === 'posted')
+  const isIuranWargaIncome = (t: ApiTransaction) =>
+    t.type === 'income' && (t.category_name ?? '').trim().toLowerCase() === 'iuran warga'
+
+  const iuranWargaTxs = posted.filter(isIuranWargaIncome)
+  const otherTxs = posted.filter((t) => !isIuranWargaIncome(t))
+
+  if (iuranWargaTxs.length > 0) {
+    const totalIuranCents = iuranWargaTxs.reduce((sum, t) => sum + parseCents(t.amount), 0)
+    const row = s3.addRow([
+      '', // tanpa tanggal
+      '', // tanpa nomor referensi
+      'Masuk',
+      'Iuran Warga',
+      'Akumulasi Iuran Warga',
+      '-',
+      cur(totalIuranCents),
+      null,
+      'posted',
+    ])
+    row.getCell(7).numFmt = RP_FMT
+    row.getCell(8).numFmt = RP_FMT
+  }
+
+  for (const t of otherTxs) {
     const cents = parseCents(t.amount)
     const d = new Date(t.occurred_at)
     const row = s3.addRow([

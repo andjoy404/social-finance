@@ -161,8 +161,9 @@ type Bill struct {
 	MoveInDate    *string `json:"move_in_date,omitempty"`
 	MoveOutDate   *string `json:"move_out_date,omitempty"`
 	IsVoluntary   bool    `json:"is_voluntary"`
-	PaidAmount    *string `json:"paid_amount,omitempty"`
-	PendingAmount *string `json:"pending_amount,omitempty"`
+	PaidAmount     *string `json:"paid_amount,omitempty"`
+	PendingAmount  *string `json:"pending_amount,omitempty"`
+	PaymentNumbers *string `json:"payment_numbers,omitempty"`
 }
 
 type UpdateBillStatusInput struct {

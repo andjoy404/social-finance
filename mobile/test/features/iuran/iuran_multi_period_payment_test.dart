@@ -26,6 +26,7 @@ class MockIuranApiClient extends Fake implements IuranApiClient {
     bool myBills = false,
     int page = 1,
     int pageSize = 20,
+    String? order,
   }) async {
     return PaginatedResponse(
       data: cannedBills,

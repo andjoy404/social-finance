@@ -487,8 +487,9 @@ func BillGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Bill, error
 func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, status, paymentStatus, period, search, dueName *string, isActive *bool, isObligatory *bool, offset, limit int, order ...string) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.is_active, b.is_obligatory, b.created_at, b.updated_at,
 	                 d.name as due_name, d.is_active as due_is_active, ph.house_number, h.head_name, d.is_voluntary,
-	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'APPROVED'), 0)::text as paid_amount,
-	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING'), 0)::text as pending_amount,
+	                 COALESCE((SELECT SUM(COALESCE(pa.amount, p.amount)) FROM payments p LEFT JOIN payment_allocations pa ON pa.payment_id = p.id AND pa.bill_id = b.id WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.status = 'APPROVED'), 0)::text as paid_amount,
+	                 COALESCE((SELECT SUM(COALESCE(pa.amount, p.amount)) FROM payments p LEFT JOIN payment_allocations pa ON pa.payment_id = p.id AND pa.bill_id = b.id WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.status = 'PENDING'), 0)::text as pending_amount,
+	                 COALESCE((SELECT string_agg(DISTINCT p.payment_no, ', ') FROM payments p LEFT JOIN payment_allocations pa ON pa.payment_id = p.id WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.payment_no IS NOT NULL AND p.payment_no != ''), '') as payment_numbers,
 	                 d.due_type, d.year,
 	                 to_char(ho.start_date, 'YYYY-MM-DD') as move_in_date,
 	                 to_char(ho.end_date, 'YYYY-MM-DD') as move_out_date
@@ -554,7 +555,7 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		orderType = order[0]
 	}
 	if orderType == "unpaid_first" {
-		query += fmt.Sprintf(" ORDER BY CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING') THEN 0 WHEN b.status = 'paid' THEN 2 ELSE 1 END ASC, CASE WHEN b.status != 'paid' THEN b.period END ASC, CASE WHEN b.status = 'paid' THEN b.period END DESC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
+		query += fmt.Sprintf(" ORDER BY CASE WHEN EXISTS (SELECT 1 FROM payments p LEFT JOIN payment_allocations pa ON pa.payment_id = p.id WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.status = 'PENDING') THEN 0 WHEN b.status = 'paid' THEN 2 ELSE 1 END ASC, CASE WHEN b.status != 'paid' THEN b.period END ASC, CASE WHEN b.status = 'paid' THEN b.period END DESC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
 	} else if occupancyID != nil && *occupancyID != "" {
 		query += fmt.Sprintf(" ORDER BY b.period ASC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
 	} else {
@@ -572,12 +573,12 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 	for rows.Next() {
 		var b Bill
 		var dueDate time.Time
-		var dueName, houseNum, headName, paidAmt, pendingAmt, dueType sql.NullString
+		var dueName, houseNum, headName, paidAmt, pendingAmt, paymentNos, dueType sql.NullString
 		var moveInDate, moveOutDate sql.NullString
 		var dueYear sql.NullInt32
 		var dueActive bool
 		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.IsActive, &b.IsObligatory, &b.CreatedAt, &b.UpdatedAt,
-			&dueName, &dueActive, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt, &dueType, &dueYear, &moveInDate, &moveOutDate); err != nil {
+			&dueName, &dueActive, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt, &paymentNos, &dueType, &dueYear, &moveInDate, &moveOutDate); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}
 		b.DueDate = dueDate.Format("2006-01-02")
@@ -596,6 +597,9 @@ func BillList(ctx context.Context, tx *sql.Tx, rtID string, occupancyID, dueID, 
 		}
 		if pendingAmt.Valid {
 			b.PendingAmount = &pendingAmt.String
+		}
+		if paymentNos.Valid && paymentNos.String != "" {
+			b.PaymentNumbers = &paymentNos.String
 		}
 		if dueType.Valid {
 			b.DueType = &dueType.String
@@ -2179,8 +2183,9 @@ func BillGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Bill, error) {
 func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, paymentStatus, period, search, dueName *string, isObligatory *bool, offset, limit int, order ...string) ([]*Bill, error) {
 	query := `SELECT b.id, b.rt_id, rt.rt as rt_code, b.household_occupancy_id, b.due_id, b.amount::text, b.period, b.due_date, b.status, b.is_active, b.is_obligatory, b.created_at, b.updated_at,
 	                 d.name as due_name, d.is_active as due_is_active, ph.house_number, h.head_name, d.is_voluntary,
-	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'APPROVED'), 0)::text as paid_amount,
-	                 COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING'), 0)::text as pending_amount,
+	                 COALESCE((SELECT SUM(COALESCE(pa.amount, p.amount)) FROM payments p LEFT JOIN payment_allocations pa ON pa.payment_id = p.id AND pa.bill_id = b.id WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.status = 'APPROVED'), 0)::text as paid_amount,
+	                 COALESCE((SELECT SUM(COALESCE(pa.amount, p.amount)) FROM payments p LEFT JOIN payment_allocations pa ON pa.payment_id = p.id AND pa.bill_id = b.id WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.status = 'PENDING'), 0)::text as pending_amount,
+	                 COALESCE((SELECT string_agg(DISTINCT p.payment_no, ', ') FROM payments p LEFT JOIN payment_allocations pa ON pa.payment_id = p.id WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.payment_no IS NOT NULL AND p.payment_no != ''), '') as payment_numbers,
 	                 d.due_type, d.year,
 	                 to_char(ho.start_date, 'YYYY-MM-DD') as move_in_date,
 	                 to_char(ho.end_date, 'YYYY-MM-DD') as move_out_date
@@ -2246,7 +2251,7 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pa
 		orderType = order[0]
 	}
 	if orderType == "unpaid_first" {
-		query += fmt.Sprintf(" ORDER BY CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.bill_id = b.id AND p.status = 'PENDING') THEN 0 WHEN b.status = 'paid' THEN 2 ELSE 1 END ASC, CASE WHEN b.status != 'paid' THEN b.period END ASC, CASE WHEN b.status = 'paid' THEN b.period END DESC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
+		query += fmt.Sprintf(" ORDER BY CASE WHEN EXISTS (SELECT 1 FROM payments p LEFT JOIN payment_allocations pa ON pa.payment_id = p.id WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.status = 'PENDING') THEN 0 WHEN b.status = 'paid' THEN 2 ELSE 1 END ASC, CASE WHEN b.status != 'paid' THEN b.period END ASC, CASE WHEN b.status = 'paid' THEN b.period END DESC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
 	} else if occupancyID != nil && *occupancyID != "" {
 		query += fmt.Sprintf(" ORDER BY b.period ASC, b.created_at ASC, b.id ASC OFFSET $%d LIMIT $%d", pos, pos+1)
 	} else {
@@ -2264,12 +2269,12 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pa
 	for rows.Next() {
 		var b Bill
 		var dueDate time.Time
-		var dueName, houseNum, headName, paidAmt, pendingAmt, dueType sql.NullString
+		var dueName, houseNum, headName, paidAmt, pendingAmt, paymentNos, dueType sql.NullString
 		var moveInDate, moveOutDate sql.NullString
 		var dueYear sql.NullInt32
 		var dueActive bool
 		if err := rows.Scan(&b.ID, &b.RTID, &b.RTCode, &b.HouseholdOccupancyID, &b.DueID, &b.Amount, &b.Period, &dueDate, &b.Status, &b.IsActive, &b.IsObligatory, &b.CreatedAt, &b.UpdatedAt,
-			&dueName, &dueActive, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt, &dueType, &dueYear, &moveInDate, &moveOutDate); err != nil {
+			&dueName, &dueActive, &houseNum, &headName, &b.IsVoluntary, &paidAmt, &pendingAmt, &paymentNos, &dueType, &dueYear, &moveInDate, &moveOutDate); err != nil {
 			return nil, fmt.Errorf("scan bill: %w", err)
 		}
 		b.DueDate = dueDate.Format("2006-01-02")
@@ -2288,6 +2293,9 @@ func BillListAll(ctx context.Context, tx *sql.Tx, occupancyID, dueID, status, pa
 		}
 		if pendingAmt.Valid {
 			b.PendingAmount = &pendingAmt.String
+		}
+		if paymentNos.Valid && paymentNos.String != "" {
+			b.PaymentNumbers = &paymentNos.String
 		}
 		if dueType.Valid {
 			b.DueType = &dueType.String

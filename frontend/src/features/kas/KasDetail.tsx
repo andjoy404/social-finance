@@ -120,22 +120,11 @@ export function KasDetail() {
             {/* Kategori */}
             <div>
               <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Kategori</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--sf-text)' }}>
-                <TagOutlined style={{ color: 'var(--sf-text-muted)', fontSize: 14 }} />
-                {transaction.category_name || '\u2014'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--sf-text)', fontWeight: transaction.expense_category ? 600 : 'normal' }}>
+                <TagOutlined style={{ color: transaction.expense_category ? 'var(--sf-accent)' : 'var(--sf-text-muted)', fontSize: 14 }} />
+                {transaction.expense_category || transaction.category_name || '\u2014'}
               </div>
             </div>
-
-            {/* Kategori Pengeluaran */}
-            {transaction.expense_category && (
-              <div>
-                <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Kategori Pengeluaran</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--sf-text)', fontWeight: 600 }}>
-                  <TagOutlined style={{ color: 'var(--sf-accent)', fontSize: 14 }} />
-                  {transaction.expense_category}
-                </div>
-              </div>
-            )}
 
             {/* Status */}
             <div>

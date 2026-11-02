@@ -39,19 +39,19 @@ class KasKeluarScreen extends ConsumerStatefulWidget {
 
   static const List<String> kExpenseCategories = [
     'Konsumsi',
-    'ATK',
-    'Kebersihan',
-    'Keamanan',
-    'Pemeliharaan dan Perbaikan',
-    'Kegiatan Warga',
-    'Sosial dan Santunan',
-    'Operasional',
-    'Transportasi',
-    'Listrik dan Air',
-    'Komunikasi dan Internet',
-    'Administrasi dan Dokumentasi',
-    'Perlengkapan dan Peralatan',
-    'Sewa',
+    'Kebersihan & Sampah',
+    'Keamanan & Ronda',
+    'Acara Warga & PHBI',
+    'Alat Tulis & Administrasi',
+    'Perbaikan Fasilitas RT',
+    'Sosial & Duka Cita',
+    'Listrik & Air Fasum',
+    'Honor Petugas Kebersihan/Keamanan',
+    'Perlengkapan & Logistik',
+    'Internet & Komunikasi',
+    'Transportasi Operasional',
+    'Kasbon Petugas/Warga',
+    'Pajak & Retribusi',
     'Lain-lain',
   ];
 
@@ -156,7 +156,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
       }
     }
     if (_selectedExpenseCategory == null || _selectedExpenseCategory!.isEmpty) {
-      errors.add('Kategori kas keluar harus dipilih.');
+      errors.add('Kategori harus dipilih.');
     } else if (_selectedExpenseCategory == 'Lain-lain' && _keteranganCtrl.text.trim().isEmpty) {
       errors.add('Keterangan wajib diisi untuk kategori Lain-lain.');
     }
@@ -202,8 +202,15 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
 
       final desc = _keteranganCtrl.text.trim();
 
+      final cat = _expenseCategories
+          .where((c) =>
+              c.name.toLowerCase() == _selectedExpenseCategory?.toLowerCase())
+          .firstOrNull ??
+          _expenseCategories.firstOrNull;
+      final categoryId = _selectedCategoryId ?? cat?.id ?? '';
+
       await repository.createTransaction(
-        categoryId: _selectedCategoryId,
+        categoryId: categoryId,
         amount: nominalInt,
         jenis: KasJenis.keluar,
         description: desc,
@@ -407,13 +414,13 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
               const SectionHeader(title: 'Detail Transaksi'),
               const SizedBox(height: AppSpacing.sm),
 
-              // Kategori Kas Keluar (Wajib, 15 Standar Kategori)
+              // Kategori (Wajib, 15 Standar Kategori)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   RichText(
                     text: TextSpan(
-                      text: 'Kategori Kas Keluar',
+                      text: 'Kategori',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -464,79 +471,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                       ),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
-              // Kategori
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Kategori',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  if (_loadingCategories)
-                    const LinearProgressIndicator()
-                  else if (_expenseCategories.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder,
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        color: isDark
-                            ? AppColors.darkSurface
-                            : AppColors.lightSurface,
-                      ),
-                      child: Text(
-                        'Operasional RT',
-                        style: theme.textTheme.bodyLarge,
-                      ),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder,
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        color: isDark
-                            ? AppColors.darkSurface
-                            : AppColors.lightSurface,
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedCategoryId,
-                          isExpanded: true,
-                          dropdownColor: isDark
-                              ? AppColors.darkSurface
-                              : AppColors.lightSurface,
-                          items: _expenseCategories.map((c) {
-                            return DropdownMenuItem<String>(
-                              value: c.id,
-                              child: Text(c.name),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedCategoryId = val);
-                            }
-                          },
-                        ),
-                      ),
-                    ),
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -738,38 +672,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                 inputFormatters: [RupiahInputFormatter()],
                 onChanged: (_) => setState(() {}),
               ),
-              const SizedBox(height: AppSpacing.sm),
-
-              // Kategori
-              if (_loadingCategories)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: const Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                )
-              else
-                DropdownButtonFormField<String>(
-                  value: _selectedCategoryId,
-                  decoration: InputDecoration(
-                    labelText: 'Kategori',
-                    hintText: 'Pilih kategori pengeluaran',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  items: _expenseCategories.map((cat) {
-                    return DropdownMenuItem<String>(
-                      value: cat.id,
-                      child: Text(cat.name),
-                    );
-                  }).toList(),
-                  onChanged: (val) => setState(() => _selectedCategoryId = val),
-                ),
               const SizedBox(height: AppSpacing.sm),
 
               // Lokasi Dana (Opsional)

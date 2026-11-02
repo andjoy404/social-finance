@@ -108,7 +108,8 @@ class IuranRepository {
     String? householdOccupancyId,
     bool myBills = false,
     int page = 1,
-    int pageSize = 20,
+    int pageSize = 30,
+    String? order,
   }) async {
     final billResponse = await apiClient.listBills(
       search: search,
@@ -120,60 +121,25 @@ class IuranRepository {
       myBills: myBills,
       page: page,
       pageSize: pageSize,
-    );
-
-    // DEBUG: log API response counts per household
-    final backendHouseholds = <String, int>{};
-    for (final bill in billResponse.data) {
-      backendHouseholds.update(
-        bill.headName ?? '—',
-        (c) => c + 1,
-        ifAbsent: () => 1,
-      );
-    }
-    debugPrint(
-      '[IuranDebug] fetchBills page=$page — total=${billResponse.data.length}, pagination=${billResponse.pagination.totalPages} pages',
-    );
-    debugPrint(
-      '[IuranDebug]   Backend households: ${backendHouseholds.entries.map((e) => '${e.key}=${e.value}').join(', ')}',
+      order: order,
     );
 
     final uiBills = <IuranBill>[];
     for (final bill in billResponse.data) {
-      PaginatedResponse<BackendPayment> payments = const PaginatedResponse(
-        data: [],
-        pagination: PaginationInfo(
-          page: 1,
-          pageSize: 20,
-          total: 0,
-          totalPages: 0,
-        ),
-      );
-      try {
-        payments = await apiClient.listPayments(billId: bill.id);
-      } catch (e) {
-        debugPrint('[IuranDebug] listPayments failed for bill=${bill.id}: $e');
-      }
-      int approvedTotal = payments.data
-          .where((p) => p.status == PaymentStatus.approved)
-          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
-      if (approvedTotal == 0 && bill.paidAmount != null) {
+      int approvedTotal = 0;
+      if (bill.paidAmount != null) {
         approvedTotal = moneyToDisplayRupiah(bill.paidAmount!);
       }
-      int pendingTotal = payments.data
-          .where((p) => p.status == PaymentStatus.pending)
-          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
-      if (pendingTotal == 0 && bill.pendingAmount != null) {
+      int pendingTotal = 0;
+      if (bill.pendingAmount != null) {
         pendingTotal = moneyToDisplayRupiah(bill.pendingAmount!);
       }
-      final rejectedTotal = payments.data
-          .where((p) => p.status == PaymentStatus.rejected)
-          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
+      const rejectedTotal = 0;
 
-      final paymentNumbers = payments.data
-          .map((p) => p.paymentNo)
-          .whereType<String>()
-          .where((no) => no.trim().isNotEmpty)
+      final paymentNumbers = (bill.paymentNumbers ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
           .toList();
 
       final nominalVal = moneyToDisplayRupiah(bill.amount);

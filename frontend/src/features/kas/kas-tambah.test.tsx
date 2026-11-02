@@ -292,8 +292,8 @@ describe('KAS Tambah — Payload submit contract', () => {
     const nominalInput = screen.getByRole('textbox', { name: /Nominal/ })
     fireEvent.change(nominalInput, { target: { value: '150.000' } })
 
-    const categorySelect = screen.getByRole('combobox', { name: /Kategori Kas Keluar/ })
-    fireEvent.change(categorySelect, { target: { value: 'Operasional' } })
+    const categorySelect = screen.getByRole('combobox', { name: /Kategori/ })
+    fireEvent.change(categorySelect, { target: { value: 'Konsumsi' } })
 
     fireEvent.change(screen.getByRole('textbox', { name: /Keterangan/ }), { target: { value: 'Test pengeluaran' } })
 
@@ -305,6 +305,7 @@ describe('KAS Tambah — Payload submit contract', () => {
         expect.objectContaining({
           amount: '150000',
           type: 'expense',
+          expense_category: 'Konsumsi',
         })
       )
     })
@@ -348,29 +349,31 @@ describe('KAS Tambah — Payload submit contract', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/kas/baru')
   })
 
-  it('KasExpense: renders Kategori Kas Keluar with 15 standard categories', () => {
+  it('KasExpense: renders Kategori with 15 standard categories and does not render Kategori Kas Keluar', () => {
     render(
       <MemoryRouter>
         <KasExpense />
       </MemoryRouter>
     )
 
-    const select = screen.getByRole('combobox', { name: /Kategori Kas Keluar/ })
+    const select = screen.getByRole('combobox', { name: /Kategori/ })
     expect(select).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /Kategori Kas Keluar/ })).not.toBeInTheDocument()
+
     expect(screen.getByText('Konsumsi')).toBeInTheDocument()
-    expect(screen.getByText('ATK')).toBeInTheDocument()
-    expect(screen.getByText('Kebersihan')).toBeInTheDocument()
-    expect(screen.getByText('Keamanan')).toBeInTheDocument()
-    expect(screen.getByText('Pemeliharaan dan Perbaikan')).toBeInTheDocument()
-    expect(screen.getByText('Kegiatan Warga')).toBeInTheDocument()
-    expect(screen.getByText('Sosial dan Santunan')).toBeInTheDocument()
-    expect(screen.getByText('Operasional')).toBeInTheDocument()
-    expect(screen.getByText('Transportasi')).toBeInTheDocument()
-    expect(screen.getByText('Listrik dan Air')).toBeInTheDocument()
-    expect(screen.getByText('Komunikasi dan Internet')).toBeInTheDocument()
-    expect(screen.getByText('Administrasi dan Dokumentasi')).toBeInTheDocument()
-    expect(screen.getByText('Perlengkapan dan Peralatan')).toBeInTheDocument()
-    expect(screen.getByText('Sewa')).toBeInTheDocument()
+    expect(screen.getByText('Kebersihan & Sampah')).toBeInTheDocument()
+    expect(screen.getByText('Keamanan & Ronda')).toBeInTheDocument()
+    expect(screen.getByText('Acara Warga & PHBI')).toBeInTheDocument()
+    expect(screen.getByText('Alat Tulis & Administrasi')).toBeInTheDocument()
+    expect(screen.getByText('Perbaikan Fasilitas RT')).toBeInTheDocument()
+    expect(screen.getByText('Sosial & Duka Cita')).toBeInTheDocument()
+    expect(screen.getByText('Listrik & Air Fasum')).toBeInTheDocument()
+    expect(screen.getByText('Honor Petugas Kebersihan/Keamanan')).toBeInTheDocument()
+    expect(screen.getByText('Perlengkapan & Logistik')).toBeInTheDocument()
+    expect(screen.getByText('Internet & Komunikasi')).toBeInTheDocument()
+    expect(screen.getByText('Transportasi Operasional')).toBeInTheDocument()
+    expect(screen.getByText('Kasbon Petugas/Warga')).toBeInTheDocument()
+    expect(screen.getByText('Pajak & Retribusi')).toBeInTheDocument()
     expect(screen.getByText('Lain-lain')).toBeInTheDocument()
   })
 
@@ -395,6 +398,6 @@ describe('KAS Tambah — Payload submit contract', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /Keterangan/ }), { target: { value: 'Test' } })
     fireEvent.click(screen.getByText('Simpan'))
 
-    expect(screen.getByText(/Kategori kas keluar harus dipilih/)).toBeInTheDocument()
+    expect(screen.getByText(/Kategori harus dipilih/)).toBeInTheDocument()
   })
 })

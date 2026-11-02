@@ -96,6 +96,7 @@ void main() {
       home: ProviderScope(
         overrides: [
           billsProvider.overrideWith(() => _TestBillsNotifier(bills)),
+          myBillsProvider.overrideWith(() => _TestBillsNotifier(bills)),
           authRepositoryProvider.overrideWith((ref) {
             final client = ApiClient(customDio: Dio());
             final repo = AuthRepository(

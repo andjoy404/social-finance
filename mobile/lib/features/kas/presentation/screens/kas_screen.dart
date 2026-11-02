@@ -527,6 +527,7 @@ class _KasScreenState extends ConsumerState<KasScreen> {
       if (query.isNotEmpty &&
           !tx.keterangan.toLowerCase().contains(query) &&
           !tx.kategori.label.toLowerCase().contains(query) &&
+          !(tx.expenseCategory ?? '').toLowerCase().contains(query) &&
           !(tx.referensi ?? '').toLowerCase().contains(query) &&
           !(tx.citizenName ?? '').toLowerCase().contains(query) &&
           !(tx.officerName ?? '').toLowerCase().contains(query) &&
@@ -1906,9 +1907,13 @@ class KasTransactionCard extends StatelessWidget {
     } else if (detailText == 'Pembayaran Iuran') {
       row2Text = 'Pembayaran Iuran';
     } else {
-      row2Text = detailText.isNotEmpty
-          ? '${transaction.kategori.label} · $detailText'
+      final categoryLabel = (transaction.expenseCategory != null &&
+              transaction.expenseCategory!.isNotEmpty)
+          ? transaction.expenseCategory!
           : transaction.kategori.label;
+      row2Text = detailText.isNotEmpty
+          ? '$categoryLabel · $detailText'
+          : categoryLabel;
     }
 
     return InkWell(

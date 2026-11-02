@@ -59,7 +59,6 @@ export function KasExpense() {
     type: string
   }
   const [categories, setCategories] = useState<Category[]>([])
-  const [loadingCategories, setLoadingCategories] = useState(true)
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -74,8 +73,6 @@ export function KasExpense() {
         }
       } catch {
         // ignore
-      } finally {
-        setLoadingCategories(false)
       }
     }
     fetchCategories()
@@ -178,12 +175,13 @@ export function KasExpense() {
         errs.push('Nominal harus berupa angka lebih dari 0.')
       }
     }
-    if (!form.expenseCategory) {
-      errs.push('Kategori kas keluar harus dipilih.')
+    const selectedCategory = form.kategori || form.expenseCategory
+    if (!selectedCategory) {
+      errs.push('Kategori harus dipilih.')
     }
     if (!form.keterangan.trim()) {
       errs.push('Keterangan harus diisi.')
-    } else if (form.expenseCategory === 'Lain-lain' && !form.keterangan.trim()) {
+    } else if (selectedCategory === 'Lain-lain' && !form.keterangan.trim()) {
       errs.push('Keterangan wajib diisi untuk kategori Lain-lain.')
     }
     if (form.jenis === 'keluar' && form.locationId) {
@@ -205,9 +203,8 @@ export function KasExpense() {
     try {
       const token = getSessionPair()?.accessToken ?? ''
       const cat = categories.find(
-        (c) => c.name === form.kategori,
-        null,
-      )
+        (c) => c.name.toLowerCase() === selectedCategory.toLowerCase(),
+      ) || categories.find((c) => c.type === 'expense')
       await apiCreateTransaction(token, {
         amount: String(parseMoney(form.nominal)),
         type: form.jenis === 'masuk' ? 'income' : 'expense',
@@ -216,7 +213,7 @@ export function KasExpense() {
         occurred_at: toJakartaIso8601(form.tanggal),
         payment_method: form.paymentMethod,
         location_id: form.locationId || undefined,
-        expense_category: form.expenseCategory || undefined,
+        expense_category: selectedCategory || undefined,
       })
       navigate('/kas')
     } catch (err: any) {
@@ -407,18 +404,19 @@ export function KasExpense() {
             })()}
           </div>
 
-          {/* Kategori Kas Keluar (Wajib, 15 Standar Kategori) */}
+          {/* Kategori (Wajib, 15 Standar Kategori) */}
           <div className="sf-form-field">
-            <label className="sf-form-label" htmlFor="ke-expense-category">
+            <label className="sf-form-label" htmlFor="ke-kategori">
               <WalletOutlined style={{ marginRight: 4 }} />
-              Kategori Kas Keluar <span style={{ color: 'var(--sf-danger)' }}>*</span>
+              Kategori <span style={{ color: 'var(--sf-danger)' }}>*</span>
             </label>
             <select
-              id="ke-expense-category"
+              id="ke-kategori"
               className="sf-form-input"
-              value={form.expenseCategory}
+              value={form.kategori || form.expenseCategory}
               onChange={(e) => {
-                handleChange('expenseCategory', e.target.value)
+                const val = e.target.value
+                setForm((prev) => ({ ...prev, kategori: val, expenseCategory: val }))
                 setValidationErrors([])
               }}
               style={{
@@ -431,36 +429,6 @@ export function KasExpense() {
                   {cat}
                 </option>
               ))}
-            </select>
-          </div>
-
-          {/* Kategori */}
-          <div className="sf-form-field">
-            <label className="sf-form-label" htmlFor="ke-kategori">
-              <WalletOutlined style={{ marginRight: 4 }} />
-              Kategori
-            </label>
-            <select
-              id="ke-kategori"
-              className="sf-form-input"
-              value={form.kategori}
-              onChange={(e) => {
-                handleChange('kategori', e.target.value)
-                setValidationErrors([])
-              }}
-              disabled={saving || loadingCategories}
-              style={{
-                cursor: saving || loadingCategories ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <option value="">Pilih Kategori</option>
-              {categories
-                .filter((c) => c.type === (form.jenis === 'masuk' ? 'income' : 'expense'))
-                .map((c) => (
-                  <option key={c.id} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
             </select>
           </div>
 
