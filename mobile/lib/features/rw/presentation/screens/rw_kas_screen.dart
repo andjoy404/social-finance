@@ -102,6 +102,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
       final q = _searchQuery.toLowerCase();
       txs = txs.where((t) =>
           t.description.toLowerCase().contains(q) ||
+          (t.referenceNo ?? '').toLowerCase().contains(q) ||
           t.rtName.toLowerCase().contains(q) ||
           (t.locationName ?? '').toLowerCase().contains(q)).toList();
     }
@@ -277,7 +278,9 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     if (_kasReport == null) return const SizedBox.shrink();
 
     final openingBal = RupiahFormatter.parseMoneyString(_kasReport!.openingBalance);
-    final netBal = RupiahFormatter.parseMoneyString(_kasReport!.netBalance);
+    final incomeBal = RupiahFormatter.parseMoneyString(_kasReport!.totalIncome);
+    final expenseBal = RupiahFormatter.parseMoneyString(_kasReport!.totalExpense);
+    final netBal = incomeBal - expenseBal;
     final totalSaldo = openingBal + netBal;
     final canCreate = _canCreateRw(ref.watch(authRepositoryProvider)?.valueOrNull);
 
@@ -636,11 +639,26 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
               DataCell(
                 InkWell(
                   onTap: () => _showTransactionDetailDialog(context, t),
-                  child: Text(
-                    t.description,
-                    style: const TextStyle(fontSize: 13, color: AppColors.accent, fontWeight: FontWeight.w500),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (t.referenceNo != null && t.referenceNo!.isNotEmpty)
+                        Text(
+                          t.referenceNo!,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontFamily: 'monospace',
+                            color: AppColors.textMutedColor(context),
+                          ),
+                        ),
+                      Text(
+                        t.description,
+                        style: const TextStyle(fontSize: 13, color: AppColors.accent, fontWeight: FontWeight.w500),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -692,6 +710,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (t.referenceNo != null && t.referenceNo!.isNotEmpty)
+              _buildDetailRow('No. Referensi:', t.referenceNo!),
             _buildDetailRow('Tanggal:', _formatDate(t.occurredAt)),
             _buildDetailRow('Jenis Transaksi:', isIncome ? 'Pemasukan (KAS Masuk)' : 'Pengeluaran (KAS Keluar)'),
             if (t.expenseCategory != null && t.expenseCategory!.isNotEmpty)
@@ -937,7 +957,6 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           builder: (statefulCtx, setDialogState) {
             final selectedLoc = locations.where((l) => l.id == selectedLocationId).firstOrNull;
             final locBal = selectedLoc != null ? (double.tryParse(selectedLoc.currentBalance) ?? 0) : 0;
-            final isBank = selectedLoc?.category == 'rekening';
 
             return AlertDialog(
               title: Text(isIncome ? 'Catat KAS Masuk RW' : 'Catat KAS Keluar RW'),
@@ -1018,23 +1037,6 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                               ? 'Saldo tersedia: ${RupiahFormatter.format(locBal.toInt())}'
                               : null,
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: paymentMethod,
-                        decoration: InputDecoration(
-                          labelText: 'Metode Pembayaran *',
-                          helperText: isBank
-                              ? 'Disarankan Transfer Bank untuk kategori Rekening'
-                              : 'Disarankan Tunai (Cash) untuk kategori Brankas/Kas',
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 'transfer', child: Text('Transfer Bank')),
-                          DropdownMenuItem(value: 'cash', child: Text('Tunai (Cash)')),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) setDialogState(() => paymentMethod = val);
-                        },
                       ),
                       const SizedBox(height: 8),
                       TextField(

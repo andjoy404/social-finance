@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { CheckCircleOutlined, WalletOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, WalletOutlined, ArrowDownOutlined, ArrowUpOutlined, EditOutlined } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
@@ -24,6 +24,7 @@ import {
   apiGetRWKAS,
   apiListRWLocations,
   apiCreateRWTransaction,
+  apiUpdateRWOpeningBalance,
   type ApiRWTransaction,
   type ApiRWKASReport,
   type ApiRWLocation,
@@ -51,6 +52,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
   const canCreate = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
   const canUpdate = isSuperAdmin || ['ketua', 'bendahara'].includes(jabatan)
+  const canEditSaldoAwal = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
   const isReadOnly = !canCreate && !canUpdate
 
   // Month filter state
@@ -70,6 +72,12 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const [rawTransactions, setRawTransactions] = useState<ApiRWTransaction[]>([])
   const [totalCount, setTotalCount] = useState<number>(0)
   const [totalPages, setTotalPages] = useState<number>(1)
+
+  // Saldo Awal Edit Modal state
+  const [showOpeningBalanceModal, setShowOpeningBalanceModal] = useState(false)
+  const [openingBalanceInput, setOpeningBalanceInput] = useState('')
+  const [openingBalanceError, setOpeningBalanceError] = useState<string | null>(null)
+  const [submittingOpeningBalance, setSubmittingOpeningBalance] = useState(false)
 
   // Transaction Create Modal
   const [showTxModal, setShowTxModal] = useState(false)
@@ -112,6 +120,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
           page,
           page_size: pageSize,
           period: activePeriodStr,
+          search: search.trim() || undefined,
         }),
         apiListRWLocations(token, rwId, { is_active: true }),
       ])
@@ -126,7 +135,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
     } finally {
       setLoading(false)
     }
-  }, [rwId, activePeriodStr, page, pageSize])
+  }, [rwId, activePeriodStr, page, pageSize, search])
 
   useEffect(() => {
     loadData()
@@ -137,14 +146,54 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
     setPage(1)
   }
 
+  const getMethodForLocation = useCallback((locId: string): 'transfer' | 'cash' => {
+    const loc = locations.find((l) => l.id === locId)
+    if (!loc) return 'transfer'
+    const cat = (loc.category || '').toLowerCase()
+    if (cat === 'rekening') return 'transfer'
+    return 'cash' // brankas, coh
+  }, [locations])
+
+  const openEditOpeningBalance = () => {
+    const currentVal = kasReport?.opening_balance ? parseFloat(kasReport.opening_balance) : 0
+    setOpeningBalanceInput(isNaN(currentVal) ? '0' : String(currentVal))
+    setOpeningBalanceError(null)
+    setShowOpeningBalanceModal(true)
+  }
+
+  const handleSaveOpeningBalance = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+
+    const num = parseFloat(openingBalanceInput)
+    if (isNaN(num) || num < 0) {
+      setOpeningBalanceError('Saldo awal harus berupa angka dan tidak boleh negatif')
+      return
+    }
+
+    setSubmittingOpeningBalance(true)
+    setOpeningBalanceError(null)
+    try {
+      await apiUpdateRWOpeningBalance(token, rwId, num.toFixed(2))
+      setShowOpeningBalanceModal(false)
+      await loadData()
+    } catch (err: any) {
+      setOpeningBalanceError(err?.message || 'Gagal mengubah saldo awal')
+    } finally {
+      setSubmittingOpeningBalance(false)
+    }
+  }
+
   const openCreateTx = (type: 'income' | 'expense') => {
     setTxType(type)
     setTxError(null)
+    const initialLocId = locations.length > 0 ? locations[0].id : ''
     setTxForm({
-      location_id: locations.length > 0 ? locations[0].id : '',
+      location_id: initialLocId,
       amount: '',
       description: '',
-      payment_method: 'transfer',
+      payment_method: getMethodForLocation(initialLocId),
       source_rt_name: '',
     })
     setShowTxModal(true)
@@ -178,6 +227,8 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
       }
     }
 
+    const derivedMethod = getMethodForLocation(txForm.location_id)
+
     setSubmittingTx(true)
     setTxError(null)
 
@@ -187,7 +238,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
         amount: `${amt.toFixed(2)}`,
         location_id: txForm.location_id,
         description: txForm.description.trim(),
-        payment_method: txForm.payment_method,
+        payment_method: derivedMethod,
       })
       setShowTxModal(false)
       loadData()
@@ -208,6 +259,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
       const q = search.trim().toLowerCase()
       txs = txs.filter((t) =>
         t.description.toLowerCase().includes(q) ||
+        (t.reference_no && t.reference_no.toLowerCase().includes(q)) ||
         (t.rt_name && t.rt_name.toLowerCase().includes(q)) ||
         (t.location_name && t.location_name.toLowerCase().includes(q))
       )
@@ -216,6 +268,12 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   }, [rawTransactions, search, filterArus])
 
   if (!user) return null
+
+  const openingBalNum = parseFloat(kasReport?.opening_balance || '0') || 0
+  const incomeBalNum = parseFloat(kasReport?.total_income || '0') || 0
+  const expenseBalNum = parseFloat(kasReport?.total_expense || '0') || 0
+  const netBalNum = incomeBalNum - expenseBalNum
+  const totalSaldoNum = openingBalNum + netBalNum
 
   return (
     <>
@@ -242,6 +300,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
         marginTop: 8,
         marginBottom: 2,
       }}>
+        {/* TOTAL SALDO */}
         <div style={{
           background: 'rgba(59, 130, 246, 0.05)',
           borderRadius: 'var(--sf-radius-md)',
@@ -249,13 +308,67 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
           border: '1px solid rgba(59, 130, 246, 0.1)',
         }}>
           <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
-            Total Pemasukan
+            Total Saldo
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-success)' }}>
-            {loading ? '...' : formatRupiah(parseFloat(kasReport?.total_income || '0') || 0)}
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-accent)' }}>
+            {loading ? '...' : formatRupiah(totalSaldoNum)}
           </div>
         </div>
 
+        {/* SALDO AWAL */}
+        <div style={{
+          background: 'rgba(100, 116, 139, 0.05)',
+          borderRadius: 'var(--sf-radius-md)',
+          padding: '14px 16px',
+          border: '1px solid rgba(100, 116, 139, 0.1)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+              Saldo Awal
+            </span>
+            {canEditSaldoAwal && (
+              <button
+                type="button"
+                onClick={openEditOpeningBalance}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--sf-accent)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: 0,
+                  fontWeight: 600,
+                }}
+                title="Ubah Saldo Awal"
+              >
+                <EditOutlined style={{ fontSize: 12 }} /> Ubah
+              </button>
+            )}
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-text)' }}>
+            {loading ? '...' : formatRupiah(openingBalNum)}
+          </div>
+        </div>
+
+        {/* TOTAL PEMASUKAN */}
+        <div style={{
+          background: 'rgba(34, 197, 94, 0.05)',
+          borderRadius: 'var(--sf-radius-md)',
+          padding: '14px 16px',
+          border: '1px solid rgba(34, 197, 94, 0.1)',
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
+            Total Pemasukan
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-success)' }}>
+            {loading ? '...' : formatRupiah(incomeBalNum)}
+          </div>
+        </div>
+
+        {/* TOTAL PENGELUARAN */}
         <div style={{
           background: 'rgba(255, 59, 48, 0.05)',
           borderRadius: 'var(--sf-radius-md)',
@@ -266,10 +379,11 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
             Total Pengeluaran
           </div>
           <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-danger)' }}>
-            {loading ? '...' : formatRupiah(parseFloat(kasReport?.total_expense || '0') || 0)}
+            {loading ? '...' : formatRupiah(expenseBalNum)}
           </div>
         </div>
 
+        {/* SALDO BERSIH */}
         <div style={{
           background: 'rgba(169, 112, 255, 0.05)',
           borderRadius: 'var(--sf-radius-md)',
@@ -279,11 +393,12 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
           <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
             Saldo Bersih
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-accent)' }}>
-            {loading ? '...' : formatRupiah(parseFloat(kasReport?.net_balance || '0') || 0)}
+          <div style={{ fontSize: 20, fontWeight: 700, color: netBalNum >= 0 ? 'var(--sf-accent)' : 'var(--sf-danger)' }}>
+            {loading ? '...' : formatRupiah(netBalNum)}
           </div>
         </div>
 
+        {/* TRANSAKSI */}
         <div style={{
           background: 'rgba(100, 116, 139, 0.05)',
           borderRadius: 'var(--sf-radius-md)',
@@ -470,8 +585,15 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 12, color: 'var(--sf-text)', fontWeight: 500 }}>
                         {t.location_name || '—'}
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, color: 'var(--sf-text)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {t.description}
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)', fontSize: 13, color: 'var(--sf-text)', maxWidth: 300 }}>
+                        {t.reference_no && (
+                          <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--sf-accent)', fontWeight: 600, marginBottom: 2 }}>
+                            {t.reference_no}
+                          </div>
+                        )}
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.description}>
+                          {t.description}
+                        </div>
                       </td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--sf-border)' }}>
                         <Badge
@@ -548,7 +670,14 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                       <select
                         className="sf-form-select"
                         value={txForm.location_id}
-                        onChange={(e) => setTxForm({ ...txForm, location_id: e.target.value })}
+                        onChange={(e) => {
+                          const newLocId = e.target.value
+                          setTxForm({
+                            ...txForm,
+                            location_id: newLocId,
+                            payment_method: getMethodForLocation(newLocId),
+                          })
+                        }}
                         required
                       >
                         {locations.map((loc) => {
@@ -577,18 +706,6 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                     </div>
 
                     <div className="sf-form-group">
-                      <label>Metode Pembayaran *</label>
-                      <select
-                        className="sf-form-select"
-                        value={txForm.payment_method}
-                        onChange={(e) => setTxForm({ ...txForm, payment_method: e.target.value as any })}
-                      >
-                        <option value="transfer">Transfer Bank</option>
-                        <option value="cash">Tunai (Cash)</option>
-                      </select>
-                    </div>
-
-                    <div className="sf-form-group">
                       <label>Keterangan *</label>
                       <textarea
                         className="sf-form-input"
@@ -614,6 +731,68 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                   }}
                 >
                   {submittingTx ? 'Menyimpan...' : 'Simpan Transaksi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Ubah Saldo Awal */}
+      {showOpeningBalanceModal && (
+        <div className="sf-modal-overlay">
+          <div className="sf-modal" style={{ maxWidth: 440 }}>
+            <div className="sf-modal-header">
+              <h3>Ubah Saldo Awal RW</h3>
+              <button
+                type="button"
+                className="sf-modal-close"
+                onClick={() => !submittingOpeningBalance && setShowOpeningBalanceModal(false)}
+                disabled={submittingOpeningBalance}
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleSaveOpeningBalance}>
+              <div className="sf-modal-body">
+                {openingBalanceError && (
+                  <div className="sf-error-banner" style={{ marginBottom: 12 }}>
+                    {openingBalanceError}
+                  </div>
+                )}
+                <div className="sf-form-group">
+                  <label>Saldo Awal (Rp) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    className="sf-form-input"
+                    value={openingBalanceInput}
+                    onChange={(e) => setOpeningBalanceInput(e.target.value)}
+                    placeholder="0"
+                    required
+                    disabled={submittingOpeningBalance}
+                  />
+                  <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginTop: 4 }}>
+                    Nilai saat ini: {formatRupiah(parseFloat(openingBalanceInput) || 0)}
+                  </div>
+                </div>
+              </div>
+              <div className="sf-modal-footer">
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  onClick={() => setShowOpeningBalanceModal(false)}
+                  disabled={submittingOpeningBalance}
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="sf-btn sf-btn-primary"
+                  disabled={submittingOpeningBalance}
+                >
+                  {submittingOpeningBalance ? 'Menyimpan...' : 'Simpan Saldo Awal'}
                 </button>
               </div>
             </form>

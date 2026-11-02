@@ -40,6 +40,7 @@ export interface ApiRWDashboardSummary {
 /** KAS report aggregate dari seluruh RT di bawah RW. */
 export interface ApiRWKASReport {
   opening_balance?: string
+  total_balance?: string
   total_income: string
   total_expense: string
   net_balance: string
@@ -49,6 +50,7 @@ export interface ApiRWKASReport {
 /** Satu transaksi dari RT tertentu di bawah RW. */
 export interface ApiRWTransaction {
   id: string
+  reference_no?: string | null
   rt_id?: string
   rt_name?: string
   rw_id?: string
@@ -222,6 +224,7 @@ export async function apiListRWTransactions(
     end_date?: string
     page?: number
     page_size?: number
+    search?: string
   } = {},
 ): Promise<ApiRWTxPaginated> {
   const q = new URLSearchParams()
@@ -230,6 +233,7 @@ export async function apiListRWTransactions(
   if (params.end_date) q.set('end_date', params.end_date)
   if (params.page) q.set('page', String(params.page))
   if (params.page_size) q.set('page_size', String(params.page_size))
+  if (params.search) q.set('search', params.search)
 
   let url = `${BASE}/rw/${encodeURIComponent(rwId)}/kas/transactions`
   if (q.toString()) url += '?' + q.toString()

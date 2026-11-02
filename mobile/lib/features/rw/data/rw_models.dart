@@ -73,6 +73,7 @@ class RwDashboardSummary {
   final int totalLocations;
   final String totalOpeningBalance;
   final String totalBalance;
+  final String netBalance;
   final String totalIncome;
   final String totalExpense;
   final int transactionCount;
@@ -82,19 +83,24 @@ class RwDashboardSummary {
     required this.totalLocations,
     this.totalOpeningBalance = '0.00',
     required this.totalBalance,
+    this.netBalance = '0.00',
     required this.totalIncome,
     required this.totalExpense,
     required this.transactionCount,
   });
 
   factory RwDashboardSummary.fromJson(Map<String, dynamic> json) {
+    final opening = json['total_opening_balance'] as String? ?? '0.00';
+    final inc = json['total_income'] as String? ?? '0.00';
+    final exp = json['total_expense'] as String? ?? '0.00';
     return RwDashboardSummary(
       totalRts: (json['total_rts'] as num?)?.toInt() ?? 0,
       totalLocations: (json['total_locations'] as num?)?.toInt() ?? 0,
-      totalOpeningBalance: json['total_opening_balance'] as String? ?? '0.00',
-      totalBalance: json['net_balance'] as String? ?? json['total_balance'] as String? ?? '0.00',
-      totalIncome: json['total_income'] as String? ?? '0.00',
-      totalExpense: json['total_expense'] as String? ?? '0.00',
+      totalOpeningBalance: opening,
+      totalBalance: json['total_balance'] as String? ?? json['net_balance'] as String? ?? '0.00',
+      netBalance: json['net_balance'] as String? ?? '0.00',
+      totalIncome: inc,
+      totalExpense: exp,
       transactionCount: (json['transaction_count'] as num?)?.toInt() ?? 0,
     );
   }
@@ -110,6 +116,7 @@ class RwKasReport {
   final String totalIncome;
   final String totalExpense;
   final String netBalance;
+  final String totalBalance;
   final int transactionCount;
 
   const RwKasReport({
@@ -117,6 +124,7 @@ class RwKasReport {
     required this.totalIncome,
     required this.totalExpense,
     required this.netBalance,
+    this.totalBalance = '0.00',
     required this.transactionCount,
   });
 
@@ -126,6 +134,7 @@ class RwKasReport {
       totalIncome: json['total_income'] as String? ?? '0.00',
       totalExpense: json['total_expense'] as String? ?? '0.00',
       netBalance: json['net_balance'] as String? ?? '0.00',
+      totalBalance: json['total_balance'] as String? ?? json['net_balance'] as String? ?? '0.00',
       transactionCount: (json['transaction_count'] as num?)?.toInt() ?? 0,
     );
   }
@@ -152,6 +161,7 @@ class RwTransaction {
   final String? sourceRtName;
   final String status;
   final String? paymentId;
+  final String? referenceNo;
   final String? paymentMethod;
   final String? proofPath;
   final String? proofUrl;
@@ -175,6 +185,7 @@ class RwTransaction {
     this.sourceRtName,
     required this.status,
     this.paymentId,
+    this.referenceNo,
     this.paymentMethod,
     this.proofPath,
     this.proofUrl,
@@ -209,6 +220,7 @@ class RwTransaction {
       sourceRtName: json['source_rt_name'] as String?,
       status: json['status'] as String? ?? '',
       paymentId: json['payment_id'] as String?,
+      referenceNo: json['reference_no'] as String?,
       paymentMethod: json['payment_method'] as String?,
       proofPath: json['proof_path'] as String?,
       proofUrl: json['proof_url'] as String?,

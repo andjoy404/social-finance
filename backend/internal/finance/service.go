@@ -1494,10 +1494,11 @@ func (s *Service) CreateManualTransaction(ctx context.Context, tx *sql.Tx, rtID,
 	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
 		trimmed := strings.TrimSpace(*in.LocationID)
 		var isActive bool
+		var category string
 		err := tx.QueryRowContext(ctx,
-			`SELECT is_active FROM fund_locations WHERE id = $1 AND rt_id = $2`,
+			`SELECT is_active, category FROM fund_locations WHERE id = $1 AND rt_id = $2`,
 			trimmed, rtID,
-		).Scan(&isActive)
+		).Scan(&isActive, &category)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, errors.New("fund location not found")
@@ -1506,6 +1507,18 @@ func (s *Service) CreateManualTransaction(ctx context.Context, tx *sql.Tx, rtID,
 		}
 		if !isActive {
 			return nil, errors.New("cannot create transaction for inactive fund location")
+		}
+
+		// Assimilate transaction method based on fund location category
+		switch strings.ToLower(category) {
+		case "rekening":
+			m := "TRANSFER"
+			in.PaymentMethod = &m
+		case "coh", "brankas":
+			m := "CASH"
+			in.PaymentMethod = &m
+		default:
+			return nil, fmt.Errorf("invalid fund location category %q for payment method assimilation", category)
 		}
 
 		if in.Type == TransactionTypeExpense {

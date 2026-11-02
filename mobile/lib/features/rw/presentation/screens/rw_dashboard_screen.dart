@@ -505,15 +505,16 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
   }
 
   Widget _buildMetricsRow(BuildContext context) {
-    final saldoStr = _data != null
-        ? RupiahFormatter.format((double.tryParse(_data!.totalBalance) ?? 0).toInt())
-        : 'Rp 0';
-    final incomeStr = _data != null
-        ? RupiahFormatter.format((double.tryParse(_data!.totalIncome) ?? 0).toInt())
-        : 'Rp 0';
-    final expenseStr = _data != null
-        ? RupiahFormatter.format((double.tryParse(_data!.totalExpense) ?? 0).toInt())
-        : 'Rp 0';
+    final openingBal = _data != null ? RupiahFormatter.parseMoneyString(_data!.totalOpeningBalance) : 0;
+    final incomeBal = _data != null ? RupiahFormatter.parseMoneyString(_data!.totalIncome) : 0;
+    final expenseBal = _data != null ? RupiahFormatter.parseMoneyString(_data!.totalExpense) : 0;
+    final totalSaldo = openingBal + incomeBal - expenseBal;
+    final netBal = incomeBal - expenseBal;
+
+    final saldoStr = _data != null ? RupiahFormatter.format(totalSaldo) : 'Rp 0';
+    final incomeStr = _data != null ? RupiahFormatter.format(incomeBal) : 'Rp 0';
+    final expenseStr = _data != null ? RupiahFormatter.format(expenseBal) : 'Rp 0';
+    final netStr = _data != null ? RupiahFormatter.format(netBal) : 'Rp 0';
 
     final periodLabel = _isAllPeriods ? 'Semua' : _monthShortNames[_activeDate.month];
 
@@ -528,6 +529,15 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
             value: _isLoading && _data == null ? '...' : saldoStr,
             color: AppColors.accent,
             icon: Icons.account_balance_wallet_outlined,
+          ),
+          const SizedBox(height: 12),
+          _buildSummaryCard(
+            context,
+            label: 'SALDO BERSIH',
+            period: periodLabel,
+            value: _isLoading && _data == null ? '...' : netStr,
+            color: AppColors.info,
+            icon: Icons.account_balance_outlined,
           ),
           const SizedBox(height: 12),
           _buildSummaryCard(

@@ -167,9 +167,10 @@ func (h *Handler) GetKASTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	search := r.URL.Query().Get("search")
 	page, pageSize := parsePagination(r)
 
-	list, total, err := h.svc.GetTransactions(r.Context(), ac, rwID, period, page, pageSize, startDate, endDate)
+	list, total, err := h.svc.GetTransactions(r.Context(), ac, rwID, period, page, pageSize, startDate, endDate, search)
 	if err != nil {
 		h.handleError(w, err)
 		return

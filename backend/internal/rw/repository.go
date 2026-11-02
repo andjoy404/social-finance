@@ -85,7 +85,8 @@ func (r *Repository) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rwID s
 		return nil, fmt.Errorf("transaction count: %w", err)
 	}
 
-	// 7. Calculate net balance: opening + income - expense
+	// 7. Calculate net balance: TotalIncome - TotalExpense (Saldo Bersih)
+	// and total balance: TotalOpeningBal + TotalIncome - TotalExpense (Total Saldo)
 	oc, _, err := ParseMoney(summary.TotalOpeningBal)
 	if err != nil {
 		return nil, fmt.Errorf("parse opening balance: %w", err)
@@ -98,7 +99,8 @@ func (r *Repository) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rwID s
 	if err != nil {
 		return nil, fmt.Errorf("parse expense: %w", err)
 	}
-	summary.NetBalance = FormatMoney(oc + incCents - expCents)
+	summary.NetBalance = FormatMoney(incCents - expCents)
+	summary.TotalBalance = FormatMoney(oc + incCents - expCents)
 
 	return &summary, nil
 }
@@ -169,7 +171,8 @@ func (r *Repository) GetKASReport(ctx context.Context, tx *sql.Tx, rwID, period 
 	if err != nil {
 		return nil, fmt.Errorf("parse expense: %w", err)
 	}
-	report.NetBalance = FormatMoney(oc + incCents - expCents)
+	report.NetBalance = FormatMoney(incCents - expCents)
+	report.TotalBalance = FormatMoney(oc + incCents - expCents)
 
 	return &report, nil
 }
@@ -536,7 +539,7 @@ func (r *Repository) GetReconciliationReport(ctx context.Context, tx *sql.Tx, rw
 		summaries = append(summaries, cs)
 	}
 
-	kasCents, _, _ := ParseMoney(kasReport.NetBalance)
+	kasCents, _, _ := ParseMoney(kasReport.TotalBalance)
 	allocCents, _, _ := ParseMoney(totalAllocatedStr)
 	discCents := kasCents - allocCents
 
@@ -556,7 +559,7 @@ func (r *Repository) GetReconciliationReport(ctx context.Context, tx *sql.Tx, rw
 	}
 
 	return &ReconciliationReport{
-		KasBalance:            kasReport.NetBalance,
+		KasBalance:            kasReport.TotalBalance,
 		TotalAllocatedBalance: totalAllocatedStr,
 		UnallocatedBalance:    FormatMoney(unallocatedCents),
 		Discrepancy:           FormatMoney(discCents),
@@ -920,30 +923,24 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 		return nil, fmt.Errorf("%w: location %s is inactive", ErrInactiveLocation, loc.Name)
 	}
 
-	// 2. Validate payment method match with category
-	var paymentMethod *string
+	// 2. Validate payment method match with category & assimilate
+	var expectedMethod string
+	switch loc.Category {
+	case CategoryRekening:
+		expectedMethod = "TRANSFER"
+	case CategoryBrankas, CategoryCOH:
+		expectedMethod = "CASH"
+	default:
+		return nil, fmt.Errorf("%w: unknown fund location category %q", ErrValidation, loc.Category)
+	}
+
 	if in.PaymentMethod != nil && *in.PaymentMethod != "" {
 		pm := strings.ToUpper(strings.TrimSpace(*in.PaymentMethod))
-		if pm != "CASH" && pm != "TRANSFER" {
-			return nil, fmt.Errorf("%w: invalid payment method (must be CASH or TRANSFER)", ErrValidation)
-		}
-		if loc.Category == CategoryRekening && pm != "TRANSFER" {
-			return nil, fmt.Errorf("%w: rekening location requires TRANSFER payment method", ErrInvalidMethodCategoryMatch)
-		}
-		if (loc.Category == CategoryBrankas || loc.Category == CategoryCOH) && pm != "CASH" {
-			return nil, fmt.Errorf("%w: cash/brankas location requires CASH payment method", ErrInvalidMethodCategoryMatch)
-		}
-		paymentMethod = &pm
-	} else {
-		// Auto-derive payment method from location category
-		if loc.Category == CategoryRekening {
-			pm := "TRANSFER"
-			paymentMethod = &pm
-		} else {
-			pm := "CASH"
-			paymentMethod = &pm
+		if pm != expectedMethod {
+			return nil, fmt.Errorf("%w: payment method %s does not match location category %s (must be %s)", ErrInvalidMethodCategoryMatch, pm, loc.Category, expectedMethod)
 		}
 	}
+	paymentMethod := &expectedMethod
 
 	// 3. For expense: check that location has sufficient balance
 	if in.Type == "expense" {
@@ -983,23 +980,39 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 		occDate = time.Now()
 	}
 
+	// Generate unique sequential reference_no for RW transaction (KAS-RW-YYYYMM-XXXX)
+	yearMonth := occDate.Format("200601")
+	_, _ = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('rw_kas_ref_' || $1))`, yearMonth)
+	var seq int64
+	_ = tx.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(CAST(SUBSTRING(reference_no FROM 15) AS INTEGER)), 0)
+		 FROM rw_transactions
+		 WHERE reference_no LIKE 'KAS-RW-' || $1 || '-%'`,
+		yearMonth,
+	).Scan(&seq)
+	seq++
+	refNo := fmt.Sprintf("KAS-RW-%s-%04d", yearMonth, seq)
+
 	// 5. Insert transaction into rw_transactions
 	var entry TransactionEntry
 	var catID, payID, srcRTID, expCat sql.NullString
+	var refNoStr, payMethodStr sql.NullString
 	var occAt, createdAt time.Time
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO rw_transactions (
 			rw_id, location_id, source_rt_id, category_id, amount, type, status,
-			description, occurred_at, payment_method, created_by, expense_category
+			description, occurred_at, payment_method, created_by, expense_category, reference_no
 		) VALUES (
 			$1, $2, $3, $4, $5::numeric(15,2), $6, 'posted',
-			$7, $8, $9, $10, $11
+			$7, $8, $9, $10, $11, $12
 		) RETURNING id, rw_id, location_id, source_rt_id, category_id, amount::numeric(15,2)::text,
-		            type, status, payment_id, description, occurred_at, created_at, expense_category`,
+		            type, status, payment_id, description, occurred_at, created_at, expense_category,
+		            reference_no, payment_method`,
 		rwID, in.LocationID, in.SourceRTID, in.CategoryID, in.Amount, in.Type,
-		in.Description, occDate, paymentMethod, userID, in.ExpenseCategory,
+		in.Description, occDate, paymentMethod, userID, in.ExpenseCategory, refNo,
 	).Scan(&entry.ID, &entry.RWID, &entry.LocationID, &srcRTID, &catID, &entry.Amount,
-		&entry.Type, &entry.Status, &payID, &entry.Description, &occAt, &createdAt, &expCat)
+		&entry.Type, &entry.Status, &payID, &entry.Description, &occAt, &createdAt, &expCat,
+		&refNoStr, &payMethodStr)
 	if err != nil {
 		return nil, fmt.Errorf("insert rw_transaction: %w", err)
 	}
@@ -1007,6 +1020,12 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 	entry.OccurredAt = occAt.Format(time.RFC3339)
 	entry.CreatedAt = createdAt.Format(time.RFC3339)
 	entry.LocationName = &loc.Name
+	if refNoStr.Valid && refNoStr.String != "" {
+		entry.ReferenceNo = &refNoStr.String
+	}
+	if payMethodStr.Valid && payMethodStr.String != "" {
+		entry.PaymentMethod = &payMethodStr.String
+	}
 	if expCat.Valid && expCat.String != "" {
 		entry.ExpenseCategory = &expCat.String
 	}
@@ -1042,14 +1061,14 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 	return &entry, nil
 }
 
-func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID string, period string, page, pageSize int, startDate, endDate string) ([]*TransactionEntry, int, error) {
+func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID string, period string, page, pageSize int, startDate, endDate string, search string) ([]*TransactionEntry, int, error) {
 	baseQuery := `
 		SELECT t.id, t.rw_id, t.location_id, fl.name as location_name,
 		       t.source_rt_id, rt.name as source_rt_name,
 		       t.type, t.amount::numeric(15,2)::text, t.description,
 		       t.category_id, c.name as category_name, t.status,
 		       t.payment_id, t.occurred_at::text, t.created_at::text,
-		       t.proof_path, t.expense_category
+		       t.proof_path, t.expense_category, t.reference_no, t.payment_method
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
@@ -1087,10 +1106,19 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		args = append(args, endDate)
 		pos++
 	}
+	if search = strings.TrimSpace(search); search != "" {
+		searchPattern := "%" + search + "%"
+		baseQuery += fmt.Sprintf(" AND (t.description ILIKE $%d OR COALESCE(t.reference_no, '') ILIKE $%d OR COALESCE(fl.name, '') ILIKE $%d OR COALESCE(rt.name, '') ILIKE $%d)", pos, pos, pos, pos)
+		args = append(args, searchPattern)
+		pos++
+	}
 
 	baseQuery += " ORDER BY t.occurred_at DESC, t.id DESC"
 
-	countQuery := `SELECT COUNT(*) FROM rw_transactions t WHERE t.status = 'posted' AND t.rw_id = $1`
+	countQuery := `SELECT COUNT(*) FROM rw_transactions t
+		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
+		LEFT JOIN rts rt ON t.source_rt_id = rt.id
+		WHERE t.status = 'posted' AND t.rw_id = $1`
 	countArgs := []interface{}{rwID}
 	cpos := 2
 
@@ -1111,6 +1139,12 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 	if endDate != "" {
 		countQuery += fmt.Sprintf(" AND DATE(t.occurred_at) <= $%d", cpos)
 		countArgs = append(countArgs, endDate)
+		cpos++
+	}
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		countQuery += fmt.Sprintf(" AND (t.description ILIKE $%d OR COALESCE(t.reference_no, '') ILIKE $%d OR COALESCE(fl.name, '') ILIKE $%d OR COALESCE(rt.name, '') ILIKE $%d)", cpos, cpos, cpos, cpos)
+		countArgs = append(countArgs, searchPattern)
 		cpos++
 	}
 
@@ -1146,14 +1180,21 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		var locID, locName, srcRTID, srcRTName sql.NullString
 		var categoryID, categoryName sql.NullString
 		var paymentID, proofPath, expCat sql.NullString
+		var refNo, payMethod sql.NullString
 		err := rows.Scan(
 			&entry.ID, &entry.RWID, &locID, &locName, &srcRTID, &srcRTName,
 			&entry.Type, &entry.Amount, &entry.Description,
 			&categoryID, &categoryName, &entry.Status, &paymentID, &entry.OccurredAt, &entry.CreatedAt,
-			&proofPath, &expCat,
+			&proofPath, &expCat, &refNo, &payMethod,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan transaction: %w", err)
+		}
+		if refNo.Valid && refNo.String != "" {
+			entry.ReferenceNo = &refNo.String
+		}
+		if payMethod.Valid && payMethod.String != "" {
+			entry.PaymentMethod = &payMethod.String
 		}
 		if expCat.Valid && expCat.String != "" {
 			entry.ExpenseCategory = &expCat.String
@@ -1201,7 +1242,7 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 		       t.type, t.amount::numeric(15,2)::text, t.description,
 		       t.category_id, c.name as category_name, t.status,
 		       t.payment_id, t.occurred_at::text, t.created_at::text,
-		       t.proof_path, t.expense_category
+		       t.proof_path, t.expense_category, t.reference_no, t.payment_method
 		FROM rw_transactions t
 		LEFT JOIN rw_fund_locations fl ON t.location_id = fl.id
 		LEFT JOIN rts rt ON t.source_rt_id = rt.id
@@ -1212,17 +1253,24 @@ func (r *Repository) GetTransactionByID(ctx context.Context, tx *sql.Tx, rwID, i
 	var locID, locName, srcRTID, srcRTName sql.NullString
 	var categoryID, categoryName sql.NullString
 	var paymentID, proofPath, expCat sql.NullString
+	var refNo, payMethod sql.NullString
 	err := tx.QueryRowContext(ctx, query, rwID, id).Scan(
 		&entry.ID, &entry.RWID, &locID, &locName, &srcRTID, &srcRTName,
 		&entry.Type, &entry.Amount, &entry.Description,
 		&categoryID, &categoryName, &entry.Status, &paymentID, &entry.OccurredAt, &entry.CreatedAt,
-		&proofPath, &expCat,
+		&proofPath, &expCat, &refNo, &payMethod,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get transaction by id: %w", err)
+	}
+	if refNo.Valid && refNo.String != "" {
+		entry.ReferenceNo = &refNo.String
+	}
+	if payMethod.Valid && payMethod.String != "" {
+		entry.PaymentMethod = &payMethod.String
 	}
 	if expCat.Valid && expCat.String != "" {
 		entry.ExpenseCategory = &expCat.String

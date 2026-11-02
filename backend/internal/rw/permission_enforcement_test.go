@@ -86,7 +86,7 @@ func TestPermissionEnforcement_JabatanKetua(t *testing.T) {
 	_, err = svc.GetKASReport(ctx, ac, rwID, "")
 	require.NoError(t, err, "ketua should have finance.read permission")
 
-	_, _, err = svc.GetTransactions(ctx, ac, rwID, "", 1, 20, "", "")
+	_, _, err = svc.GetTransactions(ctx, ac, rwID, "", 1, 20, "", "", "")
 	require.NoError(t, err, "ketua should have finance.read permission")
 
 	_, err = svc.GetLocations(ctx, ac, rwID, nil)
@@ -435,7 +435,7 @@ func TestPermissionEnforcement_Consistency(t *testing.T) {
 	_, err = svc.GetKASReport(ctx, ac, rwID, "")
 	require.NoError(t, err)
 
-	_, _, err = svc.GetTransactions(ctx, ac, rwID, "", 1, 20, "", "")
+	_, _, err = svc.GetTransactions(ctx, ac, rwID, "", 1, 20, "", "", "")
 	require.NoError(t, err)
 
 	_, err = svc.GetLocations(ctx, ac, rwID, nil)

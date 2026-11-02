@@ -42,7 +42,8 @@ const (
 // ALL balance/income/expense come from RW's own independent ledger:
 //   - OpeningBalance from rw_opening_balances
 //   - Income / Expense from rw_transactions
-//   - NetBalance = OpeningBalance + Income - Expense
+//   - NetBalance = TotalIncome - TotalExpense (Saldo Bersih)
+//   - TotalBalance = TotalOpeningBal + TotalIncome - TotalExpense (Total Saldo)
 //   - TotalLocations: active RW fund locations
 type DashboardSummary struct {
 	TotalRTs         int64  `json:"total_rts"`
@@ -51,6 +52,7 @@ type DashboardSummary struct {
 	TotalIncome      string `json:"total_income"`
 	TotalExpense     string `json:"total_expense"`
 	NetBalance       string `json:"net_balance"`
+	TotalBalance     string `json:"total_balance,omitempty"`
 	TransactionCount int64  `json:"transaction_count"`
 }
 
@@ -185,28 +187,31 @@ type KASReport struct {
 	TotalIncome      string `json:"total_income"`
 	TotalExpense     string `json:"total_expense"`
 	NetBalance       string `json:"net_balance"`
+	TotalBalance     string `json:"total_balance,omitempty"`
 	TransactionCount int64  `json:"transaction_count"`
 }
 
 // TransactionEntry is a single posted transaction from RW's own independent ledger.
 type TransactionEntry struct {
-	ID           string  `json:"id"`
-	RWID         string  `json:"rw_id"`
-	LocationID   *string `json:"location_id,omitempty"`
-	LocationName *string `json:"location_name,omitempty"`
-	SourceRTID   *string `json:"source_rt_id,omitempty"`
-	SourceRTName *string `json:"source_rt_name,omitempty"`
-	Type         string  `json:"type"`
-	Amount       string  `json:"amount"`
-	Description  string  `json:"description"`
-	CategoryID   *string `json:"category_id,omitempty"`
-	CategoryName *string `json:"category_name,omitempty"`
-	Status       string  `json:"status"`
-	PaymentID    *string `json:"payment_id,omitempty"`
-	OccurredAt   string  `json:"occurred_at"`
-	CreatedAt    string  `json:"created_at"`
-	ProofPath    *string `json:"proof_path,omitempty"`
-	ProofURL     *string `json:"proof_url,omitempty"`
+	ID              string  `json:"id"`
+	RWID            string  `json:"rw_id"`
+	LocationID      *string `json:"location_id,omitempty"`
+	LocationName    *string `json:"location_name,omitempty"`
+	SourceRTID      *string `json:"source_rt_id,omitempty"`
+	SourceRTName    *string `json:"source_rt_name,omitempty"`
+	Type            string  `json:"type"`
+	Amount          string  `json:"amount"`
+	Description     string  `json:"description"`
+	CategoryID      *string `json:"category_id,omitempty"`
+	CategoryName    *string `json:"category_name,omitempty"`
+	Status          string  `json:"status"`
+	PaymentID       *string `json:"payment_id,omitempty"`
+	ReferenceNo     *string `json:"reference_no,omitempty"`
+	PaymentMethod   *string `json:"payment_method,omitempty"`
+	OccurredAt      string  `json:"occurred_at"`
+	CreatedAt       string  `json:"created_at"`
+	ProofPath       *string `json:"proof_path,omitempty"`
+	ProofURL        *string `json:"proof_url,omitempty"`
 	ExpenseCategory *string `json:"expense_category,omitempty"`
 }
 

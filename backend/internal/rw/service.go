@@ -150,7 +150,7 @@ func (s *Service) SetOpeningBalance(ctx context.Context, ac *auth.AuthContext, r
 
 // GetTransactions returns a paginated list of posted transactions from RW's independent ledger.
 func (s *Service) GetTransactions(ctx context.Context, ac *auth.AuthContext, rwID string,
-	period string, page, pageSize int, startDate, endDate string,
+	period string, page, pageSize int, startDate, endDate string, search string,
 ) ([]*TransactionEntry, int, error) {
 	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
 		return nil, 0, err
@@ -162,7 +162,7 @@ func (s *Service) GetTransactions(ctx context.Context, ac *auth.AuthContext, rwI
 	}
 	defer tx.Rollback()
 
-	list, total, err := s.repo.GetTransactions(ctx, tx, rwID, period, page, pageSize, startDate, endDate)
+	list, total, err := s.repo.GetTransactions(ctx, tx, rwID, period, page, pageSize, startDate, endDate, search)
 	if err != nil {
 		return nil, 0, fmt.Errorf("get transactions: %w", err)
 	}

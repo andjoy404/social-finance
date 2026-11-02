@@ -1559,8 +1559,28 @@ func PaymentAttachProof(ctx context.Context, tx *sql.Tx, paymentID, rtID, proofP
 
 func TransactionCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateTransactionInput, status TransactionStatus, reversesID, paymentID, createdBy *string, occurredAt time.Time) (*Transaction, error) {
 	var t Transaction
+	var locID *string
 	var payMethod *string
-	if in.PaymentMethod != nil && *in.PaymentMethod != "" {
+	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
+		trimmed := strings.TrimSpace(*in.LocationID)
+		locID = &trimmed
+		var cat string
+		err := tx.QueryRowContext(ctx,
+			`SELECT category FROM fund_locations WHERE id = $1 AND rt_id = $2`,
+			*locID, rtID,
+		).Scan(&cat)
+		if err == nil {
+			switch strings.ToLower(cat) {
+			case "rekening":
+				m := "TRANSFER"
+				payMethod = &m
+			case "coh", "brankas":
+				m := "CASH"
+				payMethod = &m
+			}
+		}
+	}
+	if payMethod == nil && in.PaymentMethod != nil && *in.PaymentMethod != "" {
 		m := strings.ToUpper(strings.TrimSpace(*in.PaymentMethod))
 		payMethod = &m
 	}
@@ -1587,8 +1607,7 @@ func TransactionCreate(ctx context.Context, tx *sql.Tx, rtID string, in CreateTr
 	}
 
 	var payMethodStr, createdByStr, refNoStr, locIDStr, expCatStr sql.NullString
-	var locID *string
-	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
+	if locID == nil && in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
 		trimmed := strings.TrimSpace(*in.LocationID)
 		locID = &trimmed
 	}

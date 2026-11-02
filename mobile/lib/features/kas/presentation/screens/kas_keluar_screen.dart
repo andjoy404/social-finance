@@ -209,13 +209,26 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
           _expenseCategories.firstOrNull;
       final categoryId = _selectedCategoryId ?? cat?.id ?? '';
 
+      String method = _paymentMethod;
+      if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        if (loc != null) {
+          final catName = loc.category.name.toLowerCase();
+          if (catName == 'rekening') {
+            method = 'TRANSFER';
+          } else if (catName == 'coh' || catName == 'brankas') {
+            method = 'CASH';
+          }
+        }
+      }
+
       await repository.createTransaction(
         categoryId: categoryId,
         amount: nominalInt,
         jenis: KasJenis.keluar,
         description: desc,
         occurredAt: occurredAt,
-        paymentMethod: _paymentMethod,
+        paymentMethod: method,
         locationId: _selectedLocationId,
         expenseCategory: _selectedExpenseCategory,
         idempotencyKey: _generateUuid(),
@@ -542,127 +555,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.lg),
-
-              // Metode Pembayaran (Tunai / Transfer)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Metode Pembayaran',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => setState(() => _paymentMethod = 'CASH'),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                              border: Border.all(
-                                color: _paymentMethod == 'CASH'
-                                    ? AppColors.accent
-                                    : (isDark
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBorder),
-                                width: _paymentMethod == 'CASH' ? 2 : 1,
-                              ),
-                              color: _paymentMethod == 'CASH'
-                                  ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                                  : (isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurface),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.payments_outlined,
-                                  color: AppColors.info,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Tunai (Cash)',
-                                  style: TextStyle(
-                                    fontWeight: _paymentMethod == 'CASH'
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: _paymentMethod == 'CASH'
-                                        ? AppColors.accent
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: InkWell(
-                          onTap: () =>
-                              setState(() => _paymentMethod = 'TRANSFER'),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                              border: Border.all(
-                                color: _paymentMethod == 'TRANSFER'
-                                    ? AppColors.accent
-                                    : (isDark
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBorder),
-                                width: _paymentMethod == 'TRANSFER' ? 2 : 1,
-                              ),
-                              color: _paymentMethod == 'TRANSFER'
-                                  ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                                  : (isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurface),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.account_balance_outlined,
-                                  color: AppColors.accent,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Transfer Bank',
-                                  style: TextStyle(
-                                    fontWeight: _paymentMethod == 'TRANSFER'
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: _paymentMethod == 'TRANSFER'
-                                        ? AppColors.accent
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
               // Nominal
               AppTextField(
                 controller: _nominalCtrl,
@@ -701,7 +593,22 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                     );
                   }),
                 ],
-                onChanged: (val) => setState(() => _selectedLocationId = val),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedLocationId = val;
+                    if (val != null) {
+                      final loc = _locations.where((l) => l.id == val).firstOrNull;
+                      if (loc != null) {
+                        final cat = loc.category.name.toLowerCase();
+                        if (cat == 'rekening') {
+                          _paymentMethod = 'TRANSFER';
+                        } else if (cat == 'coh' || cat == 'brankas') {
+                          _paymentMethod = 'CASH';
+                        }
+                      }
+                    }
+                  });
+                },
               ),
               const SizedBox(height: AppSpacing.sm),
 

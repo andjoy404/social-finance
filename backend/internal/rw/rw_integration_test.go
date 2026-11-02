@@ -245,9 +245,12 @@ func TestRegression1_OpeningBalanceIndependent(t *testing.T) {
 	require.Equal(t, "7000000.00", summary.TotalOpeningBal,
 		"saldo awal RW harus 7.000.000")
 
-	// Net balance = 7.000.000 (opening + 0 income - 0 expense)
-	require.Equal(t, "7000000.00", summary.NetBalance,
-		"net balance RW harus 7.000.000, tidak boleh 99.000.000 dari lokasi dana RT")
+	// Net balance (Saldo Bersih) = 0 (0 income - 0 expense)
+	require.Equal(t, "0.00", summary.NetBalance,
+		"saldo bersih RW harus 0.00, tidak boleh memasukkan saldo awal")
+	// Total balance (Total Saldo) = 7.000.000 (opening + 0 income - 0 expense)
+	require.Equal(t, "7000000.00", summary.TotalBalance,
+		"total balance RW harus 7.000.000")
 }
 
 // ===========================================================================
@@ -276,8 +279,10 @@ func TestRegression2_IncreaseByIncome(t *testing.T) {
 	require.Equal(t, "7000000.00", summary.TotalOpeningBal)
 	require.Equal(t, "500000.00", summary.TotalIncome)
 	require.Equal(t, "0.00", summary.TotalExpense)
-	require.Equal(t, "7500000.00", summary.NetBalance,
-		"net = 7.000.000 + 500.000 - 0 = 7.500.000")
+	require.Equal(t, "500000.00", summary.NetBalance,
+		"saldo bersih = 500.000 - 0 = 500.000")
+	require.Equal(t, "7500000.00", summary.TotalBalance,
+		"total saldo = 7.000.000 + 500.000 - 0 = 7.500.000")
 }
 
 // ===========================================================================
@@ -306,8 +311,10 @@ func TestRegression3_IncreaseByExpense(t *testing.T) {
 	require.Equal(t, "7000000.00", summary.TotalOpeningBal)
 	require.Equal(t, "500000.00", summary.TotalIncome)
 	require.Equal(t, "200000.00", summary.TotalExpense)
-	require.Equal(t, "7300000.00", summary.NetBalance,
-		"net = 7.000.000 + 500.000 - 200.000 = 7.300.000")
+	require.Equal(t, "300000.00", summary.NetBalance,
+		"saldo bersih = 500.000 - 200.000 = 300.000")
+	require.Equal(t, "7300000.00", summary.TotalBalance,
+		"total saldo = 7.000.000 + 500.000 - 200.000 = 7.300.000")
 }
 
 // ===========================================================================
@@ -413,7 +420,7 @@ func TestRegression6_RTTransactionsNotInRWHistory(t *testing.T) {
 	// Riwayat transaksi RW harus 0
 	tx, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
-	items, total, err := repo.GetTransactions(ctx, tx, rwID, "", 1, 20, "", "")
+	items, total, err := repo.GetTransactions(ctx, tx, rwID, "", 1, 20, "", "", "")
 	require.NoError(t, err)
 	err = tx.Commit()
 	require.NoError(t, err)
@@ -438,7 +445,7 @@ func TestRegression7_RWTransactionsNotInRTHistory(t *testing.T) {
 	// Pastikan transaksi RT = 0
 	tx, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
-	items, total, err := repo.GetTransactions(ctx, tx, rwID, "", 1, 20, "", "")
+	items, total, err := repo.GetTransactions(ctx, tx, rwID, "", 1, 20, "", "", "")
 	require.NoError(t, err)
 	err = tx.Commit()
 	require.NoError(t, err)
@@ -535,11 +542,16 @@ func TestRegression9_ConsistentBalanceAcrossViews(t *testing.T) {
 	require.Equal(t, dash.NetBalance, kas.NetBalance,
 		"net balance dashboard (%s) harus sama dengan KAS report (%s)", dash.NetBalance, kas.NetBalance)
 
-	// Keduanya = 1.000.000 + 500.000 - 200.000 = 1.300.000
-	require.Equal(t, "1300000.00", dash.NetBalance,
-		"dashboard net = 1.000.000 + 500.000 - 200.000 = 1.300.000")
-	require.Equal(t, "1300000.00", kas.NetBalance,
-		"KAS report net = 1.000.000 + 500.000 - 200.000 = 1.300.000")
+	// Saldo Bersih = 500.000 - 200.000 = 300.000
+	require.Equal(t, "300000.00", dash.NetBalance,
+		"dashboard net = 500.000 - 200.000 = 300.000")
+	require.Equal(t, "300000.00", kas.NetBalance,
+		"KAS report net = 500.000 - 200.000 = 300.000")
+	// Total Saldo = 1.000.000 + 500.000 - 200.000 = 1.300.000
+	require.Equal(t, "1300000.00", dash.TotalBalance,
+		"dashboard total = 1.000.000 + 500.000 - 200.000 = 1.300.000")
+	require.Equal(t, "1300000.00", kas.TotalBalance,
+		"KAS report total = 1.000.000 + 500.000 - 200.000 = 1.300.000")
 
 	// Opening balance KAS harus sama dengan TotalOpeningBal dashboard
 	require.Equal(t, dash.TotalOpeningBal, kas.OpeningBalance,
@@ -652,7 +664,8 @@ func TestRWTenantIsolation(t *testing.T) {
 	require.Equal(t, "5000.00", s1.TotalOpeningBal)
 	require.Equal(t, "1000.00", s1.TotalIncome)
 	require.Equal(t, "200.00", s1.TotalExpense)
-	require.Equal(t, "5800.00", s1.NetBalance, "RW1 net = 5000 + 1000 - 200")
+	require.Equal(t, "800.00", s1.NetBalance, "RW1 net = 1000 - 200")
+	require.Equal(t, "5800.00", s1.TotalBalance, "RW1 total = 5000 + 1000 - 200")
 
 	// Test RW 2
 	tx2, err := pool.Raw().BeginTx(ctx, nil)
@@ -665,7 +678,8 @@ func TestRWTenantIsolation(t *testing.T) {
 	require.Equal(t, "99999.00", s2.TotalOpeningBal)
 	require.Equal(t, "88888.00", s2.TotalIncome)
 	require.Equal(t, "77777.00", s2.TotalExpense)
-	require.Equal(t, "111110.00", s2.NetBalance, "RW2 net = 99999 + 88888 - 77777")
+	require.Equal(t, "11111.00", s2.NetBalance, "RW2 net = 88888 - 77777")
+	require.Equal(t, "111110.00", s2.TotalBalance, "RW2 total = 99999 + 88888 - 77777")
 
 	// Cross-isolation checks
 	require.NotEqual(t, s1.NetBalance, s2.NetBalance, "RW1 and RW2 balance must differ")
@@ -877,7 +891,7 @@ func TestGetTransactionsPagination(t *testing.T) {
 	tx1, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
 
-	items, total, err := repo.GetTransactions(ctx, tx1, rwID, "", 1, 2, "", "")
+	items, total, err := repo.GetTransactions(ctx, tx1, rwID, "", 1, 2, "", "", "")
 	require.NoError(t, err)
 	require.NoError(t, tx1.Commit())
 
@@ -888,7 +902,7 @@ func TestGetTransactionsPagination(t *testing.T) {
 	// Halaman 2, pageSize=2
 	tx2, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
-	items2, total2, err := repo.GetTransactions(ctx, tx2, rwID, "", 2, 2, "", "")
+	items2, total2, err := repo.GetTransactions(ctx, tx2, rwID, "", 2, 2, "", "", "")
 	require.NoError(t, err)
 	require.NoError(t, tx2.Commit())
 
@@ -898,7 +912,7 @@ func TestGetTransactionsPagination(t *testing.T) {
 	// Halaman 3, pageSize=2 (sisa 1)
 	tx3, err := pool.Raw().BeginTx(ctx, nil)
 	require.NoError(t, err)
-	items3, total3, err := repo.GetTransactions(ctx, tx3, rwID, "", 3, 2, "", "")
+	items3, total3, err := repo.GetTransactions(ctx, tx3, rwID, "", 3, 2, "", "", "")
 	require.NoError(t, err)
 	require.NoError(t, tx3.Commit())
 
@@ -1000,7 +1014,8 @@ func TestDashboardOnlyOpeningBalance(t *testing.T) {
 	require.Equal(t, "2500000.00", summary.TotalOpeningBal)
 	require.Equal(t, "0.00", summary.TotalIncome)
 	require.Equal(t, "0.00", summary.TotalExpense)
-	require.Equal(t, "2500000.00", summary.NetBalance)
+	require.Equal(t, "0.00", summary.NetBalance)
+	require.Equal(t, "2500000.00", summary.TotalBalance)
 	require.Equal(t, int64(0), summary.TransactionCount)
 }
 
@@ -1316,7 +1331,90 @@ func TestSetOpeningBalanceAndExpenseCategory(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "2500000.00", kas.OpeningBalance)
-	require.Equal(t, "2500000.00", kas.NetBalance)
+	require.Equal(t, "0.00", kas.NetBalance)
+	require.Equal(t, "2500000.00", kas.TotalBalance)
 }
+
+func TestRW_ReferenceNo_PaymentMethodAssimilation_And_Search(t *testing.T) {
+	ctx := context.Background()
+	pool, repo, rwID, _, _, _, _ := setupRWTest(t)
+
+	var userID string
+	err := pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO users (email, phone, password_hash, full_name, is_active)
+		 VALUES ($1, $2, 'hash', 'Test User RW', true) RETURNING id`,
+		fmt.Sprintf("testuser-%d@test.com", time.Now().UnixNano()),
+		fmt.Sprintf("081%d", time.Now().UnixNano()%100000000),
+	).Scan(&userID)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	// Create fund locations: Rekening and Brankas
+	locRekID := seedRWLocation(t, ctx, pool, rwID, "Bank RW Utama", rw.CategoryRekening, "BCA", "12345678", "RW 01")
+	locBrankasID := seedRWLocation(t, ctx, pool, rwID, "Brankas RW", rw.CategoryBrankas, "", "", "")
+
+	// 1. Create Transaction on Rekening without payment method -> should auto-assimilate to TRANSFER
+	tx1, err := pool.Raw().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	txEntry1, err := repo.CreateTransaction(ctx, tx1, rwID, userID, rw.CreateTransactionInput{
+		Type:        "income",
+		Amount:      "1500000.00",
+		LocationID:  locRekID,
+		Description: "Iuran RW transfer rekening",
+	})
+	require.NoError(t, err)
+	require.NoError(t, tx1.Commit())
+
+	require.NotNil(t, txEntry1.ReferenceNo)
+	require.Contains(t, *txEntry1.ReferenceNo, "KAS-RW-")
+	require.NotNil(t, txEntry1.PaymentMethod)
+	require.Equal(t, "TRANSFER", *txEntry1.PaymentMethod)
+
+	// 2. Create Transaction on Brankas without payment method -> should auto-assimilate to CASH
+	tx2, err := pool.Raw().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	txEntry2, err := repo.CreateTransaction(ctx, tx2, rwID, userID, rw.CreateTransactionInput{
+		Type:        "income",
+		Amount:      "500000.00",
+		LocationID:  locBrankasID,
+		Description: "Kas tunai masuk ke brankas",
+	})
+	require.NoError(t, err)
+	require.NoError(t, tx2.Commit())
+
+	require.NotNil(t, txEntry2.ReferenceNo)
+	require.Contains(t, *txEntry2.ReferenceNo, "KAS-RW-")
+	require.NotEqual(t, *txEntry1.ReferenceNo, *txEntry2.ReferenceNo, "Reference numbers must be unique")
+	require.NotNil(t, txEntry2.PaymentMethod)
+	require.Equal(t, "CASH", *txEntry2.PaymentMethod)
+
+	// 3. Search transactions by ReferenceNo
+	tx3, err := pool.Raw().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	searchRes, total, err := repo.GetTransactions(ctx, tx3, rwID, "", 1, 10, "", "", *txEntry1.ReferenceNo)
+	require.NoError(t, err)
+	require.NoError(t, tx3.Commit())
+
+	require.Equal(t, 1, total)
+	require.Len(t, searchRes, 1)
+	require.Equal(t, txEntry1.ID, searchRes[0].ID)
+	require.Equal(t, "TRANSFER", *searchRes[0].PaymentMethod)
+	require.Equal(t, *txEntry1.ReferenceNo, *searchRes[0].ReferenceNo)
+
+	// 4. GetTransactionByID returns reference_no and payment_method
+	tx4, err := pool.Raw().BeginTx(ctx, nil)
+	require.NoError(t, err)
+	byId, err := repo.GetTransactionByID(ctx, tx4, rwID, txEntry2.ID)
+	require.NoError(t, err)
+	require.NoError(t, tx4.Commit())
+
+	require.NotNil(t, byId.ReferenceNo)
+	require.Equal(t, *txEntry2.ReferenceNo, *byId.ReferenceNo)
+	require.NotNil(t, byId.PaymentMethod)
+	require.Equal(t, "CASH", *byId.PaymentMethod)
+}
+
 
 

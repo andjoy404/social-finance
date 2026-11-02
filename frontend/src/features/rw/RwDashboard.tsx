@@ -150,11 +150,10 @@ export function RwDashboard({
   if (!user) return null
 
   // Metric values
-  // When specific period is selected, income/expense come from period KAS report
-  // When all periods is selected, cumulative income/expense come from dashboard/KAS
-  const balanceNum = isAllPeriods
-    ? parseFloat(dashboardData?.net_balance || dashboardData?.total_balance || kasReport?.net_balance || '0') || 0
-    : parseFloat(kasReport?.net_balance || '0') || 0
+  // Formulas:
+  // TOTAL SALDO = SALDO AWAL + PEMASUKAN - PENGELUARAN
+  // SALDO BERSIH = TOTAL PEMASUKAN - TOTAL PENGELUARAN
+  const openingBalNum = parseFloat(kasReport?.opening_balance || dashboardData?.total_opening_balance || '0') || 0
 
   const totalIncomeNum = isAllPeriods
     ? parseFloat(dashboardData?.total_income || kasReport?.total_income || '0') || 0
@@ -163,6 +162,9 @@ export function RwDashboard({
   const totalExpenseNum = isAllPeriods
     ? parseFloat(dashboardData?.total_expense || kasReport?.total_expense || '0') || 0
     : parseFloat(kasReport?.total_expense || '0') || 0
+
+  const netBalNum = totalIncomeNum - totalExpenseNum
+  const totalSaldoNum = openingBalNum + netBalNum
 
   const metricScopeLabel = isAllPeriods ? 'Semua' : MONTH_NAMES[selectedMonth - 1]
   const periodDisplayLabel = isAllPeriods ? 'Semua Periode' : `${MONTH_NAMES[selectedMonth - 1]} ${selectedYear}`
@@ -427,7 +429,14 @@ export function RwDashboard({
         <div className="sf-metric-card">
           <div className="sf-metric-label">Total Saldo ({metricScopeLabel})</div>
           <div className="sf-metric-value sf-metric-default">
-            {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(balanceNum)}
+            {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(totalSaldoNum)}
+          </div>
+        </div>
+
+        <div className="sf-metric-card">
+          <div className="sf-metric-label">Saldo Awal</div>
+          <div className="sf-metric-value sf-metric-default">
+            {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(openingBalNum)}
           </div>
         </div>
 
@@ -442,6 +451,13 @@ export function RwDashboard({
           <div className="sf-metric-label">Total Pengeluaran ({metricScopeLabel})</div>
           <div className="sf-metric-value sf-metric-expense">
             {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(totalExpenseNum)}
+          </div>
+        </div>
+
+        <div className="sf-metric-card">
+          <div className="sf-metric-label">Saldo Bersih ({metricScopeLabel})</div>
+          <div className={`sf-metric-value ${netBalNum >= 0 ? 'sf-metric-income' : 'sf-metric-expense'}`}>
+            {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(netBalNum)}
           </div>
         </div>
       </div>
@@ -660,6 +676,11 @@ export function RwDashboard({
                   return (
                     <tr key={tx.id}>
                       <td style={{ textAlign: 'left' }}>
+                        {tx.reference_no && (
+                          <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--sf-accent)', fontWeight: 600, marginBottom: 2 }}>
+                            {tx.reference_no}
+                          </div>
+                        )}
                         <div style={{ fontWeight: 600, color: 'var(--sf-text)' }}>
                           {tx.description || '—'}
                         </div>
