@@ -1833,7 +1833,7 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
   }
 
   .sf-metrics-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .sf-data-grid {
