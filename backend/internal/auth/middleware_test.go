@@ -2,9 +2,12 @@ package auth
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -986,7 +989,7 @@ func TestRequireRoleEmptyContextFields(t *testing.T) {
 			recv:     true,
 		},
 		{
-			name:     "all empty",
+			name: "all empty",
 			setup: func(t *testing.T) TokenClaims {
 				setupSystemOnlyIdentity(t, "user-uuid", "test-12d@example.com")
 				userID := testUUID("user-uuid")
@@ -1164,6 +1167,90 @@ func setupTenantIdentityWithRTCode(t *testing.T, userID, membershipID, rtID, ema
 	}
 }
 
+type failingRTScanner struct {
+	err error
+}
+
+func (f failingRTScanner) Scan(...any) error { return f.err }
+
+func containsLogField(args []any, key string, value any) bool {
+	for i := 0; i+1 < len(args); i += 2 {
+		if args[i] == key && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
+// TestScanRTStatusDistinguishesMissingRTFromDatabaseAndScanFailures verifies
+// only sql.ErrNoRows is treated as a missing RT; other failures stay internal.
+func TestScanRTStatusDistinguishesMissingRTFromDatabaseAndScanFailures(t *testing.T) {
+	_, _, err := scanRTStatus(failingRTScanner{err: sql.ErrNoRows})
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("scanRTStatus err = %v, want sql.ErrNoRows", err)
+	}
+	missingRTResponse := httptest.NewRecorder()
+	writeRTStatusError(missingRTResponse, err, "test-request-id")
+	if missingRTResponse.Code != http.StatusForbidden {
+		t.Fatalf("sql.ErrNoRows returned HTTP %d, want 403", missingRTResponse.Code)
+	}
+	wrappedMissingErr := fmt.Errorf("lookup RT: %w", sql.ErrNoRows)
+	wrappedMissingResponse := httptest.NewRecorder()
+	writeRTStatusError(wrappedMissingResponse, wrappedMissingErr, "test-request-id")
+	if wrappedMissingResponse.Code != http.StatusForbidden {
+		t.Fatalf("wrapped sql.ErrNoRows returned HTTP %d, want 403", wrappedMissingResponse.Code)
+	}
+
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "database query failure", err: errors.New("database connection lost")},
+		{name: "scan failure", err: errors.New("cannot scan RT status")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := scanRTStatus(failingRTScanner{err: tc.err})
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("scanRTStatus err = %v, want original error", err)
+			}
+			rec := httptest.NewRecorder()
+			writeRTStatusError(rec, err, "test-request-id")
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("database/scan error returned HTTP %d, want 500", rec.Code)
+			}
+			if got := rec.Body.String(); got != "{\"error\":{\"code\":\"internal_error\",\"message\":\"RT validation unavailable\"}}\n" {
+				t.Fatalf("unexpected response: %s", got)
+			}
+		})
+	}
+
+	var loggedArgs []any
+	loggedResponse := httptest.NewRecorder()
+	writeRTStatusErrorWithLogger(loggedResponse, errors.New("database failure"), "same-request-id", func(args ...any) {
+		loggedArgs = args
+	})
+	if loggedResponse.Code != http.StatusInternalServerError {
+		t.Fatalf("database failure returned HTTP %d, want 500", loggedResponse.Code)
+	}
+	if !containsLogField(loggedArgs, "request_id", "same-request-id") {
+		t.Fatalf("request ID missing from structured log args: %#v", loggedArgs)
+	}
+	if got := loggedResponse.Body.String(); strings.Contains(got, "database failure") {
+		t.Fatalf("database detail leaked into response: %s", got)
+	}
+
+	panicLoggerResponse := httptest.NewRecorder()
+	writeRTStatusErrorWithLogger(panicLoggerResponse, errors.New("database failure"), "test-request-id", func(...any) {
+		panic("logger failure")
+	})
+	if panicLoggerResponse.Code != http.StatusInternalServerError {
+		t.Fatalf("logger panic changed HTTP status to %d, want 500", panicLoggerResponse.Code)
+	}
+	if got := panicLoggerResponse.Body.String(); got != "{\"error\":{\"code\":\"internal_error\",\"message\":\"RT validation unavailable\"}}\n" {
+		t.Fatalf("logger panic changed HTTP response: %s", got)
+	}
+}
+
 // TestRequireAllowedRT verifies that only allowed RTs (002 and 003) can access operational routes.
 func TestRequireAllowedRT(t *testing.T) {
 	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
@@ -1218,6 +1305,16 @@ func TestRequireAllowedRT(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200 for RT 003, got %d", rec.Code)
+	}
+
+	// A mismatched X-RT-ID must not replace a tenant user's JWT RT context.
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+token003)
+	req.Header.Set("X-RT-ID", testUUID("rt-uuid-002"))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("tenant JWT RT should remain authoritative despite a different X-RT-ID, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// 3. RT 004 NOT allowed -> 403

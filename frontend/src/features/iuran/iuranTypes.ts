@@ -50,6 +50,8 @@ export interface IuranPaymentRecord {
   proofOriginalName?: string | null
   proofMimeType?: string | null
   proofSizeBytes?: number | null
+  locationName?: string | null
+  locationId?: string | null
 }
 
 export interface IuranBill {

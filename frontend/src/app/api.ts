@@ -1260,6 +1260,8 @@ export interface ApiPayment {
   verified_by_name?: string | null
   payment_no?: string | null
   actual_received_date?: string | null
+  location_id?: string | null
+  location_name?: string | null
   created_at: string
   updated_at: string
 }

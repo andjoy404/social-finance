@@ -500,6 +500,92 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
+  it('does not auto-refresh Iuran Warga when the browser tab becomes visible', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran?tab=list-iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    vi.mocked(api.apiListBills).mockClear()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+
+    fireEvent(document, new Event('visibilitychange'))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+
+    expect(api.apiListBills).not.toHaveBeenCalled()
+  })
+
+  it('does not poll Iuran Warga over time without user interaction', async () => {
+    vi.useFakeTimers()
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+    mockCurrentUser = pengurusKetuaUser
+
+    try {
+      await act(async () => {
+        render(
+          <MemoryRouter initialEntries={['/iuran?tab=list-iuran']}>
+            <IuranList />
+          </MemoryRouter>
+        )
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(api.apiListBills).toHaveBeenCalled()
+      vi.mocked(api.apiListBills).mockClear()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+      })
+
+      expect(api.apiListBills).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still refreshes Iuran Saya when the browser tab becomes visible', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    vi.mocked(api.apiListBills).mockClear()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+
+    fireEvent(document, new Event('visibilitychange'))
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+  })
+
   it('defaults to Iuran Saya (personal bills) for managers and orders tabs correctly', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],

@@ -2,14 +2,17 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	httpx "social-finance/internal/http"
 	"social-finance/internal/database"
+	httpx "social-finance/internal/http"
 )
 
 const authContextKey = "auth"
@@ -159,13 +162,13 @@ func RequireAuth(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), AuthContextKey, &AuthContext{
-			UserID:          claims.UserID,
-			MembershipID:    claims.MID,
-			RTID:            effectiveRTID,
-			SystemRole:      SystemRole(claims.SysRole),
-			TenantRole:      Role(claims.Role),
-			Jabatan:         Jabatan(claims.Jabatan),
-			RWMemberships:   validRWMemberships,
+			UserID:        claims.UserID,
+			MembershipID:  claims.MID,
+			RTID:          effectiveRTID,
+			SystemRole:    SystemRole(claims.SysRole),
+			TenantRole:    Role(claims.Role),
+			Jabatan:       Jabatan(claims.Jabatan),
+			RWMemberships: validRWMemberships,
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -459,6 +462,37 @@ func RequireNotificationAdmin() func(http.Handler) http.Handler {
 //
 // This prevents Super Admins from silently accessing any RT or bypassing the
 // whitelist by relying on an empty RTID.
+type rtStatusScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanRTStatus(row rtStatusScanner) (string, bool, error) {
+	var rtCode string
+	var isActive bool
+	if err := row.Scan(&rtCode, &isActive); err != nil {
+		return "", false, err
+	}
+	return rtCode, isActive, nil
+}
+
+func writeRTStatusError(w http.ResponseWriter, err error, requestID string) {
+	writeRTStatusErrorWithLogger(w, err, requestID, func(args ...any) {
+		slog.Error("RT validation query failed", args...)
+	})
+}
+
+func writeRTStatusErrorWithLogger(w http.ResponseWriter, err error, requestID string, logError func(...any)) {
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt not found or invalid")
+		return
+	}
+	httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "RT validation unavailable")
+	func() {
+		defer func() { _ = recover() }() // Logging must not affect the HTTP response.
+		logError("error", err, "request_id", requestID)
+	}()
+}
+
 func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -488,14 +522,12 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
 
-			var rtCode string
-			var isActive bool
-			err := effectivePool.Raw().QueryRowContext(ctx,
+			rtCode, isActive, err := scanRTStatus(effectivePool.Raw().QueryRowContext(ctx,
 				`SELECT rt, is_active FROM rts WHERE id = $1 LIMIT 1`,
 				rtIDToValidate,
-			).Scan(&rtCode, &isActive)
+			))
 			if err != nil {
-				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt not found or invalid")
+				writeRTStatusError(w, err, httpx.GetRequestID(r.Context()))
 				return
 			}
 

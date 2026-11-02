@@ -370,7 +370,7 @@ export function IuranList() {
   // Auto-refresh when user returns to tab
   useEffect(() => {
     function handleVisibilityChange() {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && activeTab !== 'list-iuran') {
         void loadData()
       }
     }

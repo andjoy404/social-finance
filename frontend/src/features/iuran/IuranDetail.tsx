@@ -1006,6 +1006,29 @@ function PaymentDetailModal({
           </div>
         </div>
 
+        {/* Lokasi Dana */}
+        {payment.locationName && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '4px',
+            }}>
+              Lokasi Dana
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: 'var(--sf-text)',
+              fontWeight: 600,
+            }}>
+              {payment.locationName}
+            </div>
+          </div>
+        )}
+
         {/* Tanggal Uang Diterima (O-12) */}
         {payment.actualReceivedDate && (
           <div style={{ marginBottom: '16px' }}>
@@ -1347,6 +1370,8 @@ export function IuranDetail({
         proofOriginalName: p.proof_original_name,
         proofMimeType: p.proof_mime_type,
         proofSizeBytes: p.proof_size_bytes,
+        locationName: p.location_name ?? undefined,
+        locationId: p.location_id ?? undefined,
       }))
 
       setBill({
