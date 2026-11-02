@@ -430,7 +430,7 @@ export function RwDashboard({
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
         gap: 12,
         marginTop: 8,
-        marginBottom: 2,
+        marginBottom: 16,
       }}>
         {/* Total Saldo */}
         <div style={{
@@ -509,7 +509,7 @@ export function RwDashboard({
       </div>
 
       {/* Info card: RW scope */}
-      <div className="sf-section-card">
+      <div className="sf-section-card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div className="sf-section-title">Ringkasan RW</div>
@@ -539,7 +539,7 @@ export function RwDashboard({
       </div>
 
       {/* Financial chart */}
-      <div className="sf-section-card">
+      <div className="sf-section-card" style={{ marginBottom: 16 }}>
         <div className="sf-section-header">
           <div>
             <div className="sf-section-title">Ringkasan Keuangan</div>
@@ -552,7 +552,7 @@ export function RwDashboard({
       </div>
 
       {/* Donut Panel: Transfer vs Tunai */}
-      <div className="sf-section-card">
+      <div className="sf-section-card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
             <div className="sf-section-title">Metode Transaksi ({metricScopeLabel})</div>
@@ -658,7 +658,7 @@ export function RwDashboard({
       </div>
 
       {/* Recent transactions */}
-      <div className="sf-section-card">
+      <div className="sf-section-card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div className="sf-section-title">Transaksi Terbaru</div>
           {onNavigateToKas && (
