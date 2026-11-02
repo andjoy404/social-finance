@@ -428,67 +428,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
               const SectionHeader(title: 'Detail Transaksi'),
               const SizedBox(height: AppSpacing.sm),
 
-              // Kategori (Wajib, 15 Standar Kategori)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RichText(
-                    text: TextSpan(
-                      text: 'Kategori',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                      children: const [
-                        TextSpan(
-                          text: ' *',
-                          style: TextStyle(color: AppColors.danger),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: isDark
-                            ? AppColors.darkBorder
-                            : AppColors.lightBorder,
-                      ),
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      color: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurface,
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedExpenseCategory,
-                        hint: const Text('-- Pilih Kategori Pengeluaran --'),
-                        isExpanded: true,
-                        dropdownColor: isDark
-                            ? AppColors.darkSurface
-                            : AppColors.lightSurface,
-                        items: KasKeluarScreen.kExpenseCategories.map((cat) {
-                          return DropdownMenuItem<String>(
-                            value: cat,
-                            child: Text(cat),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          setState(() {
-                            _selectedExpenseCategory = val;
-                            _validationErrors = [];
-                          });
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
               // Tanggal
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -556,17 +495,67 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                   ),
                 ],
               ),
-              // Nominal
-              AppTextField(
-                controller: _nominalCtrl,
-                label: 'Nominal (Rp)',
-                hintText: 'Masukkan nominal',
-                keyboardType: TextInputType.number,
-                inputFormatters: [RupiahInputFormatter()],
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.lg),
 
+              // Kategori (Wajib, 15 Standar Kategori)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RichText(
+                    text: TextSpan(
+                      text: 'Kategori',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                      children: const [
+                        TextSpan(
+                          text: ' *',
+                          style: TextStyle(color: AppColors.danger),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: isDark
+                            ? AppColors.darkBorder
+                            : AppColors.lightBorder,
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      color: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurface,
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedExpenseCategory,
+                        hint: const Text('-- Pilih Kategori Pengeluaran --'),
+                        isExpanded: true,
+                        dropdownColor: isDark
+                            ? AppColors.darkSurface
+                            : AppColors.lightSurface,
+                        items: KasKeluarScreen.kExpenseCategories.map((cat) {
+                          return DropdownMenuItem<String>(
+                            value: cat,
+                            child: Text(cat),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedExpenseCategory = val;
+                            _validationErrors = [];
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               // Lokasi Dana (Opsional)
               DropdownButtonFormField<String?>(
                 value: _selectedLocationId,
@@ -610,6 +599,17 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                     }
                   });
                 },
+              ),
+              const SizedBox(height: AppSpacing.sm),
+
+              // Nominal
+              AppTextField(
+                controller: _nominalCtrl,
+                label: 'Nominal (Rp)',
+                hintText: 'Masukkan nominal',
+                keyboardType: TextInputType.number,
+                inputFormatters: [RupiahInputFormatter()],
+                onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: AppSpacing.sm),
 

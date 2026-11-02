@@ -449,17 +449,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Nominal
-              AppTextField(
-                controller: _nominalCtrl,
-                label: 'Nominal (Rp)',
-                hintText: 'Masukkan nominal',
-                keyboardType: TextInputType.number,
-                inputFormatters: [RupiahInputFormatter()],
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-
               // Kategori
               if (_loadingCategories)
                 Padding(
@@ -530,6 +519,17 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                     }
                   });
                 },
+              ),
+              const SizedBox(height: AppSpacing.sm),
+
+              // Nominal
+              AppTextField(
+                controller: _nominalCtrl,
+                label: 'Nominal (Rp)',
+                hintText: 'Masukkan nominal',
+                keyboardType: TextInputType.number,
+                inputFormatters: [RupiahInputFormatter()],
+                onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: AppSpacing.sm),
 
