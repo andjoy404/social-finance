@@ -585,7 +585,9 @@ export function IuranList() {
   useEffect(() => {
     let cancelled = false
     const token = getSessionPair()?.accessToken
-    if (!token || paginatedBills.length === 0) return
+    // BillList already returns paid_amount and pending_amount for Iuran Warga.
+    // Avoid one payments request per bill, which can overwhelm RT validation.
+    if (activeTab === 'list-iuran' || !token || paginatedBills.length === 0) return
 
     const unfetched = paginatedBills.filter((b) => !fetchedPaymentBillIds.current.has(b.id))
     if (unfetched.length === 0) return
@@ -624,7 +626,7 @@ export function IuranList() {
     return () => {
       cancelled = true
     }
-  }, [paginatedBills])
+  }, [paginatedBills, activeTab])
 
   const handleFilter = (filter: FilterType) => {
     setFilterType(filter)

@@ -500,6 +500,31 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
+  it('does not fan out payments API requests for Iuran Warga bills', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [
+        { id: 'bill-w1', rt_id: 'rt-1', due_id: 'due-1', household_occupancy_id: 'occ-1', period: '2026-10', due_date: '2026-10-31', amount: '50000.00', status: 'unpaid', created_at: '', updated_at: '', paid_amount: '10000.00', pending_amount: '5000.00' },
+        { id: 'bill-w2', rt_id: 'rt-1', due_id: 'due-1', household_occupancy_id: 'occ-2', period: '2026-10', due_date: '2026-10-31', amount: '50000.00', status: 'unpaid', created_at: '', updated_at: '' },
+      ],
+      pagination: { page: 1, per_page: 10, total: 2, total_pages: 1 },
+    })
+    ;(api.apiListPayments as any).mockResolvedValue({ data: [] })
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran?tab=list-iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+
+    expect(api.apiListPayments).not.toHaveBeenCalled()
+  })
+
   it('does not auto-refresh Iuran Warga when the browser tab becomes visible', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
