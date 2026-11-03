@@ -607,18 +607,23 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                   ],
                 ],
               ),
-
-              // Horizontal buttons: Simpan + Batal
-              Row(
+            ],
+          ),
+        ),
+        floatingActionButton: Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
+                  Flexible(
                     child: SizedBox(
                       height: 48,
-                      child: OutlinedButton(
+                      child: ElevatedButton(
                         onPressed: _saving ? null : _save,
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: AppColors.accentSoftColor(context),
-                          side: const BorderSide(color: AppColors.accent),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.success,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(AppRadius.base),
                           ),
@@ -631,7 +636,7 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                                   strokeWidth: 2,
                                   backgroundColor: Colors.transparent,
                                   valueColor: AlwaysStoppedAnimation<Color>(
-                                    AppColors.accent,
+                                    Colors.white,
                                   ),
                                 ),
                               )
@@ -640,29 +645,24 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                                 children: [
                                   Icon(Icons.save_outlined, size: 18),
                                   SizedBox(width: 6),
-                                  Text('Simpan'),
+                                  Text('Simpan', style: TextStyle(color: Colors.white)),
                                 ],
                               ),
                       ),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
-                  Expanded(
+                  Flexible(
                     child: SizedBox(
                       height: 48,
-                      child: OutlinedButton(
+                      child: ElevatedButton(
                         onPressed: _saving
                             ? null
                             : () => KasFormNavigationGuard.requestFormCancel(
                                   context,
                                 ),
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor:
-                              Theme.of(context).brightness == Brightness.dark
-                              ? AppColors.darkDangerSoft
-                              : AppColors.danger.withValues(alpha: 0.20),
-                          side: const BorderSide(color: AppColors.danger),
-                          foregroundColor: AppColors.danger,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.danger,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(AppRadius.base),
                           ),
@@ -670,17 +670,17 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.close, size: 18),
+                            Icon(Icons.close, size: 18, color: Colors.white),
                             SizedBox(width: 6),
-                            Text('Batal'),
+                            Text('Batal', style: TextStyle(color: Colors.white)),
                           ],
                         ),
                       ),
                     ),
                   ),
                 ],
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),
