@@ -616,7 +616,9 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
                                         ),
                                         const SizedBox(height: 4),
                                         AppBadge(
-                                          label: due.isActive ? 'Aktif' : 'Tidak Aktif',
+                                          label: due.isActive
+                                              ? 'Aktif'
+                                              : 'Tidak Aktif',
                                           textColor: due.isActive
                                               ? AppColors.success
                                               : AppColors.danger,
@@ -650,47 +652,33 @@ class _IuranManagementScreenState extends ConsumerState<IuranManagementScreen> {
 
   Widget _buildFab(BuildContext context) {
     final accentSoft = AppColors.accentSoftColor(context);
-    final button = Container(
+    final button = SizedBox(
       key: const Key('kelola-iuran-create-btn'),
-      decoration: BoxDecoration(
-        color: accentSoft,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.accent, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.accent.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 0),
+      height: 48,
+      child: OutlinedButton(
+        onPressed: () => context.push('/home/iuran/form'),
+        style: OutlinedButton.styleFrom(
+          backgroundColor: accentSoft,
+          side: const BorderSide(color: AppColors.accent, width: 1),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.base),
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        clipBehavior: Clip.none,
-        child: InkWell(
-          onTap: () => context.push('/home/iuran/form'),
-          borderRadius: BorderRadius.circular(24),
-          child: const SizedBox(
-            height: 44,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '+',
-                    style: TextStyle(
-                      color: AppColors.accent,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                    ),
-                  ),
-                  SizedBox(width: 6),
-                  Icon(Icons.receipt_long, size: 18, color: AppColors.accent),
-                ],
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '+',
+              style: TextStyle(
+                color: AppColors.accent,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
               ),
             ),
-          ),
+            SizedBox(width: 6),
+            Icon(Icons.receipt_long, size: 18, color: AppColors.accent),
+          ],
         ),
       ),
     );
@@ -751,7 +739,9 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     _nameController = TextEditingController(text: widget.due.name);
     final rawAmount = widget.due.amount.split('.').first;
     _amountController = TextEditingController(text: rawAmount);
-    _validUntilController = TextEditingController(text: widget.due.validUntil ?? '');
+    _validUntilController = TextEditingController(
+      text: widget.due.validUntil ?? '',
+    );
     _periodType = widget.due.periodType;
     _paymentRule = widget.due.paymentRule;
     _isVoluntary = widget.due.isVoluntary;
@@ -780,7 +770,8 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           ? 0
           : int.tryParse(_amountController.text.trim()) ?? 0;
 
-      final validUntil = _isVoluntary && _validUntilController.text.trim().isNotEmpty
+      final validUntil =
+          _isVoluntary && _validUntilController.text.trim().isNotEmpty
           ? _validUntilController.text.trim()
           : null;
 
@@ -813,7 +804,8 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
 
   /// Show date picker for the validity end date of a voluntary due.
   Future<void> _pickValidUntil() async {
-    final initial = DateTime.tryParse(_validUntilController.text) ??
+    final initial =
+        DateTime.tryParse(_validUntilController.text) ??
         DateTime.now().add(const Duration(days: 365));
     final picked = await showDatePicker(
       context: context,
@@ -1055,9 +1047,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                       IconButton(
                         icon: const Icon(Icons.calendar_today, size: 20),
                         tooltip: 'Pilih tanggal',
-                        onPressed: _loading
-                            ? null
-                            : _pickValidUntil,
+                        onPressed: _loading ? null : _pickValidUntil,
                       ),
                       if (_validUntilController.text.isNotEmpty)
                         IconButton(
@@ -1128,27 +1118,77 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
         ),
       ),
       actions: [
-        _buildNeonActionButton(
-          label: 'Batal',
-          icon: Icons.cancel_outlined,
-          neonColor: AppColors.danger,
-          softBg: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.darkDangerSoft
-              : AppColors.lightDangerSoft,
-          onPressed: _loading ? null : () => Navigator.of(context).pop(false),
-          isSaving: false,
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        _buildNeonActionButton(
-          key: const ValueKey('iuran-save-button'),
-          label: _loading ? '' : 'Simpan',
-          icon: Icons.save_outlined,
-          neonColor: AppColors.accent,
-          softBg: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.darkAccentSoft
-              : AppColors.lightAccentSoft,
-          onPressed: _loading ? null : _handleSave,
-          isSaving: _loading,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: ElevatedButton(
+                key: const ValueKey('iuran-save-button'),
+                onPressed: _loading ? null : _handleSave,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.success,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 10,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                ),
+                child: _loading
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          backgroundColor: Colors.transparent,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                      )
+                    : const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.save_outlined, size: 18),
+                          SizedBox(width: 6),
+                          Text('Simpan'),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _loading
+                    ? null
+                    : () => Navigator.of(context).pop(false),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: AppColors.danger),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 10,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.close, size: 18),
+                    SizedBox(width: 6),
+                    Text('Batal'),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

@@ -157,7 +157,10 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
     ).hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
-    if (_endDate != null && _endDate!.isNotEmpty && _startDate != null && _startDate!.isNotEmpty) {
+    if (_endDate != null &&
+        _endDate!.isNotEmpty &&
+        _startDate != null &&
+        _startDate!.isNotEmpty) {
       final start = DateTime.tryParse(_startDate!);
       final end = DateTime.tryParse(_endDate!);
       if (start != null && end != null && !end.isAfter(start)) {
@@ -194,7 +197,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
         occupancyStatus: _occupancyStatus.isEmpty ? null : _occupancyStatus,
         startDate: _startDate,
         endDate: _endDate,
-        password: _passwordCtrl.text.trim().isEmpty ? null : _passwordCtrl.text.trim(),
+        password: _passwordCtrl.text.trim().isEmpty
+            ? null
+            : _passwordCtrl.text.trim(),
         address: _addressCtrl.text.trim().isEmpty
             ? null
             : _addressCtrl.text.trim(),
@@ -241,18 +246,14 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
 
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Ubah Warga'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Warga')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_notFound) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Ubah Warga'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Warga')),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -285,8 +286,36 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
         await KasFormNavigationGuard.requestFormCancel(context);
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Ubah Warga'),
+        appBar: AppBar(title: const Text('Ubah Warga')),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableWidth = constraints.maxWidth;
+                final gap = AppSpacing.md;
+                final buttonWidth = (availableWidth - 32 - gap) / 2;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildSimpanButton(),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildBatalButton(),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
         body: Form(
           key: _formKey,
@@ -487,18 +516,23 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                   InkWell(
                     onTap: () async {
                       final now = DateTime.now();
-                      final initial = _startDate != null && _startDate!.isNotEmpty
+                      final initial =
+                          _startDate != null && _startDate!.isNotEmpty
                           ? (DateTime.tryParse(_startDate!) ?? now)
                           : now;
                       final picked = await showDatePicker(
                         context: context,
                         initialDate: initial,
                         firstDate: DateTime(2000),
-                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                        lastDate: DateTime.now().add(
+                          const Duration(days: 365 * 10),
+                        ),
                       );
                       if (picked != null) {
                         setState(() {
-                          _startDate = picked.toLocal().toString().split(' ')[0];
+                          _startDate = picked.toLocal().toString().split(
+                            ' ',
+                          )[0];
                         });
                       }
                     },
@@ -555,7 +589,13 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                       if (_endDate != null && _endDate!.isNotEmpty)
                         TextButton(
                           onPressed: () => setState(() => _endDate = null),
-                          child: const Text('Hapus', style: TextStyle(color: AppColors.danger, fontSize: 12)),
+                          child: const Text(
+                            'Hapus',
+                            style: TextStyle(
+                              color: AppColors.danger,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                     ],
                   ),
@@ -566,13 +606,15 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                       final initial = _endDate != null && _endDate!.isNotEmpty
                           ? (DateTime.tryParse(_endDate!) ?? now)
                           : (_startDate != null && _startDate!.isNotEmpty
-                              ? (DateTime.tryParse(_startDate!) ?? now)
-                              : now);
+                                ? (DateTime.tryParse(_startDate!) ?? now)
+                                : now);
                       final picked = await showDatePicker(
                         context: context,
                         initialDate: initial,
                         firstDate: DateTime(2000),
-                        lastDate: DateTime.now().add(const Duration(days: 365 * 10)),
+                        lastDate: DateTime.now().add(
+                          const Duration(days: 365 * 10),
+                        ),
                       );
                       if (picked != null) {
                         setState(() {
@@ -603,7 +645,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                                 : _endDate!,
                             style: theme.textTheme.bodyLarge?.copyWith(
                               color: (_endDate == null || _endDate!.isEmpty)
-                                  ? (isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted)
+                                  ? (isDark
+                                        ? AppColors.darkTextMuted
+                                        : AppColors.lightTextMuted)
                                   : null,
                             ),
                           ),
@@ -633,7 +677,8 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                     color: AppColors.accent,
                     size: 20,
                   ),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -683,109 +728,76 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
               ),
               const SizedBox(height: AppSpacing.xxl),
 
-              // Horizontal buttons: Simpan + Batal
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.accent.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : _save,
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.accent),
-                            foregroundColor: AppColors.accent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                            ),
-                          ),
-                          child: _saving
-                              ? SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    backgroundColor: Colors.transparent,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      AppColors.accent,
-                                    ),
-                                  ),
-                                )
-                              : const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.save_outlined, size: 18),
-                                    SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(
-                                        'Simpan Perubahan',
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.danger.withValues(alpha: 0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 0),
-                          ),
-                        ],
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton(
-                          onPressed: _saving
-                              ? null
-                              : () => KasFormNavigationGuard.requestFormCancel(context),
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: AppColors.danger),
-                            foregroundColor: AppColors.danger,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                            ),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.close, size: 18),
-                              SizedBox(width: 6),
-                              Text('Batal'),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.base),
+              const SizedBox.shrink(),
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildSimpanButton() => SizedBox(
+    height: 48,
+    child: ElevatedButton(
+      onPressed: _saving ? null : _save,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.success,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        visualDensity: VisualDensity.compact,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: _saving
+          ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                backgroundColor: Colors.transparent,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.save_outlined, size: 18),
+                SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Simpan Perubahan',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+    ),
+  );
+
+  Widget _buildBatalButton() => SizedBox(
+    height: 48,
+    child: OutlinedButton(
+      onPressed: _saving
+          ? null
+          : () => KasFormNavigationGuard.requestFormCancel(context),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.danger,
+        foregroundColor: Colors.white,
+        side: const BorderSide(color: AppColors.danger),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.close, size: 18),
+          SizedBox(width: 6),
+          Text('Batal'),
+        ],
+      ),
+    ),
+  );
 }

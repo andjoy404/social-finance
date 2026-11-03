@@ -119,8 +119,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
     }
   }
 
-
-
   bool _validate() {
     final errors = <String>[];
 
@@ -168,7 +166,9 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
 
       String method = _paymentMethod;
       if (_selectedLocationId != null) {
-        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        final loc = _locations
+            .where((l) => l.id == _selectedLocationId)
+            .firstOrNull;
         if (loc != null) {
           final catName = loc.category.name.toLowerCase();
           if (catName == 'rekening') {
@@ -260,6 +260,36 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
         appBar: AppBar(
           centerTitle: false,
           title: const Text('Tambah Kas Masuk'),
+        ),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableWidth = constraints.maxWidth;
+                final gap = AppSpacing.md;
+                final buttonWidth = (availableWidth - 32 - gap) / 2;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildSimpanButton(),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    SizedBox(
+                      width: buttonWidth > 0
+                          ? buttonWidth
+                          : availableWidth - 32,
+                      child: _buildBatalButton(),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
         body: Form(
           key: _formKey,
@@ -451,7 +481,9 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                   setState(() {
                     _selectedLocationId = val;
                     if (val != null) {
-                      final loc = _locations.where((l) => l.id == val).firstOrNull;
+                      final loc = _locations
+                          .where((l) => l.id == val)
+                          .firstOrNull;
                       if (loc != null) {
                         final cat = loc.category.name.toLowerCase();
                         if (cat == 'rekening') {
@@ -512,7 +544,10 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                             visualDensity: VisualDensity.compact,
                             foregroundColor: AppColors.danger,
                           ),
-                          child: const Text('Hapus', style: TextStyle(fontSize: 12)),
+                          child: const Text(
+                            'Hapus',
+                            style: TextStyle(fontSize: 12),
+                          ),
                         ),
                     ],
                   ),
@@ -549,7 +584,10 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                                 }
                               },
                         icon: const Icon(Icons.refresh, size: 16),
-                        label: const Text('Ganti Foto', style: TextStyle(fontSize: 12)),
+                        label: const Text(
+                          'Ganti Foto',
+                          style: TextStyle(fontSize: 12),
+                        ),
                       ),
                     ),
                   ] else ...[
@@ -575,7 +613,10 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                                     }
                                   },
                             icon: const Icon(Icons.camera_alt, size: 16),
-                            label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                            label: const Text(
+                              'Kamera',
+                              style: TextStyle(fontSize: 12),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -599,7 +640,10 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                                     }
                                   },
                             icon: const Icon(Icons.photo_library, size: 16),
-                            label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                            label: const Text(
+                              'Galeri',
+                              style: TextStyle(fontSize: 12),
+                            ),
                           ),
                         ),
                       ],
@@ -610,80 +654,67 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
             ],
           ),
         ),
-        floatingActionButton: Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Flexible(
-                    child: SizedBox(
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _saving ? null : _save,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.success,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
-                        child: _saving
-                            ? SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  backgroundColor: Colors.transparent,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.white,
-                                  ),
-                                ),
-                              )
-                            : const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.save_outlined, size: 18),
-                                  SizedBox(width: 6),
-                                  Text('Simpan', style: TextStyle(color: Colors.white)),
-                                ],
-                              ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Flexible(
-                    child: SizedBox(
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: _saving
-                            ? null
-                            : () => KasFormNavigationGuard.requestFormCancel(
-                                  context,
-                                ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.danger,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(AppRadius.base),
-                          ),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.close, size: 18, color: Colors.white),
-                            SizedBox(width: 6),
-                            Text('Batal', style: TextStyle(color: Colors.white)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
       ),
     );
   }
+
+  Widget _buildSimpanButton() => SizedBox(
+    height: 48,
+    child: ElevatedButton(
+      key: const ValueKey('kas-masuk-save-button'),
+      onPressed: _saving ? null : _save,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.success,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        visualDensity: VisualDensity.compact,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: _saving
+          ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                backgroundColor: Colors.transparent,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.save_outlined, size: 18),
+                SizedBox(width: 6),
+                Text('Simpan'),
+              ],
+            ),
+    ),
+  );
+
+  Widget _buildBatalButton() => SizedBox(
+    height: 48,
+    child: OutlinedButton(
+      onPressed: _saving
+          ? null
+          : () => KasFormNavigationGuard.requestFormCancel(context),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: AppColors.danger,
+        foregroundColor: Colors.white,
+        side: const BorderSide(color: AppColors.danger),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.base),
+        ),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.close, size: 18),
+          SizedBox(width: 6),
+          Text('Batal'),
+        ],
+      ),
+    ),
+  );
 }

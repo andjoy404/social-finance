@@ -21,14 +21,23 @@ class KelolaIuranTabBody extends ConsumerStatefulWidget {
   const KelolaIuranTabBody({super.key});
 
   @override
-  ConsumerState<KelolaIuranTabBody> createState() =>
-      _KelolaIuranTabBodyState();
+  ConsumerState<KelolaIuranTabBody> createState() => _KelolaIuranTabBodyState();
 }
 
 class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
   static const _monthNames = [
-    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    'Januari',
+    'Februari',
+    'Maret',
+    'April',
+    'Mei',
+    'Juni',
+    'Juli',
+    'Agustus',
+    'September',
+    'Oktober',
+    'November',
+    'Desember',
   ];
 
   late final TextEditingController _searchController;
@@ -57,12 +66,17 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
     return await showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.base),
+        ),
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (_, setModalState) {
           final isDark = Theme.of(ctx).brightness == Brightness.dark;
-          final months = ['Semua Bulan', ...List.generate(12, (i) => _monthNames[i])];
+          final months = [
+            'Semua Bulan',
+            ...List.generate(12, (i) => _monthNames[i]),
+          ];
 
           return Padding(
             padding: EdgeInsets.fromLTRB(
@@ -94,7 +108,9 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                   itemCount: 13,
                   itemBuilder: (_, i) {
                     final isAll = i == 0;
-                    final isSelected = isAll ? _isYearFilterActive : (i == selMonth && !_isYearFilterActive);
+                    final isSelected = isAll
+                        ? _isYearFilterActive
+                        : (i == selMonth && !_isYearFilterActive);
                     return InkWell(
                       onTap: () {
                         setState(() {
@@ -115,11 +131,19 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
-                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                              ? (isDark
+                                    ? AppColors.darkAccentSoft
+                                    : AppColors.lightAccentSoft)
+                              : (isDark
+                                    ? AppColors.darkSurfaceHover
+                                    : AppColors.lightSurfaceHover),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           border: Border.all(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkBorder
+                                      : AppColors.lightBorder),
                             width: isSelected ? 2 : 1,
                           ),
                         ),
@@ -127,7 +151,11 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                         child: Text(
                           months[i],
                           style: TextStyle(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkText
+                                      : AppColors.lightText),
                             fontWeight: isSelected ? FontWeight.w600 : null,
                           ),
                         ),
@@ -150,7 +178,9 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
     return await showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.base)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.base),
+        ),
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (_, setModalState) {
@@ -192,7 +222,11 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                       onTap: () {
                         setState(() {
                           selYear = year;
-                          _activeDate = DateTime(year, _isYearFilterActive ? 1 : _activeDate.month, 1);
+                          _activeDate = DateTime(
+                            year,
+                            _isYearFilterActive ? 1 : _activeDate.month,
+                            1,
+                          );
                         });
                         if (_isYearFilterActive) {
                           // Keep "Semua Bulan" — just update year
@@ -206,11 +240,19 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? (isDark ? AppColors.darkAccentSoft : AppColors.lightAccentSoft)
-                              : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                              ? (isDark
+                                    ? AppColors.darkAccentSoft
+                                    : AppColors.lightAccentSoft)
+                              : (isDark
+                                    ? AppColors.darkSurfaceHover
+                                    : AppColors.lightSurfaceHover),
                           borderRadius: BorderRadius.circular(AppRadius.base),
                           border: Border.all(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkBorder
+                                      : AppColors.lightBorder),
                             width: isSelected ? 2 : 1,
                           ),
                         ),
@@ -218,7 +260,11 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                         child: Text(
                           year.toString(),
                           style: TextStyle(
-                            color: isSelected ? AppColors.accent : (isDark ? AppColors.darkText : AppColors.lightText),
+                            color: isSelected
+                                ? AppColors.accent
+                                : (isDark
+                                      ? AppColors.darkText
+                                      : AppColors.lightText),
                             fontWeight: isSelected ? FontWeight.w600 : null,
                           ),
                         ),
@@ -304,7 +350,8 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
     final user = ref.watch(authRepositoryProvider)?.valueOrNull;
     if (!canManageIuran(user)) {
       return const Center(
-          child: Text('Anda tidak memiliki akses untuk mengelola iuran.'));
+        child: Text('Anda tidak memiliki akses untuk mengelola iuran.'),
+      );
     }
 
     final duesState = ref.watch(duesProvider);
@@ -393,39 +440,49 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                             // ── Row 1: Bulan + Tahun ──
                             Padding(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.base),
+                                horizontal: AppSpacing.base,
+                              ),
                               child: Row(
                                 children: [
                                   Expanded(
                                     child: InkWell(
                                       onTap: _pickMonth,
-                                      borderRadius:
-                                          BorderRadius.circular(AppRadius.base),
+                                      borderRadius: BorderRadius.circular(
+                                        AppRadius.base,
+                                      ),
                                       child: Container(
                                         height: 38,
                                         alignment: Alignment.centerLeft,
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 10),
+                                          horizontal: 10,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: isDark
                                               ? AppColors.darkSurface
                                               : AppColors.lightSurface,
                                           borderRadius: BorderRadius.circular(
-                                              AppRadius.base),
+                                            AppRadius.base,
+                                          ),
                                           border: Border.all(
                                             color: isDark
                                                 ? AppColors.accent.withValues(
-                                                    alpha: 0.35)
+                                                    alpha: 0.35,
+                                                  )
                                                 : AppColors.accent.withValues(
-                                                    alpha: 0.25),
+                                                    alpha: 0.25,
+                                                  ),
                                             width: 1,
                                           ),
                                         ),
                                         child: Text(
-                                          _isYearFilterActive ? 'Semua Bulan' : _monthNames[_activeDate.month - 1],
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                          ),
+                                          _isYearFilterActive
+                                              ? 'Semua Bulan'
+                                              : _monthNames[_activeDate.month -
+                                                    1],
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -436,33 +493,39 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                   Expanded(
                                     child: InkWell(
                                       onTap: _pickYear,
-                                      borderRadius:
-                                          BorderRadius.circular(AppRadius.base),
+                                      borderRadius: BorderRadius.circular(
+                                        AppRadius.base,
+                                      ),
                                       child: Container(
                                         height: 38,
                                         alignment: Alignment.centerLeft,
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 10),
+                                          horizontal: 10,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: isDark
                                               ? AppColors.darkSurface
                                               : AppColors.lightSurface,
                                           borderRadius: BorderRadius.circular(
-                                              AppRadius.base),
+                                            AppRadius.base,
+                                          ),
                                           border: Border.all(
                                             color: isDark
                                                 ? AppColors.accent.withValues(
-                                                    alpha: 0.35)
+                                                    alpha: 0.35,
+                                                  )
                                                 : AppColors.accent.withValues(
-                                                    alpha: 0.25),
+                                                    alpha: 0.25,
+                                                  ),
                                             width: 1,
                                           ),
                                         ),
                                         child: Text(
                                           _activeDate.year.toString(),
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                          ),
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -478,56 +541,67 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                             // ── Row 2: Jenis Iuran & Frekuensi Periode ──
                             Padding(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.base),
+                                horizontal: AppSpacing.base,
+                              ),
                               child: Row(
                                 children: [
                                   Expanded(
                                     child: Container(
                                       height: 38,
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 10),
+                                        horizontal: 10,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: isDark
                                             ? AppColors.darkSurface
                                             : AppColors.lightSurface,
                                         borderRadius: BorderRadius.circular(
-                                            AppRadius.base),
+                                          AppRadius.base,
+                                        ),
                                         border: Border.all(
                                           color: isDark
                                               ? AppColors.accent.withValues(
-                                                  alpha: 0.35)
+                                                  alpha: 0.35,
+                                                )
                                               : AppColors.accent.withValues(
-                                                  alpha: 0.25),
+                                                  alpha: 0.25,
+                                                ),
                                           width: 1,
                                         ),
                                       ),
                                       child: DropdownButtonHideUnderline(
                                         child: DropdownButton<String>(
                                           key: const Key(
-                                              'kelola-iuran-jenis-filter'),
+                                            'kelola-iuran-jenis-filter',
+                                          ),
                                           value: _filterJenis,
                                           isExpanded: true,
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
-                                                  fontWeight: FontWeight.w600),
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                           dropdownColor: isDark
                                               ? AppColors.darkSurface
                                               : AppColors.lightSurface,
                                           items: const [
                                             DropdownMenuItem(
-                                                value: 'all',
-                                                child: Text(
-                                                    'Semua Jenis Iuran')),
+                                              value: 'all',
+                                              child: Text('Semua Jenis Iuran'),
+                                            ),
                                             DropdownMenuItem(
-                                                value: 'reguler',
-                                                child: Text('Reguler')),
+                                              value: 'reguler',
+                                              child: Text('Reguler'),
+                                            ),
                                             DropdownMenuItem(
-                                                value: 'sukarela',
-                                                child: Text('Sukarela')),
+                                              value: 'sukarela',
+                                              child: Text('Sukarela'),
+                                            ),
                                           ],
                                           onChanged: (val) {
                                             if (val != null) {
-                                              setState(() => _filterJenis = val);
+                                              setState(
+                                                () => _filterJenis = val,
+                                              );
                                             }
                                           },
                                         ),
@@ -539,53 +613,63 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                     child: Container(
                                       height: 38,
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 10),
+                                        horizontal: 10,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: isDark
                                             ? AppColors.darkSurface
                                             : AppColors.lightSurface,
                                         borderRadius: BorderRadius.circular(
-                                            AppRadius.base),
+                                          AppRadius.base,
+                                        ),
                                         border: Border.all(
                                           color: isDark
                                               ? AppColors.accent.withValues(
-                                                  alpha: 0.35)
+                                                  alpha: 0.35,
+                                                )
                                               : AppColors.accent.withValues(
-                                                  alpha: 0.25),
+                                                  alpha: 0.25,
+                                                ),
                                           width: 1,
                                         ),
                                       ),
                                       child: DropdownButtonHideUnderline(
                                         child: DropdownButton<String>(
                                           key: const Key(
-                                              'kelola-iuran-periode-filter'),
+                                            'kelola-iuran-periode-filter',
+                                          ),
                                           value: _filterFrekuensi,
                                           isExpanded: true,
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
-                                                  fontWeight: FontWeight.w600),
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                           dropdownColor: isDark
                                               ? AppColors.darkSurface
                                               : AppColors.lightSurface,
                                           items: const [
                                             DropdownMenuItem(
-                                                value: 'all',
-                                                child: Text(
-                                                    'Semua Frekuensi')),
+                                              value: 'all',
+                                              child: Text('Semua Frekuensi'),
+                                            ),
                                             DropdownMenuItem(
-                                                value: 'monthly',
-                                                child: Text('Bulanan')),
+                                              value: 'monthly',
+                                              child: Text('Bulanan'),
+                                            ),
                                             DropdownMenuItem(
-                                                value: 'yearly',
-                                                child: Text('Tahunan')),
+                                              value: 'yearly',
+                                              child: Text('Tahunan'),
+                                            ),
                                             DropdownMenuItem(
-                                                value: 'one_time',
-                                                child: Text('Sekali')),
+                                              value: 'one_time',
+                                              child: Text('Sekali'),
+                                            ),
                                           ],
                                           onChanged: (val) {
                                             if (val != null) {
                                               setState(
-                                                  () => _filterFrekuensi = val);
+                                                () => _filterFrekuensi = val,
+                                              );
                                             }
                                           },
                                         ),
@@ -601,7 +685,8 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                             // ── Row 3: Search ──
                             Padding(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.base),
+                                horizontal: AppSpacing.base,
+                              ),
                               child: SizedBox(
                                 height: 38,
                                 child: AppTextField(
@@ -612,29 +697,36 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                       ? AppColors.darkSurface
                                       : AppColors.lightSurface,
                                   textAlignVertical: TextAlignVertical.center,
-                                  contentPadding:
-                                      const EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 0),
-                                  prefixIconConstraints:
-                                      const BoxConstraints(
-                                          minWidth: 36, minHeight: 38),
-                                  suffixIconConstraints:
-                                      const BoxConstraints(
-                                          minWidth: 36, minHeight: 38),
-                                  prefixIcon:
-                                      const Icon(Icons.search, size: 18),
-                                  suffixIcon:
-                                      _searchController.text.isNotEmpty
-                                          ? IconButton(
-                                              padding: EdgeInsets.zero,
-                                              icon: const Icon(
-                                                  Icons.clear, size: 18),
-                                              onPressed: () {
-                                                setState(() =>
-                                                    _searchController.clear());
-                                              },
-                                            )
-                                          : null,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 0,
+                                  ),
+                                  prefixIconConstraints: const BoxConstraints(
+                                    minWidth: 36,
+                                    minHeight: 38,
+                                  ),
+                                  suffixIconConstraints: const BoxConstraints(
+                                    minWidth: 36,
+                                    minHeight: 38,
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.search,
+                                    size: 18,
+                                  ),
+                                  suffixIcon: _searchController.text.isNotEmpty
+                                      ? IconButton(
+                                          padding: EdgeInsets.zero,
+                                          icon: const Icon(
+                                            Icons.clear,
+                                            size: 18,
+                                          ),
+                                          onPressed: () {
+                                            setState(
+                                              () => _searchController.clear(),
+                                            );
+                                          },
+                                        )
+                                      : null,
                                   onChanged: (_) => setState(() {}),
                                 ),
                               ),
@@ -699,7 +791,11 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                 return ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.base, AppSpacing.xs, AppSpacing.base, 96),
+                    AppSpacing.base,
+                    AppSpacing.xs,
+                    AppSpacing.base,
+                    96,
+                  ),
                   itemCount: filteredDues.length,
                   separatorBuilder: (_, _) =>
                       const SizedBox(height: AppSpacing.sm),
@@ -710,8 +806,7 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                       color: Colors.transparent,
                       child: InkWell(
                         onTap: () => _showEditDialog(context, ref, due),
-                        borderRadius:
-                            BorderRadius.circular(AppRadius.base),
+                        borderRadius: BorderRadius.circular(AppRadius.base),
                         child: AppCard(
                           padding: const EdgeInsets.all(AppSpacing.base),
                           child: Column(
@@ -725,7 +820,8 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                     radius: 20,
                                     backgroundColor: AppColors.accent
                                         .withValues(
-                                            alpha: isDark ? 0.25 : 0.12),
+                                          alpha: isDark ? 0.25 : 0.12,
+                                        ),
                                     child: const Icon(
                                       Icons.receipt_long_outlined,
                                       size: 20,
@@ -738,7 +834,8 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                       due.name,
                                       style: theme.textTheme.titleMedium
                                           ?.copyWith(
-                                              fontWeight: FontWeight.w600),
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
@@ -767,9 +864,10 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                         AppBadge(
                                           label: due.name,
                                           textColor: AppColors.info,
-                                          backgroundColor:
-                                              AppColors.info.withValues(
-                                                  alpha: isDark ? 0.25 : 0.12),
+                                          backgroundColor: AppColors.info
+                                              .withValues(
+                                                alpha: isDark ? 0.25 : 0.12,
+                                              ),
                                         ),
                                         AppBadge(
                                           label: due.isVoluntary
@@ -778,11 +876,13 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                           textColor: due.isVoluntary
                                               ? AppColors.info
                                               : AppColors.success,
-                                          backgroundColor: (due.isVoluntary
-                                                  ? AppColors.info
-                                                  : AppColors.success)
-                                              .withValues(
-                                                  alpha: isDark ? 0.25 : 0.12),
+                                          backgroundColor:
+                                              (due.isVoluntary
+                                                      ? AppColors.info
+                                                      : AppColors.success)
+                                                  .withValues(
+                                                    alpha: isDark ? 0.25 : 0.12,
+                                                  ),
                                         ),
                                         if (periodBadgeLabel != null)
                                           AppBadge(
@@ -790,15 +890,15 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                             textColor: AppColors.accent,
                                             backgroundColor: AppColors.accent
                                                 .withValues(
-                                                    alpha: isDark ? 0.25 : 0.12),
+                                                  alpha: isDark ? 0.25 : 0.12,
+                                                ),
                                           ),
                                       ],
                                     ),
                                   ),
                                   const SizedBox(width: AppSpacing.sm),
                                   Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.end,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       Text(
                                         due.isVoluntary
@@ -806,22 +906,25 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
                                             : formatRupiahString(due.amount),
                                         style: theme.textTheme.bodyMedium
                                             ?.copyWith(
-                                                fontWeight: FontWeight.w600),
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                         textAlign: TextAlign.right,
                                       ),
                                       const SizedBox(height: 4),
                                       AppBadge(
-                                        label: due.isActive ? 'Aktif' : 'Tidak Aktif',
+                                        label: due.isActive
+                                            ? 'Aktif'
+                                            : 'Tidak Aktif',
                                         textColor: due.isActive
                                             ? AppColors.success
                                             : AppColors.danger,
                                         backgroundColor: due.isActive
-                                            ? AppColors.success
-                                                .withValues(
-                                                    alpha: isDark ? 0.2 : 0.1)
-                                            : AppColors.danger
-                                                .withValues(
-                                                    alpha: isDark ? 0.2 : 0.1),
+                                            ? AppColors.success.withValues(
+                                                alpha: isDark ? 0.2 : 0.1,
+                                              )
+                                            : AppColors.danger.withValues(
+                                                alpha: isDark ? 0.2 : 0.1,
+                                              ),
                                       ),
                                     ],
                                   ),
@@ -843,7 +946,10 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
   }
 
   Future<void> _showEditDialog(
-      BuildContext context, WidgetRef ref, BackendDue due) async {
+    BuildContext context,
+    WidgetRef ref,
+    BackendDue due,
+  ) async {
     final updated = await showDialog<bool>(
       context: context,
       builder: (ctx) => _EditDueDialog(due: due),
@@ -860,10 +966,10 @@ class _KelolaIuranTabBodyState extends ConsumerState<KelolaIuranTabBody> {
   }
 
   String _periodLabel(DuePeriodType periodType) => switch (periodType) {
-        DuePeriodType.monthly => 'Bulanan',
-        DuePeriodType.yearly => 'Tahunan',
-        DuePeriodType.oneTime => 'Sekali',
-      };
+    DuePeriodType.monthly => 'Bulanan',
+    DuePeriodType.yearly => 'Tahunan',
+    DuePeriodType.oneTime => 'Sekali',
+  };
 }
 
 // ── Edit Due Dialog (extracted from IuranManagementScreen) ────────────
@@ -916,8 +1022,9 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     _nameController = TextEditingController(text: widget.due.name);
     final rawAmount = widget.due.amount.split('.').first;
     _amountController = TextEditingController(text: rawAmount);
-    _validUntilController =
-        TextEditingController(text: widget.due.validUntil ?? '');
+    _validUntilController = TextEditingController(
+      text: widget.due.validUntil ?? '',
+    );
     _periodType = widget.due.periodType;
     _paymentRule = widget.due.paymentRule;
     _isVoluntary = widget.due.isVoluntary;
@@ -983,9 +1090,18 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Batal'),
           ),
-          FilledButton(
+          ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Sinkronkan'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.base),
+              ),
+            ),
+            child: const Text(
+              'Sinkronkan',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -1000,13 +1116,15 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
     });
 
     try {
-      final result = await ref.read(iuranRepositoryProvider).generateBills(
-        dueId: widget.due.id,
-        period: year.toString(),
-        dueDate: '$year-01-10',
-        idempotencyKey:
-            'sync-${widget.due.id}-$year-${DateTime.now().millisecondsSinceEpoch}',
-      );
+      final result = await ref
+          .read(iuranRepositoryProvider)
+          .generateBills(
+            dueId: widget.due.id,
+            period: year.toString(),
+            dueDate: '$year-01-10',
+            idempotencyKey:
+                'sync-${widget.due.id}-$year-${DateTime.now().millisecondsSinceEpoch}',
+          );
 
       if (mounted) {
         setState(() {
@@ -1045,12 +1163,14 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           ? 0
           : int.tryParse(_amountController.text.trim()) ?? 0;
 
-      final validUntil = _isVoluntary &&
-              _validUntilController.text.trim().isNotEmpty
+      final validUntil =
+          _isVoluntary && _validUntilController.text.trim().isNotEmpty
           ? _validUntilController.text.trim()
           : null;
 
-      await ref.read(iuranRepositoryProvider).updateDue(
+      await ref
+          .read(iuranRepositoryProvider)
+          .updateDue(
             widget.due.id,
             name: name,
             amount: amount,
@@ -1096,8 +1216,9 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
             if (mounted) {
               setState(() {
                 _loading = false;
-                final mapped =
-                    ref.read(iuranRepositoryProvider).mapDioError(firstError);
+                final mapped = ref
+                    .read(iuranRepositoryProvider)
+                    .mapDioError(firstError);
                 _errorMessage =
                     'Gagal memperbarui status bulan $firstFailedPeriod: ${mapped.message}. '
                     '$successCount/${changedMonths.length} periode berhasil disimpan.';
@@ -1128,7 +1249,8 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
   }
 
   Future<void> _pickValidUntil() async {
-    final initial = DateTime.tryParse(_validUntilController.text) ??
+    final initial =
+        DateTime.tryParse(_validUntilController.text) ??
         DateTime.now().add(const Duration(days: 365));
     final picked = await showDatePicker(
       context: context,
@@ -1165,8 +1287,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
         border: Border.all(color: neonColor, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: neonColor.withValues(
-                alpha: isDark ? 0.35 : 0.22),
+            color: neonColor.withValues(alpha: isDark ? 0.35 : 0.22),
             blurRadius: 8,
             spreadRadius: 1,
             offset: const Offset(0, 1),
@@ -1179,8 +1300,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
           onTap: isSaving ? null : onPressed,
           borderRadius: BorderRadius.circular(AppRadius.base),
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1191,8 +1311,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       backgroundColor: Colors.transparent,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(neonColor),
+                      valueColor: AlwaysStoppedAnimation<Color>(neonColor),
                     ),
                   )
                 else ...[
@@ -1249,7 +1368,8 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                         color: AppColors.danger.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                         border: Border.all(
-                            color: AppColors.danger.withValues(alpha: 0.3)),
+                          color: AppColors.danger.withValues(alpha: 0.3),
+                        ),
                       ),
                       child: Text(
                         _errorMessage!,
@@ -1279,8 +1399,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                   TextFormField(
                     controller: _amountController,
                     keyboardType: TextInputType.number,
-                    inputFormatters:
-                        [FilteringTextInputFormatter.digitsOnly],
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     readOnly: _isVoluntary,
                     decoration: InputDecoration(
                       labelText: 'Nominal (Rp)',
@@ -1300,8 +1419,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                   DropdownButtonFormField<DuePeriodType>(
                     isExpanded: true,
                     value: _periodType,
-                    decoration:
-                        const InputDecoration(labelText: 'Frekuensi'),
+                    decoration: const InputDecoration(labelText: 'Frekuensi'),
                     items: const [
                       DropdownMenuItem(
                         value: DuePeriodType.monthly,
@@ -1360,8 +1478,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            icon: const Icon(Icons.calendar_today,
-                                size: 20),
+                            icon: const Icon(Icons.calendar_today, size: 20),
                             tooltip: 'Pilih tanggal',
                             onPressed: _loading ? null : _pickValidUntil,
                           ),
@@ -1391,13 +1508,13 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 14),
+                        horizontal: 12,
+                        vertical: 14,
+                      ),
                       decoration: BoxDecoration(
                         color: theme.colorScheme.surfaceContainerHighest,
-                        border:
-                            Border.all(color: theme.dividerColor),
-                        borderRadius:
-                            BorderRadius.circular(AppRadius.base),
+                        border: Border.all(color: theme.dividerColor),
+                        borderRadius: BorderRadius.circular(AppRadius.base),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1411,10 +1528,8 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                           AppBadge(
                             label: _isActive ? 'Aktif' : 'Tidak Aktif',
                             backgroundColor: _isActive
-                                ? AppColors.success
-                                    .withValues(alpha: 0.12)
-                                : AppColors.danger
-                                    .withValues(alpha: 0.12),
+                                ? AppColors.success.withValues(alpha: 0.12)
+                                : AppColors.danger.withValues(alpha: 0.12),
                             textColor: _isActive
                                 ? AppColors.success
                                 : AppColors.danger,
@@ -1452,16 +1567,16 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
-                      child: OutlinedButton.icon(
+                      child: ElevatedButton.icon(
                         key: const ValueKey('btn-sync-bills'),
-                        style: OutlinedButton.styleFrom(
+                        style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 12),
-                          side: const BorderSide(
-                              color: AppColors.accent, width: 1.5),
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          backgroundColor: AppColors.accent,
                           shape: RoundedRectangleBorder(
-                            borderRadius:
-                                BorderRadius.circular(AppRadius.base),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
                           ),
                         ),
                         icon: _syncingBills
@@ -1469,17 +1584,22 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                                 width: 16,
                                 height: 16,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2),
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
                               )
-                            : const Icon(Icons.sync,
-                                size: 18, color: AppColors.accent),
+                            : const Icon(
+                                Icons.sync,
+                                size: 18,
+                                color: Colors.white,
+                              ),
                         label: Text(
                           _syncingBills
                               ? 'Menyinkronkan...'
                               : 'Sinkronkan Tagihan Warga',
                           style: const TextStyle(
                             fontWeight: FontWeight.w600,
-                            color: AppColors.accent,
+                            color: Colors.white,
                           ),
                         ),
                         onPressed: (_syncingBills || _loading)
@@ -1493,13 +1613,10 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: AppColors.success
-                              .withValues(alpha: 0.12),
-                          borderRadius:
-                              BorderRadius.circular(AppRadius.sm),
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
                           border: Border.all(
-                            color: AppColors.success
-                                .withValues(alpha: 0.3),
+                            color: AppColors.success.withValues(alpha: 0.3),
                           ),
                         ),
                         child: Row(
@@ -1513,8 +1630,7 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                             Expanded(
                               child: Text(
                                 _syncSuccessMessage!,
-                                style:
-                                    theme.textTheme.bodySmall?.copyWith(
+                                style: theme.textTheme.bodySmall?.copyWith(
                                   color: AppColors.success,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -1548,8 +1664,8 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                       Column(
                         mainAxisSize: MainAxisSize.min,
                         children: _dueMonths.map((m) {
-                          final isPaidAll = m.paidBills > 0 &&
-                              m.paidBills == m.totalBills;
+                          final isPaidAll =
+                              m.paidBills > 0 && m.paidBills == m.totalBills;
                           final currentActive =
                               _stagedMonthActive[m.period] ?? m.isActive;
                           return ListTile(
@@ -1572,21 +1688,20 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                               '${m.paidBills > 0 ? ', ${m.paidBills} lunas' : ''}',
                               style: TextStyle(
                                 fontSize: 11,
-                                color:
-                                    theme.colorScheme.onSurfaceVariant,
+                                color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
                             trailing: Switch(
                               value: currentActive,
-                              onChanged: (_loading ||
+                              onChanged:
+                                  (_loading ||
                                       _loadingMonths ||
                                       isPaidAll ||
                                       !m.canDeactivate)
                                   ? null
                                   : (val) {
                                       setState(() {
-                                        _stagedMonthActive[m.period] =
-                                            val;
+                                        _stagedMonthActive[m.period] = val;
                                       });
                                     },
                             ),
@@ -1601,28 +1716,75 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
         ),
       ),
       actions: [
-        _buildNeonActionButton(
-          label: 'Batal',
-          icon: Icons.cancel_outlined,
-          neonColor: AppColors.danger,
-          softBg: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.darkDangerSoft
-              : AppColors.lightDangerSoft,
-          onPressed:
-              _loading ? null : () => Navigator.of(context).pop(false),
-          isSaving: false,
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        _buildNeonActionButton(
-          key: const ValueKey('iuran-save-button'),
-          label: _loading ? '' : 'Simpan',
-          icon: Icons.save_outlined,
-          neonColor: AppColors.accent,
-          softBg: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.darkAccentSoft
-              : AppColors.lightAccentSoft,
-          onPressed: _loading ? null : _handleSave,
-          isSaving: _loading,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 48,
+                child: OutlinedButton(
+                  onPressed: _loading
+                      ? null
+                      : () => Navigator.of(context).pop(false),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: AppColors.danger),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.close, size: 18),
+                      SizedBox(width: 6),
+                      Text('Batal'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: SizedBox(
+                height: 48,
+                child: ElevatedButton(
+                  key: const ValueKey('iuran-save-button'),
+                  onPressed: _loading ? null : _handleSave,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                    ),
+                  ),
+                  child: _loading
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            backgroundColor: Colors.transparent,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.save_outlined, size: 18),
+                            SizedBox(width: 6),
+                            Text('Simpan'),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
