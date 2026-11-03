@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -213,7 +214,15 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        context.pop();
+        // Successful save — allow the subsequent pop through the route guard.
+        final routePath = GoRouterState.of(context).uri.path;
+        KasFormNavigationGuard.allowExitFor(routePath);
+        try {
+          context.pop();
+        } catch (_) {
+          KasFormNavigationGuard.revokeExitFor(routePath);
+          rethrow;
+        }
       }
     } catch (e) {
       final error = ref.read(wargaRepositoryProvider).mapDioError(e);
@@ -222,73 +231,6 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       }
     } finally {
       if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  /// Show confirmation dialog before canceling the form.
-  Future<void> _confirmCancel() async {
-    final shouldCancel = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text('Perubahan yang belum disimpan akan hilang.'),
-        actions: [
-          Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              height: 48,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.accent),
-                  backgroundColor: AppColors.accentSoftColor(context),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                ),
-                child: const Text('Tidak, Tetap di Halaman'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.danger.withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 0),
-                  ),
-                ],
-              ),
-              child: SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.danger),
-                    backgroundColor:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.danger.withValues(alpha: 0.20),
-                    foregroundColor: AppColors.danger,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  child: const Text('Ya, Batalkan'),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldCancel == true && mounted) {
-      context.pop();
     }
   }
 
@@ -340,7 +282,7 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await _confirmCancel();
+        await KasFormNavigationGuard.requestFormCancel(context);
       },
       child: Scaffold(
         appBar: AppBar(
@@ -813,7 +755,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
                       child: SizedBox(
                         height: 48,
                         child: OutlinedButton(
-                          onPressed: _saving ? null : _confirmCancel,
+                          onPressed: _saving
+                              ? null
+                              : () => KasFormNavigationGuard.requestFormCancel(context),
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(color: AppColors.danger),
                             foregroundColor: AppColors.danger,

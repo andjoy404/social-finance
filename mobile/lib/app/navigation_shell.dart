@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
@@ -324,11 +325,14 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     );
   }
 
-  void _onTabTapped(List<_NavRoute> tabs, int index, BuildContext tapContext) {
+  Future<void> _onTabTapped(
+    List<_NavRoute> tabs,
+    int index,
+    BuildContext tapContext,
+  ) async {
     if (index >= 0 && index < tabs.length) {
       final tab = tabs[index];
       final currentLocation = _currentLocation(tapContext);
-
       // Special handling for RW data tab
       if (tab.path == '/home/rw-data') {
         final authState = ref.read(authRepositoryProvider);
@@ -338,10 +342,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         if (rwMemberships.isEmpty) return;
 
         if (rwMemberships.length == 1) {
-          context.go('/rw/${rwMemberships.first.rwId}/dashboard');
+          final destination = '/rw/${rwMemberships.first.rwId}/dashboard';
+          await _confirmAndGo(tapContext, currentLocation, destination);
         } else {
-          // Multiple memberships: show selection dialog
-          showDialog<String>(
+          // Multiple memberships: select the exact target before asking for
+          // confirmation, then navigate only after explicit approval.
+          final selectedRwId = await showDialog<String>(
             context: tapContext,
             builder: (dialogContext) => AlertDialog(
               title: const Text('Pilih RW'),
@@ -360,21 +366,74 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                 }).toList(),
               ),
             ),
-          ).then((selectedRwId) {
-            if (selectedRwId != null && selectedRwId.isNotEmpty && mounted) {
-              context.go('/rw/$selectedRwId/dashboard');
-            }
-          });
+          );
+          if (selectedRwId == null || selectedRwId.isEmpty || !tapContext.mounted) return;
+          final destination = '/rw/$selectedRwId/dashboard';
+          await _confirmAndGo(tapContext, currentLocation, destination);
         }
         return;
       }
 
-      if (currentLocation != tab.path) {
-        context.go(tab.path);
+      // If currently on a guarded form page, always ask for confirmation
+      // before navigating away (bottom nav or drawer).
+      if (KasFormNavigationGuard.isFormPath(currentLocation)) {
+        await _confirmNavigationToTab(tabs, index, currentLocation, tapContext);
+        return;
       }
-      setState(() => _currentMatch = index);
+
+      if (!tapContext.mounted || !mounted) return;
+      if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+        Navigator.of(tapContext).pop();
+      }
+      _navigateToTab(tabs, index, currentLocation);
     }
   }
+
+  Future<void> _confirmNavigationToTab(
+    List<_NavRoute> tabs,
+    int index,
+    String currentLocation,
+    BuildContext tapContext,
+  ) async {
+    if (await _confirmAndGo(tapContext, currentLocation, tabs[index].path)) {
+      if (mounted) setState(() => _currentMatch = index);
+    }
+  }
+
+  Future<bool> _confirmAndGo(
+    BuildContext tapContext,
+    String source,
+    String destination,
+  ) async {
+    final confirmed = await KasFormNavigationGuard.confirmShellNavigation(
+      tapContext,
+      source: source,
+      destination: destination,
+    );
+    if (!confirmed || !mounted || !tapContext.mounted) return false;
+    if (_scaffoldKey.currentState?.isDrawerOpen == true) {
+      Navigator.of(tapContext).pop();
+    }
+    if (KasFormNavigationGuard.isFormPath(source)) {
+      KasFormNavigationGuard.allowExitFor(source);
+    }
+    try {
+      context.go(destination);
+    } catch (_) {
+      KasFormNavigationGuard.revokeExitFor(source);
+      rethrow;
+    }
+    return true;
+  }
+
+  void _navigateToTab(List<_NavRoute> tabs, int index, String currentLocation) {
+    final destination = tabs[index].path;
+    if (currentLocation != destination) {
+      context.go(destination);
+    }
+    if (mounted) setState(() => _currentMatch = index);
+  }
+
 }
 
 class _NavRoute {
@@ -613,10 +672,7 @@ class _AppDrawer extends StatelessWidget {
                     ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                     dense: true,
-                    onTap: () {
-                      Navigator.pop(context);
-                      onSelectTab(index);
-                    },
+                    onTap: () => onSelectTab(index),
                   );
                 },
               ),

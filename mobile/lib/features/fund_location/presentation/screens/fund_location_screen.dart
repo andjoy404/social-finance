@@ -1278,7 +1278,11 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
   }
 
   void _showTransferDialog(BuildContext context, List<FundLocation> locations) {
-    final activeLocs = locations.where((l) => l.isActive).toList();
+    final activeLocs = locations
+        .where((l) => l.isActive)
+        .toList()
+      ..sort((a, b) => b.balanceRupiah.compareTo(a.balanceRupiah));
+
     if (activeLocs.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1291,6 +1295,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
       return;
     }
 
+    // Default to location with highest balance as "Dari Lokasi"
     String? fromId = activeLocs.first.id;
     String? toId = activeLocs.length > 1 ? activeLocs[1].id : null;
     final amountCtrl = TextEditingController();
@@ -1330,8 +1335,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       items: activeLocs.map((l) {
                         return DropdownMenuItem(
                           value: l.id,
-                          child: Text(
-                            '${l.name} (${formatRupiah(l.balanceRupiah)})',
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${l.name} (${formatRupiah(l.balanceRupiah)})',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       }).toList(),
@@ -1371,7 +1385,11 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         labelText: 'Nominal Transfer',
                         hintText: 'Rp 0',
                         helperText:
-                            'Maksimal: ${formatRupiah(fromLoc.balanceRupiah)}',
+                            'Maks: ${formatRupiah(fromLoc.balanceRupiah)}',
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
                       ),
                       keyboardType: TextInputType.number,
                       inputFormatters: const [
@@ -1486,11 +1504,17 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                       ),
                                     )
                                   : const Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
                                         Icon(Icons.swap_horiz, size: 18),
                                         SizedBox(width: 6),
-                                        Text('Transfer'),
+                                        Flexible(
+                                          child: Text(
+                                            'Transfer',
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
                                       ],
                                     ),
                             ),

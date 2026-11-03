@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 
 import 'theme/app_theme.dart';
 import 'navigation_shell.dart';
@@ -865,6 +866,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'pembayaran/:billId',
                   name: 'iuran_payment',
+                  onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final billId = state.pathParameters['billId']!;
                     return IuranPaymentScreen(billId: billId);
@@ -878,6 +880,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'form',
                   name: 'iuran_form',
+                  onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) => const IuranFormScreen(),
                 ),
               ],
@@ -890,11 +893,13 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'masuk',
                   name: 'kas_masuk',
+                  onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) => const KasMasukScreen(),
                 ),
                 GoRoute(
                   path: 'keluar',
                   name: 'kas_keluar',
+                  onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) => const KasKeluarScreen(),
                 ),
                 GoRoute(
@@ -933,6 +938,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'baru',
                   name: 'warga_baru',
+                  onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final authState = ref.read(authRepositoryProvider);
                     final systemRole =
@@ -945,6 +951,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'edit/household/:householdId',
                   name: 'warga_edit',
+                  onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final householdId =
                         state.pathParameters['householdId']!;
@@ -954,6 +961,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'baru/petugas',
                   name: 'warga_petugas_baru',
+                  onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final authState = ref.read(authRepositoryProvider);
                     final systemRole =
@@ -966,6 +974,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 GoRoute(
                   path: 'edit/petugas/:residentId',
                   name: 'warga_resident_edit',
+                  onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final residentId = state.pathParameters['residentId']!;
                     return SpecialResidentEditScreen(

@@ -78,17 +78,6 @@ class _MockKasApiClient implements KasApiClient {
   }
 
   @override
-  Future<BackendBalance> fetchBalance({
-    String? period,
-    String? startDate,
-    String? endDate,
-  }) async {
-    callCount++;
-    if (shouldFail) throw Exception('Network error');
-    return balance;
-  }
-
-  @override
   Future<BackendRTIdentity> getRTIdentity(String rtId) async {
     if (shouldFail) throw Exception('Network error');
     return const BackendRTIdentity(name: 'RT 001');

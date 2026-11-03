@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
@@ -273,7 +274,15 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             ),
           );
           if (Navigator.canPop(context)) {
-            context.pop();
+            // Multi-bill payment successful — allow the pop through the route guard.
+            final routePath = GoRouterState.of(context).uri.path;
+            KasFormNavigationGuard.allowExitFor(routePath);
+            try {
+              context.pop();
+            } catch (_) {
+              KasFormNavigationGuard.revokeExitFor(routePath);
+              rethrow;
+            }
           }
         }
         return;
@@ -323,7 +332,15 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             ),
           ),
         );
-        context.pop();
+        // Single-bill payment successful — allow the pop through the route guard.
+        final routePath = GoRouterState.of(context).uri.path;
+        KasFormNavigationGuard.allowExitFor(routePath);
+        try {
+          context.pop();
+        } catch (_) {
+          KasFormNavigationGuard.revokeExitFor(routePath);
+          rethrow;
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -417,72 +434,6 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
     return true;
   }
 
-  Future<void> _confirmCancel() async {
-    final shouldCancel = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Apakah Anda yakin ingin membatalkan?'),
-        content: const Text('Perubahan yang belum disimpan akan hilang.'),
-        actions: [
-          Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              height: 48,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.accent),
-                  backgroundColor: AppColors.accentSoftColor(context),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                ),
-                child: const Text('Tidak, Tetap di Halaman'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.danger.withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 0),
-                  ),
-                ],
-              ),
-              child: SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.danger),
-                    backgroundColor:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.danger.withValues(alpha: 0.20),
-                    foregroundColor: AppColors.danger,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  child: const Text('Ya, Batalkan'),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldCancel == true && mounted) {
-      context.pop();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -561,7 +512,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         if (!_saving) {
-          await _confirmCancel();
+          await KasFormNavigationGuard.requestFormCancel(context);
         }
       },
       child: Scaffold(
@@ -1071,7 +1022,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                         height: 48,
                         child: OutlinedButton(
                           key: const Key('btn_cancel'),
-                          onPressed: _saving ? null : () => _confirmCancel(),
+                          onPressed: _saving
+                              ? null
+                              : () => KasFormNavigationGuard.requestFormCancel(context),
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(color: AppColors.danger),
                             foregroundColor: AppColors.danger,
