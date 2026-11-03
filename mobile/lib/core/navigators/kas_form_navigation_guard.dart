@@ -133,12 +133,12 @@ class KasFormNavigationGuard {
               alignment: Alignment.center,
               child: SizedBox(
                 height: 48,
-                child: ElevatedButton(
+                child: OutlinedButton(
                   key: const Key('kas-cancel-stay'),
                   onPressed: () => Navigator.of(dialogContext).pop(false),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.accent,
-                    foregroundColor: Colors.white,
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.accent),
+                    backgroundColor: AppColors.accentSoftColor(dialogContext),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(AppRadius.base),
                     ),
@@ -150,19 +150,34 @@ class KasFormNavigationGuard {
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.center,
-              child: SizedBox(
-                height: 48,
-                child: ElevatedButton(
-                  key: const Key('kas-cancel-confirm'),
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.danger,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
+              child: Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.danger.withValues(alpha: 0.15),
+                      blurRadius: 8,
+                      offset: const Offset(0, 0),
                     ),
+                  ],
+                ),
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton(
+                    key: const Key('kas-cancel-confirm'),
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.danger),
+                      backgroundColor:
+                          Theme.of(dialogContext).brightness == Brightness.dark
+                              ? AppColors.darkDangerSoft
+                              : AppColors.danger.withValues(alpha: 0.20),
+                      foregroundColor: AppColors.danger,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                    child: const Text('Ya, Batalkan'),
                   ),
-                  child: const Text('Ya, Batalkan'),
                 ),
               ),
             ),
