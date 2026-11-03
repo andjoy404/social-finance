@@ -120,9 +120,9 @@ export function KasDetail() {
             {/* Kategori */}
             <div>
               <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Kategori</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--sf-text)' }}>
-                <TagOutlined style={{ color: 'var(--sf-text-muted)', fontSize: 14 }} />
-                {transaction.category_name || '\u2014'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--sf-text)', fontWeight: transaction.expense_category ? 600 : 'normal' }}>
+                <TagOutlined style={{ color: transaction.expense_category ? 'var(--sf-accent)' : 'var(--sf-text-muted)', fontSize: 14 }} />
+                {transaction.expense_category || transaction.category_name || '\u2014'}
               </div>
             </div>
 
@@ -138,8 +138,33 @@ export function KasDetail() {
             {(transaction.payment_no || transaction.payment_id) && (
               <div>
                 <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 6 }}>Referensi Pembayaran</div>
-                <div style={{ fontSize: 14, fontFamily: 'monospace', fontWeight: 600, color: 'var(--sf-accent)' }}>
-                  {transaction.payment_no || `PAY-${transaction.payment_id?.slice(0, 8)}`}
+                <div style={{ fontSize: 14, fontFamily: 'monospace', fontWeight: 600, color: 'var(--sf-accent)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>{transaction.payment_no || `PAY-${transaction.payment_id?.slice(0, 8)}`}</span>
+                  <button
+                    onClick={async () => {
+                      const refValue = transaction.payment_no || `PAY-${transaction.payment_id?.slice(0, 8)}`
+                      const { copyToClipboard, showCopyFeedback } = await import('@/utils/clipboard')
+                      const result = await copyToClipboard(refValue)
+                      const toast = showCopyFeedback(result, result.success)
+                      setTimeout(() => toast.remove(), 2600)
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: '2px',
+                      cursor: 'pointer',
+                      color: 'var(--sf-accent)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      flexShrink: 0,
+                    }}
+                    title="Salin Referensi"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             )}

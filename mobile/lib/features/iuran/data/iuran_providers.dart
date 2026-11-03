@@ -50,8 +50,11 @@ String currentCalendarPeriod([DateTime? now]) {
   return '${months[dt.month - 1]} ${dt.year}';
 }
 
-/// Selected periode filter (e.g. 'Oktober 2026').
+/// Selected periode filter for Iuran Warga (default in IuranScreen: current month 'YYYY-MM').
 final iuranSelectedPeriodeProvider = StateProvider<String>((ref) => '');
+
+/// Selected periode filter for Iuran Saya (default in IuranScreen: current year 'YYYY').
+final iuranSayaSelectedPeriodeProvider = StateProvider<String>((ref) => '');
 
 /// Selected status filter (enum name: 'belumBayar', 'sebagian', 'lunas').
 final iuranSelectedStatusProvider = StateProvider<String>((ref) => '');
@@ -81,6 +84,118 @@ final pendingPaymentsProvider = FutureProvider.autoDispose
 
 // ─── Bills (list with computed paidAmount) ────────────────────────────
 
+@immutable
+class PaginatedBillsState {
+  final List<IuranBill> bills;
+  final int page;
+  final int pageSize;
+  final int total;
+  final int totalPages;
+  final bool hasMore;
+  final bool isLoadingMore;
+  final String? loadMoreError;
+
+  const PaginatedBillsState({
+    this.bills = const [],
+    this.page = 1,
+    this.pageSize = 30,
+    this.total = 0,
+    this.totalPages = 0,
+    this.hasMore = false,
+    this.isLoadingMore = false,
+    this.loadMoreError,
+  });
+
+  PaginatedBillsState copyWith({
+    List<IuranBill>? bills,
+    int? page,
+    int? pageSize,
+    int? total,
+    int? totalPages,
+    bool? hasMore,
+    bool? isLoadingMore,
+    String? Function()? loadMoreError,
+  }) {
+    return PaginatedBillsState(
+      bills: bills ?? this.bills,
+      page: page ?? this.page,
+      pageSize: pageSize ?? this.pageSize,
+      total: total ?? this.total,
+      totalPages: totalPages ?? this.totalPages,
+      hasMore: hasMore ?? this.hasMore,
+      isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+      loadMoreError: loadMoreError != null ? loadMoreError() : this.loadMoreError,
+    );
+  }
+}
+
+final paginatedBillsProvider =
+    StateProvider<PaginatedBillsState>((ref) => const PaginatedBillsState());
+
+String? _convertPeriodToBackend(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return null;
+  if (RegExp(r'^\d{4}-\d{2}$').hasMatch(trimmed) || RegExp(r'^\d{4}$').hasMatch(trimmed)) {
+    return trimmed;
+  }
+  final parts = trimmed.split(' ');
+  if (parts.length == 2) {
+    const months = {
+      'januari': '01',
+      'februari': '02',
+      'maret': '03',
+      'april': '04',
+      'mei': '05',
+      'juni': '06',
+      'juli': '07',
+      'agustus': '08',
+      'september': '09',
+      'oktober': '10',
+      'november': '11',
+      'desember': '12',
+    };
+    final m = months[parts[0].toLowerCase()];
+    final y = int.tryParse(parts[1]);
+    if (m != null && y != null) {
+      return '$y-$m';
+    }
+  }
+  return trimmed;
+}
+
+String? _convertStatusToBackend(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return null;
+  switch (trimmed.toLowerCase()) {
+    case 'belumbayar':
+    case 'unpaid':
+      return 'unpaid';
+    case 'sebagian':
+    case 'partial':
+      return 'partial';
+    case 'lunas':
+    case 'paid':
+      return 'paid';
+    default:
+      return trimmed;
+  }
+}
+
+String? _convertPaymentStatusToBackend(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return null;
+  switch (trimmed.toLowerCase()) {
+    case 'pending':
+      return 'PENDING';
+    case 'approved':
+      return 'APPROVED';
+    case 'rejected':
+      return 'REJECTED';
+    default:
+      return trimmed.toUpperCase();
+  }
+}
+
 final billsProvider =
     AsyncNotifierProvider.autoDispose<BillsNotifier, List<IuranBill>>(
       () => BillsNotifier(),
@@ -103,30 +218,45 @@ class BillsNotifier extends AutoDisposeAsyncNotifier<List<IuranBill>> {
     ref.watch(authRepositoryProvider);
     ref.watch(iuranRepositoryProvider);
     final accessToken = ref.read(authRepositoryProvider.notifier).accessToken;
+    final authUser = ref.read(authRepositoryProvider)?.valueOrNull;
 
-    if (accessToken == null || accessToken.isEmpty) {
+    if ((accessToken == null || accessToken.isEmpty) && authUser == null) {
       throw StateError('Sesi pengguna tidak tersedia.');
     }
 
-    if (accessToken == _lastToken) {
-      return _fetch(propagateError: myBills);
+    if (myBills) {
+      if (accessToken == _lastToken) {
+        return _fetchMyBills(propagateError: false);
+      }
+      _lastToken = accessToken;
+      return _fetchMyBills(propagateError: true);
     }
+
     _lastToken = accessToken;
-    return _fetch(propagateError: true);
+    final search = ref.watch(iuranSearchQueryProvider);
+    final rawPeriod = ref.watch(iuranSelectedPeriodeProvider);
+    final rawStatus = ref.watch(iuranSelectedStatusProvider);
+    final rawPaymentStatus = ref.watch(iuranSelectedPaymentStatusProvider);
+
+    return _fetchWargaBills(
+      search: search,
+      rawPeriod: rawPeriod,
+      rawStatus: rawStatus,
+      rawPaymentStatus: rawPaymentStatus,
+    );
   }
 
-  Future<List<IuranBill>> _fetch({bool propagateError = false}) async {
+  Future<List<IuranBill>> _fetchMyBills({bool propagateError = false}) async {
     final repository = ref.read(iuranRepositoryProvider);
-
     state = const AsyncLoading();
 
     try {
-      final result = await repository.fetchAllBills(myBills: myBills);
-      debugPrint('[IuranDebug] billsProvider got=${result.length} bills');
+      final result = await repository.fetchAllBills(myBills: true);
+      debugPrint('[IuranDebug] myBillsProvider got=${result.length} bills');
       state = AsyncData(result);
       return result;
     } catch (e, st) {
-      debugPrint('[IuranDebug] billsProvider error=$e');
+      debugPrint('[IuranDebug] myBillsProvider error=$e');
       final error = repository.mapDioError(e);
       state = AsyncError(error, st);
       if (propagateError) Error.throwWithStackTrace(error, st);
@@ -134,8 +264,146 @@ class BillsNotifier extends AutoDisposeAsyncNotifier<List<IuranBill>> {
     }
   }
 
+  Future<List<IuranBill>> _fetchWargaBills({
+    required String search,
+    required String rawPeriod,
+    required String rawStatus,
+    required String rawPaymentStatus,
+  }) async {
+    final repository = ref.read(iuranRepositoryProvider);
+    state = const AsyncLoading();
+
+    final backendSearch = search.trim().isEmpty ? null : search.trim();
+    final backendPeriod = _convertPeriodToBackend(rawPeriod);
+    final backendStatus = _convertStatusToBackend(rawStatus);
+    final backendPaymentStatus = _convertPaymentStatusToBackend(rawPaymentStatus);
+
+    try {
+      final response = await repository.fetchBills(
+        search: backendSearch,
+        period: backendPeriod,
+        status: backendStatus,
+        paymentStatus: backendPaymentStatus,
+        myBills: false,
+        page: 1,
+        pageSize: 30,
+        order: 'unpaid_first',
+      );
+
+      final hasMore = response.pagination.page < response.pagination.totalPages;
+      Future.microtask(() {
+        ref.read(paginatedBillsProvider.notifier).state = PaginatedBillsState(
+          bills: response.data,
+          page: response.pagination.page,
+          pageSize: response.pagination.pageSize,
+          total: response.pagination.total,
+          totalPages: response.pagination.totalPages,
+          hasMore: hasMore,
+          isLoadingMore: false,
+          loadMoreError: null,
+        );
+      });
+
+      debugPrint('[IuranDebug] billsProvider got=${response.data.length} bills, total=${response.pagination.total}');
+      state = AsyncData(response.data);
+      return response.data;
+    } catch (e, st) {
+      debugPrint('[IuranDebug] billsProvider error=$e');
+      final error = repository.mapDioError(e);
+      Future.microtask(() {
+        ref.read(paginatedBillsProvider.notifier).state = PaginatedBillsState(
+          bills: const [],
+          page: 1,
+          pageSize: 30,
+          total: 0,
+          totalPages: 0,
+          hasMore: false,
+          isLoadingMore: false,
+          loadMoreError: error.toString(),
+        );
+      });
+      state = AsyncError(error, st);
+      return [];
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (myBills) return;
+    final current = ref.read(paginatedBillsProvider);
+    if (!current.hasMore || current.isLoadingMore) return;
+
+    ref.read(paginatedBillsProvider.notifier).state = current.copyWith(
+      isLoadingMore: true,
+      loadMoreError: () => null,
+    );
+
+    final repository = ref.read(iuranRepositoryProvider);
+    final search = ref.read(iuranSearchQueryProvider);
+    final rawPeriod = ref.read(iuranSelectedPeriodeProvider);
+    final rawStatus = ref.read(iuranSelectedStatusProvider);
+    final rawPaymentStatus = ref.read(iuranSelectedPaymentStatusProvider);
+
+    final backendSearch = search.trim().isEmpty ? null : search.trim();
+    final backendPeriod = _convertPeriodToBackend(rawPeriod);
+    final backendStatus = _convertStatusToBackend(rawStatus);
+    final backendPaymentStatus = _convertPaymentStatusToBackend(rawPaymentStatus);
+
+    try {
+      final nextPage = current.page + 1;
+      final response = await repository.fetchBills(
+        search: backendSearch,
+        period: backendPeriod,
+        status: backendStatus,
+        paymentStatus: backendPaymentStatus,
+        myBills: false,
+        page: nextPage,
+        pageSize: current.pageSize,
+        order: 'unpaid_first',
+      );
+
+      final existingIds = current.bills.map((b) => b.id).toSet();
+      final newBills = response.data.where((b) => !existingIds.contains(b.id)).toList();
+      final combined = [...current.bills, ...newBills];
+      final hasMore = response.pagination.page < response.pagination.totalPages;
+
+      ref.read(paginatedBillsProvider.notifier).state = current.copyWith(
+        bills: combined,
+        page: response.pagination.page,
+        total: response.pagination.total,
+        totalPages: response.pagination.totalPages,
+        hasMore: hasMore,
+        isLoadingMore: false,
+        loadMoreError: () => null,
+      );
+
+      state = AsyncData(combined);
+    } catch (e) {
+      ref.read(paginatedBillsProvider.notifier).state = current.copyWith(
+        isLoadingMore: false,
+        loadMoreError: () => e.toString(),
+      );
+    }
+  }
+
+  Future<void> retryLoadMore() async {
+    await loadMore();
+  }
+
   Future<void> refresh() async {
-    await _fetch();
+    if (myBills) {
+      await _fetchMyBills(propagateError: true);
+    } else {
+      final search = ref.read(iuranSearchQueryProvider);
+      final rawPeriod = ref.read(iuranSelectedPeriodeProvider);
+      final rawStatus = ref.read(iuranSelectedStatusProvider);
+      final rawPaymentStatus = ref.read(iuranSelectedPaymentStatusProvider);
+      await _fetchWargaBills(
+        search: search,
+        rawPeriod: rawPeriod,
+        rawStatus: rawStatus,
+        rawPaymentStatus: rawPaymentStatus,
+      );
+    }
   }
 }
 
@@ -158,7 +426,7 @@ final filteredMyBillsProvider = Provider<List<IuranBill>>((ref) {
   return _filterBills(
     state,
     query: ref.watch(iuranSearchQueryProvider),
-    periode: ref.watch(iuranSelectedPeriodeProvider),
+    periode: ref.watch(iuranSayaSelectedPeriodeProvider),
     status: ref.watch(iuranSelectedStatusProvider),
     paymentStatus: ref.watch(iuranSelectedPaymentStatusProvider),
   );
@@ -180,13 +448,15 @@ List<IuranBill> _filterBills(
     _ => <IuranBill>[],
   };
 
-  // Normalize periode filter: "2026-10" → [2026, 10], empty → null
+  // Normalize periode filter: "2026-10" → [2026, 10], "2026" → [2026, null], empty → null
   int? filterYear, filterMonth;
   if (periode.isNotEmpty) {
     final parts = periode.split('-');
     if (parts.length == 2) {
       filterYear = int.tryParse(parts[0]);
       filterMonth = int.tryParse(parts[1]);
+    } else if (parts.length == 1) {
+      filterYear = int.tryParse(parts[0]);
     }
   }
 
@@ -194,15 +464,19 @@ List<IuranBill> _filterBills(
     final searchMatch =
         normalizedQuery.isEmpty ||
         b.householdName.toLowerCase().contains(normalizedQuery) ||
-        b.iuranType.toLowerCase().contains(normalizedQuery);
+        b.iuranType.toLowerCase().contains(normalizedQuery) ||
+        b.paymentNumbers.any((no) => no.toLowerCase().contains(normalizedQuery));
 
-    // Period filter: match "Oktober 2026" OR "2026-10" formats
+    // Period filter: match "Oktober 2026", "2026-10", or year-only "2026"
     final periodMatch =
         periode.isEmpty ||
         b.periode == periode ||
         (filterYear != null &&
             filterMonth != null &&
-            _periodMatches(b.periode, filterYear, filterMonth));
+            _periodMatches(b.periode, filterYear, filterMonth)) ||
+        (filterYear != null &&
+            filterMonth == null &&
+            _yearMatches(b.periode, filterYear));
 
     final statusMatch = status.isEmpty || b.status.name == status;
     final paymentStatusMatch = switch (paymentStatus.toLowerCase()) {
@@ -218,8 +492,13 @@ List<IuranBill> _filterBills(
     '[IuranDebug] filteredBills input=${bills.length} -> output=${filtered.length} (query="$normalizedQuery", periode="$periode", status="$status")',
   );
 
-  // Sort: unpaid/partial first (oldest→newest), then paid (newest→oldest)
+  // Sort: pending (Tertunda) first, then unpaid/partial (oldest→newest), then paid (newest→oldest)
   filtered.sort((a, b) {
+    final aPending = a.pendingAmount > 0;
+    final bPending = b.pendingAmount > 0;
+    if (aPending != bPending) {
+      return aPending ? -1 : 1;
+    }
     final aPaid = a.status == IuranStatus.lunas;
     final bPaid = b.status == IuranStatus.lunas;
     if (aPaid != bPaid) {
@@ -285,6 +564,17 @@ bool _periodMatches(String period, int year, int month) {
   final pYear = int.tryParse(yearStr);
   final pMonth = monthNames[parts[0].toLowerCase()];
   return pYear == year && pMonth == month;
+}
+
+/// Check if a period string (e.g. "Oktober 2026" or "2026") matches the given year.
+bool _yearMatches(String period, int year) {
+  if (period.contains(year.toString())) return true;
+  final parts = period.split(' ');
+  if (parts.length >= 2) {
+    final pYear = int.tryParse(parts[1]);
+    return pYear == year;
+  }
+  return false;
 }
 
 // ─── Bill Detail (parameterized by ID) ────────────────────────────────

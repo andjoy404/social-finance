@@ -137,5 +137,68 @@ void main() {
       expect(unknown.statusLabel, 'Selisih / Anomali');
       expect(unknown.statusDescription, null);
     });
+
+    test('FundLocation and filterFundLocationsByPaymentMethod filter correctly by payment method', () {
+      final locRekening = FundLocation(
+        id: 'loc-rek',
+        rtId: 'rt-1',
+        name: 'Rekening BCA',
+        category: FundLocationCategory.rekening,
+        isActive: true,
+        currentBalance: '1000000.00',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+      final locBrankas = FundLocation(
+        id: 'loc-brankas',
+        rtId: 'rt-1',
+        name: 'Brankas RT',
+        category: FundLocationCategory.brankas,
+        isActive: true,
+        currentBalance: '500000.00',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+      final locCoh = FundLocation(
+        id: 'loc-coh',
+        rtId: 'rt-1',
+        name: 'Kas Di Tangan Bendahara',
+        category: FundLocationCategory.coh,
+        isActive: true,
+        currentBalance: '250000.00',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      final allLocs = [locRekening, locBrankas, locCoh];
+
+      // TRANSFER compatibility
+      expect(locRekening.isCompatibleWithPaymentMethod('TRANSFER'), isTrue);
+      expect(locRekening.isCompatibleWithPaymentMethod('transfer'), isTrue);
+      expect(locBrankas.isCompatibleWithPaymentMethod('TRANSFER'), isFalse);
+      expect(locCoh.isCompatibleWithPaymentMethod('TRANSFER'), isFalse);
+
+      // CASH / TUNAI compatibility
+      expect(locBrankas.isCompatibleWithPaymentMethod('CASH'), isTrue);
+      expect(locCoh.isCompatibleWithPaymentMethod('CASH'), isTrue);
+      expect(locBrankas.isCompatibleWithPaymentMethod('tunai'), isTrue);
+      expect(locRekening.isCompatibleWithPaymentMethod('CASH'), isFalse);
+
+      // filterFundLocationsByPaymentMethod with TRANSFER
+      final transferResults = filterFundLocationsByPaymentMethod(allLocs, 'TRANSFER');
+      expect(transferResults.length, 1);
+      expect(transferResults.first.id, 'loc-rek');
+      expect(transferResults.first.category, FundLocationCategory.rekening);
+
+      // filterFundLocationsByPaymentMethod with CASH
+      final cashResults = filterFundLocationsByPaymentMethod(allLocs, 'CASH');
+      expect(cashResults.length, 2);
+      expect(cashResults.map((l) => l.category), containsAll([FundLocationCategory.brankas, FundLocationCategory.coh]));
+      expect(cashResults.any((l) => l.category == FundLocationCategory.rekening), isFalse);
+
+      // Unrecognized or null returns empty list
+      expect(filterFundLocationsByPaymentMethod(allLocs, null), isEmpty);
+      expect(filterFundLocationsByPaymentMethod(allLocs, 'OTHER'), isEmpty);
+    });
   });
 }

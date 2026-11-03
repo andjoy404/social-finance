@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -271,7 +272,10 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                 const Divider(height: 24),
                 _DetailRow(
                   label: 'Kategori',
-                  value: tx.kategori.label,
+                  value: (tx.expenseCategory != null &&
+                          tx.expenseCategory!.isNotEmpty)
+                      ? tx.expenseCategory!
+                      : tx.kategori.label,
                   isDark: isDark,
                   theme: theme,
                 ),
@@ -296,11 +300,91 @@ class _KasDetailScreenState extends ConsumerState<KasDetailScreen> {
                 ],
                 if (tx.referensi != null && tx.referensi!.isNotEmpty) ...[
                   const Divider(height: 24),
-                  _DetailRow(
-                    label: 'Referensi',
-                    value: tx.referensi!,
-                    isDark: isDark,
-                    theme: theme,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.receipt_outlined,
+                        size: 18,
+                        color: AppColors.accent,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Referensi',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    tx.referensi!,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark
+                                          ? AppColors.darkText
+                                          : AppColors.lightText,
+                                    ),
+                                  ),
+                                ),
+                                InkWell(
+                                  onTap: () async {
+                                    try {
+                                      await Clipboard.setData(
+                                        ClipboardData(text: tx.referensi!),
+                                      );
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: const Text(
+                                              'Referensi berhasil disalin.',
+                                            ),
+                                            behavior: SnackBarBehavior.floating,
+                                            duration: const Duration(
+                                              milliseconds: 1500,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Gagal menyalin: $e'),
+                                            behavior: SnackBarBehavior.floating,
+                                            backgroundColor: AppColors.danger,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(4),
+                                    child: Icon(
+                                      Icons.copy_outlined,
+                                      size: 16,
+                                      color: AppColors.accent,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ],
                 if (tx.officerName != null && tx.officerName!.isNotEmpty) ...[

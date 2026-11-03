@@ -23,6 +23,7 @@ import '../features/reports/presentation/screens/reports_screen.dart';
 import '../features/warga/data/warga_providers.dart';
 import 'package:social_finance/features/warga/presentation/screens/warga_screen.dart';
 import 'package:social_finance/features/rw/presentation/screens/rw_list_screen.dart';
+import 'package:social_finance/features/rw/presentation/screens/rw_keuangan_screen.dart';
 import '../features/warga/presentation/screens/household_create_screen.dart';
 import '../features/warga/presentation/screens/household_edit_screen.dart';
 import '../features/warga/presentation/screens/special_resident_create_screen.dart';
@@ -117,6 +118,11 @@ String normalizeNotificationTarget(
             !queryParams.containsKey('payment_id')) {
           queryParams['payment_id'] = paymentIdFromPayload;
         }
+        if (type == 'iuran_payment_submitted' && !queryParams.containsKey('action')) {
+          queryParams['action'] = 'verify';
+        } else if (type == 'iuran_payment_verified' && !queryParams.containsKey('view')) {
+          queryParams['view'] = 'status';
+        }
         final queryString = queryParams.isNotEmpty
             ? '?${Uri(queryParameters: queryParams).query}'
             : '';
@@ -131,6 +137,11 @@ String normalizeNotificationTarget(
       final queryParams = <String, String>{};
       if (paymentIdFromPayload.isNotEmpty) {
         queryParams['payment_id'] = paymentIdFromPayload;
+      }
+      if (type == 'iuran_payment_submitted') {
+        queryParams['action'] = 'verify';
+      } else if (type == 'iuran_payment_verified') {
+        queryParams['view'] = 'status';
       }
       final queryString = queryParams.isNotEmpty
           ? '?${Uri(queryParameters: queryParams).query}'
@@ -326,7 +337,40 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       }
     }
 
+    if (loc.startsWith('/rw/')) {
+      if (!_canAccessRWPath(loc, user)) {
+        return '/home';
+      }
+    }
+
     return target;
+  }
+
+  bool _canAccessRWPath(String path, Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final systemRole = (user['system_role'] ?? '').toString().toLowerCase();
+    final role = (user['role'] ?? '').toString().toLowerCase();
+    final isSuperAdmin = systemRole == 'super_admin' ||
+        role == 'super_admin' ||
+        role.contains('superadmin');
+    final rawMemberships = (user['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ??
+        <Map<String, dynamic>>[];
+    final validMemberships = rawMemberships.where((m) {
+      if (isSuperAdmin) return true;
+      final jabatan = (m['jabatan'] ?? '').toString().toLowerCase();
+      return ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'].contains(jabatan);
+    }).toList();
+
+    if (validMemberships.isEmpty) return false;
+    final segments = path.split('/').where((s) => s.isNotEmpty).toList();
+    if (segments.length >= 2 && segments[0] == 'rw') {
+      final rwId = segments[1];
+      return validMemberships.any((m) =>
+          (m['rw_id'] ?? m['id'] ?? '').toString() == rwId);
+    }
+    return true;
   }
 
   void _navigateToDeepLink(String? link, {Map<String, dynamic>? payload}) {
@@ -654,6 +698,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               return '/home/iuran';
             }
           }
+          if (loc.startsWith('/rw/')) {
+            if (!_canAccessRWPath(loc, user)) {
+              return '/home';
+            }
+          }
         }
         return null;
       },
@@ -801,9 +850,15 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                     final billId = state.pathParameters['billId']!;
                     final paymentId =
                         state.uri.queryParameters['payment_id'];
+                    final action =
+                        state.uri.queryParameters['action'];
+                    final view =
+                        state.uri.queryParameters['view'];
                     return IuranDetailScreen(
                       billId: billId,
                       initialPaymentId: paymentId,
+                      initialAction: action,
+                      initialView: view,
                     );
                   },
                 ),
@@ -934,6 +989,43 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               path: '/home/rw',
               name: 'rw',
               builder: (context, state) => const RwListScreen(),
+            ),
+            // RW Data Viewing Routes (for users with RW context)
+            GoRoute(
+              path: '/rw/:rwId/dashboard',
+              name: 'rw_dashboard',
+              redirect: (context, state) {
+                final rwId = state.pathParameters['rwId']!;
+                return '/rw/$rwId/keuangan?tab=beranda';
+              },
+            ),
+            GoRoute(
+              path: '/rw/:rwId/keuangan',
+              name: 'rw_keuangan',
+              builder: (context, state) {
+                final rwId = state.pathParameters['rwId']!;
+                final tabParam = state.uri.queryParameters['tab'];
+                final initialTab = switch (tabParam) {
+                  'kas' => 1,
+                  'lokasi' => 2,
+                  _ => 0,
+                };
+                return RwKeuanganScreen(rwId: rwId, initialTab: initialTab);
+              },
+            ),
+            GoRoute(
+              path: '/rw/:rwId/kas',
+              redirect: (context, state) {
+                final rwId = state.pathParameters['rwId']!;
+                return '/rw/$rwId/keuangan?tab=kas';
+              },
+            ),
+            GoRoute(
+              path: '/rw/:rwId/lokasi-dana',
+              redirect: (context, state) {
+                final rwId = state.pathParameters['rwId']!;
+                return '/rw/$rwId/keuangan?tab=lokasi';
+              },
             ),
           ],
         ),

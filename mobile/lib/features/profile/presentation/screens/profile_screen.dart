@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/providers/theme_provider.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/utils/phone_utils.dart';
+import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
@@ -44,7 +46,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final userName = user?['name'] ?? 'Pengguna';
     final role = user?['role'] as AppRole? ?? AppRole.warga;
     final rt = user?['rt'] ?? '';
-    final rw = user?['rw'] ?? '';
+    final rawRw = (user?['rw'] as String?) ?? '';
+    final rwMemberships = (user?['rw_memberships'] as List?)
+        ?.whereType<Map<String, dynamic>>().toList() ?? <Map<String, dynamic>>[];
+    final resolvedRw = looksLikeUuid(rawRw)
+        ? resolveRwNumber(rawRw, rwMemberships)
+        : rawRw;
+    final rw = resolvedRw ?? '';
+    final rtRwDisplay = [
+      if (rt.isNotEmpty) 'RT $rt',
+      if (rw.isNotEmpty) 'RW $rw',
+    ].join(' / ');
     final rawPhone = user?['phone'] as String?;
     final phoneDisplay = PhoneUtils.formatDisplay(rawPhone);
     final emailDisplay = (user?['email'] as String?) ?? '-';
@@ -63,10 +75,40 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           title: const MenuAppBarTitle(title: 'Profil'),
         ),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
           child: Column(
             children: [
-              const SizedBox(height: 24),
+              // Top right compact Logout button
+              Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  height: 36,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showLogoutDialog(context, authRepo),
+                    icon: const Icon(Icons.logout, size: 16, color: AppColors.expense),
+                    label: const Text(
+                      'Keluar',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.expense,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      side: BorderSide(
+                        color: AppColors.expense.withValues(alpha: isDark ? 0.6 : 0.4),
+                      ),
+                      backgroundColor:
+                          isDark ? AppColors.darkDangerSoft : AppColors.lightDangerSoft,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.base),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               // Avatar
               CircleAvatar(
                 radius: 40,
@@ -91,15 +133,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     : theme.colorScheme.primary.withValues(alpha: 0.12),
               ),
               const SizedBox(height: 4),
-              Text('RT $rt / RW $rw', style: theme.textTheme.bodySmall),
-              const SizedBox(height: 32),
+              Text(rtRwDisplay.isNotEmpty ? rtRwDisplay : 'RT / RW', style: theme.textTheme.bodySmall),
+              const SizedBox(height: 24),
 
               // Profile items
               _buildProfileSection(theme, [
                 _ProfileItemData(
                   icon: Icons.home,
                   title: 'RT / RW',
-                  subtitle: 'RT $rt / RW $rw',
+                  subtitle: rtRwDisplay.isNotEmpty ? rtRwDisplay : '-',
                 ),
                 _ProfileItemData(
                   icon: Icons.location_on_outlined,
@@ -141,47 +183,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   subtitle: 'Ubah kata sandi',
                   onTap: () => _showChangePasswordDialog(context),
                 ),
+                _ProfileItemData(
+                  icon: Icons.palette_outlined,
+                  title: 'Tema Tampilan',
+                  subtitle: switch (ref.watch(themeProvider)) {
+                    AppThemeMode.light => 'Terang',
+                    AppThemeMode.dark => 'Gelap',
+                    AppThemeMode.system => 'Ikuti Sistem',
+                  },
+                  onTap: () => _showThemeSelectionDialog(context, ref),
+                ),
                 const _ProfileItemData(
                   icon: Icons.info_outline,
                   title: 'Tentang',
                   subtitle: 'Social Finance v1.0.0',
                 ),
               ], isDark),
-              const SizedBox(height: 40),
-              // Logout
-              Container(
-                decoration: BoxDecoration(
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.expense.withValues(alpha: 0.15),
-                      blurRadius: 8,
-                      offset: const Offset(0, 0),
-                    ),
-                  ],
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton(
-                    onPressed: () => authRepo.logout(),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.expense),
-                      foregroundColor: AppColors.expense,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                      ),
-                    ),
-                    child: const Text('Keluar'),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
             ],
           ),
         ),
-    ),
-  );
-}
+      ),
+    );
+  }
 
   Widget _buildProfileSection(
     ThemeData theme,
@@ -270,6 +294,77 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         currentEmail: currentEmail,
         userName: userName,
         currentPhone: currentPhone,
+      ),
+    );
+  }
+
+  void _showLogoutDialog(BuildContext context, dynamic authRepo) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Konfirmasi Keluar'),
+        content: const Text('Apakah Anda yakin ingin keluar dari aplikasi?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.expense),
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              authRepo.logout();
+            },
+            child: const Text('Keluar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showThemeSelectionDialog(BuildContext context, WidgetRef ref) {
+    final currentMode = ref.read(themeProvider);
+    showDialog(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Pilih Tema'),
+        children: [
+          _themeRadioTile(dialogContext, ref, 'Ikuti Sistem', AppThemeMode.system, currentMode),
+          _themeRadioTile(dialogContext, ref, 'Terang', AppThemeMode.light, currentMode),
+          _themeRadioTile(dialogContext, ref, 'Gelap', AppThemeMode.dark, currentMode),
+        ],
+      ),
+    );
+  }
+
+  Widget _themeRadioTile(
+    BuildContext context,
+    WidgetRef ref,
+    String label,
+    AppThemeMode value,
+    AppThemeMode currentMode,
+  ) {
+    final isSelected = currentMode == value;
+    return SimpleDialogOption(
+      onPressed: () {
+        ref.read(themeProvider.notifier).setMode(value);
+        Navigator.of(context).pop();
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+              color: isSelected
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Text(label, style: const TextStyle(fontSize: 15)),
+          ],
+        ),
       ),
     );
   }
@@ -765,3 +860,5 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
     );
   }
 }
+
+

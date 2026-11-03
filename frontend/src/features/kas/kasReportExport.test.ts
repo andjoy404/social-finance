@@ -24,7 +24,8 @@ describe('ekspor PDF', () => {
   })
 
   it('dataset panjang → banyak halaman dan header berulang', async () => {
-    const many = Array.from({ length: 400 }, (_, i) => ({ ...FIXTURE[0], id: `t${i}`, description: `Transaksi ${i}` }))
+    // Gunakan transaksi pengeluaran agar tidak diagregasi seperti Iuran Warga
+    const many = Array.from({ length: 400 }, (_, i) => ({ ...FIXTURE[3], id: `t${i}`, description: `Transaksi ${i}` }))
     const m = buildKasReport({ transactions: many, openingBalance: '0', period: null, identity: { orgName: 'X' } })
     const doc = await generateKasReportPdf(m, many)
     expect(doc.getNumberOfPages()).toBeGreaterThan(5)
@@ -61,10 +62,11 @@ describe('ekspor XLSX', () => {
     expect(last.getCell(3).value).toBe(150000)
     expect(last.getCell(5).value).toBe(550000)
 
-    // Sheet 3: hanya posted (6 baris + header + total), nominal numerik
+    // Sheet 3: hanya posted teragregasi (Iuran Warga diagregasi menjadi 1 baris 'Akumulasi Iuran Warga' + 4 baris lainnya + header + total = 7 baris)
     const s3 = wb.getWorksheet('Detail Transaksi')!
-    expect(s3.rowCount).toBe(8)
-    expect(s3.getRow(2).getCell(7).value).toBe(1000000)
+    expect(s3.rowCount).toBe(7)
+    expect(s3.getRow(2).getCell(5).value).toBe('Akumulasi Iuran Warga')
+    expect(s3.getRow(2).getCell(7).value).toBe(1500000)
     expect(s3.autoFilter).toBeTruthy()
   })
 })

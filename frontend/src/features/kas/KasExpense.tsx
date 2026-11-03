@@ -8,12 +8,12 @@ import { hasWargaWriteAccess } from '@/app/wargaAuth'
 import { apiCreateTransaction, apiListFundLocations, getSessionPair, type FundLocation } from '@/app/api'
 import { toJakartaIso8601, getJakartaDateString } from '@/utils/jakartaTime'
 import { formatRibuan, parseMoney } from '../iuran/iuranTypes'
+import { EXPENSE_CATEGORIES } from './kasTypes'
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   CalendarOutlined,
   WalletOutlined,
-  BankOutlined,
   FileImageOutlined,
   UploadOutlined,
   DeleteOutlined,
@@ -27,6 +27,7 @@ interface FormState {
   paymentMethod: 'CASH' | 'TRANSFER'
   jenis: 'masuk' | 'keluar'
   locationId: string
+  expenseCategory: string
 }
 
 const emptyForm: FormState = {
@@ -37,6 +38,7 @@ const emptyForm: FormState = {
   paymentMethod: 'CASH',
   jenis: 'keluar',
   locationId: '',
+  expenseCategory: '',
 }
 
 export function KasExpense() {
@@ -56,7 +58,6 @@ export function KasExpense() {
     type: string
   }
   const [categories, setCategories] = useState<Category[]>([])
-  const [loadingCategories, setLoadingCategories] = useState(true)
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -71,8 +72,6 @@ export function KasExpense() {
         }
       } catch {
         // ignore
-      } finally {
-        setLoadingCategories(false)
       }
     }
     fetchCategories()
@@ -117,6 +116,20 @@ export function KasExpense() {
   }, [])
 
   const handleChange = (field: string, value: string) => {
+    if (field === 'locationId') {
+      const loc = fundLocations.find((l) => l.id === value)
+      let autoMethod: 'CASH' | 'TRANSFER' = 'CASH'
+      if (loc) {
+        if (loc.category === 'rekening') {
+          autoMethod = 'TRANSFER'
+        } else if (loc.category === 'coh' || loc.category === 'brankas') {
+          autoMethod = 'CASH'
+        }
+      }
+      setForm((prev) => ({ ...prev, locationId: value, paymentMethod: autoMethod }))
+      if (validationErrors.length > 0) setValidationErrors([])
+      return
+    }
     setForm((prev) => ({ ...prev, [field]: value }))
     if (validationErrors.length > 0) setValidationErrors([])
   }
@@ -175,11 +188,15 @@ export function KasExpense() {
         errs.push('Nominal harus berupa angka lebih dari 0.')
       }
     }
-    // Kategori bersifat opsional
-    if (form.kategori && form.kategori.trim()) {
-      // validasi kategori jika diisi
+    const selectedCategory = form.kategori || form.expenseCategory
+    if (!selectedCategory) {
+      errs.push('Kategori harus dipilih.')
     }
-    if (!form.keterangan.trim()) errs.push('Keterangan harus diisi.')
+    if (!form.keterangan.trim()) {
+      errs.push('Keterangan harus diisi.')
+    } else if (selectedCategory === 'Lain-lain' && !form.keterangan.trim()) {
+      errs.push('Keterangan wajib diisi untuk kategori Lain-lain.')
+    }
     if (form.jenis === 'keluar' && form.locationId) {
       const selected = fundLocations.find((l) => l.id === form.locationId)
       if (selected) {
@@ -199,17 +216,30 @@ export function KasExpense() {
     try {
       const token = getSessionPair()?.accessToken ?? ''
       const cat = categories.find(
-        (c) => c.name === form.kategori,
-        null,
-      )
+        (c) => c.name.toLowerCase() === selectedCategory.toLowerCase(),
+      ) || categories.find((c) => c.type === 'expense')
+
+      let paymentMethod = form.paymentMethod
+      if (form.locationId) {
+        const loc = fundLocations.find((l) => l.id === form.locationId)
+        if (loc) {
+          if (loc.category === 'rekening') {
+            paymentMethod = 'TRANSFER'
+          } else if (loc.category === 'coh' || loc.category === 'brankas') {
+            paymentMethod = 'CASH'
+          }
+        }
+      }
+
       await apiCreateTransaction(token, {
         amount: String(parseMoney(form.nominal)),
         type: form.jenis === 'masuk' ? 'income' : 'expense',
         category_id: cat?.id,
         description: form.keterangan.trim(),
         occurred_at: toJakartaIso8601(form.tanggal),
-        payment_method: form.paymentMethod,
+        payment_method: paymentMethod,
         location_id: form.locationId || undefined,
+        expense_category: selectedCategory || undefined,
       })
       navigate('/kas')
     } catch (err: any) {
@@ -313,61 +343,6 @@ export function KasExpense() {
             />
           </div>
 
-          {/* Metode Pembayaran */}
-          <div className="sf-form-field">
-            <label className="sf-form-label">
-              Metode Pembayaran <span style={{ color: 'var(--sf-danger)' }}>*</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="sf-btn"
-                onClick={() => handleChange('paymentMethod', 'CASH')}
-                style={{
-                  flex: 1,
-                  height: 38,
-                  minHeight: 38,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: form.paymentMethod === 'CASH' ? 'rgba(87, 148, 242, 0.16)' : 'var(--sf-surface)',
-                  color: form.paymentMethod === 'CASH' ? 'var(--sf-info)' : 'var(--sf-text-muted)',
-                  border: form.paymentMethod === 'CASH' ? '1px solid rgba(87, 148, 242, 0.6)' : '1px solid var(--sf-border)',
-                  boxShadow: form.paymentMethod === 'CASH' ? '0 0 8px rgba(87, 148, 242, 0.15)' : 'none',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <WalletOutlined style={{ color: form.paymentMethod === 'CASH' ? 'var(--sf-info)' : 'var(--sf-text-muted)' }} /> Tunai (Cash)
-              </button>
-              <button
-                type="button"
-                className="sf-btn"
-                onClick={() => handleChange('paymentMethod', 'TRANSFER')}
-                style={{
-                  flex: 1,
-                  height: 38,
-                  minHeight: 38,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: form.paymentMethod === 'TRANSFER' ? 'rgba(169, 112, 255, 0.12)' : 'var(--sf-surface)',
-                  color: form.paymentMethod === 'TRANSFER' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-                  border: form.paymentMethod === 'TRANSFER' ? '1px solid rgba(169, 112, 255, 0.5)' : '1px solid var(--sf-border)',
-                  boxShadow: form.paymentMethod === 'TRANSFER' ? '0 0 8px rgba(169, 112, 255, 0.15)' : 'none',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <BankOutlined style={{ color: form.paymentMethod === 'TRANSFER' ? 'var(--sf-accent)' : 'var(--sf-text-muted)' }} /> Transfer Bank
-              </button>
-            </div>
-          </div>
-
           {/* Lokasi Dana */}
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="ke-location">
@@ -400,33 +375,31 @@ export function KasExpense() {
             })()}
           </div>
 
-          {/* Kategori */}
+          {/* Kategori (Wajib, 15 Standar Kategori) */}
           <div className="sf-form-field">
             <label className="sf-form-label" htmlFor="ke-kategori">
               <WalletOutlined style={{ marginRight: 4 }} />
-              Kategori
+              Kategori <span style={{ color: 'var(--sf-danger)' }}>*</span>
             </label>
             <select
               id="ke-kategori"
               className="sf-form-input"
-              value={form.kategori}
+              value={form.kategori || form.expenseCategory}
               onChange={(e) => {
-                handleChange('kategori', e.target.value)
+                const val = e.target.value
+                setForm((prev) => ({ ...prev, kategori: val, expenseCategory: val }))
                 setValidationErrors([])
               }}
-              disabled={saving || loadingCategories}
               style={{
-                cursor: saving || loadingCategories ? 'not-allowed' : 'pointer',
+                cursor: 'pointer',
               }}
             >
-              <option value="">Pilih Kategori</option>
-              {categories
-                .filter((c) => c.type === (form.jenis === 'masuk' ? 'income' : 'expense'))
-                .map((c) => (
-                  <option key={c.id} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
+              <option value="">-- Pilih Kategori Pengeluaran --</option>
+              {EXPENSE_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
             </select>
           </div>
 

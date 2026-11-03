@@ -44,6 +44,7 @@ class KasApiClient {
 
   /// GET /api/v1/transactions
   Future<PaginatedResponse<BackendTransaction>> listTransactions({
+    String? search,
     String? categoryId,
     String? type,
     String? status,
@@ -57,6 +58,9 @@ class KasApiClient {
       'page': page.toString(),
       'page_size': pageSize.toString(),
     };
+    if (search != null && search.isNotEmpty) {
+      query['search'] = search;
+    }
     if (categoryId != null && categoryId.isNotEmpty) {
       query['category_id'] = categoryId;
     }
@@ -100,6 +104,7 @@ class KasApiClient {
     DateTime? occurredAt,
     String? paymentMethod,
     String? locationId,
+    String? expenseCategory,
     required String idempotencyKey,
   }) async {
     final Map<String, dynamic> body = {
@@ -115,6 +120,9 @@ class KasApiClient {
     }
     if (paymentMethod != null && paymentMethod.isNotEmpty) {
       body['payment_method'] = paymentMethod;
+    }
+    if (expenseCategory != null && expenseCategory.isNotEmpty) {
+      body['expense_category'] = expenseCategory;
     }
     if (occurredAt != null) {
       body['occurred_at'] = occurredAt.toIso8601String();

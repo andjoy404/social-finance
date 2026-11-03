@@ -231,6 +231,11 @@ class BackendBill {
   final int? year;
   final String? paidAmount;
   final String? pendingAmount;
+  final bool isObligatory;
+  final bool isActive;
+  final String? moveInDate;
+  final String? moveOutDate;
+  final String? paymentNumbers;
 
   const BackendBill({
     required this.id,
@@ -252,6 +257,11 @@ class BackendBill {
     this.year,
     this.paidAmount,
     this.pendingAmount,
+    this.isObligatory = true,
+    this.isActive = true,
+    this.moveInDate,
+    this.moveOutDate,
+    this.paymentNumbers,
   });
 
   factory BackendBill.fromJson(Map<String, dynamic> json) {
@@ -276,6 +286,11 @@ class BackendBill {
       year: json['due_year'] as int? ?? json['year'] as int?,
       paidAmount: json['paid_amount'] as String?,
       pendingAmount: json['pending_amount'] as String?,
+      isObligatory: json['is_obligatory'] as bool? ?? true,
+      isActive: json['is_active'] as bool? ?? true,
+      moveInDate: json['move_in_date'] as String?,
+      moveOutDate: json['move_out_date'] as String?,
+      paymentNumbers: json['payment_numbers'] as String?,
     );
   }
 }

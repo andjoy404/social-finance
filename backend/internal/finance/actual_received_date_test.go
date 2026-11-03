@@ -33,7 +33,7 @@ func TestO12_ActualReceivedDate_PassedToKASTransaction(t *testing.T) {
 	require.Len(t, bills, 2)
 
 	// Warga submits payment on 2 bills
-	subBody := fmt.Sprintf(`{"bill_ids":["%s","%s"],"allocations":[{"bill_id":"%s","amount":"50000"},{"bill_id":"%s","amount":"50000"}],"method":"TRANSFER"}`,
+	subBody := fmt.Sprintf(`{"bill_ids":["%s","%s"],"allocations":[{"bill_id":"%s","amount":"50000"},{"bill_id":"%s","amount":"50000"}],"method":"TRANSFER","proof_path":"proofs/test.jpg"}`,
 		bills[0].ID, bills[1].ID, bills[0].ID, bills[1].ID)
 	subReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(subBody))
 	subReq.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -105,7 +105,7 @@ func TestO12_ActualReceivedDate_ValidationRules(t *testing.T) {
 	require.Len(t, bills, 1)
 
 	// Warga submits payment
-	subBody := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"TRANSFER"}`,
+	subBody := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"TRANSFER","proof_path":"proofs/test.jpg"}`,
 		bills[0].ID, bills[0].ID)
 	subReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(subBody))
 	subReq.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -159,7 +159,7 @@ func TestO12_SinglePeriodPayment_ActualReceivedDate(t *testing.T) {
 	require.Len(t, bills, 1)
 
 	// Warga submits via single payment endpoint POST /api/v1/payments
-	subBody := fmt.Sprintf(`{"bill_id":"%s","amount":"75000","method":"TRANSFER"}`, bills[0].ID)
+	subBody := fmt.Sprintf(`{"bill_id":"%s","amount":"75000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, bills[0].ID)
 	subReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(subBody))
 	subReq.Header.Set("Authorization", "Bearer "+tokenWarga)
 	subReq.Header.Set("Content-Type", "application/json")
@@ -212,7 +212,7 @@ func TestO12_VoluntaryDonation_ActualReceivedDate(t *testing.T) {
 	json.Unmarshal(dueRec.Body.Bytes(), &due)
 
 	// Warga donates
-	donBody := fmt.Sprintf(`{"due_id":"%s","amount":"250000","method":"TRANSFER"}`, due.ID)
+	donBody := fmt.Sprintf(`{"due_id":"%s","amount":"250000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, due.ID)
 	donReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(donBody))
 	donReq.Header.Set("Authorization", "Bearer "+tokenWarga)
 	donReq.Header.Set("Content-Type", "application/json")
@@ -257,7 +257,7 @@ func TestO12_StaffRecorded_ActualReceivedDate(t *testing.T) {
 
 	// Staff records payment on the spot with explicit actual_received_date = 2026-10-10
 	staffDate := "2026-10-10"
-	body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"CASH","actual_received_date":"%s"}`,
+	body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"CASH","actual_received_date":"%s","proof_path":"proofs/test.jpg"}`,
 		bills[0].ID, bills[0].ID, staffDate)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenBendahara)
@@ -294,7 +294,7 @@ func TestO12_PendingAndReject_NoKASTransaction(t *testing.T) {
 	require.Len(t, bills, 1)
 
 	// Step 1: Submit payment -> status PENDING
-	body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"TRANSFER"}`,
+	body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"TRANSFER","proof_path":"proofs/test.jpg"}`,
 		bills[0].ID, bills[0].ID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -352,7 +352,7 @@ func TestO12_RetryApproval_Blocked_NoDuplicateKAS(t *testing.T) {
 	bills := generateBillsForDue(t, router, tokenBendahara, dueID, "2026-RT", 1)
 	require.Len(t, bills, 1)
 
-	body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"TRANSFER"}`,
+	body := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"50000"}],"method":"TRANSFER","proof_path":"proofs/test.jpg"}`,
 		bills[0].ID, bills[0].ID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -459,7 +459,7 @@ func TestO12_MonthlyKAS_PlacesTransactionInActualReceivedMonth(t *testing.T) {
 	require.Len(t, bills, 1)
 
 	// Warga submits payment
-	subBody := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"150000"}],"method":"TRANSFER"}`,
+	subBody := fmt.Sprintf(`{"bill_ids":["%s"],"allocations":[{"bill_id":"%s","amount":"150000"}],"method":"TRANSFER","proof_path":"proofs/test.jpg"}`,
 		bills[0].ID, bills[0].ID)
 	subReq := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(subBody))
 	subReq.Header.Set("Authorization", "Bearer "+tokenWarga)

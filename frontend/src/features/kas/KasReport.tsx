@@ -24,7 +24,8 @@ import {
  * Aturan akses Laporan KAS.
  *  - Lihat: semua pengguna login kecuali jabatan keamanan/operasional;
  *    super_admin selalu boleh.
- *  - Ekspor: jabatan ketua / wakil_ketua, atau role bendahara.
+ *  - Ekspor PDF: semua warga yang berhak melihat laporan.
+ *  - Ekspor XLSX & Cetak: bendahara, pengurus, super_admin.
  */
 export function getKasReportAccess(
   user: { role?: unknown; jabatan?: unknown; systemRole?: unknown } | null,
@@ -34,9 +35,26 @@ export function getKasReportAccess(
   const jabatan = norm(user?.jabatan)
   const isSuperAdmin = user?.systemRole === 'super_admin'
   const blocked = jabatan === 'keamanan' || jabatan === 'operasional'
+  const canView = isSuperAdmin || (user !== null && !blocked)
+
+  const isPrivileged =
+    canView &&
+    (isSuperAdmin ||
+      role === 'bendahara' ||
+      role === 'pengurus' ||
+      role === 'ketua' ||
+      role === 'admin' ||
+      jabatan === 'ketua' ||
+      jabatan === 'wakil_ketua' ||
+      jabatan === 'sekretaris' ||
+      jabatan === 'bendahara')
+
   return {
-    canView: isSuperAdmin || (user !== null && !blocked),
-    canExport: jabatan === 'ketua' || jabatan === 'wakil_ketua' || role === 'bendahara',
+    canView,
+    canExport: canView,
+    canExportPdf: canView,
+    canExportXlsx: isPrivileged,
+    canPrint: isPrivileged,
   }
 }
 
@@ -79,7 +97,7 @@ async function loadLogoDataUrl(): Promise<string | null> {
 
 export function KasReport(props: { onClose?: () => void; onNavigateBack?: () => void; period?: string | null } = {}) {
   const { user } = useAuth()
-  const { canView: canViewReport, canExport } = getKasReportAccess(user)
+  const { canView: canViewReport, canExportPdf, canExportXlsx, canPrint } = getKasReportAccess(user)
 
   const [periodeValue, setPeriodeValue] = useState<string | null>(props.period ?? null)
 
@@ -199,7 +217,9 @@ export function KasReport(props: { onClose?: () => void; onNavigateBack?: () => 
   const recap = useMemo(() => (report ? buildCategoryRecap(report) : null), [report])
 
   const handleExport = useCallback(async (kind: 'pdf' | 'xlsx') => {
-    if (!canExport || !report) return
+    if (kind === 'pdf' && !canExportPdf) return
+    if (kind === 'xlsx' && !canExportXlsx) return
+    if (!report) return
     setExportError(null)
     setExporting(kind)
     try {
@@ -214,7 +234,7 @@ export function KasReport(props: { onClose?: () => void; onNavigateBack?: () => 
     } finally {
       setExporting(null)
     }
-  }, [canExport, report, allTransactions])
+  }, [canExportPdf, canExportXlsx, report, allTransactions])
 
   if (!canViewReport) {
     return (
@@ -256,19 +276,21 @@ export function KasReport(props: { onClose?: () => void; onNavigateBack?: () => 
       {/* Header — sf-kas-report-header (tanpa ikon; ikon dipindahkan ke sf-modal-header di KasList.tsx) */}
       <div className="sf-kas-report-header sf-no-print" style={{ marginTop: 20, marginBottom: 24 }}>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', maxWidth: 900, margin: '0 auto' }}>
-            {canExport && (
-              <>
-                <button type="button" className="sf-kas-export-pdf" disabled={!report || exporting !== null} onClick={() => void handleExport('pdf')}>
-                  {exporting === 'pdf' ? 'Membuat PDF…' : 'Ekspor PDF'}
-                </button>
-                <button type="button" className="sf-kas-export-xlsx" disabled={!report || exporting !== null} onClick={() => void handleExport('xlsx')}>
-                  {exporting === 'xlsx' ? 'Membuat XLSX…' : 'Ekspor XLSX'}
-                </button>
-                <button type="button" className="sf-btn-ghost sf-kas-export-print" disabled={!report} onClick={() => window.print()} style={{ fontSize: 11, padding: '4px 12px' }}>Cetak</button>
-              </>
-            )}
-          </div>
+          {canExportPdf && (
+            <button type="button" className="sf-kas-export-pdf" disabled={!report || exporting !== null} onClick={() => void handleExport('pdf')}>
+              {exporting === 'pdf' ? 'Membuat PDF…' : 'Ekspor PDF'}
+            </button>
+          )}
+          {canExportXlsx && (
+            <button type="button" className="sf-kas-export-xlsx" disabled={!report || exporting !== null} onClick={() => void handleExport('xlsx')}>
+              {exporting === 'xlsx' ? 'Membuat XLSX…' : 'Ekspor XLSX'}
+            </button>
+          )}
+          {canPrint && (
+            <button type="button" className="sf-btn-ghost sf-kas-export-print" disabled={!report} onClick={() => window.print()} style={{ fontSize: 11, padding: '4px 12px' }}>Cetak</button>
+          )}
         </div>
+      </div>
       {exportError && <div className="sf-error-banner sf-no-print" role="alert">{exportError}</div>}
       {error && (
         <div className="sf-error-banner sf-no-print" role="alert">

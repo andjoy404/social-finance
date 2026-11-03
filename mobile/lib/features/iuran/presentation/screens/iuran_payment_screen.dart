@@ -12,7 +12,6 @@ import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/core/widgets/empty_state.dart';
-import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 
 import '../../data/iuran_api_models.dart';
@@ -23,8 +22,15 @@ import '../../data/iuran_repository.dart';
 /// Payment form screen for making iuran payments.
 class IuranPaymentScreen extends ConsumerStatefulWidget {
   final String billId;
+  final Uint8List? initialProofBytes;
+  final String? initialProofFileName;
 
-  const IuranPaymentScreen({super.key, required this.billId});
+  const IuranPaymentScreen({
+    super.key,
+    required this.billId,
+    this.initialProofBytes,
+    this.initialProofFileName,
+  });
 
   @override
   ConsumerState<IuranPaymentScreen> createState() => _IuranPaymentScreenState();
@@ -36,7 +42,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   final _nominalCtrl = TextEditingController();
   final _catatanCtrl = TextEditingController();
 
-  PaymentMethod? _selectedMethod;
+  PaymentMethod? _selectedMethod = PaymentMethod.transfer;
   Uint8List? _proofBytes;
   String? _proofFileName;
   bool _saving = false;
@@ -50,6 +56,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   @override
   void initState() {
     super.initState();
+    _proofBytes = widget.initialProofBytes;
+    _proofFileName = widget.initialProofFileName;
     _tanggalCtrl.text = DateTime.now().toLocal().toString().split(' ')[0];
   }
 
@@ -92,7 +100,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             occId == null || occId.isEmpty || b.householdOccupancyId == occId;
         return matchesOcc &&
             b.status == BillStatus.unpaid &&
-            b.dueIsActive != false;
+            b.dueIsActive != false &&
+            b.isObligatory != false;
       }).toList();
       payable.sort((a, b) => a.period.compareTo(b.period));
 
@@ -165,6 +174,17 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         _ => null,
       };
 
+      if (bill != null && !bill.isObligatory) {
+        if (mounted) {
+          setState(() {
+            _error =
+                'Tagihan ini tidak wajib dibayar karena sebelum tanggal mulai menempati rumah.';
+            _saving = false;
+          });
+        }
+        return;
+      }
+
       final repo = ref.read(iuranRepositoryProvider);
 
       if (bill != null && bill.isMultiMonthDues) {
@@ -209,7 +229,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             billIds: billIds,
             allocations: allocations,
             amount: totalAmount,
-            method: _selectedMethod ?? PaymentMethod.cash,
+            method: _selectedMethod ?? PaymentMethod.transfer,
             notes: _catatanCtrl.text.trim().isEmpty
                 ? null
                 : _catatanCtrl.text.trim(),
@@ -221,20 +241,13 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
           payment = await repo.createPayment(
             billId: selectedBills[0].id,
             amount: totalAmount,
-            method: _selectedMethod ?? PaymentMethod.cash,
+            method: _selectedMethod ?? PaymentMethod.transfer,
             notes: _catatanCtrl.text.trim().isEmpty
                 ? null
                 : _catatanCtrl.text.trim(),
+            fileBytes: _proofBytes,
+            filename: _proofFileName,
           );
-          if (_proofBytes != null && _proofFileName != null) {
-            try {
-              payment = await repo.uploadPaymentProof(
-                paymentId: payment.id,
-                fileBytes: _proofBytes!,
-                filename: _proofFileName!,
-              );
-            } catch (_) {}
-          }
         }
 
         if (mounted) {
@@ -281,40 +294,16 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         return;
       }
 
-      final payment = await repo.createPayment(
+      await repo.createPayment(
         billId: widget.billId,
         amount: amount,
-        method: _selectedMethod ?? PaymentMethod.cash,
+        method: _selectedMethod ?? PaymentMethod.transfer,
         notes: _catatanCtrl.text.trim().isEmpty
             ? null
             : _catatanCtrl.text.trim(),
+        fileBytes: _proofBytes,
+        filename: _proofFileName,
       );
-
-      // If proof image was picked, upload it for the newly created payment
-      if (_proofBytes != null && _proofFileName != null) {
-        try {
-          await repo.uploadPaymentProof(
-            paymentId: payment.id,
-            fileBytes: _proofBytes!,
-            filename: _proofFileName!,
-          );
-        } catch (proofErr) {
-          // Payment is created; notify user about proof upload retry if needed
-          if (mounted) {
-            final msg = proofErr is ServerException
-                ? proofErr.message
-                : proofErr.toString();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Pembayaran tersimpan, namun bukti gagal diunggah: $msg',
-                ),
-                backgroundColor: AppColors.warning,
-              ),
-            );
-          }
-        }
-      }
 
       // Invalidate cached providers so list/detail screens fetch fresh data
       if (mounted) {
@@ -372,6 +361,15 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       final state = ref.read(billDetailProvider(widget.billId));
       if (state is AsyncData<IuranBill?> && state.value != null) {
         final bill = state.value!;
+        if (!bill.isObligatory) {
+          if (mounted) {
+            setState(
+              () => _error =
+                  'Tagihan ini tidak wajib dibayar karena sebelum tanggal mulai menempati rumah.',
+            );
+          }
+          return false;
+        }
         if (bill.isMultiMonthDues) {
           final maxMonths =
               _multiBills.length > 12 ? 12 : _multiBills.length;
@@ -410,6 +408,12 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         }
       }
     }
+
+    if (_proofBytes == null || _proofBytes!.isEmpty) {
+      setState(() => _error = 'Bukti pembayaran wajib dilampirkan. Silakan unggah foto bukti pembayaran sebelum melanjutkan.');
+      return false;
+    }
+
     return true;
   }
 
@@ -597,6 +601,45 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 ),
               if (_error != null) const SizedBox(height: AppSpacing.sm),
 
+              // ── Non-obligatory warning banner ──
+              if (currentBill != null && !currentBill.isObligatory) ...[
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(
+                      alpha: isDark ? 0.2 : 0.1,
+                    ),
+                    borderRadius: BorderRadius.circular(AppRadius.base),
+                    border: Border.all(
+                      color: AppColors.danger.withValues(
+                        alpha: isDark ? 0.4 : 0.2,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: AppColors.danger,
+                        size: 20,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Tagihan ini sebelum tanggal mulai menempati rumah (tidak wajib dibayar & bukan tunggakan). Pembayaran tidak dapat diproses.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppColors.danger,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+              ],
+
               // ── Jenis Pembayaran: Reguler / Sukarela / Multi-Bulan ──
               if (currentBill != null) ...[
                 Row(
@@ -758,7 +801,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                         ),
                       ),
                     ],
-                    selected: {_selectedMethod ?? PaymentMethod.cash},
+                    selected: {_selectedMethod ?? PaymentMethod.transfer},
                     onSelectionChanged: (selection) {
                       setState(() {
                         _selectedMethod = selection.first;
@@ -970,6 +1013,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                         child: OutlinedButton(
                           key: const Key('btn_save'),
                           onPressed: _saving ||
+                                  (currentBill != null && !currentBill.isObligatory) ||
                                   (isMultiMonth &&
                                       (_selectedMonthCount == 0 ||
                                           (_multiBillsLoaded && _multiBills.isEmpty))) ||

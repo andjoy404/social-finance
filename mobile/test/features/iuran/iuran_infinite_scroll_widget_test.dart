@@ -30,17 +30,19 @@ class _TestPaginatedNotifier extends BillsNotifier {
 
   @override
   Future<List<IuranBill>> build() async {
-    return initialState;
+    Future.microtask(() {
+      ref.read(paginatedBillsProvider.notifier).state = initialState;
+    });
+    return initialState.bills;
   }
 
   @override
   Future<void> loadMore() async {
     loadMoreCallCount++;
-    state = AsyncData(
-      initialState.copyWith(
-        isLoadingMore: true,
-      ),
+    ref.read(paginatedBillsProvider.notifier).state = initialState.copyWith(
+      isLoadingMore: true,
     );
+    state = AsyncData(initialState.bills);
   }
 
   @override
@@ -96,7 +98,7 @@ void main() {
         buildTestWidget(
           child: const IuranScreen(),
           overrides: [
-            billsProvider.overrideWith(() => notifier),
+            billsProvider.overrideWith(() => _TestPaginatedNotifier(initialState: pagState)),
             myBillsProvider.overrideWith(() => notifier),
             authRepositoryProvider.overrideWith(
               (ref) => _createTestAuthRepository(),
@@ -143,7 +145,7 @@ void main() {
         buildTestWidget(
           child: const IuranScreen(),
           overrides: [
-            billsProvider.overrideWith(() => notifier),
+            billsProvider.overrideWith(() => _TestPaginatedNotifier(initialState: pagState)),
             myBillsProvider.overrideWith(() => notifier),
             authRepositoryProvider.overrideWith(
               (ref) => _createTestAuthRepository(),
@@ -158,7 +160,9 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsWidgets);
 
       // Stop loading state so animation stops
-      notifier.state = AsyncData(pagState.copyWith(isLoadingMore: false));
+      notifier.ref.read(paginatedBillsProvider.notifier).state =
+          pagState.copyWith(isLoadingMore: false);
+      notifier.state = AsyncData(pagState.bills);
       await tester.pumpAndSettle();
     });
 
@@ -192,7 +196,7 @@ void main() {
         buildTestWidget(
           child: const IuranScreen(),
           overrides: [
-            billsProvider.overrideWith(() => notifier),
+            billsProvider.overrideWith(() => _TestPaginatedNotifier(initialState: pagState)),
             myBillsProvider.overrideWith(() => notifier),
             authRepositoryProvider.overrideWith(
               (ref) => _createTestAuthRepository(),

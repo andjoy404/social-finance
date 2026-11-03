@@ -190,6 +190,7 @@ class IuranApiClient {
 
   /// GET /api/v1/bills
   Future<PaginatedResponse<BackendBill>> listBills({
+    String? search,
     String? dueId,
     String? status,
     String? paymentStatus,
@@ -197,12 +198,14 @@ class IuranApiClient {
     String? householdOccupancyId,
     bool myBills = false,
     int page = 1,
-    int pageSize = 20,
+    int pageSize = 30,
+    String? order,
   }) async {
     final query = <String, dynamic>{
       'page': page.toString(),
       'page_size': pageSize.toString(),
     };
+    if (search != null && search.isNotEmpty) query['search'] = search;
     if (dueId != null && dueId.isNotEmpty) query['due_id'] = dueId;
     if (status != null && status.isNotEmpty) query['status'] = status;
     if (paymentStatus != null && paymentStatus.isNotEmpty) {
@@ -213,6 +216,7 @@ class IuranApiClient {
       query['household_occupancy_id'] = householdOccupancyId;
     }
     if (myBills) query['my_bills'] = 'true';
+    if (order != null && order.isNotEmpty) query['order'] = order;
 
     final response = await dio.get('/api/v1/bills', queryParameters: query);
     return _parsePaginatedBills(response.data);
@@ -321,6 +325,8 @@ class IuranApiClient {
     String? proofPath,
     String? notes,
     String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
   }) async {
     return _createPayment(
       billId: billId,
@@ -329,6 +335,8 @@ class IuranApiClient {
       proofPath: proofPath,
       notes: notes,
       idempotencyKey: idempotencyKey,
+      fileBytes: fileBytes,
+      filename: filename,
     );
   }
 
@@ -338,6 +346,8 @@ class IuranApiClient {
     required PaymentMethod method,
     String? notes,
     String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
   }) async {
     return _createPayment(
       dueId: dueId,
@@ -345,6 +355,8 @@ class IuranApiClient {
       method: method,
       notes: notes,
       idempotencyKey: idempotencyKey,
+      fileBytes: fileBytes,
+      filename: filename,
     );
   }
 
@@ -356,26 +368,52 @@ class IuranApiClient {
     String? proofPath,
     String? notes,
     String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
   }) async {
     final hasBill = billId?.trim().isNotEmpty == true;
     final hasDue = dueId?.trim().isNotEmpty == true;
     if (hasBill == hasDue) {
       throw ArgumentError('Exactly one of billId or dueId is required.');
     }
-    final response = await dio.post(
-      '/api/v1/payments',
-      data: {
+    final key = idempotencyKey ?? _generateUuid();
+    Response response;
+
+    if (fileBytes != null && fileBytes.isNotEmpty) {
+      final formData = FormData.fromMap({
         if (billId != null) 'bill_id': billId,
         if (dueId != null) 'due_id': dueId,
         'amount': amount,
         'method': _serializePaymentMethod(method),
         if (notes != null && notes.isNotEmpty) 'notes': notes,
-        if (proofPath != null && proofPath.isNotEmpty) 'proof_path': proofPath,
-      },
-      options: Options(
-        headers: {'Idempotency-Key': idempotencyKey ?? _generateUuid()},
-      ),
-    );
+        'file': MultipartFile.fromBytes(
+          fileBytes,
+          filename: filename ?? 'bukti_pembayaran.jpg',
+        ),
+      });
+      response = await dio.post(
+        '/api/v1/payments',
+        data: formData,
+        options: Options(
+          headers: {'Idempotency-Key': key},
+        ),
+      );
+    } else {
+      response = await dio.post(
+        '/api/v1/payments',
+        data: {
+          if (billId != null) 'bill_id': billId,
+          if (dueId != null) 'due_id': dueId,
+          'amount': amount,
+          'method': _serializePaymentMethod(method),
+          if (notes != null && notes.isNotEmpty) 'notes': notes,
+          if (proofPath != null && proofPath.isNotEmpty) 'proof_path': proofPath,
+        },
+        options: Options(
+          headers: {'Idempotency-Key': key},
+        ),
+      );
+    }
 
     final data = response.data;
     if (data is! Map) throw const FormatException('Unexpected response');

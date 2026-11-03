@@ -197,7 +197,7 @@ func TestOfficerOwnPayment_NotificationsAndSelfApprovalGuard(t *testing.T) {
 		dueID := createTestDue(t, pool, rtID, "OOP Due", "50000", false)
 		billID := createTestBill(t, pool, rtID, occID, dueID, "2028-01", "50000", "unpaid")
 
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+officerToken)
 		req.Header.Set("Content-Type", "application/json")

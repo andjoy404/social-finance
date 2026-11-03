@@ -52,6 +52,7 @@ class KasTransaction {
   final String nominal;
   final String saldo;
   final String? reversesTransactionId; // UUID of the transaction being reversed
+  final String? expenseCategory;
 
   const KasTransaction({
     required this.id,
@@ -69,6 +70,7 @@ class KasTransaction {
     required this.nominal,
     required this.saldo,
     this.reversesTransactionId,
+    this.expenseCategory,
   });
 }
 

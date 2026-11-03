@@ -83,6 +83,43 @@ class FundLocation {
           : DateTime.now(),
     );
   }
+
+  /// Whether this fund location is compatible with the given [paymentMethod].
+  ///
+  /// - Transfer: only [FundLocationCategory.rekening] (bank accounts).
+  /// - Cash / Tunai: only [FundLocationCategory.brankas] (physical safe) or [FundLocationCategory.coh] (cash on hand).
+  /// - Other / null: returns false.
+  bool isCompatibleWithPaymentMethod(dynamic paymentMethod) {
+    if (paymentMethod == null) return false;
+    final str = paymentMethod is String
+        ? paymentMethod
+        : paymentMethod.toString().split('.').last;
+    final normalized = str.trim().toLowerCase();
+
+    if (normalized == 'transfer') {
+      return category == FundLocationCategory.rekening;
+    }
+    if (normalized == 'cash' || normalized == 'tunai') {
+      return category == FundLocationCategory.brankas ||
+          category == FundLocationCategory.coh;
+    }
+    return false;
+  }
+}
+
+/// Filter a list of fund locations based on payment method.
+///
+/// - For transfer: only bank accounts ([FundLocationCategory.rekening]).
+/// - For cash / tunai: only [FundLocationCategory.brankas] and [FundLocationCategory.coh].
+/// - Unrecognized / null: returns empty list.
+List<FundLocation> filterFundLocationsByPaymentMethod(
+  List<FundLocation> locations,
+  dynamic paymentMethod,
+) {
+  if (paymentMethod == null) return const [];
+  return locations
+      .where((loc) => loc.isCompatibleWithPaymentMethod(paymentMethod))
+      .toList();
 }
 
 @immutable

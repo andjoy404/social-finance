@@ -88,6 +88,31 @@ func (h *Handler) checkBendaharaAccess(ac *auth.AuthContext) error {
 	return nil
 }
 
+// checkRWBendaharaAccess enforces RW-level transfer authorization.
+// ONLY users with an active RW membership for the specific rwId with
+// jabatan == "bendahara" are allowed.
+//
+// RT bendahara role/jabatan does NOT grant RW transfer authorization.
+// RW membership on RW A does NOT grant transfer access to RW B.
+// Ketua RW and Wakil Ketua RW are explicitly blocked from RW transfers.
+//
+// The rwID parameter ensures the check is scoped to the specific RW
+// being transferred from/to.
+func (h *Handler) checkRWBendaharaAccess(ac *auth.AuthContext, rwID string) error {
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		// SA is validated by RequireRWScope middleware before reaching handler.
+		// SA scope allowlist and DB verification already passed.
+		return nil
+	}
+	// Find RW membership matching the specific rwId with jabatan = "bendahara".
+	for _, rm := range ac.RWMemberships {
+		if rm.RWID == rwID && rm.Jabatan == "bendahara" {
+			return nil
+		}
+	}
+	return errors.New("only bendahara can execute or reverse fund transfers at RW level")
+}
+
 func (h *Handler) handleError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound):

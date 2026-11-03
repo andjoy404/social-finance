@@ -509,6 +509,12 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       'rw': user.rwCode,
       'rw_id': user.rwId,
       'rw_name': user.rwName,
+      'rw_memberships': user.rwMemberships.map((m) => {
+        'rw_id': m.rwId,
+        'rw_name': m.rwName,
+        'rw_number': m.rwNumber,
+        'jabatan': m.jabatan,
+      }).toList(),
       'access_token': accessToken,
     };
     state = AsyncData(_currentUser);
@@ -673,16 +679,19 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
           );
         case DioExceptionType.badResponse:
           final status = error.response?.statusCode;
+          final data = error.response?.data;
+          String? serverMessage;
+          if (data is Map) {
+            if (data['error'] is Map && data['error']['message'] != null) {
+              serverMessage = data['error']['message'].toString();
+            } else if (data['message'] != null) {
+              serverMessage = data['message'].toString();
+            }
+          }
+          if (serverMessage != null && serverMessage.isNotEmpty) {
+            return AuthError(serverMessage);
+          }
           if (status == 401) {
-            final data = error.response?.data;
-            if (data is Map && data['message'] != null) {
-              return AuthError(data['message'].toString());
-            }
-            if (data is Map &&
-                data['error'] is Map &&
-                data['error']['message'] != null) {
-              return AuthError(data['error']['message'].toString());
-            }
             return AuthError('Email atau kata sandi salah.');
           } else if (status != null && status >= 500) {
             return AuthError(

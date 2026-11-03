@@ -136,6 +136,7 @@ func (r *inMemoryRepo) CheckAndRecordDedup(ctx context.Context, rtID, userID, ev
 	if r.dedupForceError {
 		if r.dedupForceErrorOnce {
 			r.dedupForceError = false
+			r.dedupForceErrorOnce = false
 		}
 		return false, errors.New("mock dedup error")
 	}
@@ -195,12 +196,24 @@ func (r *inMemoryRepo) DeleteTemplate(ctx context.Context, rtID, id string) erro
 	return nil
 }
 
-func (r *inMemoryRepo) ListLogs(ctx context.Context, rtID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+func (r *inMemoryRepo) ListLogs(ctx context.Context, rtID, userID, eventType, status string, isOfficer bool, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
 	return []notification.NotificationLogEntry{}, 0, nil
 }
 
 func (r *inMemoryRepo) GetLogByID(ctx context.Context, rtID, id string) (*notification.NotificationLogEntry, error) {
 	return nil, nil
+}
+
+func (r *inMemoryRepo) MarkAsRead(ctx context.Context, rtID, userID, id string, isOfficer bool) error {
+	return nil
+}
+
+func (r *inMemoryRepo) MarkAllAsRead(ctx context.Context, rtID, userID string, isOfficer bool) (int, error) {
+	return 0, nil
+}
+
+func (r *inMemoryRepo) GetUnreadCount(ctx context.Context, rtID, userID string, isOfficer bool) (int, error) {
+	return 0, nil
 }
 
 func (r *inMemoryRepo) GetDefaultRTID(ctx context.Context) (string, error) {
@@ -578,7 +591,7 @@ func TestSelfTestRequiresAuth(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	handler := notification.NewHandler(svc, nil, "development")
+	handler := notification.NewHandler(svc, nil, nil, "development")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)
 	rr := httptest.NewRecorder()
@@ -594,7 +607,7 @@ func TestSelfTestRejectedInProduction(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	handler := notification.NewHandler(svc, nil, "production")
+	handler := notification.NewHandler(svc, nil, nil, "production")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)
 	ctx := context.WithValue(req.Context(), auth.AuthContextKey, &auth.AuthContext{
@@ -615,7 +628,7 @@ func TestSelfTestOnlyTargetsAuthenticatedUser(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	handler := notification.NewHandler(svc, nil, "development")
+	handler := notification.NewHandler(svc, nil, nil, "development")
 
 	// Register device for user-1
 	_ = repo.RegisterDevice(context.Background(), "user-1", "tok-user-1", "android", nil)
@@ -653,7 +666,7 @@ func TestSelfTestNoBroadcastAndZeroDevices(t *testing.T) {
 	repo := newInMemoryRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	handler := notification.NewHandler(svc, nil, "development")
+	handler := notification.NewHandler(svc, nil, nil, "development")
 
 	// User without devices
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/test-self", nil)

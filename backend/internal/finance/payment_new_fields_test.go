@@ -105,7 +105,7 @@ func TestPaymentNewFieldsOfficerNotesApprove(t *testing.T) {
 	// Warga submits payment (PENDING)
 	var paymentID string
 	{
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER","notes":"Test transfer"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER","notes":"Test transfer","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -223,7 +223,7 @@ func TestPaymentNewFieldsOfficerNotesReject(t *testing.T) {
 	// Submit payment
 	var paymentID string
 	{
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -336,7 +336,7 @@ func TestPaymentNewFieldsRejectionReasonOnly(t *testing.T) {
 		billID = listResp.Data[0].ID
 	}
 	{
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -477,7 +477,7 @@ func TestPaymentNewFieldsVerifiedByName(t *testing.T) {
 
 	// Warga submits payment
 	{
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -590,7 +590,7 @@ func TestPaymentNewFieldsPaymentNoNew(t *testing.T) {
 
 	// Warga submits payment — payment_no should be nil before verify
 	{
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")
@@ -710,7 +710,7 @@ func TestPaymentNewFieldsPaymentNoStable(t *testing.T) {
 
 	// Submit payment
 	{
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH"}`, billID)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"CASH","proof_path":"proofs/test.jpg"}`, billID)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWarga)
 		req.Header.Set("Content-Type", "application/json")

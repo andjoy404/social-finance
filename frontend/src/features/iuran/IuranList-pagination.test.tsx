@@ -500,6 +500,117 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
+  it('does not fan out payments API requests for Iuran Warga bills', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [
+        { id: 'bill-w1', rt_id: 'rt-1', due_id: 'due-1', household_occupancy_id: 'occ-1', period: '2026-10', due_date: '2026-10-31', amount: '50000.00', status: 'unpaid', created_at: '', updated_at: '', paid_amount: '10000.00', pending_amount: '5000.00' },
+        { id: 'bill-w2', rt_id: 'rt-1', due_id: 'due-1', household_occupancy_id: 'occ-2', period: '2026-10', due_date: '2026-10-31', amount: '50000.00', status: 'unpaid', created_at: '', updated_at: '' },
+      ],
+      pagination: { page: 1, per_page: 10, total: 2, total_pages: 1 },
+    })
+    ;(api.apiListPayments as any).mockResolvedValue({ data: [] })
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran?tab=list-iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+
+    expect(api.apiListPayments).not.toHaveBeenCalled()
+  })
+
+  it('does not auto-refresh Iuran Warga when the browser tab becomes visible', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran?tab=list-iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    vi.mocked(api.apiListBills).mockClear()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+
+    fireEvent(document, new Event('visibilitychange'))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+
+    expect(api.apiListBills).not.toHaveBeenCalled()
+  })
+
+  it('does not poll Iuran Warga over time without user interaction', async () => {
+    vi.useFakeTimers()
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+    mockCurrentUser = pengurusKetuaUser
+
+    try {
+      await act(async () => {
+        render(
+          <MemoryRouter initialEntries={['/iuran?tab=list-iuran']}>
+            <IuranList />
+          </MemoryRouter>
+        )
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(api.apiListBills).toHaveBeenCalled()
+      vi.mocked(api.apiListBills).mockClear()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+      })
+
+      expect(api.apiListBills).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still refreshes Iuran Saya when the browser tab becomes visible', async () => {
+    ;(api.apiListBills as any).mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
+    })
+    mockCurrentUser = pengurusKetuaUser
+
+    render(
+      <MemoryRouter initialEntries={['/iuran']}>
+        <IuranList />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    vi.mocked(api.apiListBills).mockClear()
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+
+    fireEvent(document, new Event('visibilitychange'))
+
+    await waitFor(() => {
+      expect(api.apiListBills).toHaveBeenCalled()
+    })
+  })
+
   it('defaults to Iuran Saya (personal bills) for managers and orders tabs correctly', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
@@ -598,7 +709,7 @@ describe('IuranList - Role-Based Tab Restriction', () => {
     expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
-  it('Ketua RT with role=warga and jabatan=ketua does NOT see Iuran Warga or Kelola Iuran tabs', async () => {
+  it('Ketua RT with role=warga and jabatan=ketua sees Iuran Warga and Kelola Iuran tabs', async () => {
     ;(api.apiListBills as any).mockResolvedValue({
       data: [],
       pagination: { page: 1, per_page: 10, total: 0, total_pages: 0 },
@@ -624,9 +735,9 @@ describe('IuranList - Role-Based Tab Restriction', () => {
       expect(api.apiListBills).toHaveBeenCalled()
     })
 
-    // role=warga always wins over jabatan: manager tabs stay hidden.
-    expect(screen.queryByRole('button', { name: 'Iuran Warga' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Kelola Iuran' })).toBeNull()
+    // jabatan=ketua grants management access even with role=warga.
+    expect(screen.getByRole('button', { name: 'Iuran Warga' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Kelola Iuran' })).toBeVisible()
   })
 
   it('Bendahara RT with role=bendahara and jabatan=null sees Iuran Saya, Iuran Warga, and Kelola Iuran tabs', async () => {

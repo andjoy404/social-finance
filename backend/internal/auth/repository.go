@@ -472,21 +472,23 @@ func FindRTDetailsByID(ctx context.Context, tx *sql.Tx, rtID string) (name strin
 
 // UserForMe returns user info plus their active RT details for the /me endpoint.
 type UserForMe struct {
-	ID                   string   `json:"id"`
-	Fullname             string   `json:"full_name"`
-	Email                string   `json:"email"` // NOT NULL after migration
-	Phone                *string  `json:"phone,omitempty"`
-	HouseNumber          *string  `json:"house_number,omitempty"`
-	TenantRole           Role     `json:"role"`
-	SystemRole           string   `json:"system_role,omitempty"` // "super_admin" if present
-	Jabatan              *string  `json:"jabatan"`               // RT organizational position, null if not assigned
-	EffectivePermissions []string `json:"effective_permissions"`
-	RTID                 string   `json:"rt_id"`
-	RTName               string   `json:"rt_name"`
-	RT_rw                int      `json:"rt_rw"`
-	RT_rt                string   `json:"rt_rt"`
-	RWID                 *string  `json:"rw_id,omitempty"`
-	RWName               *string  `json:"rw_name,omitempty"`
+	ID                   string          `json:"id"`
+	Fullname             string          `json:"full_name"`
+	Email                string          `json:"email"` // NOT NULL after migration
+	Phone                *string         `json:"phone,omitempty"`
+	HouseNumber          *string         `json:"house_number,omitempty"`
+	TenantRole           Role            `json:"role"`
+	SystemRole           string          `json:"system_role,omitempty"` // "super_admin" if present
+	Jabatan              *string         `json:"jabatan"`               // RT organizational position, null if not assigned
+	EffectivePermissions []string        `json:"effective_permissions"`
+	RTID                 string          `json:"rt_id"`
+	RTName               string          `json:"rt_name"`
+	RT_rw                int             `json:"rt_rw"`
+	RT_rt                string          `json:"rt_rt"`
+	RW                   int             `json:"rw"`
+	RWID                 *string         `json:"rw_id,omitempty"`
+	RWName               *string         `json:"rw_name,omitempty"`
+	RWMemberships        []RWMembership  `json:"rw_memberships,omitempty"`
 }
 
 // GetProfile returns user info plus their active RT details for the /me endpoint.
@@ -536,6 +538,7 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 		}
 		return nil, fmt.Errorf("get user for me: %w", err)
 	}
+	u.RW = u.RT_rw
 	if sysRole.Valid {
 		u.SystemRole = sysRole.String
 	}
@@ -548,6 +551,12 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 		hn := strings.TrimSpace(houseNum.String)
 		u.HouseNumber = &hn
 	}
+
+	// Load all active RW memberships for this user.
+	if rwMemberships, err := loadRWMemberships(ctx, tx, userID); err == nil {
+		u.RWMemberships = rwMemberships
+	}
+
 	return &u, nil
 }
 
@@ -573,6 +582,12 @@ func GetSystemProfile(ctx context.Context, tx *sql.Tx, userID string) (*UserForM
 	if sysRole.Valid {
 		u.SystemRole = sysRole.String
 	}
+
+	// Load all active RW memberships for this user.
+	if rwMemberships, err := loadRWMemberships(ctx, tx, userID); err == nil {
+		u.RWMemberships = rwMemberships
+	}
+
 	return &u, nil
 }
 

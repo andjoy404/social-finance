@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 
+import 'package:social_finance/core/api/auth_service.dart';
+import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/constants/app_constants.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
 import 'package:social_finance/core/storage/app_storage.dart';
@@ -439,12 +443,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   borderRadius: BorderRadius.circular(7),
                   border: Border.all(color: const Color(0x80F2495C)),
                 ),
-                child: Text(
-                  _error,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFFF98A6),
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _error,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFFF98A6),
+                      ),
+                    ),
+                    if (_error.contains('kode reset')) ...[
+                      const SizedBox(height: 6),
+                      GestureDetector(
+                        onTap: _showResetPasswordDialog,
+                        child: const Text(
+                          'Buka Menu Reset Kata Sandi →',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.accent,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
@@ -529,8 +553,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
             const SizedBox(height: 10),
 
-            // 6. Checkbox Ingat saya (active by default)
-            _buildRememberMeRow(isLoading),
+            // 6. Checkbox Ingat saya & Lupa Kata Sandi?
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _buildRememberMeRow(isLoading),
+                GestureDetector(
+                  onTap: isLoading ? null : _showResetPasswordDialog,
+                  child: const Text(
+                    'Lupa Kata Sandi?',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.accent,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 14),
 
             // 7. Submit button
@@ -824,6 +867,353 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               : const Text('Masuk'),
         ),
       ),
+    );
+  }
+
+  void _showResetPasswordDialog() {
+    final serverUrl = _serverUrlController.text.trim();
+    if (serverUrl.isNotEmpty) {
+      ref.read(apiClientProvider).setBaseUrl(serverUrl);
+    }
+
+    final currentIdentifier = _loginMethod == LoginMethod.email
+        ? _emailController.text.trim()
+        : PhoneUtils.normalizePhone(_phoneController.text.trim());
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => _ResetPasswordDialog(
+        initialIdentifier: currentIdentifier,
+        onSuccess: (newIdentifier) {
+          if (newIdentifier.contains('@')) {
+            _loginMethod = LoginMethod.email;
+            _emailController.text = newIdentifier;
+          } else {
+            _loginMethod = LoginMethod.phone;
+            _phoneController.text = PhoneUtils.formatDisplay(newIdentifier);
+          }
+          _passwordController.clear();
+          setState(() {});
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Kata sandi berhasil diubah. Silakan masuk menggunakan kata sandi baru.'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ResetPasswordDialog extends ConsumerStatefulWidget {
+  final String initialIdentifier;
+  final ValueChanged<String> onSuccess;
+
+  const _ResetPasswordDialog({
+    required this.initialIdentifier,
+    required this.onSuccess,
+  });
+
+  @override
+  ConsumerState<_ResetPasswordDialog> createState() => _ResetPasswordDialogState();
+}
+
+class _ResetPasswordDialogState extends ConsumerState<_ResetPasswordDialog> {
+  late final TextEditingController _identifierController;
+  late final TextEditingController _codeController;
+  late final TextEditingController _newPasswordController;
+  late final TextEditingController _confirmPasswordController;
+
+  bool _obscureNewPassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _loading = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _identifierController = TextEditingController(text: widget.initialIdentifier);
+    _codeController = TextEditingController();
+    _newPasswordController = TextEditingController();
+    _confirmPasswordController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _identifierController.dispose();
+    _codeController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final identifier = _identifierController.text.trim();
+    final code = _codeController.text.trim();
+    final newPassword = _newPasswordController.text;
+    final confirmPassword = _confirmPasswordController.text;
+
+    if (identifier.isEmpty) {
+      setState(() => _errorMessage = 'Email atau nomor HP wajib diisi.');
+      return;
+    }
+    if (code.length != 4 || !RegExp(r'^\d{4}$').hasMatch(code)) {
+      setState(() => _errorMessage = 'Kode reset harus berupa 4 digit angka.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setState(() => _errorMessage = 'Kata sandi baru minimal 8 karakter.');
+      return;
+    }
+    if (newPassword != confirmPassword) {
+      setState(() => _errorMessage = 'Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await ref.read(authServiceProvider).resetPasswordWithCode(
+        identifier: identifier,
+        code: code,
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.onSuccess(identifier);
+    } catch (e) {
+      if (!mounted) return;
+      String msg = 'Gagal mengatur ulang kata sandi.';
+      if (e is DioException) {
+        final data = e.response?.data;
+        if (data is Map && data['error'] is Map) {
+          msg = data['error']['message']?.toString() ?? msg;
+        } else if (data is Map && data['message'] != null) {
+          msg = data['message'].toString();
+        }
+      }
+      setState(() {
+        _loading = false;
+        _errorMessage = msg;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1E192B),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Reset Kata Sandi Warga',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF2EFF9),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20, color: Color(0xFF9B93AD)),
+                  onPressed: _loading ? null : () => Navigator.of(context).pop(),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Masukkan email atau nomor HP beserta 4 digit kode reset yang telah diberikan oleh Pengurus RT.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF9B93AD)),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(fontSize: 12, color: AppColors.danger),
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            // Identifier
+            _buildDialogField(
+              label: 'Email atau Nomor HP',
+              controller: _identifierController,
+              hint: 'nama@email.com atau 0812...',
+              keyboardType: TextInputType.emailAddress,
+              prefixIcon: Icons.person_outline,
+              enabled: !_loading,
+            ),
+            const SizedBox(height: 12),
+            // Kode 4 Digit
+            _buildDialogField(
+              label: 'Kode Reset (4 Digit dari Pengurus)',
+              controller: _codeController,
+              hint: 'Contoh: 1234',
+              keyboardType: TextInputType.number,
+              prefixIcon: Icons.vpn_key_outlined,
+              enabled: !_loading,
+              formatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(4),
+              ],
+              style: const TextStyle(
+                letterSpacing: 6,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                fontFamily: 'monospace',
+                color: Color(0xFFF2EFF9),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Kata Sandi Baru
+            _buildDialogField(
+              label: 'Kata Sandi Baru (Min. 8 Karakter)',
+              controller: _newPasswordController,
+              hint: 'Masukkan kata sandi baru',
+              obscureText: _obscureNewPassword,
+              prefixIcon: Icons.lock_outline,
+              enabled: !_loading,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureNewPassword ? Icons.visibility_off : Icons.visibility,
+                  size: 18,
+                  color: const Color(0xFF9B93AD),
+                ),
+                onPressed: () => setState(() => _obscureNewPassword = !_obscureNewPassword),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Konfirmasi Kata Sandi
+            _buildDialogField(
+              label: 'Konfirmasi Kata Sandi Baru',
+              controller: _confirmPasswordController,
+              hint: 'Ulangi kata sandi baru',
+              obscureText: _obscureConfirmPassword,
+              prefixIcon: Icons.lock_outline,
+              enabled: !_loading,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
+                  size: 18,
+                  color: const Color(0xFF9B93AD),
+                ),
+                onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _loading ? null : () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFCFC9DE),
+                      side: const BorderSide(color: Color(0x40A970FF)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Batal'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _loading ? null : _submit,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.accent,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('Simpan'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDialogField({
+    required String label,
+    required TextEditingController controller,
+    required String hint,
+    TextInputType? keyboardType,
+    bool obscureText = false,
+    IconData? prefixIcon,
+    Widget? suffixIcon,
+    bool enabled = true,
+    List<TextInputFormatter>? formatters,
+    TextStyle? style,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: Color(0xFFCFC9DE)),
+        ),
+        const SizedBox(height: 4),
+        TextField(
+          controller: controller,
+          obscureText: obscureText,
+          keyboardType: keyboardType,
+          enabled: enabled,
+          inputFormatters: formatters,
+          style: style ?? const TextStyle(fontSize: 13, color: Color(0xFFF2EFF9)),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF706785)),
+            prefixIcon: prefixIcon != null ? Icon(prefixIcon, size: 18, color: const Color(0xFF9B93AD)) : null,
+            suffixIcon: suffixIcon,
+            filled: true,
+            fillColor: const Color(0x3309070F),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0x28A970FF)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0x28A970FF)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: AppColors.accent),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

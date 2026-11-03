@@ -10,16 +10,43 @@ import 'package:social_finance/features/fund_location/data/fund_location_reposit
 import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
 
 class MockFundLocationRepository extends Fake implements FundLocationRepository {
+  final List<FundLocation>? customLocations;
+
+  MockFundLocationRepository([this.customLocations]);
+
   @override
   Future<List<FundLocation>> fetchLocations({String? category, bool? isActive}) async {
+    if (customLocations != null) return customLocations!;
     return [
       FundLocation(
         id: 'loc-1',
         rtId: 'rt-1',
         name: 'Rekening BCA',
         category: FundLocationCategory.rekening,
+        bankName: 'BCA',
+        accountNumber: '1234567890',
         isActive: true,
         currentBalance: '1000000.00',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+      FundLocation(
+        id: 'loc-2',
+        rtId: 'rt-1',
+        name: 'Brankas Sekretariat RT',
+        category: FundLocationCategory.brankas,
+        isActive: true,
+        currentBalance: '500000.00',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+      FundLocation(
+        id: 'loc-3',
+        rtId: 'rt-1',
+        name: 'Kas Di Tangan Bendahara',
+        category: FundLocationCategory.coh,
+        isActive: true,
+        currentBalance: '200000.00',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ),
@@ -32,6 +59,7 @@ class MockIuranRepository extends Fake implements IuranRepository {
   String? lastAction;
   String? lastRejectionReason;
   String? lastOfficerNotes;
+  String? lastLocationId;
   String? lastActualReceivedDate;
 
   @override
@@ -47,6 +75,7 @@ class MockIuranRepository extends Fake implements IuranRepository {
     lastAction = action;
     lastRejectionReason = rejectionReason;
     lastOfficerNotes = officerNotes;
+    lastLocationId = locationId;
     lastActualReceivedDate = actualReceivedDate;
 
     return BackendPayment(
@@ -163,12 +192,12 @@ void main() {
         await tester.tap(find.textContaining('Transfer'));
         await tester.pumpAndSettle();
 
-        // Verify Detail Pembayaran dialog is displayed
+        // Verify Verifikasi Pembayaran dialog is displayed
         expect(find.byType(Dialog), findsOneWidget);
         expect(
           find.descendant(
             of: find.byType(Dialog),
-            matching: find.text('Detail Pembayaran'),
+            matching: find.text('Verifikasi Pembayaran'),
           ),
           findsOneWidget,
         );
@@ -360,12 +389,12 @@ void main() {
         await tester.tap(find.textContaining('Transfer'));
         await tester.pumpAndSettle();
 
-        // Detail Pembayaran is visible for Warga
+        // Verifikasi Pembayaran is visible for Warga
         expect(find.byType(Dialog), findsOneWidget);
         expect(
           find.descendant(
             of: find.byType(Dialog),
-            matching: find.text('Detail Pembayaran'),
+            matching: find.text('Verifikasi Pembayaran'),
           ),
           findsOneWidget,
         );
@@ -407,12 +436,12 @@ void main() {
         await tester.tap(find.textContaining('Transfer'));
         await tester.pumpAndSettle();
 
-        // Detail Pembayaran is visible
+        // Verifikasi Pembayaran is visible
         expect(find.byType(Dialog), findsOneWidget);
         expect(
           find.descendant(
             of: find.byType(Dialog),
-            matching: find.text('Detail Pembayaran'),
+            matching: find.text('Verifikasi Pembayaran'),
           ),
           findsOneWidget,
         );
@@ -420,6 +449,235 @@ void main() {
         // Buttons must not be present since payment is already approved
         expect(find.text('Terima'), findsNothing);
         expect(find.text('Tolak'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'Pembayaran TRANSFER hanya menampilkan rekening bank pada Konfirmasi Persetujuan',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 1400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final mockRepo = MockIuranRepository();
+        final mockFundLocRepo = MockFundLocationRepository();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ProviderScope(
+              overrides: [
+                billDetailProvider('bill-1').overrideWith((ref) async => testBill),
+                billPaymentsProvider('bill-1')
+                    .overrideWith((ref) async => [pendingPayment]),
+                canVerifyPaymentProvider.overrideWith((ref) => true),
+                iuranRepositoryProvider.overrideWithValue(mockRepo),
+                fundLocationRepositoryProvider.overrideWithValue(mockFundLocRepo),
+              ],
+              child: const IuranDetailScreen(billId: 'bill-1'),
+            ),
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        // Tap the payment in Riwayat Pembayaran
+        await tester.tap(find.textContaining('Transfer'));
+        await tester.pumpAndSettle();
+
+        // Tap Terima to trigger approval dialog
+        await tester.tap(find.widgetWithText(InkWell, 'Terima'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Konfirmasi Persetujuan'), findsOneWidget);
+        expect(find.text('Metode: Transfer Bank'), findsOneWidget);
+
+        // Verify dropdown is present
+        expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+
+        // Verify Rekening BCA is displayed
+        expect(find.textContaining('Rekening BCA'), findsOneWidget);
+
+        // Open the dropdown to inspect options
+        await tester.tap(find.byType(DropdownButtonFormField<String>));
+        await tester.pumpAndSettle();
+
+        // Rekening bank MUST be present in options
+        expect(find.textContaining('Rekening BCA'), findsWidgets);
+
+        // Cash / COH / Brankas MUST NOT be present in options
+        expect(find.textContaining('Brankas Sekretariat RT'), findsNothing);
+        expect(find.textContaining('Kas Di Tangan Bendahara'), findsNothing);
+
+        // Close dropdown by tapping outside or re-selecting
+        await tester.tap(find.textContaining('Rekening BCA').last);
+        await tester.pumpAndSettle();
+
+        // Confirm approval
+        await tester.tap(find.widgetWithText(InkWell, 'Setuju'));
+        await tester.pumpAndSettle();
+
+        // Verify repository received the bank account location_id
+        expect(mockRepo.lastVerifiedId, 'pay-pending-1');
+        expect(mockRepo.lastAction, 'approve');
+        expect(mockRepo.lastLocationId, 'loc-1');
+      },
+    );
+
+    testWidgets(
+      'Pembayaran CASH hanya menampilkan Brankas Fisik dan COH pada Konfirmasi Persetujuan',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 1400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final mockRepo = MockIuranRepository();
+        final mockFundLocRepo = MockFundLocationRepository();
+
+        final pendingCashPayment = BackendPayment(
+          id: 'pay-pending-cash',
+          rtId: 'rt-1',
+          billId: 'bill-1',
+          amount: '50000.00',
+          paidAt: DateTime(2026, 10, 21),
+          method: PaymentMethod.cash,
+          origin: PaymentOrigin.selfSubmitted,
+          status: PaymentStatus.pending,
+          notes: 'Bayar tunai di pos',
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ProviderScope(
+              overrides: [
+                billDetailProvider('bill-1').overrideWith((ref) async => testBill),
+                billPaymentsProvider('bill-1')
+                    .overrideWith((ref) async => [pendingCashPayment]),
+                canVerifyPaymentProvider.overrideWith((ref) => true),
+                iuranRepositoryProvider.overrideWithValue(mockRepo),
+                fundLocationRepositoryProvider.overrideWithValue(mockFundLocRepo),
+              ],
+              child: const IuranDetailScreen(billId: 'bill-1'),
+            ),
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        // Tap the payment in Riwayat Pembayaran
+        await tester.tap(find.textContaining('Cash'));
+        await tester.pumpAndSettle();
+
+        // Tap Terima to trigger approval dialog
+        await tester.tap(find.widgetWithText(InkWell, 'Terima'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Konfirmasi Persetujuan'), findsOneWidget);
+        expect(find.text('Metode: Tunai (CASH)'), findsOneWidget);
+
+        // Verify dropdown is present
+        expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+
+        // Open the dropdown to inspect options
+        await tester.tap(find.byType(DropdownButtonFormField<String>));
+        await tester.pumpAndSettle();
+
+        // Cash options MUST be present
+        expect(find.textContaining('Brankas Sekretariat RT'), findsWidgets);
+        expect(find.textContaining('Kas Di Tangan Bendahara'), findsWidgets);
+
+        // Rekening bank MUST NOT be present in options
+        expect(find.textContaining('Rekening BCA'), findsNothing);
+
+        // Select Brankas option
+        await tester.tap(find.textContaining('Brankas Sekretariat RT').last);
+        await tester.pumpAndSettle();
+
+        // Confirm approval
+        await tester.tap(find.widgetWithText(InkWell, 'Setuju'));
+        await tester.pumpAndSettle();
+
+        // Verify repository received the cash location_id
+        expect(mockRepo.lastVerifiedId, 'pay-pending-cash');
+        expect(mockRepo.lastAction, 'approve');
+        expect(mockRepo.lastLocationId, 'loc-2');
+      },
+    );
+
+    testWidgets(
+      'Persetujuan diblokir jika tidak ada Lokasi Dana yang sesuai dengan metode pembayaran',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 1400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+
+        final mockRepo = MockIuranRepository();
+        // Repository with only cash locations (no bank accounts)
+        final mockFundLocRepo = MockFundLocationRepository([
+          FundLocation(
+            id: 'loc-brankas-only',
+            rtId: 'rt-1',
+            name: 'Brankas RT',
+            category: FundLocationCategory.brankas,
+            isActive: true,
+            currentBalance: '500000.00',
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        ]);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ProviderScope(
+              overrides: [
+                billDetailProvider('bill-1').overrideWith((ref) async => testBill),
+                billPaymentsProvider('bill-1')
+                    .overrideWith((ref) async => [pendingPayment]), // Transfer payment
+                canVerifyPaymentProvider.overrideWith((ref) => true),
+                iuranRepositoryProvider.overrideWithValue(mockRepo),
+                fundLocationRepositoryProvider.overrideWithValue(mockFundLocRepo),
+              ],
+              child: const IuranDetailScreen(billId: 'bill-1'),
+            ),
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        // Tap the payment in Riwayat Pembayaran
+        await tester.tap(find.textContaining('Transfer'));
+        await tester.pumpAndSettle();
+
+        // Tap Terima to trigger approval dialog
+        await tester.tap(find.widgetWithText(InkWell, 'Terima'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Konfirmasi Persetujuan'), findsOneWidget);
+        expect(find.text('Metode: Transfer Bank'), findsOneWidget);
+
+        // Warning banner must be present
+        expect(
+          find.textContaining('Tidak ada rekening bank aktif yang terdaftar sebagai Lokasi Dana'),
+          findsOneWidget,
+        );
+
+        // Dropdown must not be available
+        expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+
+        // Tapping Setuju should be blocked
+        await tester.tap(find.widgetWithText(InkWell, 'Setuju'));
+        await tester.pumpAndSettle();
+
+        // Repository must NOT have been called
+        expect(mockRepo.lastVerifiedId, isNull);
       },
     );
   });

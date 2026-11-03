@@ -28,6 +28,7 @@ import (
 	"social-finance/internal/migration"
 	"social-finance/internal/notification"
 	rtpkg "social-finance/internal/rt"
+	rw "social-finance/internal/rw"
 	"social-finance/internal/storage"
 )
 
@@ -152,7 +153,14 @@ func main() {
 		}()
 	}
 
-	router := buildRouter(pool, authHandler, store)
+	// Validate scoping configuration before wiring routes.
+	scopingCfg, err := auth.LoadScoping()
+	if err != nil {
+		slog.Error("startup failed: invalid scoping configuration", "error", err)
+		os.Exit(1)
+	}
+
+	router := buildRouter(pool, authHandler, &scopingCfg, store)
 
 	// Expire voluntary dues once on startup (catch-up) and daily at 00:05 WIB.
 	// Test environments do not start background jobs; expiry logic is covered
@@ -395,7 +403,10 @@ func mustMarshal(v any) []byte {
 }
 
 // buildRouter wires up the HTTP router with middleware and endpoints.
-func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Service) http.Handler {
+func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.ScopingConfig, opts ...storage.Service) http.Handler {
+	if authH != nil && scopingCfg != nil {
+		authH.SetScopingConfig(scopingCfg)
+	}
 	r := chi.NewRouter()
 
 	// Core middleware.
@@ -419,12 +430,20 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		refreshLimiter = auth.NewRateLimiter(1000, 15*time.Minute)
 	}
 
+	resetLimiter := auth.NewRateLimiter(5, 15*time.Minute)
+	if appEnv == "development" || appEnv == "test" {
+		resetLimiter = auth.NewRateLimiter(1000, 15*time.Minute)
+	}
+
 	r.Post("/api/v1/auth/login", loginLimiter.LimitFunc(func(r *http.Request) string {
 		return auth.ClientIP(r)
 	})(authH.Login()).(http.HandlerFunc))
 	r.Post("/api/v1/auth/refresh", refreshLimiter.LimitFunc(func(r *http.Request) string {
 		return auth.ClientIP(r)
 	})(authH.Refresh()).(http.HandlerFunc))
+	r.Post("/api/v1/auth/reset-password-with-code", resetLimiter.LimitFunc(func(r *http.Request) string {
+		return auth.ClientIP(r)
+	})(authH.ResetPasswordWithCode()).(http.HandlerFunc))
 
 	// Protected auth routes.
 	r.Group(func(r chi.Router) {
@@ -605,6 +624,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Post("/api/v1/residents/{id}/move", hh.MoveResident)
 		r.Patch("/api/v1/residents/{id}", hh.UpdateResident)
 		r.Delete("/api/v1/residents/{id}", hh.DeactivateResident)
+		r.Post("/api/v1/residents/{id}/reset-password-code", hh.GenerateResetPasswordCode)
 		r.Patch("/api/v1/residents/special/{id}", hh.UpdateSpecialResident)
 	})
 
@@ -635,6 +655,12 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	}
 	finSvc := finance.NewService(pool, store)
 	finH := finance.NewHandler(pool, finSvc, store)
+
+	// Wire household occupancy bill synchronization hook
+	household.SyncOccupancyBillsFn = func(ctx context.Context, tx *sql.Tx, rtID, occID string) error {
+		_, err := finance.SyncHouseholdOccupancyBills(ctx, tx, rtID, occID)
+		return err
+	}
 
 	// Financial read access & warga payments: warga, bendahara, pengurus
 	// jabatan-based users evaluated via position_permissions for finance.read.
@@ -732,6 +758,40 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Get("/api/v1/reports/fund-locations/reconciliation", locH.GetReconciliationReport)
 	})
 
+	rwRepo := rw.NewRepository(pool.Raw())
+	rwSvc := rw.NewService(pool, rwRepo, scopingCfg)
+	rwHandler := rw.NewHandler(pool, rwSvc, store)
+
+	// RW operational endpoints
+	// Requires RW membership via RequireRWScope (from scoping.go)
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireRWScope(pool, *scopingCfg))
+		r.Get("/api/v1/rw/{rwId}/dashboard", rwHandler.GetDashboard)
+		r.Get("/api/v1/rw/{rwId}/kas", rwHandler.GetKAS)
+		r.Post("/api/v1/rw/{rwId}/kas", rwHandler.CreateKASTransaction)
+		r.Post("/api/v1/rw/{rwId}/opening-balance", rwHandler.UpdateOpeningBalance)
+		r.Get("/api/v1/rw/{rwId}/kas/transactions", rwHandler.GetKASTransactions)
+		r.Post("/api/v1/rw/{rwId}/kas/transactions", rwHandler.CreateKASTransaction)
+		r.Get("/api/v1/rw/{rwId}/kas/transactions/{id}", rwHandler.GetKASTransactionByID)
+		r.Post("/api/v1/rw/{rwId}/kas/transactions/{id}/proof", rwHandler.UploadProof)
+		r.Get("/api/v1/rw/{rwId}/kas/transactions/{id}/proof", rwHandler.GetProof)
+
+		r.Get("/api/v1/rw/{rwId}/locations", rwHandler.GetLocations)
+		r.Post("/api/v1/rw/{rwId}/locations", rwHandler.CreateLocation)
+		r.Get("/api/v1/rw/{rwId}/locations/reconcile", rwHandler.GetReconciliation)
+		r.Get("/api/v1/rw/{rwId}/transfers", rwHandler.GetTransfers)
+		r.Post("/api/v1/rw/{rwId}/transfers", rwHandler.CreateTransfer)
+		r.Post("/api/v1/rw/{rwId}/transfers/{id}/reverse", rwHandler.ReverseTransfer)
+		r.Get("/api/v1/rw/{rwId}/locations/transfers", rwHandler.GetTransfers)
+		r.Post("/api/v1/rw/{rwId}/locations/transfers", rwHandler.CreateTransfer)
+		r.Post("/api/v1/rw/{rwId}/locations/transfers/{id}/reverse", rwHandler.ReverseTransfer)
+		r.Get("/api/v1/rw/{rwId}/locations/{id}", rwHandler.GetLocationByID)
+		r.Put("/api/v1/rw/{rwId}/locations/{id}", rwHandler.UpdateLocation)
+		r.Patch("/api/v1/rw/{rwId}/locations/{id}/status", rwHandler.ToggleLocationStatus)
+		r.Get("/api/v1/rw/{rwId}/locations/{id}/mutations", rwHandler.GetLocationMutations)
+	})
+
 	// Notification module
 	fcmCreds := os.Getenv("FCM_CREDENTIALS_FILE")
 	if fcmCreds == "" {
@@ -746,7 +806,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	notifProvider := notification.NewFCMProvider(fcmCreds, appEnv)
 	notifProvider.SetProjectID(fcmProject)
 	notifSvc := notification.NewService(notifRepo, notifProvider)
-	notifH := notification.NewHandler(notifSvc, store, appEnv)
+	notifH := notification.NewHandler(notifSvc, pool, store, appEnv)
 
 	// Wire notification into finance service
 	finSvc.SetNotifier(notifSvc)
@@ -754,14 +814,25 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	// Public notification image streaming
 	r.Get("/api/v1/notifications/images/*", notifH.GetImage)
 
-	// Notification device token management (supports both /notifications/devices and /devices)
+	// Notification device token management and notification history (accessible to all authenticated RT members)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Post("/api/v1/notifications/devices", notifH.RegisterDevice)
 		r.Delete("/api/v1/notifications/devices", notifH.UnregisterDevice)
 		r.Post("/api/v1/devices", notifH.RegisterDevice)
 		r.Delete("/api/v1/devices", notifH.UnregisterDevice)
 		r.Get("/api/v1/notifications/detail/{id}", notifH.GetNotificationDetail)
+		r.Get("/api/v1/notifications/logs", notifH.ListLogs)
+		r.Get("/api/v1/notifications/unread-count", notifH.GetUnreadCount)
+		r.Post("/api/v1/notifications/logs/{id}/read", notifH.MarkAsRead)
+		r.Patch("/api/v1/notifications/logs/{id}/read", notifH.MarkAsRead)
+		r.Post("/api/v1/notifications/read/{id}", notifH.MarkAsRead)
+		r.Patch("/api/v1/notifications/read/{id}", notifH.MarkAsRead)
+		r.Post("/api/v1/notifications/logs/read-all", notifH.MarkAllAsRead)
+		r.Patch("/api/v1/notifications/logs/read-all", notifH.MarkAllAsRead)
+		r.Post("/api/v1/notifications/read-all", notifH.MarkAllAsRead)
+		r.Patch("/api/v1/notifications/read-all", notifH.MarkAllAsRead)
 		if appEnv != "production" {
 			r.Post("/api/v1/notifications/test-self", notifH.TestSelf)
 		}
@@ -771,14 +842,16 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireRole(auth.RolePengurus))
 		r.Post("/api/v1/notifications/waste-truck", notifH.TriggerWasteTruckArrival)
 		r.Post("/api/v1/notifications/manual", notifH.TriggerManualPush)
 	})
 
 	// Notification Management: SUPER_ADMIN and Ketua RT only
+	// Requires AllowedRT middleware so that Super Admins cannot access
+	// non-whitelisted RTs (e.g. rt-999) via template CRUD or test-push.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequireNotificationAdmin())
 		r.Get("/api/v1/notifications/system-types", notifH.GetSystemTypes)
 		r.Get("/api/v1/notifications/templates", notifH.ListTemplates)
@@ -787,7 +860,6 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, opts ...storage.Servi
 		r.Put("/api/v1/notifications/templates/{id}", notifH.UpdateTemplate)
 		r.Patch("/api/v1/notifications/templates/{id}/toggle-active", notifH.ToggleTemplateActive)
 		r.Delete("/api/v1/notifications/templates/{id}", notifH.DeleteTemplate)
-		r.Get("/api/v1/notifications/logs", notifH.ListLogs)
 		r.Post("/api/v1/notifications/upload-image", notifH.UploadImage)
 		r.Post("/api/v1/notifications/test-push", notifH.TestPush)
 	})

@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"social-finance/internal/auth"
+	"social-finance/internal/database"
 	httpx "social-finance/internal/http"
 	"social-finance/internal/storage"
 )
@@ -20,12 +22,13 @@ import (
 // Handler handles HTTP requests for notifications and device token management.
 type Handler struct {
 	svc     Service
+	pool    *database.Pool
 	storage storage.Service
 	appEnv  string
 }
 
 // NewHandler creates a new Handler instance.
-func NewHandler(svc Service, store storage.Service, appEnv ...string) *Handler {
+func NewHandler(svc Service, pool *database.Pool, store storage.Service, appEnv ...string) *Handler {
 	env := "development"
 	if len(appEnv) > 0 && appEnv[0] != "" {
 		env = appEnv[0]
@@ -33,7 +36,7 @@ func NewHandler(svc Service, store storage.Service, appEnv ...string) *Handler {
 	if store == nil {
 		store = storage.NewMockStorage()
 	}
-	return &Handler{svc: svc, storage: store, appEnv: env}
+	return &Handler{svc: svc, pool: pool, storage: store, appEnv: env}
 }
 
 // RegisterDevice registers an FCM token for the authenticated user.
@@ -97,9 +100,13 @@ func (h *Handler) TriggerWasteTruckArrival(w http.ResponseWriter, r *http.Reques
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+	if !isOfficerUser(ac) {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT yang berwenang memicu notifikasi waste truck")
+		return
+	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -123,9 +130,13 @@ func (h *Handler) TriggerManualPush(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+	if !isOfficerUser(ac) {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT yang berwenang mengirim notifikasi manual")
+		return
+	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -162,7 +173,7 @@ func (h *Handler) TestPush(w http.ResponseWriter, r *http.Request) {
 
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -194,9 +205,13 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
+	if !isOfficerUser(ac) {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "only officers can upload notification images")
+		return
+	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -304,7 +319,14 @@ func (h *Handler) resolveTenantRT(r *http.Request, ac *auth.AuthContext) (string
 	if ac == nil {
 		return "", errors.New("unauthorized: missing auth context")
 	}
-	return h.svc.ResolveTenantRT(r.Context(), ac, r.Header.Get("X-RT-ID"), r.URL.Query().Get("rt_id"))
+	// Derive effective RTID: header RT overrides for Super Admin,
+	// otherwise use JWT RTID. Then delegate to service for validation.
+	// NOTE: The RequireAllowedRT middleware (if present) already validated
+	// the RTID. If middleware is missing, ResolveTenantRT will still
+	// enforce that the resolved RTID is valid — it will NOT silently fall
+	// back to a default RT.
+	headerRT := r.Header.Get("X-RT-ID")
+	return h.svc.ResolveTenantRT(r.Context(), ac, headerRT, r.URL.Query().Get("rt_id"))
 }
 
 // GetSystemTypes returns all recognized notification system events.
@@ -326,7 +348,7 @@ func (h *Handler) ListTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -359,7 +381,7 @@ func (h *Handler) GetTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -393,7 +415,7 @@ func (h *Handler) CreateTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -423,7 +445,7 @@ func (h *Handler) UpdateTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -463,7 +485,7 @@ func (h *Handler) ToggleTemplateActive(w http.ResponseWriter, r *http.Request) {
 	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -497,7 +519,7 @@ func (h *Handler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -524,7 +546,7 @@ func (h *Handler) ListLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 
@@ -547,8 +569,9 @@ func (h *Handler) ListLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	eventType := r.URL.Query().Get("event_type")
+	status := r.URL.Query().Get("status")
 
-	logs, total, err := h.svc.ListLogs(r.Context(), rtID, eventType, page, pageSize)
+	logs, total, err := h.svc.ListLogs(r.Context(), ac, rtID, eventType, status, page, pageSize)
 	if err != nil {
 		httpx.WriteInternalServerError(w, "failed to list notification logs")
 		return
@@ -572,6 +595,98 @@ func (h *Handler) ListLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetUnreadCount returns unread notifications count for the caller.
+func (h *Handler) GetUnreadCount(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	count, err := h.svc.GetUnreadCount(r.Context(), ac, rtID)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to get unread count")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"unread_count": count,
+	})
+}
+
+// MarkAsRead marks a single notification as read.
+func (h *Handler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		httpx.WriteValidationError(w, "notification id is required", nil)
+		return
+	}
+
+	if err := h.svc.MarkAsRead(r.Context(), ac, rtID, id); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			httpx.WriteError(w, http.StatusForbidden, "forbidden", err.Error())
+			return
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteNotFound(w, "notification not found")
+			return
+		}
+		httpx.WriteInternalServerError(w, "failed to mark notification as read")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+	})
+}
+
+// MarkAllAsRead marks all eligible unread notifications as read for current user.
+func (h *Handler) MarkAllAsRead(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	updated, err := h.svc.MarkAllAsRead(r.Context(), ac, rtID)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to mark all notifications as read")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":       true,
+		"updated_count": updated,
+	})
+}
+
 // GetNotificationDetail returns detail of a single notification log entry for an authenticated RT member.
 func (h *Handler) GetNotificationDetail(w http.ResponseWriter, r *http.Request) {
 	ac := auth.GetAuthContext(r)
@@ -581,7 +696,7 @@ func (h *Handler) GetNotificationDetail(w http.ResponseWriter, r *http.Request) 
 	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "invalid or missing tenant context")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
 		return
 	}
 

@@ -117,6 +117,23 @@ class AuthService {
     };
     await client.dio.put('/api/v1/auth/profile', data: body);
   }
+
+  Future<void> resetPasswordWithCode({
+    required String identifier,
+    required String code,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    await client.dio.post(
+      '/api/v1/auth/reset-password-with-code',
+      data: {
+        'identifier': identifier.trim(),
+        'code': code.trim(),
+        'new_password': newPassword,
+        'confirm_password': confirmPassword,
+      },
+    );
+  }
 }
 
 final authServiceProvider = Provider<AuthService>((ref) {

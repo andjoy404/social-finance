@@ -19,14 +19,17 @@ var SigningSecret []byte
 //   - role: tenant role string (e.g. "bendahara", empty for system-only)
 //   - jabatan: RT organizational position (e.g. "ketua", empty if not assigned)
 //   - sys_role: system role (e.g. "super_admin", empty for tenant-only)
+//   - rw_context: optional JSON string containing RW memberships, e.g.
+//     `[{"rwId":"uuid","jabatan":"ketua"}, ...]` (empty string for backward compat)
 //   - exp, iat, jti: registered claims
 type TokenClaims struct {
-	UserID  string `json:"sub"`
-	MID     string `json:"mid"`
-	RTID    string `json:"rt_id"`
-	Role    string `json:"role"`
-	Jabatan string `json:"jabatan"`
-	SysRole string `json:"sys_role"`
+	UserID     string `json:"sub"`
+	MID        string `json:"mid"`
+	RTID       string `json:"rt_id"`
+	Role       string `json:"role"`
+	Jabatan    string `json:"jabatan"`
+	SysRole    string `json:"sys_role"`
+	RWContext  string `json:"rw_context,omitempty"`
 	jwt.RegisteredClaims
 }
 

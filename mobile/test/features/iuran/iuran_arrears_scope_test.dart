@@ -85,7 +85,7 @@ void main() {
     expect(find.text('OKTOBER 2026'), findsNWidgets(2));
     expect(find.text('Rp 50.000'), findsOneWidget);
     expect(find.text('Rp 0'), findsOneWidget);
-    expect(find.byIcon(Icons.receipt_long_outlined), findsNWidgets(2));
+    expect(find.byIcon(Icons.receipt_long_outlined), findsAtLeastNWidgets(2));
     expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
   });
 

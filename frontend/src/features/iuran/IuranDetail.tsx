@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
+import dayjs from 'dayjs'
 import {
   ArrowLeftOutlined,
   DollarOutlined,
@@ -27,6 +28,7 @@ import {
   type IuranBill,
   type IuranPaymentRecord,
   type PaymentStatusDisplay,
+  type DueType,
 } from './iuranTypes'
 import {
   apiGetBill,
@@ -65,11 +67,18 @@ function formatDate(iso: string): string {
    Status badge (modal header)
    ───────────────────────────────────────────── */
 
-function StatusBadge({ status, isActive }: { status: string; isActive?: boolean }) {
+function StatusBadge({ status, isActive, isObligatory }: { status: string; isActive?: boolean; isObligatory?: boolean }) {
   if (isActive === false) {
     return (
       <Badge variant="gray" style={{ fontSize: '12px', padding: '0 12px', height: '26px', fontWeight: 600 }}>
         Tidak Aktif
+      </Badge>
+    )
+  }
+  if (isObligatory === false) {
+    return (
+      <Badge variant="gray" style={{ fontSize: '12px', padding: '0 12px', height: '26px', fontWeight: 600 }}>
+        Tidak Wajib
       </Badge>
     )
   }
@@ -80,6 +89,61 @@ function StatusBadge({ status, isActive }: { status: string; isActive?: boolean 
       {getStatusLabel(typed)}
     </Badge>
   )
+}
+
+const INDO_MONTHS = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+]
+
+function formatIndoDate(dateStr?: string | null): string {
+  if (!dateStr) return '—'
+  const d = dayjs(dateStr)
+  if (!d.isValid()) return dateStr
+  return `${d.date()} ${INDO_MONTHS[d.month()]} ${d.year()}`
+}
+
+function getObligatorySummary(moveInDate?: string | null, dueYear?: number | null, period?: string) {
+  const year = dueYear || (period ? parseInt(period.slice(0, 4), 10) : new Date().getFullYear())
+  if (!moveInDate) {
+    return {
+      moveInFormatted: '—',
+      obligRange: `Januari–Desember ${year}`,
+      obligCount: '12 Bulan',
+    }
+  }
+  const d = dayjs(moveInDate)
+  if (!d.isValid()) {
+    return {
+      moveInFormatted: moveInDate,
+      obligRange: `Januari–Desember ${year}`,
+      obligCount: '12 Bulan',
+    }
+  }
+  const moveInYear = d.year()
+  const moveInMonth = d.month() + 1 // 1-12
+  let obligRange = ''
+  let count = 12
+
+  if (moveInYear < year) {
+    obligRange = `Januari–Desember ${year}`
+    count = 12
+  } else if (moveInYear > year) {
+    obligRange = `0 Bulan (${year})`
+    count = 0
+  } else {
+    count = 12 - moveInMonth + 1
+    if (count <= 1) {
+      obligRange = `Desember ${year}`
+    } else {
+      obligRange = `${INDO_MONTHS[moveInMonth - 1]}–Desember ${year}`
+    }
+  }
+  return {
+    moveInFormatted: formatIndoDate(moveInDate),
+    obligRange,
+    obligCount: `${count} Bulan`,
+  }
 }
 
 /* ─────────────────────────────────────────────
@@ -560,9 +624,25 @@ function DetailContent({
 }) {
   const payments = bill.payments ?? []
   const hasHistory = payments.length > 0
+  const summary = getObligatorySummary(bill.moveInDate, bill.year, bill.periode)
 
   return (
     <>
+      {bill.isObligatory === false && (
+        <div style={{
+          padding: '12px 16px',
+          background: 'rgba(234, 179, 8, 0.1)',
+          border: '1px solid rgba(234, 179, 8, 0.3)',
+          borderRadius: 'var(--sf-radius-md)',
+          color: '#ca8a04',
+          marginBottom: '12px',
+          fontSize: '13px',
+          lineHeight: '1.4',
+        }}>
+          <strong>Periode Tidak Wajib:</strong> Periode tagihan ini sebelum tanggal mulai menempati rumah ({summary.moveInFormatted}). Tidak wajib dibayar, bukan tunggakan, dan tidak dapat dibayar.
+        </div>
+      )}
+
       {/* ── Payment summary ── */}
       <AppCard style={{ padding: '20px 24px' }}>
         {/* Top row: big amount */}
@@ -652,6 +732,27 @@ function DetailContent({
               icon={<UserOutlined />}
               label="Wilayah"
               value={bill.rt || '—'}
+            />
+          </div>
+          <div style={{ marginTop: '10px' }}>
+            <InfoRow
+              icon={<CalendarOutlined />}
+              label="Mulai Menempati"
+              value={summary.moveInFormatted}
+            />
+          </div>
+          <div style={{ marginTop: '10px' }}>
+            <InfoRow
+              icon={<CalendarOutlined />}
+              label="Bulan Wajib Dibayar"
+              value={summary.obligRange}
+            />
+          </div>
+          <div style={{ marginTop: '10px' }}>
+            <InfoRow
+              icon={<CalendarOutlined />}
+              label="Jumlah Periode Wajib"
+              value={summary.obligCount}
             />
           </div>
         </AppCard>
@@ -864,18 +965,69 @@ function PaymentDetailModal({
               letterSpacing: '0.03em',
               marginBottom: '4px',
             }}>
-              No. Pembayaran
+              Referensi
             </div>
             <div style={{
               fontSize: '13px',
               fontWeight: 600,
               color: 'var(--sf-text)',
               fontFamily: 'var(--sf-font-mono)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
             }}>
               {payment.paymentNo || '—'}
+              {payment.paymentNo && (
+                <button
+                  onClick={async () => {
+                    const { copyToClipboard, showCopyFeedback } = await import('@/utils/clipboard')
+                    const result = await copyToClipboard(payment.paymentNo!)
+                    const toast = showCopyFeedback(result, result.success)
+                    setTimeout(() => toast.remove(), 2600)
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: '2px',
+                    cursor: 'pointer',
+                    color: 'var(--sf-accent)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                  }}
+                  title="Salin Referensi"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Lokasi Dana */}
+        {payment.locationName && (
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--sf-text-muted)',
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              marginBottom: '4px',
+            }}>
+              Lokasi Dana
+            </div>
+            <div style={{
+              fontSize: '13px',
+              color: 'var(--sf-text)',
+              fontWeight: 600,
+            }}>
+              {payment.locationName}
+            </div>
+          </div>
+        )}
 
         {/* Tanggal Uang Diterima (O-12) */}
         {payment.actualReceivedDate && (
@@ -1168,9 +1320,14 @@ export function IuranDetail({
         pendingAmount: 0, // will be calculated from PENDING payments
         status,
         isVoluntary,
+        isObligatory: apiBill.is_obligatory !== false,
+        moveInDate: apiBill.move_in_date ?? undefined,
+        moveOutDate: apiBill.move_out_date ?? undefined,
         dueId: apiBill.due_id,
         dueIsActive: apiBill.due_is_active ?? true,
         isActive: apiBill.is_active ?? true,
+        dueType: (apiBill.due_type as DueType) ?? (isVoluntary ? 'voluntary' : 'regular'),
+        year: apiBill.due_year ?? undefined,
         payments: [], // will be loaded separately
       }
 
@@ -1213,6 +1370,8 @@ export function IuranDetail({
         proofOriginalName: p.proof_original_name,
         proofMimeType: p.proof_mime_type,
         proofSizeBytes: p.proof_size_bytes,
+        locationName: p.location_name ?? undefined,
+        locationId: p.location_id ?? undefined,
       }))
 
       setBill({
@@ -1402,7 +1561,7 @@ export function IuranDetail({
                       {bill.iuranType} · {formatFullPeriodeLabel(bill.periode)}
                     </div>
                   </div>
-                  <StatusBadge status={bill.status} isActive={bill.isActive} />
+                  <StatusBadge status={bill.status} isActive={bill.isActive} isObligatory={bill.isObligatory} />
                 </div>
 
                 <DetailContent
@@ -1444,25 +1603,45 @@ export function IuranDetail({
                 </button>
 
                 {(remaining > 0 || bill.isVoluntary || bill.nominal === 0) && (
-                  <button
-                    type="button"
-                    onClick={() => onPayment(bill.id)}
-                    disabled={!bill.dueIsActive}
-                    style={{
-                      padding: '8px 20px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      color: bill.dueIsActive ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-                      background: bill.dueIsActive ? 'var(--sf-accent-soft)' : 'var(--sf-bg)',
-                      border: `1px solid ${bill.dueIsActive ? 'var(--sf-accent)' : 'var(--sf-border)'}`,
-                      borderRadius: 'var(--sf-radius-sm)',
-                      cursor: bill.dueIsActive ? 'pointer' : 'not-allowed',
-                      transition: 'background 200ms, border-color 200ms',
-                      opacity: bill.dueIsActive ? 1 : 0.5,
-                    }}
-                  >
-                    {bill.dueIsActive ? 'Bayar Sekarang' : 'Iuran Tidak Aktif'}
-                  </button>
+                  bill.isObligatory === false ? (
+                    <button
+                      type="button"
+                      disabled
+                      style={{
+                        padding: '8px 20px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: 'var(--sf-text-muted)',
+                        background: 'var(--sf-bg)',
+                        border: '1px solid var(--sf-border)',
+                        borderRadius: 'var(--sf-radius-sm)',
+                        cursor: 'not-allowed',
+                        opacity: 0.6,
+                      }}
+                    >
+                      Tidak Wajib Bayar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onPayment(bill.id)}
+                      disabled={!bill.dueIsActive}
+                      style={{
+                        padding: '8px 20px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: bill.dueIsActive ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                        background: bill.dueIsActive ? 'var(--sf-accent-soft)' : 'var(--sf-bg)',
+                        border: `1px solid ${bill.dueIsActive ? 'var(--sf-accent)' : 'var(--sf-border)'}`,
+                        borderRadius: 'var(--sf-radius-sm)',
+                        cursor: bill.dueIsActive ? 'pointer' : 'not-allowed',
+                        transition: 'background 200ms, border-color 200ms',
+                        opacity: bill.dueIsActive ? 1 : 0.5,
+                      }}
+                    >
+                      {bill.dueIsActive ? 'Bayar Sekarang' : 'Iuran Tidak Aktif'}
+                    </button>
+                  )
                 )}
               </div>
             </ModalFooter>
@@ -1641,7 +1820,7 @@ export function IuranDetail({
                 {bill.iuranType} · {formatFullPeriodeLabel(bill.periode)}
               </div>
             </div>
-            <StatusBadge status={bill.status} isActive={bill.isActive} />
+            <StatusBadge status={bill.status} isActive={bill.isActive} isObligatory={bill.isObligatory} />
           </div>
 
           <DetailContent

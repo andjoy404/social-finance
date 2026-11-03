@@ -1,3 +1,49 @@
+class RWMembership {
+  final String rwId;
+  final int? rwNumber;
+  final String? rwName;
+  final String? jabatan;
+
+  const RWMembership({
+    required this.rwId,
+    this.rwNumber,
+    this.rwName,
+    this.jabatan,
+  });
+
+  factory RWMembership.fromJson(Map<String, dynamic> json) {
+    return RWMembership(
+      rwId: json['rw_id'] as String? ?? '',
+      rwNumber: json['rw_number'] != null
+          ? (json['rw_number'] as num).toInt()
+          : null,
+      rwName: json['rw_name'] as String?,
+      jabatan: json['jabatan'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'rw_id': rwId,
+      if (rwNumber != null) 'rw_number': rwNumber,
+      if (rwName != null) 'rw_name': rwName,
+      if (jabatan != null) 'jabatan': jabatan,
+    };
+  }
+
+  /// Returns display name like "RW 016" using rw_number (preferred)
+  /// or rw_name / "RW" as fallback (never raw UUID).
+  String get displayName {
+    if (rwNumber != null) {
+      return 'RW ${rwNumber!.toString().padLeft(3, "0")}';
+    }
+    if (rwName != null && rwName!.trim().isNotEmpty) {
+      return rwName!.trim();
+    }
+    return 'RW';
+  }
+}
+
 class AuthUser {
   final String id;
   final String email;
@@ -11,6 +57,7 @@ class AuthUser {
   final String? rwId;
   final String? rwCode;
   final String? rwName;
+  final List<RWMembership> rwMemberships;
   final String? systemRole;
   final String? jabatan;
   final String? houseNumber;
@@ -30,6 +77,7 @@ class AuthUser {
     this.rwId,
     this.rwCode,
     this.rwName,
+    this.rwMemberships = const [],
     this.systemRole,
     this.jabatan,
     this.houseNumber,
@@ -78,6 +126,13 @@ class AuthUser {
     final effectivePermissions = effectivePermissionsAvailable
         ? List<String>.unmodifiable(rawPermissions.cast<String>())
         : const <String>[];
+    final rawRwMemberships = json['rw_memberships'] as List<dynamic>?;
+    final rwMemberships = rawRwMemberships != null
+        ? rawRwMemberships
+            .whereType<Map<String, dynamic>>()
+            .map((e) => RWMembership.fromJson(e))
+            .toList()
+        : <RWMembership>[];
     return AuthUser(
       id: json['id'] as String? ?? '',
       email: json['email'] as String? ?? '',
@@ -91,6 +146,7 @@ class AuthUser {
       rwId: rwId,
       rwCode: rwCode,
       rwName: rwName,
+      rwMemberships: rwMemberships,
       systemRole: json['system_role'] as String?,
       jabatan: json['jabatan'] as String?,
       houseNumber: (json['house_number'] ?? json['houseNumber']) as String?,
@@ -112,6 +168,7 @@ class AuthUser {
     if (rwId != null) 'rw_id': rwId,
     if (rwCode != null) 'rt_rw': int.tryParse(rwCode!) ?? rwCode,
     if (rwName != null) 'rw_name': rwName,
+    if (rwMemberships.isNotEmpty) 'rw_memberships': rwMemberships.map((m) => m.toJson()).toList(),
     if (systemRole != null) 'system_role': systemRole,
     if (jabatan != null) 'jabatan': jabatan,
     if (houseNumber != null) 'house_number': houseNumber,

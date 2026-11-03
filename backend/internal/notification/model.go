@@ -169,14 +169,17 @@ type UpdateTemplateInput struct {
 
 // NotificationLogEntry represents a delivery log row.
 type NotificationLogEntry struct {
-	ID        string    `json:"id"`
-	RTID      string    `json:"rt_id"`
-	UserID    *string   `json:"user_id,omitempty"`
-	EventType string    `json:"event_type"`
-	DedupKey  string    `json:"dedup_key"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	ImageURL  *string   `json:"image_url,omitempty"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string     `json:"id"`
+	RTID      string     `json:"rt_id"`
+	UserID    *string    `json:"user_id,omitempty"`
+	EventType string     `json:"event_type"`
+	DedupKey  string     `json:"dedup_key"`
+	Title     string         `json:"title"`
+	Body      string         `json:"body"`
+	Payload   map[string]any `json:"payload,omitempty"`
+	ImageURL  *string        `json:"image_url,omitempty"`
+	Status    string     `json:"status"`
+	CreatedAt time.Time  `json:"created_at"`
+	IsRead    bool       `json:"is_read"`
+	ReadAt    *time.Time `json:"read_at,omitempty"`
 }

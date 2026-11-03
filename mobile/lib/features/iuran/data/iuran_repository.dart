@@ -108,9 +108,11 @@ class IuranRepository {
     String? householdOccupancyId,
     bool myBills = false,
     int page = 1,
-    int pageSize = 20,
+    int pageSize = 30,
+    String? order,
   }) async {
     final billResponse = await apiClient.listBills(
+      search: search,
       dueId: dueId,
       status: status,
       paymentStatus: paymentStatus,
@@ -119,55 +121,26 @@ class IuranRepository {
       myBills: myBills,
       page: page,
       pageSize: pageSize,
-    );
-
-    // DEBUG: log API response counts per household
-    final backendHouseholds = <String, int>{};
-    for (final bill in billResponse.data) {
-      backendHouseholds.update(
-        bill.headName ?? '—',
-        (c) => c + 1,
-        ifAbsent: () => 1,
-      );
-    }
-    debugPrint(
-      '[IuranDebug] fetchBills page=$page — total=${billResponse.data.length}, pagination=${billResponse.pagination.totalPages} pages',
-    );
-    debugPrint(
-      '[IuranDebug]   Backend households: ${backendHouseholds.entries.map((e) => '${e.key}=${e.value}').join(', ')}',
+      order: order,
     );
 
     final uiBills = <IuranBill>[];
     for (final bill in billResponse.data) {
-      PaginatedResponse<BackendPayment> payments = const PaginatedResponse(
-        data: [],
-        pagination: PaginationInfo(
-          page: 1,
-          pageSize: 20,
-          total: 0,
-          totalPages: 0,
-        ),
-      );
-      try {
-        payments = await apiClient.listPayments(billId: bill.id);
-      } catch (e) {
-        debugPrint('[IuranDebug] listPayments failed for bill=${bill.id}: $e');
-      }
-      int approvedTotal = payments.data
-          .where((p) => p.status == PaymentStatus.approved)
-          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
-      if (approvedTotal == 0 && bill.paidAmount != null) {
+      int approvedTotal = 0;
+      if (bill.paidAmount != null) {
         approvedTotal = moneyToDisplayRupiah(bill.paidAmount!);
       }
-      int pendingTotal = payments.data
-          .where((p) => p.status == PaymentStatus.pending)
-          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
-      if (pendingTotal == 0 && bill.pendingAmount != null) {
+      int pendingTotal = 0;
+      if (bill.pendingAmount != null) {
         pendingTotal = moneyToDisplayRupiah(bill.pendingAmount!);
       }
-      final rejectedTotal = payments.data
-          .where((p) => p.status == PaymentStatus.rejected)
-          .fold<int>(0, (sum, p) => sum + moneyToDisplayRupiah(p.amount));
+      const rejectedTotal = 0;
+
+      final paymentNumbers = (bill.paymentNumbers ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
 
       final nominalVal = moneyToDisplayRupiah(bill.amount);
       final isVol = bill.isVoluntary;
@@ -194,6 +167,10 @@ class IuranRepository {
           householdOccupancyId: bill.householdOccupancyId,
           dueType: bill.dueType,
           year: bill.year,
+          isObligatory: bill.isObligatory,
+          moveInDate: bill.moveInDate,
+          moveOutDate: bill.moveOutDate,
+          paymentNumbers: paymentNumbers,
         ),
       );
     }
@@ -217,6 +194,7 @@ class IuranRepository {
 
     do {
       final response = await fetchBills(
+        search: search,
         status: status,
         paymentStatus: paymentStatus,
         myBills: myBills,
@@ -234,7 +212,8 @@ class IuranRepository {
       final query = search.trim().toLowerCase();
       return allBills.where((b) {
         return b.householdName.toLowerCase().contains(query) ||
-            b.iuranType.toLowerCase().contains(query);
+            b.iuranType.toLowerCase().contains(query) ||
+            b.paymentNumbers.any((no) => no.toLowerCase().contains(query));
       }).toList();
     }
 
@@ -302,6 +281,14 @@ class IuranRepository {
       householdOccupancyId: bill.householdOccupancyId,
       dueType: bill.dueType,
       year: bill.year,
+      isObligatory: bill.isObligatory,
+      moveInDate: bill.moveInDate,
+      moveOutDate: bill.moveOutDate,
+      paymentNumbers: payments.data
+          .map((p) => p.paymentNo)
+          .whereType<String>()
+          .where((no) => no.trim().isNotEmpty)
+          .toList(),
     );
   }
 
@@ -335,6 +322,8 @@ class IuranRepository {
     String? proofPath,
     String? notes,
     String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
   }) async {
     return apiClient.createPayment(
       billId: billId,
@@ -343,6 +332,8 @@ class IuranRepository {
       proofPath: proofPath,
       notes: notes,
       idempotencyKey: idempotencyKey,
+      fileBytes: fileBytes,
+      filename: filename,
     );
   }
 
@@ -376,6 +367,8 @@ class IuranRepository {
     required PaymentMethod method,
     String? notes,
     String? idempotencyKey,
+    Uint8List? fileBytes,
+    String? filename,
   }) async {
     if (dueId.trim().isEmpty || amount <= 0) {
       throw ArgumentError('Donation requires a due and a positive amount.');
@@ -386,6 +379,8 @@ class IuranRepository {
       method: method,
       notes: notes,
       idempotencyKey: idempotencyKey,
+      fileBytes: fileBytes,
+      filename: filename,
     );
   }
 

@@ -292,6 +292,9 @@ describe('KAS Tambah — Payload submit contract', () => {
     const nominalInput = screen.getByRole('textbox', { name: /Nominal/ })
     fireEvent.change(nominalInput, { target: { value: '150.000' } })
 
+    const categorySelect = screen.getByRole('combobox', { name: /Kategori/ })
+    fireEvent.change(categorySelect, { target: { value: 'Konsumsi' } })
+
     fireEvent.change(screen.getByRole('textbox', { name: /Keterangan/ }), { target: { value: 'Test pengeluaran' } })
 
     fireEvent.click(screen.getByText('Simpan'))
@@ -302,6 +305,7 @@ describe('KAS Tambah — Payload submit contract', () => {
         expect.objectContaining({
           amount: '150000',
           type: 'expense',
+          expense_category: 'Konsumsi',
         })
       )
     })
@@ -343,5 +347,57 @@ describe('KAS Tambah — Payload submit contract', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Pemasukan/ }))
     expect(mockNavigate).toHaveBeenCalledWith('/kas/baru')
+  })
+
+  it('KasExpense: renders Kategori with 15 standard categories and does not render Kategori Kas Keluar', () => {
+    render(
+      <MemoryRouter>
+        <KasExpense />
+      </MemoryRouter>
+    )
+
+    const select = screen.getByRole('combobox', { name: /Kategori/ })
+    expect(select).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /Kategori Kas Keluar/ })).not.toBeInTheDocument()
+
+    expect(screen.getByText('Konsumsi')).toBeInTheDocument()
+    expect(screen.getByText('Kebersihan & Sampah')).toBeInTheDocument()
+    expect(screen.getByText('Keamanan & Ronda')).toBeInTheDocument()
+    expect(screen.getByText('Acara Warga & PHBI')).toBeInTheDocument()
+    expect(screen.getByText('Alat Tulis & Administrasi')).toBeInTheDocument()
+    expect(screen.getByText('Perbaikan Fasilitas RT')).toBeInTheDocument()
+    expect(screen.getByText('Sosial & Duka Cita')).toBeInTheDocument()
+    expect(screen.getByText('Listrik & Air Fasum')).toBeInTheDocument()
+    expect(screen.getByText('Honor Petugas Kebersihan/Keamanan')).toBeInTheDocument()
+    expect(screen.getByText('Perlengkapan & Logistik')).toBeInTheDocument()
+    expect(screen.getByText('Internet & Komunikasi')).toBeInTheDocument()
+    expect(screen.getByText('Transportasi Operasional')).toBeInTheDocument()
+    expect(screen.getByText('Kasbon Petugas/Warga')).toBeInTheDocument()
+    expect(screen.getByText('Pajak & Retribusi')).toBeInTheDocument()
+    expect(screen.getByText('Lain-lain')).toBeInTheDocument()
+  })
+
+  it('KasIncome: does NOT render Kategori Kas Keluar', () => {
+    render(
+      <MemoryRouter>
+        <KasIncome />
+      </MemoryRouter>
+    )
+
+    expect(screen.queryByRole('combobox', { name: /Kategori Kas Keluar/ })).not.toBeInTheDocument()
+  })
+
+  it('KasExpense: requires category and validates Lain-lain requires description', () => {
+    render(
+      <MemoryRouter>
+        <KasExpense />
+      </MemoryRouter>
+    )
+
+    fireEvent.change(screen.getByRole('textbox', { name: /Nominal/ }), { target: { value: '50000' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /Keterangan/ }), { target: { value: 'Test' } })
+    fireEvent.click(screen.getByText('Simpan'))
+
+    expect(screen.getByText(/Kategori harus dipilih/)).toBeInTheDocument()
   })
 })

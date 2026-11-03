@@ -2,6 +2,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:social_finance/core/api/auth_service.dart';
+import 'package:social_finance/core/api/client.dart';
+import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/notification/data/models/notification_models.dart';
 import 'package:social_finance/features/notification/data/notification_api_client.dart';
 import 'package:social_finance/features/notification/data/notification_repository.dart';
@@ -56,6 +60,7 @@ class FakeNotificationRepository extends NotificationRepository {
     int page = 1,
     int perPage = 20,
     String? eventType,
+    String? status,
   }) async {
     return NotificationLogsResponse(
       data: [
@@ -79,10 +84,25 @@ class FakeNotificationRepository extends NotificationRepository {
 }
 
 void main() {
-  Widget buildTestWidget() {
+  Widget buildTestWidget({Map<String, dynamic>? user}) {
     final fakeRepo = FakeNotificationRepository();
+    final defaultUser = user ?? {
+      'id': 'u-admin',
+      'system_role': 'super_admin',
+      'role': AppRole.superAdmin,
+      'jabatan': null,
+    };
     return ProviderScope(
       overrides: [
+        authRepositoryProvider.overrideWith((_) {
+          final client = ApiClient(customDio: Dio());
+          final repo = AuthRepository(
+            authService: AuthService(client),
+            apiClient: client,
+          );
+          repo.state = AsyncData<Map<String, dynamic>?>(defaultUser);
+          return repo;
+        }),
         notificationRepositoryProvider.overrideWithValue(fakeRepo),
         notificationSystemTypesProvider.overrideWith((ref) => fakeRepo.fetchSystemTypes()),
         notificationTemplatesProvider.overrideWith((ref) => fakeRepo.fetchTemplates()),
@@ -155,5 +175,31 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Preview Notifikasi'), findsNothing);
+  });
+
+  testWidgets('renders only Riwayat for Warga without Sistem or Template tabs',
+      (tester) async {
+    final wargaUser = {
+      'id': 'u-warga',
+      'email': 'warga@local.com',
+      'name': 'Warga RT',
+      'role': AppRole.warga,
+      'system_role': null,
+      'jabatan': null,
+    };
+    await tester.pumpWidget(buildTestWidget(user: wargaUser));
+    await tester.pumpAndSettle();
+
+    // Title is NOTIFIKASI
+    expect(find.text('NOTIFIKASI'), findsOneWidget);
+    expect(find.text('KELOLA NOTIFIKASI'), findsNothing);
+
+    // Administrative tabs must not be rendered
+    expect(find.text('Sistem'), findsNothing);
+    expect(find.text('Template'), findsNothing);
+
+    // Riwayat list is rendered directly
+    expect(find.text('Halo Warga!'), findsOneWidget);
+    expect(find.text('Mohon lunasi tagihan nomor 101'), findsOneWidget);
   });
 }

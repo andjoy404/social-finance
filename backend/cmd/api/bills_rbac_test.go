@@ -124,12 +124,31 @@ func TestRBAC_KetuaRTCanViewAllBillsInRT(t *testing.T) {
 		t.Fatalf("get rt 003: %v", err)
 	}
 
-	dueID := getOrCreateTestDue(t, pool, rtID)
+	var dueID string
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO dues (id, rt_id, name, amount, period_type, payment_rule, is_active)
+		VALUES (gen_random_uuid(), $1, $2, 50000.00, 'monthly', 'full', true)
+		RETURNING id
+	`, rtID, fmt.Sprintf("RBAC Ketua isolated %d", time.Now().UnixNano())).Scan(&dueID)
+	if err != nil {
+		t.Fatalf("create isolated due: %v", err)
+	}
 
-	// Create 3 bills for different households in RT 003
-	bill1, _, _ := createTestBillForRT(t, pool, rtID, dueID, fmt.Sprintf("K%d", time.Now().UnixNano()%1000), "Warga A", "50000.00")
-	bill2, _, _ := createTestBillForRT(t, pool, rtID, dueID, fmt.Sprintf("K%d", (time.Now().UnixNano()+1)%1000), "Warga B", "50000.00")
-	bill3, _, _ := createTestBillForRT(t, pool, rtID, dueID, fmt.Sprintf("K%d", (time.Now().UnixNano()+2)%1000), "Warga C", "50000.00")
+	// Create three bills for this test's unique due, isolating pagination from
+	// persistent bills left by previous runs of the shared integration database.
+	bill1, _, _ := createTestBillForRT(t, pool, rtID, dueID, "RBAC-K1", "Warga A", "50000.00")
+	bill2, _, _ := createTestBillForRT(t, pool, rtID, dueID, "RBAC-K2", "Warga B", "50000.00")
+	bill3, _, _ := createTestBillForRT(t, pool, rtID, dueID, "RBAC-K3", "Warga C", "50000.00")
+	if _, err := pool.Raw().ExecContext(ctx, `UPDATE dues SET is_active = false WHERE id = $1`, dueID); err != nil {
+		t.Fatalf("deactivate isolated due to prevent request-time sync from adding unrelated bills: %v", err)
+	}
+	var fixtureBillCount int
+	if err := pool.Raw().QueryRowContext(ctx, `SELECT COUNT(*) FROM bills WHERE rt_id = $1 AND due_id = $2`, rtID, dueID).Scan(&fixtureBillCount); err != nil {
+		t.Fatalf("count isolated fixture bills: %v", err)
+	}
+	if fixtureBillCount != 3 {
+		t.Fatalf("isolated fixture has %d bills before request, want 3 (due_id=%s)", fixtureBillCount, dueID)
+	}
 
 	// Create a Ketua RT account (role=warga, jabatan=ketua)
 	var ketuaUserID, ketuaMID string
@@ -153,7 +172,7 @@ func TestRBAC_KetuaRTCanViewAllBillsInRT(t *testing.T) {
 	token := makeTestToken(t, ketuaUserID, ketuaMID, rtID, auth.RoleWarga, auth.JabatanKetua)
 
 	// 1. GET /api/v1/bills -> must return all bills in the RT
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/bills", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bills?due_id="+dueID, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -164,7 +183,8 @@ func TestRBAC_KetuaRTCanViewAllBillsInRT(t *testing.T) {
 
 	var resp struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID    string `json:"id"`
+			DueID string `json:"due_id"`
 		} `json:"data"`
 		Pagination struct {
 			Total int `json:"total"`
@@ -174,8 +194,8 @@ func TestRBAC_KetuaRTCanViewAllBillsInRT(t *testing.T) {
 		t.Fatalf("unmarshal bills response: %v", err)
 	}
 
-	if resp.Pagination.Total < 3 {
-		t.Errorf("expected at least 3 bills in RT, got total %d", resp.Pagination.Total)
+	if resp.Pagination.Total != 3 {
+		t.Errorf("expected exactly 3 bills for isolated due in RT, got total %d (due_id=%s, rows=%+v)", resp.Pagination.Total, dueID, resp.Data)
 	}
 
 	foundMap := make(map[string]bool)
@@ -543,11 +563,53 @@ func TestRBAC_FinanceReadCannotApproveWithoutFinanceApprove(t *testing.T) {
 		t.Fatalf("create payment: %v", err)
 	}
 
-	// Create a user with jabatan=wakil_ketua (wakil_ketua HAS finance.read, but NO finance.approve)
+	// Create a user with jabatan=sekretaris (sekretaris HAS finance.read, but NO finance.approve)
+	var sekUser, sekMID string
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
+		VALUES (gen_random_uuid(), $1, 'dummy', 'Sekretaris RT', NULL, true)
+		RETURNING id
+	`, fmt.Sprintf("sekretaris-%d@local.com", time.Now().UnixNano())).Scan(&sekUser)
+	if err != nil {
+		t.Fatalf("create sekretaris user: %v", err)
+	}
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		VALUES (gen_random_uuid(), $1, $2, 'warga', 'sekretaris', true)
+		RETURNING id
+	`, sekUser, rtID).Scan(&sekMID)
+	if err != nil {
+		t.Fatalf("create sekretaris membership: %v", err)
+	}
+
+	token := makeTestToken(t, sekUser, sekMID, rtID, auth.RoleWarga, "sekretaris")
+
+	// 1. sekretaris CAN read bills (HTTP 200)
+	reqRead := httptest.NewRequest(http.MethodGet, "/api/v1/bills", nil)
+	reqRead.Header.Set("Authorization", "Bearer "+token)
+	recRead := httptest.NewRecorder()
+	router.ServeHTTP(recRead, reqRead)
+	if recRead.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200 for sekretaris reading bills, got %d: %s", recRead.Code, recRead.Body.String())
+	}
+
+	// 2. sekretaris CANNOT approve payment (HTTP 403 Forbidden)
+	verifyBody := bytes.NewBufferString(`{"action":"approve"}`)
+	reqApprove := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", verifyBody)
+	reqApprove.Header.Set("Authorization", "Bearer "+token)
+	reqApprove.Header.Set("Content-Type", "application/json")
+	recApprove := httptest.NewRecorder()
+	router.ServeHTTP(recApprove, reqApprove)
+
+	if recApprove.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403 for sekretaris attempting to approve payment without finance.approve, got %d: %s", recApprove.Code, recApprove.Body.String())
+	}
+
+	// 3. wakil_ketua HAS finance.approve (migration 033 equity), so wakil_ketua is allowed to approve
 	var wkUser, wkMID string
 	err = pool.Raw().QueryRowContext(ctx, `
 		INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
-		VALUES (gen_random_uuid(), $1, 'dummy', 'Wakil Ketua', NULL, true)
+		VALUES (gen_random_uuid(), $1, 'dummy', 'Wakil Ketua RT', NULL, true)
 		RETURNING id
 	`, fmt.Sprintf("wakil-ketua-%d@local.com", time.Now().UnixNano())).Scan(&wkUser)
 	if err != nil {
@@ -562,27 +624,15 @@ func TestRBAC_FinanceReadCannotApproveWithoutFinanceApprove(t *testing.T) {
 		t.Fatalf("create wakil ketua membership: %v", err)
 	}
 
-	token := makeTestToken(t, wkUser, wkMID, rtID, auth.RoleWarga, "wakil_ketua")
+	wkToken := makeTestToken(t, wkUser, wkMID, rtID, auth.RoleWarga, "wakil_ketua")
+	reqWkApprove := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", bytes.NewBufferString(`{"action":"approve"}`))
+	reqWkApprove.Header.Set("Authorization", "Bearer "+wkToken)
+	reqWkApprove.Header.Set("Content-Type", "application/json")
+	recWkApprove := httptest.NewRecorder()
+	router.ServeHTTP(recWkApprove, reqWkApprove)
 
-	// 1. wakil_ketua CAN read bills (HTTP 200)
-	reqRead := httptest.NewRequest(http.MethodGet, "/api/v1/bills", nil)
-	reqRead.Header.Set("Authorization", "Bearer "+token)
-	recRead := httptest.NewRecorder()
-	router.ServeHTTP(recRead, reqRead)
-	if recRead.Code != http.StatusOK {
-		t.Fatalf("expected HTTP 200 for wakil_ketua reading bills, got %d: %s", recRead.Code, recRead.Body.String())
-	}
-
-	// 2. wakil_ketua CANNOT approve payment (HTTP 403 Forbidden)
-	verifyBody := bytes.NewBufferString(`{"action":"APPROVED"}`)
-	reqApprove := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+paymentID+"/verify", verifyBody)
-	reqApprove.Header.Set("Authorization", "Bearer "+token)
-	reqApprove.Header.Set("Content-Type", "application/json")
-	recApprove := httptest.NewRecorder()
-	router.ServeHTTP(recApprove, reqApprove)
-
-	if recApprove.Code != http.StatusForbidden {
-		t.Fatalf("expected HTTP 403 for wakil_ketua attempting to approve payment without finance.approve, got %d: %s", recApprove.Code, recApprove.Body.String())
+	if recWkApprove.Code == http.StatusForbidden {
+		t.Fatalf("expected wakil_ketua to have finance.approve permission, got HTTP 403: %s", recWkApprove.Body.String())
 	}
 }
 

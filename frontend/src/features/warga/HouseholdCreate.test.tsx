@@ -85,7 +85,7 @@ async function fillValidForm(overrides?: {
   const nikInput = screen.getByLabelText(/KTP \/ NIK\s*\*/i) as HTMLInputElement
   const phoneInput = screen.getByLabelText(/Nomor Telepon\s*\*/i) as HTMLInputElement
   const emailInput = screen.getByLabelText(/Email\s*\*/i) as HTMLInputElement
-  const dateInput = screen.getByLabelText(/Tanggal Mulai Hunian\s*\*/i) as HTMLInputElement
+  const dateInput = screen.getByLabelText(/Tanggal Mulai (Hunian|Menempati Rumah)\s*\*/i) as HTMLInputElement
 
   await userEvent.type(houseInput, overrides?.houseNumber ?? '001')
   await tickForReact()
@@ -137,7 +137,7 @@ describe('W4.3 — HouseholdCreate form rendering', () => {
     expect(screen.getByLabelText(/Nomor Telepon\s*\*/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Email\s*\*/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Status Hunian\s*\*/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/Tanggal Mulai Hunian\s*\*/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Tanggal Mulai (Hunian|Menempati Rumah)\s*\*/i)).toBeInTheDocument()
   })
 
   it('renders optional fields (alamat)', () => {

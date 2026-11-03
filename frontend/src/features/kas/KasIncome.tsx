@@ -12,8 +12,6 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   CalendarOutlined,
-  WalletOutlined,
-  BankOutlined,
   FileImageOutlined,
   UploadOutlined,
   DeleteOutlined,
@@ -86,6 +84,20 @@ export function KasIncome() {
   }, [])
 
   const handleChange = (field: string, value: string) => {
+    if (field === 'locationId') {
+      const loc = fundLocations.find((l) => l.id === value)
+      let autoMethod: 'CASH' | 'TRANSFER' = 'CASH'
+      if (loc) {
+        if (loc.category === 'rekening') {
+          autoMethod = 'TRANSFER'
+        } else if (loc.category === 'coh' || loc.category === 'brankas') {
+          autoMethod = 'CASH'
+        }
+      }
+      setForm((prev) => ({ ...prev, locationId: value, paymentMethod: autoMethod }))
+      if (validationErrors.length > 0) setValidationErrors([])
+      return
+    }
     setForm((prev) => ({ ...prev, [field]: value }))
     if (validationErrors.length > 0) setValidationErrors([])
   }
@@ -163,12 +175,24 @@ export function KasIncome() {
     setSaving(true)
     try {
       const token = getSessionPair()?.accessToken ?? ''
+      let paymentMethod = form.paymentMethod
+      if (form.locationId) {
+        const loc = fundLocations.find((l) => l.id === form.locationId)
+        if (loc) {
+          if (loc.category === 'rekening') {
+            paymentMethod = 'TRANSFER'
+          } else if (loc.category === 'coh' || loc.category === 'brankas') {
+            paymentMethod = 'CASH'
+          }
+        }
+      }
+
       await apiCreateTransaction(token, {
         amount: String(parseMoney(form.nominal)),
         type: form.jenis === 'masuk' ? 'income' : 'expense',
         description: form.keterangan.trim(),
         occurred_at: toJakartaIso8601(form.tanggal),
-        payment_method: form.paymentMethod,
+        payment_method: paymentMethod,
         location_id: form.locationId || undefined,
       })
 
@@ -276,61 +300,6 @@ export function KasIncome() {
               disabled={saving}
               style={{ width: '100%' }}
             />
-          </div>
-
-          {/* Metode Pembayaran */}
-          <div className="sf-form-field">
-            <label className="sf-form-label">
-              Metode Pembayaran <span style={{ color: 'var(--sf-danger)' }}>*</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="sf-btn"
-                onClick={() => handleChange('paymentMethod', 'CASH')}
-                style={{
-                  flex: 1,
-                  height: 38,
-                  minHeight: 38,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: form.paymentMethod === 'CASH' ? 'rgba(87, 148, 242, 0.16)' : 'var(--sf-surface)',
-                  color: form.paymentMethod === 'CASH' ? 'var(--sf-info)' : 'var(--sf-text-muted)',
-                  border: form.paymentMethod === 'CASH' ? '1px solid rgba(87, 148, 242, 0.6)' : '1px solid var(--sf-border)',
-                  boxShadow: form.paymentMethod === 'CASH' ? '0 0 8px rgba(87, 148, 242, 0.15)' : 'none',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <WalletOutlined style={{ color: form.paymentMethod === 'CASH' ? 'var(--sf-info)' : 'var(--sf-text-muted)' }} /> Tunai (Cash)
-              </button>
-              <button
-                type="button"
-                className="sf-btn"
-                onClick={() => handleChange('paymentMethod', 'TRANSFER')}
-                style={{
-                  flex: 1,
-                  height: 38,
-                  minHeight: 38,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: form.paymentMethod === 'TRANSFER' ? 'rgba(169, 112, 255, 0.12)' : 'var(--sf-surface)',
-                  color: form.paymentMethod === 'TRANSFER' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-                  border: form.paymentMethod === 'TRANSFER' ? '1px solid rgba(169, 112, 255, 0.5)' : '1px solid var(--sf-border)',
-                  boxShadow: form.paymentMethod === 'TRANSFER' ? '0 0 8px rgba(169, 112, 255, 0.15)' : 'none',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <BankOutlined style={{ color: form.paymentMethod === 'TRANSFER' ? 'var(--sf-accent)' : 'var(--sf-text-muted)' }} /> Transfer Bank
-              </button>
-            </div>
           </div>
 
           {/* Lokasi Dana */}

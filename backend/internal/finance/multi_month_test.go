@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -222,7 +221,7 @@ func TestMultiMonth_Payment1Month_2Months_FIFOAndSingleKAS(t *testing.T) {
 			{"bill_id": "%s", "amount": "40000.00"},
 			{"bill_id": "%s", "amount": "40000.00"}
 		],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, bills[0].id, bills[1].id, bills[0].id, bills[1].id)
 
 	reqPay := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payBody))
@@ -323,7 +322,7 @@ func TestMultiMonth_FIFOBypassRejected(t *testing.T) {
 			{"bill_id": "%s", "amount": "30000.00"},
 			{"bill_id": "%s", "amount": "30000.00"}
 		],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, billIDs[1], billIDs[2], billIDs[1], billIDs[2])
 
 	reqBypass := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(bypassBody))
@@ -366,7 +365,7 @@ func TestMultiMonth_PendingBlocksDuplicateAllocation(t *testing.T) {
 	payBody1 := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "50000.00"}],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, billID, billID)
 	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payBody1))
 	req1.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -379,7 +378,7 @@ func TestMultiMonth_PendingBlocksDuplicateAllocation(t *testing.T) {
 	payBody2 := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "50000.00"}],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, billID, billID)
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payBody2))
 	req2.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -485,7 +484,7 @@ func TestMultiMonth_ActiveInactiveManagementAndFIFO(t *testing.T) {
 	payJanBody := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "30000.00"}],
-		"method": "CASH"
+		"method": "CASH", "proof_path": "proofs/test.jpg"
 	}`, janBill.ID, janBill.ID)
 	reqPayJan := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payJanBody))
 	reqPayJan.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -498,7 +497,7 @@ func TestMultiMonth_ActiveInactiveManagementAndFIFO(t *testing.T) {
 	payFebBody := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "30000.00"}],
-		"method": "CASH"
+		"method": "CASH", "proof_path": "proofs/test.jpg"
 	}`, febBill.ID, febBill.ID)
 	reqPayFeb := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payFebBody))
 	reqPayFeb.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -542,7 +541,7 @@ func TestMultiMonth_ActiveInactiveManagementAndFIFO(t *testing.T) {
 	payMarBody := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "30000.00"}],
-		"method": "CASH"
+		"method": "CASH", "proof_path": "proofs/test.jpg"
 	}`, marBill.ID, marBill.ID)
 	reqPayMar := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payMarBody))
 	reqPayMar.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -555,7 +554,7 @@ func TestMultiMonth_ActiveInactiveManagementAndFIFO(t *testing.T) {
 	payJanPending := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "30000.00"}],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, janBill.ID, janBill.ID)
 	reqPayPending := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(payJanPending))
 	reqPayPending.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -892,8 +891,48 @@ func TestMultiMonth_SyncBills_NewHouseholdMidYear_Comprehensive(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recSync2.Body.Bytes(), &syncResp2))
 	require.Equal(t, 0, syncResp2.GeneratedCount, "Subsequent sync must generate 0 bills")
 
-	// 8. FIFO Enforcement on KK 2:
-	// KK 2 tries to pay October 2026 directly without paying Jan–Sep -> MUST BE REJECTED!
+	// 8. Move-in date obligation & FIFO on KK 2 (moved in 2026-10-15):
+	// A. Non-obligatory month (Jan 2026) cannot be paid:
+	var janBillID string
+	err = pool.Raw().QueryRowContext(ctx,
+		`SELECT id FROM bills WHERE due_id = $1 AND household_occupancy_id = $2 AND period = '2026-01'`,
+		due.ID, occ2ID).Scan(&janBillID)
+	require.NoError(t, err)
+
+	bodyPayJan := fmt.Sprintf(`{
+		"bill_ids": ["%s"],
+		"allocations": [{"bill_id": "%s", "amount": "75000.00"}],
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
+	}`, janBillID, janBillID)
+	reqPayJan := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(bodyPayJan))
+	reqPayJan.Header.Set("Authorization", "Bearer "+tokenWarga2)
+	reqPayJan.Header.Set("Content-Type", "application/json")
+	recPayJan := httptest.NewRecorder()
+	router.ServeHTTP(recPayJan, reqPayJan)
+	require.Equal(t, http.StatusBadRequest, recPayJan.Code, "Non-obligatory Jan 2026 bill cannot be paid")
+	require.Contains(t, recPayJan.Body.String(), "tidak wajib dibayar")
+
+	// B. November 2026 cannot be paid before October 2026 (FIFO applies to obligatory months):
+	var novBillID string
+	err = pool.Raw().QueryRowContext(ctx,
+		`SELECT id FROM bills WHERE due_id = $1 AND household_occupancy_id = $2 AND period = '2026-11'`,
+		due.ID, occ2ID).Scan(&novBillID)
+	require.NoError(t, err)
+
+	bodyPayNov := fmt.Sprintf(`{
+		"bill_ids": ["%s"],
+		"allocations": [{"bill_id": "%s", "amount": "75000.00"}],
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
+	}`, novBillID, novBillID)
+	reqPayNov := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(bodyPayNov))
+	reqPayNov.Header.Set("Authorization", "Bearer "+tokenWarga2)
+	reqPayNov.Header.Set("Content-Type", "application/json")
+	recPayNov := httptest.NewRecorder()
+	router.ServeHTTP(recPayNov, reqPayNov)
+	require.Equal(t, http.StatusBadRequest, recPayNov.Code, "Paying November directly before October must fail under FIFO")
+	require.Contains(t, recPayNov.Body.String(), "FIFO")
+
+	// C. KK 2 pays October 2026 directly (first obligatory month) -> MUST SUCCEED:
 	var octBillID string
 	err = pool.Raw().QueryRowContext(ctx,
 		`SELECT id FROM bills WHERE due_id = $1 AND household_occupancy_id = $2 AND period = '2026-10'`,
@@ -903,42 +942,12 @@ func TestMultiMonth_SyncBills_NewHouseholdMidYear_Comprehensive(t *testing.T) {
 	bodyPayOct := fmt.Sprintf(`{
 		"bill_ids": ["%s"],
 		"allocations": [{"bill_id": "%s", "amount": "75000.00"}],
-		"method": "TRANSFER"
+		"method": "TRANSFER", "proof_path": "proofs/test.jpg"
 	}`, octBillID, octBillID)
 	reqPayOct := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(bodyPayOct))
 	reqPayOct.Header.Set("Authorization", "Bearer "+tokenWarga2)
 	reqPayOct.Header.Set("Content-Type", "application/json")
 	recPayOct := httptest.NewRecorder()
 	router.ServeHTTP(recPayOct, reqPayOct)
-
-	require.Equal(t, http.StatusBadRequest, recPayOct.Code, "Paying October directly must be rejected by FIFO")
-	require.Contains(t, recPayOct.Body.String(), "FIFO", "Error message must indicate FIFO violation")
-
-	// 9. Valid FIFO payment for KK 2 (Jan to Oct in sequential order):
-	var janToOctIDs []string
-	var allocParts []string
-	rowsJanToOct, err := pool.Raw().QueryContext(ctx,
-		`SELECT id FROM bills WHERE due_id = $1 AND household_occupancy_id = $2 AND period <= '2026-10' ORDER BY period ASC`,
-		due.ID, occ2ID)
-	require.NoError(t, err)
-	defer rowsJanToOct.Close()
-	for rowsJanToOct.Next() {
-		var id string
-		require.NoError(t, rowsJanToOct.Scan(&id))
-		janToOctIDs = append(janToOctIDs, fmt.Sprintf(`"%s"`, id))
-		allocParts = append(allocParts, fmt.Sprintf(`{"bill_id":"%s","amount":"75000.00"}`, id))
-	}
-	require.Len(t, janToOctIDs, 10)
-
-	bodyPayFIFO := fmt.Sprintf(`{
-		"bill_ids": [%s],
-		"allocations": [%s],
-		"method": "TRANSFER"
-	}`, strings.Join(janToOctIDs, ","), strings.Join(allocParts, ","))
-	reqPayFIFO := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(bodyPayFIFO))
-	reqPayFIFO.Header.Set("Authorization", "Bearer "+tokenWarga2)
-	reqPayFIFO.Header.Set("Content-Type", "application/json")
-	recPayFIFO := httptest.NewRecorder()
-	router.ServeHTTP(recPayFIFO, reqPayFIFO)
-	require.Equal(t, http.StatusCreated, recPayFIFO.Code, "Sequential Jan–Oct payment must succeed under FIFO")
+	require.Equal(t, http.StatusCreated, recPayOct.Code, "Paying October directly must succeed under move-in date rules")
 }

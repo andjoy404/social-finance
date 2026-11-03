@@ -19,6 +19,7 @@ import { HouseholdMove } from '@/features/warga/HouseholdMove'
 import { SpecialResidentCreate } from '@/features/warga/SpecialResidentCreate'
 import { SpecialResidentEdit } from '@/features/warga/SpecialResidentEdit'
 import { NotificationScreen } from '@/features/notification/NotificationScreen'
+import { RwDataView } from '@/features/rw/RwDataView'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -181,6 +182,14 @@ export function App() {
             <NotificationAdminRoute>
               <NotificationScreen />
             </NotificationAdminRoute>
+          }
+        />
+        <Route
+          path="rw-view/:rwId/*"
+          element={
+            <ProtectedRoute>
+              <RwDataView />
+            </ProtectedRoute>
           }
         />
       </Route>

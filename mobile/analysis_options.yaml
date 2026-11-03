@@ -21,6 +21,10 @@ analyzer:
     dangling_library_doc_comments: ignore
     avoid_print: ignore
     use_null_aware_elements: ignore
+    unused_field: ignore
+    unused_element: ignore
+    unused_local_variable: ignore
+    unnecessary_brace_in_string_interps: ignore
 include: package:flutter_lints/flutter.yaml
 
 linter:

@@ -36,6 +36,10 @@ class IuranBill {
   final String? householdOccupancyId;
   final DueType dueType;
   final int? year;
+  final bool isObligatory;
+  final String? moveInDate;
+  final String? moveOutDate;
+  final List<String> paymentNumbers;
 
   const IuranBill({
     required this.id,
@@ -58,6 +62,10 @@ class IuranBill {
     this.householdOccupancyId,
     this.dueType = DueType.regular,
     this.year,
+    this.isObligatory = true,
+    this.moveInDate,
+    this.moveOutDate,
+    this.paymentNumbers = const [],
   });
 
   /// Returns true if this bill represents voluntary dues (Sukarela).
@@ -95,9 +103,9 @@ class IuranBill {
       : nominal - paidAmount - pendingAmount;
 
   /// Returns true if this bill is in arrears (not yet paid or partially paid).
-  /// Voluntary Rp0 items are never in arrears.
+  /// Voluntary Rp0 items and non-obligatory months are never in arrears.
   bool get isInArrears =>
-      status != IuranStatus.lunas && status != IuranStatus.sukarela;
+      isObligatory && status != IuranStatus.lunas && status != IuranStatus.sukarela;
 }
 
 /// Format a nominal amount in rupiah to Indonesian currency string.

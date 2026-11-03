@@ -212,8 +212,27 @@ func (s *Service) CreateDue(ctx context.Context, tx *sql.Tx, rtID, userID string
 			in.ValidUntil = &normalized
 		}
 	}
+	if in.DueType == DueTypeMultiMonth && in.Year != nil {
+		lockKey := fmt.Sprintf("multi_month:%s:%d", rtID, *in.Year)
+		var lockAcquired bool
+		_ = tx.QueryRowContext(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", lockKey).Scan(&lockAcquired)
+
+		var exists bool
+		err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM dues 
+				WHERE rt_id = $1 AND due_type = 'multi_month' AND year = $2
+			)
+		`, rtID, *in.Year).Scan(&exists)
+		if err == nil && exists {
+			return nil, fmt.Errorf("IPL Multi-Bulan untuk tahun %d sudah pernah diterbitkan di RT ini.", *in.Year)
+		}
+	}
 	due, err := DueCreate(ctx, tx, rtID, in)
 	if err != nil {
+		if in.DueType == DueTypeMultiMonth && in.Year != nil && (strings.Contains(err.Error(), "idx_dues_rt_multi_month_year") || strings.Contains(err.Error(), "unique constraint")) {
+			return nil, fmt.Errorf("IPL Multi-Bulan untuk tahun %d sudah pernah diterbitkan di RT ini.", *in.Year)
+		}
 		return nil, err
 	}
 
@@ -713,6 +732,10 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 		return nil, errors.New("cannot pay an inactive bill (tagihan tidak aktif)")
 	}
 
+	if !isVoluntary && !bill.IsObligatory {
+		return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
+	}
+
 	if !isVoluntary && !due.IsActive {
 		return nil, errors.New("cannot pay bill for an inactive due (iuran tidak aktif)")
 	}
@@ -725,6 +748,9 @@ func (s *Service) CreatePayment(ctx context.Context, tx *sql.Tx, rtID, userID, u
 	}
 	if !bill.IsActive {
 		return nil, errors.New("cannot approve payment: bill is inactive (tagihan tidak aktif)")
+	}
+	if !isVoluntary && !bill.IsObligatory {
+		return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
 	}
 
 	if userRole == "warga" {
@@ -1137,6 +1163,9 @@ func (s *Service) verifySinglePayment(ctx context.Context, tx *sql.Tx, paymentID
 	if !bill.IsActive {
 		return nil, errors.New("cannot approve payment: bill is inactive (tagihan tidak aktif)")
 	}
+	if !isVoluntary && !bill.IsObligatory {
+		return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
+	}
 
 	// Validate overpayment BEFORE approving payment.
 	// approved_total_before does NOT include this payment yet (still PENDING).
@@ -1304,6 +1333,9 @@ func (s *Service) verifyMultiPeriodPayment(ctx context.Context, tx *sql.Tx, paym
 		if !bill.IsActive {
 			return nil, fmt.Errorf("bill %s is inactive (tagihan tidak aktif)", billID)
 		}
+		if !bill.IsObligatory {
+			return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
+		}
 
 		billCents, _, err := ParseMoney(bill.Amount)
 		if err != nil {
@@ -1462,10 +1494,11 @@ func (s *Service) CreateManualTransaction(ctx context.Context, tx *sql.Tx, rtID,
 	if in.LocationID != nil && strings.TrimSpace(*in.LocationID) != "" {
 		trimmed := strings.TrimSpace(*in.LocationID)
 		var isActive bool
+		var category string
 		err := tx.QueryRowContext(ctx,
-			`SELECT is_active FROM fund_locations WHERE id = $1 AND rt_id = $2`,
+			`SELECT is_active, category FROM fund_locations WHERE id = $1 AND rt_id = $2`,
 			trimmed, rtID,
-		).Scan(&isActive)
+		).Scan(&isActive, &category)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, errors.New("fund location not found")
@@ -1474,6 +1507,18 @@ func (s *Service) CreateManualTransaction(ctx context.Context, tx *sql.Tx, rtID,
 		}
 		if !isActive {
 			return nil, errors.New("cannot create transaction for inactive fund location")
+		}
+
+		// Assimilate transaction method based on fund location category
+		switch strings.ToLower(category) {
+		case "rekening":
+			m := "TRANSFER"
+			in.PaymentMethod = &m
+		case "coh", "brankas":
+			m := "CASH"
+			in.PaymentMethod = &m
+		default:
+			return nil, fmt.Errorf("invalid fund location category %q for payment method assimilation", category)
 		}
 
 		if in.Type == TransactionTypeExpense {
@@ -1754,6 +1799,10 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		}
 	}
 
+	if in.ProofPath == nil || strings.TrimSpace(*in.ProofPath) == "" {
+		return nil, errors.New("Bukti pembayaran wajib dilampirkan. Silakan unggah foto bukti pembayaran sebelum melanjutkan.")
+	}
+
 	// ── 2. Lock and validate all bills ─────────────────────────────────
 	// Sort bill IDs deterministically to prevent deadlocks when multiple
 	// concurrent transactions try to lock overlapping sets of bills.
@@ -1784,6 +1833,9 @@ func (s *Service) CreateMultiPeriodPayment(ctx context.Context, tx *sql.Tx, rtID
 		}
 		if !bill.IsActive {
 			return nil, fmt.Errorf("bill %s is inactive (tagihan tidak aktif)", billID)
+		}
+		if !bill.IsObligatory {
+			return nil, fmt.Errorf("tagihan periode %s tidak wajib dibayar karena sebelum tanggal mulai menempati rumah", bill.Period)
 		}
 
 		due, err := DueGetByID(ctx, tx, bill.DueID, rtID)
@@ -2224,15 +2276,29 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 	isAllPeriods := strings.EqualFold(trimmedPeriod, "all") || strings.EqualFold(trimmedPeriod, "semua")
 
 	currentPeriod := now.Format("2006-01")
+	isYearFilter := false
 	if !isAllPeriods && trimmedPeriod != "" {
 		if _, err := time.Parse("2006-01", trimmedPeriod); err == nil {
 			currentPeriod = trimmedPeriod
+		} else if yearVal, err := time.Parse("2006", trimmedPeriod); err == nil {
+			// Year-only filter: YYYY
+			isYearFilter = true
+			currentPeriod = yearVal.Format("2006-01")
 		}
 	}
 
 	tPeriod, _ := time.ParseInLocation("2006-01", currentPeriod, loc)
-	startOfMonth := time.Date(tPeriod.Year(), tPeriod.Month(), 1, 0, 0, 0, 0, loc)
-	startOfNextMonth := startOfMonth.AddDate(0, 1, 0)
+	var startOfMonth, startOfNextMonth time.Time
+	if isYearFilter {
+		// For year filter: Jan 1 of selected year to Jan 1 of next year
+		startOfMonth = time.Date(tPeriod.Year(), 1, 1, 0, 0, 0, 0, loc)
+		startOfNextMonth = time.Date(tPeriod.Year()+1, 1, 1, 0, 0, 0, 0, loc)
+	} else {
+		startOfMonth = time.Date(tPeriod.Year(), tPeriod.Month(), 1, 0, 0, 0, 0, loc)
+		startOfNextMonth = startOfMonth.AddDate(0, 1, 0)
+	}
+
+	isAllPeriods = isAllPeriods && !isYearFilter
 
 	var balanceStr, incomeStr, expenseStr, netMovementStr string
 	if isAllPeriods {
@@ -2386,7 +2452,7 @@ func (s *Service) GetDashboardSummary(ctx context.Context, tx *sql.Tx, rtID stri
 	}
 
 	statusPosted := string(TransactionStatusPosted)
-	recent, err := TransactionList(ctx, tx, rtID, nil, nil, &statusPosted, nil, nil, 0, 5)
+	recent, err := TransactionList(ctx, tx, rtID, nil, nil, &statusPosted, nil, nil, nil, 0, 5)
 	if err != nil {
 		recent = []*Transaction{}
 	}

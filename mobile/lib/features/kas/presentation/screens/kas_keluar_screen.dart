@@ -4,6 +4,7 @@
 /// UUID to the POST /api/v1/transactions body.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -37,6 +38,24 @@ String _generateUuid() {
 class KasKeluarScreen extends ConsumerStatefulWidget {
   const KasKeluarScreen({super.key});
 
+  static const List<String> kExpenseCategories = [
+    'Konsumsi',
+    'Kebersihan & Sampah',
+    'Keamanan & Ronda',
+    'Acara Warga & PHBI',
+    'Alat Tulis & Administrasi',
+    'Perbaikan Fasilitas RT',
+    'Sosial & Duka Cita',
+    'Listrik & Air Fasum',
+    'Honor Petugas Kebersihan/Keamanan',
+    'Perlengkapan & Logistik',
+    'Internet & Komunikasi',
+    'Transportasi Operasional',
+    'Kasbon Petugas/Warga',
+    'Pajak & Retribusi',
+    'Lain-lain',
+  ];
+
   @override
   ConsumerState<KasKeluarScreen> createState() => _KasKeluarScreenState();
 }
@@ -49,6 +68,7 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
 
   List<BackendCategory> _expenseCategories = [];
   String? _selectedCategoryId;
+  String? _selectedExpenseCategory;
   bool _loadingCategories = true;
 
   List<FundLocation> _locations = [];
@@ -136,6 +156,11 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
         }
       }
     }
+    if (_selectedExpenseCategory == null || _selectedExpenseCategory!.isEmpty) {
+      errors.add('Kategori harus dipilih.');
+    } else if (_selectedExpenseCategory == 'Lain-lain' && _keteranganCtrl.text.trim().isEmpty) {
+      errors.add('Keterangan wajib diisi untuk kategori Lain-lain.');
+    }
     if (_keteranganCtrl.text.trim().isEmpty) {
       errors.add('Keterangan harus diisi.');
     }
@@ -178,14 +203,35 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
 
       final desc = _keteranganCtrl.text.trim();
 
+      final cat = _expenseCategories
+          .where((c) =>
+              c.name.toLowerCase() == _selectedExpenseCategory?.toLowerCase())
+          .firstOrNull ??
+          _expenseCategories.firstOrNull;
+      final categoryId = _selectedCategoryId ?? cat?.id ?? '';
+
+      String method = _paymentMethod;
+      if (_selectedLocationId != null && _selectedLocationId!.isNotEmpty) {
+        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        if (loc != null) {
+          final catName = loc.category.name.toLowerCase();
+          if (catName == 'rekening') {
+            method = 'TRANSFER';
+          } else if (catName == 'coh' || catName == 'brankas') {
+            method = 'CASH';
+          }
+        }
+      }
+
       await repository.createTransaction(
-        categoryId: _selectedCategoryId,
+        categoryId: categoryId,
         amount: nominalInt,
         jenis: KasJenis.keluar,
         description: desc,
         occurredAt: occurredAt,
-        paymentMethod: _paymentMethod,
+        paymentMethod: method,
         locationId: _selectedLocationId,
+        expenseCategory: _selectedExpenseCategory,
         idempotencyKey: _generateUuid(),
       );
 
@@ -382,79 +428,6 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
               const SectionHeader(title: 'Detail Transaksi'),
               const SizedBox(height: AppSpacing.sm),
 
-              // Kategori
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Kategori',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  if (_loadingCategories)
-                    const LinearProgressIndicator()
-                  else if (_expenseCategories.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder,
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        color: isDark
-                            ? AppColors.darkSurface
-                            : AppColors.lightSurface,
-                      ),
-                      child: Text(
-                        'Operasional RT',
-                        style: theme.textTheme.bodyLarge,
-                      ),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: isDark
-                              ? AppColors.darkBorder
-                              : AppColors.lightBorder,
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        color: isDark
-                            ? AppColors.darkSurface
-                            : AppColors.lightSurface,
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedCategoryId,
-                          isExpanded: true,
-                          dropdownColor: isDark
-                              ? AppColors.darkSurface
-                              : AppColors.lightSurface,
-                          items: _expenseCategories.map((c) {
-                            return DropdownMenuItem<String>(
-                              value: c.id,
-                              child: Text(c.name),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() => _selectedCategoryId = val);
-                            }
-                          },
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
               // Tanggal
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -524,173 +497,36 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Metode Pembayaran (Tunai / Transfer)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Metode Pembayaran',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+              // Kategori (Wajib, 15 Standar Kategori)
+              DropdownButtonFormField<String>(
+                value: _selectedExpenseCategory,
+                decoration: InputDecoration(
+                  labelText: 'Kategori *',
+                  hintText: 'Pilih kategori pengeluaran',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => setState(() => _paymentMethod = 'CASH'),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                              border: Border.all(
-                                color: _paymentMethod == 'CASH'
-                                    ? AppColors.accent
-                                    : (isDark
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBorder),
-                                width: _paymentMethod == 'CASH' ? 2 : 1,
-                              ),
-                              color: _paymentMethod == 'CASH'
-                                  ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                                  : (isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurface),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.payments_outlined,
-                                  color: AppColors.info,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Tunai (Cash)',
-                                  style: TextStyle(
-                                    fontWeight: _paymentMethod == 'CASH'
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: _paymentMethod == 'CASH'
-                                        ? AppColors.accent
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: InkWell(
-                          onTap: () =>
-                              setState(() => _paymentMethod = 'TRANSFER'),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                              border: Border.all(
-                                color: _paymentMethod == 'TRANSFER'
-                                    ? AppColors.accent
-                                    : (isDark
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBorder),
-                                width: _paymentMethod == 'TRANSFER' ? 2 : 1,
-                              ),
-                              color: _paymentMethod == 'TRANSFER'
-                                  ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                                  : (isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurface),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.account_balance_outlined,
-                                  color: AppColors.accent,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Transfer Bank',
-                                  style: TextStyle(
-                                    fontWeight: _paymentMethod == 'TRANSFER'
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: _paymentMethod == 'TRANSFER'
-                                        ? AppColors.accent
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
+                items: KasKeluarScreen.kExpenseCategories.map((cat) {
+                  return DropdownMenuItem<String>(
+                    value: cat,
+                    child: Text(cat),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedExpenseCategory = val;
+                    _validationErrors = [];
+                  });
+                },
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Nominal
-              AppTextField(
-                controller: _nominalCtrl,
-                label: 'Nominal (Rp)',
-                hintText: 'Masukkan nominal',
-                keyboardType: TextInputType.number,
-                inputFormatters: [RupiahInputFormatter()],
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-
-              // Kategori
-              if (_loadingCategories)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: const Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                )
-              else
-                DropdownButtonFormField<String>(
-                  value: _selectedCategoryId,
-                  decoration: InputDecoration(
-                    labelText: 'Kategori',
-                    hintText: 'Pilih kategori pengeluaran',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  items: _expenseCategories.map((cat) {
-                    return DropdownMenuItem<String>(
-                      value: cat.id,
-                      child: Text(cat.name),
-                    );
-                  }).toList(),
-                  onChanged: (val) => setState(() => _selectedCategoryId = val),
-                ),
-              const SizedBox(height: AppSpacing.sm),
-
-              // Lokasi Dana (Opsional)
+              // Lokasi Dana
               DropdownButtonFormField<String?>(
                 value: _selectedLocationId,
                 decoration: InputDecoration(
-                  labelText: 'Lokasi Dana (Opsional)',
+                  labelText: 'Lokasi Dana',
                   hintText: 'Pilih lokasi pengambilan dana',
                   helperText: () {
                     if (_selectedLocationId == null) return null;
@@ -713,7 +549,33 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
                     );
                   }),
                 ],
-                onChanged: (val) => setState(() => _selectedLocationId = val),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedLocationId = val;
+                    if (val != null) {
+                      final loc = _locations.where((l) => l.id == val).firstOrNull;
+                      if (loc != null) {
+                        final cat = loc.category.name.toLowerCase();
+                        if (cat == 'rekening') {
+                          _paymentMethod = 'TRANSFER';
+                        } else if (cat == 'coh' || cat == 'brankas') {
+                          _paymentMethod = 'CASH';
+                        }
+                      }
+                    }
+                  });
+                },
+              ),
+              const SizedBox(height: AppSpacing.sm),
+
+              // Nominal
+              AppTextField(
+                controller: _nominalCtrl,
+                label: 'Nominal (Rp)',
+                hintText: 'Masukkan nominal',
+                keyboardType: TextInputType.number,
+                inputFormatters: [RupiahInputFormatter()],
+                onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: AppSpacing.sm),
 
@@ -729,70 +591,122 @@ class _KasKeluarScreenState extends ConsumerState<KasKeluarScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Bukti Bayar',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  InkWell(
-                    onTap: _saving
-                        ? null
-                        : () => _pickImage(ImageSource.gallery),
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: _proofFile != null
-                              ? AppColors.accent
-                              : (isDark
-                                    ? AppColors.darkBorder
-                                    : AppColors.lightBorder),
-                          width: _proofFile != null ? 2 : 1,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Bukti Bayar',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        color: _proofFile != null
-                            ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                            : (isDark
-                                  ? AppColors.darkSurface
-                                  : AppColors.lightSurface),
                       ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.photo_library_outlined,
-                            color: AppColors.accent,
-                            size: 16,
+                      if (_proofFile != null)
+                        TextButton(
+                          onPressed: _saving
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _proofFile = null;
+                                    _proofPreviewPath = null;
+                                  });
+                                },
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: AppColors.danger,
                           ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              _proofFile?.name ?? 'Pilih Berkas Bukti Bayar',
-                              style: theme.textTheme.bodyLarge,
-                            ),
-                          ),
-                          const Spacer(),
-                          if (_proofFile != null)
-                            IconButton(
-                              icon: const Icon(
-                                Icons.close,
-                                size: 18,
-                                color: AppColors.danger,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _proofFile = null;
-                                  _proofPreviewPath = null;
-                                });
-                              },
-                            ),
-                        ],
+                          child: const Text('Hapus', style: TextStyle(fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  if (_proofFile != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: Image.file(
+                        File(_proofPreviewPath!),
+                        height: 120,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: _saving
+                            ? null
+                            : () async {
+                                final picker = ImagePicker();
+                                final picked = await picker.pickImage(
+                                  source: ImageSource.camera,
+                                  maxWidth: 1920,
+                                  maxHeight: 1920,
+                                  imageQuality: 85,
+                                );
+                                if (picked != null && mounted) {
+                                  setState(() {
+                                    _proofFile = picked;
+                                    _proofPreviewPath = picked.path;
+                                  });
+                                }
+                              },
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Ganti Foto', style: TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () async {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.camera,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked != null && mounted) {
+                                      setState(() {
+                                        _proofFile = picked;
+                                        _proofPreviewPath = picked.path;
+                                      });
+                                    }
+                                  },
+                            icon: const Icon(Icons.camera_alt, size: 16),
+                            label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () async {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.gallery,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked != null && mounted) {
+                                      setState(() {
+                                        _proofFile = picked;
+                                        _proofPreviewPath = picked.path;
+                                      });
+                                    }
+                                  },
+                            icon: const Icon(Icons.photo_library, size: 16),
+                            label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
 

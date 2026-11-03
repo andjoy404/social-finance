@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:social_finance/app/app.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -28,11 +32,20 @@ class _NotificationManagementScreenState
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
+  static const Map<String, String> _knownEventNames = {
+    'manual_push': 'Pengumuman Pengurus',
+    'waste_truck_arrival': 'Kedatangan Mobil Sampah',
+    'iuran_bill_created': 'Penerbitan Tagihan Iuran',
+    'payment_verified': 'Pembayaran Diverifikasi',
+    'payment_rejected': 'Pembayaran Ditolak',
+  };
+
   // Logs state
   List<NotificationLogEntry> _logs = [];
   bool _isLoadingLogs = false;
   String? _logsError;
   String _selectedLogEventType = '';
+  String _selectedLogStatus = 'all';
 
   @override
   void initState() {
@@ -58,6 +71,7 @@ class _NotificationManagementScreenState
         page: 1,
         perPage: 50,
         eventType: _selectedLogEventType.isNotEmpty ? _selectedLogEventType : null,
+        status: _selectedLogStatus != 'all' ? _selectedLogStatus : null,
       );
       if (mounted) {
         setState(() {
@@ -75,28 +89,63 @@ class _NotificationManagementScreenState
     }
   }
 
+  Future<void> _markAllAsRead() async {
+    try {
+      final repo = ref.read(notificationRepositoryProvider);
+      await repo.markAllAsRead();
+      if (mounted) {
+        setState(() {
+          _logs = _logs.map((l) => l.copyWith(isRead: true, readAt: l.readAt ?? DateTime.now())).toList();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Semua notifikasi ditandai sebagai sudah dibaca')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menandai notifikasi: $e')),
+        );
+      }
+    }
+  }
+
   void _openLogDetail(NotificationLogEntry log) {
-    final id = log.id.trim();
+    if (!log.isRead) {
+      ref.read(notificationRepositoryProvider).markAsRead(log.id).then((_) {
+        if (mounted) {
+          setState(() {
+            _logs = _logs.map((l) => l.id == log.id ? l.copyWith(isRead: true, readAt: DateTime.now()) : l).toList();
+          });
+        }
+      }).catchError((_) {});
+    }
+
+    final combinedPayload = <String, dynamic>{
+      if (log.payload != null) ...log.payload!,
+      if (log.variables.isNotEmpty) ...log.variables,
+      'type': log.eventType,
+      'title': log.title,
+      'body': log.body,
+      if (log.imageUrl != null) 'image_url': log.imageUrl,
+      if (log.createdAt != null) 'sent_at': log.createdAt!.toIso8601String(),
+      'notification_id': log.id,
+    };
+
+    final deepLink = log.payload?['deep_link'] as String?;
+    var target = normalizeNotificationTarget(deepLink, payload: combinedPayload);
+    if (target.contains('/notifikasi/detail') && !target.contains('from=')) {
+      final sep = target.contains('?') ? '&' : '?';
+      target = '$target${sep}from=notifikasi';
+    }
+
     final router = GoRouter.maybeOf(context);
     if (router != null) {
-      final path = id.isNotEmpty
-          ? '/home/notifikasi/detail/$id'
-          : '/home/notifikasi/detail';
-      final queryParams = <String, String>{
-        'from': 'notifikasi',
-        if (log.title.trim().isNotEmpty) 'title': log.title.trim(),
-        if (log.body.trim().isNotEmpty) 'body': log.body.trim(),
-        if (log.eventType.trim().isNotEmpty) 'type': log.eventType.trim(),
-        if (log.imageUrl != null && log.imageUrl!.trim().isNotEmpty)
-          'image_url': log.imageUrl!.trim(),
-        if (log.createdAt != null)
-          'sent_at': log.createdAt!.toIso8601String(),
-      };
-      final uri = Uri(path: path, queryParameters: queryParams);
-      router.push(uri.toString());
+      router.push(target);
       return;
     }
 
+    final id = log.id.trim();
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => NotificationDetailScreen(
@@ -401,6 +450,10 @@ class _NotificationManagementScreenState
     final bodyController = TextEditingController(text: template?.body ?? '');
     final imageController = TextEditingController(text: template?.imageUrl ?? '');
 
+    Uint8List? pickedImageBytes;
+    bool isUploadingImage = false;
+    String? imageUploadError;
+
     String selectedEvent = template?.eventType ??
         defaultEventType ??
         (systemTypes?.isNotEmpty == true ? systemTypes!.first.eventType : 'iuran_bill_created');
@@ -599,9 +652,276 @@ class _NotificationManagementScreenState
                       ),
                       const SizedBox(height: 10),
 
-                      // Image URL input (only for events supporting images)
-                      if (selectedEvent == 'waste_truck_arrival' ||
-                          selectedEvent == 'manual_push') ...[
+                      // Image input section for events supporting images
+                      if (selectedEvent == 'manual_push') ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Gambar Lampiran Pengumuman (Opsional)',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (pickedImageBytes != null || imageController.text.isNotEmpty)
+                              TextButton(
+                                onPressed: () {
+                                  setSheetState(() {
+                                    pickedImageBytes = null;
+                                    imageController.clear();
+                                    imageUploadError = null;
+                                  });
+                                },
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  foregroundColor: AppColors.danger,
+                                ),
+                                child: const Text('Hapus Gambar', style: TextStyle(fontSize: 12)),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        if (imageUploadError != null)
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: AppColors.danger.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
+                            child: Text(
+                              imageUploadError!,
+                              style: const TextStyle(color: AppColors.danger, fontSize: 12),
+                            ),
+                          ),
+                        if (isUploadingImage)
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            alignment: Alignment.center,
+                            child: const Column(
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 8),
+                                Text('Mengunggah gambar ke server...', style: TextStyle(fontSize: 12)),
+                              ],
+                            ),
+                          )
+                        else if (pickedImageBytes != null) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            child: AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: Image.memory(
+                                pickedImageBytes!,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  setSheetState(() {
+                                    imageUploadError = null;
+                                    isUploadingImage = true;
+                                  });
+                                  try {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.gallery,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked == null) {
+                                      setSheetState(() => isUploadingImage = false);
+                                      return;
+                                    }
+                                    final bytes = await picked.readAsBytes();
+                                    final repo = ref.read(notificationRepositoryProvider);
+                                    final url = await repo.uploadImage(
+                                      eventType: selectedEvent,
+                                      bytes: bytes,
+                                      filename: picked.name,
+                                    );
+                                    setSheetState(() {
+                                      pickedImageBytes = bytes;
+                                      imageController.text = url;
+                                      isUploadingImage = false;
+                                      imageUploadError = null;
+                                    });
+                                  } catch (e) {
+                                    setSheetState(() {
+                                      isUploadingImage = false;
+                                      imageUploadError = 'Gagal mengunggah gambar: $e';
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('Ganti Gambar', style: TextStyle(fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                        ] else if (imageController.text.isNotEmpty) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(AppRadius.base),
+                            child: AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: Image.network(
+                                ApiConfig.resolveImageUrl(imageController.text) ?? imageController.text,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(
+                                  color: Colors.grey.withValues(alpha: 0.1),
+                                  alignment: Alignment.center,
+                                  child: const Text('Gagal menampilkan gambar pratinjau', style: TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  setSheetState(() {
+                                    imageUploadError = null;
+                                    isUploadingImage = true;
+                                  });
+                                  try {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.gallery,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked == null) {
+                                      setSheetState(() => isUploadingImage = false);
+                                      return;
+                                    }
+                                    final bytes = await picked.readAsBytes();
+                                    final repo = ref.read(notificationRepositoryProvider);
+                                    final url = await repo.uploadImage(
+                                      eventType: selectedEvent,
+                                      bytes: bytes,
+                                      filename: picked.name,
+                                    );
+                                    setSheetState(() {
+                                      pickedImageBytes = bytes;
+                                      imageController.text = url;
+                                      isUploadingImage = false;
+                                      imageUploadError = null;
+                                    });
+                                  } catch (e) {
+                                    setSheetState(() {
+                                      isUploadingImage = false;
+                                      imageUploadError = 'Gagal mengunggah gambar: $e';
+                                    });
+                                  }
+                                },
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('Ganti Gambar', style: TextStyle(fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                        ] else ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    setSheetState(() {
+                                      imageUploadError = null;
+                                      isUploadingImage = true;
+                                    });
+                                    try {
+                                      final picker = ImagePicker();
+                                      final picked = await picker.pickImage(
+                                        source: ImageSource.camera,
+                                        maxWidth: 1920,
+                                        maxHeight: 1920,
+                                        imageQuality: 85,
+                                      );
+                                      if (picked == null) {
+                                        setSheetState(() => isUploadingImage = false);
+                                        return;
+                                      }
+                                      final bytes = await picked.readAsBytes();
+                                      final repo = ref.read(notificationRepositoryProvider);
+                                      final url = await repo.uploadImage(
+                                        eventType: selectedEvent,
+                                        bytes: bytes,
+                                        filename: picked.name,
+                                      );
+                                      setSheetState(() {
+                                        pickedImageBytes = bytes;
+                                        imageController.text = url;
+                                        isUploadingImage = false;
+                                        imageUploadError = null;
+                                      });
+                                    } catch (e) {
+                                      setSheetState(() {
+                                        isUploadingImage = false;
+                                        imageUploadError = 'Gagal mengunggah gambar: $e';
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(Icons.camera_alt, size: 16),
+                                  label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    setSheetState(() {
+                                      imageUploadError = null;
+                                      isUploadingImage = true;
+                                    });
+                                    try {
+                                      final picker = ImagePicker();
+                                      final picked = await picker.pickImage(
+                                        source: ImageSource.gallery,
+                                        maxWidth: 1920,
+                                        maxHeight: 1920,
+                                        imageQuality: 85,
+                                      );
+                                      if (picked == null) {
+                                        setSheetState(() => isUploadingImage = false);
+                                        return;
+                                      }
+                                      final bytes = await picked.readAsBytes();
+                                      final repo = ref.read(notificationRepositoryProvider);
+                                      final url = await repo.uploadImage(
+                                        eventType: selectedEvent,
+                                        bytes: bytes,
+                                        filename: picked.name,
+                                      );
+                                      setSheetState(() {
+                                        pickedImageBytes = bytes;
+                                        imageController.text = url;
+                                        isUploadingImage = false;
+                                        imageUploadError = null;
+                                      });
+                                    } catch (e) {
+                                      setSheetState(() {
+                                        isUploadingImage = false;
+                                        imageUploadError = 'Gagal mengunggah gambar: $e';
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(Icons.photo_library, size: 16),
+                                  label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      ] else if (selectedEvent == 'waste_truck_arrival') ...[
                         Text(
                           'URL Gambar Lampiran (Opsional)',
                           style: theme.textTheme.labelMedium?.copyWith(
@@ -795,6 +1115,35 @@ class _NotificationManagementScreenState
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final isSuperAdmin = isSuperAdminUser(user);
+    final isAdmin = canUserAccessNotificationAdmin(user);
+
+    if (!isAdmin) {
+      return Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: Navigator.of(context).canPop(),
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Notifikasi'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.done_all_rounded),
+              tooltip: 'Tandai Semua Dibaca',
+              onPressed: _markAllAsRead,
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: 'Segarkan',
+              onPressed: _loadLogs,
+            ),
+          ],
+        ),
+        body: _buildLogsTab(
+          theme: theme,
+          isDark: isDark,
+          isAdmin: false,
+          systemTypes: const [],
+        ),
+      );
+    }
 
     final systemTypesAsync = ref.watch(notificationSystemTypesProvider);
     final templatesAsync = ref.watch(notificationTemplatesProvider);
@@ -804,6 +1153,17 @@ class _NotificationManagementScreenState
         automaticallyImplyLeading: Navigator.of(context).canPop(),
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Kelola Notifikasi'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Segarkan',
+            onPressed: () {
+              ref.invalidate(notificationSystemTypesProvider);
+              ref.invalidate(notificationTemplatesProvider);
+              _loadLogs();
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: AppColors.accent,
@@ -1302,137 +1662,242 @@ class _NotificationManagementScreenState
           ),
 
           // TAB 3: RIWAYAT PENGIRIMAN
-          RefreshIndicator(
-            onRefresh: _loadLogs,
-            child: Column(
+          _buildLogsTab(
+            theme: theme,
+            isDark: isDark,
+            isAdmin: true,
+            systemTypes: systemTypesAsync.valueOrNull ?? [],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogsTab({
+    required ThemeData theme,
+    required bool isDark,
+    required bool isAdmin,
+    required List<SystemNotificationType> systemTypes,
+  }) {
+    return RefreshIndicator(
+      onRefresh: _loadLogs,
+      child: Column(
+        children: [
+          // Filter bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
               children: [
-                // Filter bar
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        'Filter:',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: _selectedLogEventType,
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('Semua Jenis'),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            isExpanded: true,
-                            value: _selectedLogEventType,
-                            items: [
-                              const DropdownMenuItem(
-                                value: '',
-                                child: Text('Semua Jenis Notifikasi'),
-                              ),
-                              ...(systemTypesAsync.valueOrNull ?? []).map((st) {
-                                return DropdownMenuItem(
-                                  value: st.eventType,
-                                  child: Text(st.name),
-                                );
-                              }),
-                            ],
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() {
-                                  _selectedLogEventType = val;
-                                });
-                                _loadLogs();
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
+                        if (systemTypes.isNotEmpty)
+                          ...systemTypes.map((st) {
+                            return DropdownMenuItem(
+                              value: st.eventType,
+                              child: Text(st.name),
+                            );
+                          })
+                        else
+                          ..._knownEventNames.entries.map((e) {
+                            return DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value),
+                            );
+                          }),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedLogEventType = val;
+                          });
+                          _loadLogs();
+                        }
+                      },
+                    ),
                   ),
                 ),
-                const Divider(height: 1),
-
-                // List
+                const SizedBox(width: 8),
                 Expanded(
-                  child: _isLoadingLogs
-                      ? const Center(child: LoadingIndicator())
-                      : _logsError != null
-                          ? ErrorState(
-                              message: _logsError!,
-                              onRetry: _loadLogs,
-                            )
-                          : _logs.isEmpty
-                              ? const EmptyState(
-                                  icon: Icons.history_toggle_off_rounded,
-                                  title: 'Belum Ada Riwayat Notifikasi',
-                                  description:
-                                      'Riwayat tercatat secara otomatis setiap kali notifikasi push dikirimkan ke warga.',
-                                )
-                              : ListView.builder(
-                                  key: const PageStorageKey<String>(
-                                    'notification_logs_list',
-                                  ),
-                                  padding: const EdgeInsets.all(16),
-                                  itemCount: _logs.length,
-                                  itemBuilder: (context, index) {
-                                    final log = _logs[index];
-                                    final dateStr = log.createdAt != null
-                                        ? '${log.createdAt!.day.toString().padLeft(2, '0')}/${log.createdAt!.month.toString().padLeft(2, '0')}/${log.createdAt!.year} ${log.createdAt!.hour.toString().padLeft(2, '0')}:${log.createdAt!.minute.toString().padLeft(2, '0')}'
-                                        : '-';
+                  flex: 2,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: _selectedLogStatus,
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'all',
+                          child: Text('Semua'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'unread',
+                          child: Text('Belum Dibaca'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'read',
+                          child: Text('Sudah Dibaca'),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedLogStatus = val;
+                          });
+                          _loadLogs();
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                if (isAdmin) ...[
+                  IconButton(
+                    icon: const Icon(Icons.done_all_rounded, size: 20),
+                    tooltip: 'Tandai Semua Dibaca',
+                    onPressed: _markAllAsRead,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const Divider(height: 1),
 
-                                    return Padding(
-                                      padding: const EdgeInsets.only(bottom: 10),
-                                      child: InkWell(
-                                        key: Key(
-                                          'notification_log_item_${log.id}',
-                                        ),
-                                        borderRadius: BorderRadius.circular(
-                                          AppRadius.base,
-                                        ),
-                                        onTap: () => _openLogDetail(log),
-                                        child: AppCard(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    dateStr,
-                                                    style: theme.textTheme.bodySmall
-                                                        ?.copyWith(
-                                                      color: isDark
-                                                          ? AppColors.darkTextMuted
-                                                          : AppColors.lightTextMuted,
+          // List
+          Expanded(
+            child: _isLoadingLogs
+                ? const Center(child: LoadingIndicator())
+                : _logsError != null
+                    ? ErrorState(
+                        message: _logsError!,
+                        onRetry: _loadLogs,
+                      )
+                    : _logs.isEmpty
+                        ? const EmptyState(
+                            icon: Icons.history_toggle_off_rounded,
+                            title: 'Belum Ada Riwayat Notifikasi',
+                            description:
+                                'Riwayat tercatat secara otomatis setiap kali notifikasi push dikirimkan ke warga.',
+                          )
+                        : ListView.builder(
+                            key: const PageStorageKey<String>(
+                              'notification_logs_list',
+                            ),
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _logs.length,
+                            itemBuilder: (context, index) {
+                              final log = _logs[index];
+                              final dateStr = log.createdAt != null
+                                  ? '${log.createdAt!.day.toString().padLeft(2, '0')}/${log.createdAt!.month.toString().padLeft(2, '0')}/${log.createdAt!.year} ${log.createdAt!.hour.toString().padLeft(2, '0')}:${log.createdAt!.minute.toString().padLeft(2, '0')}'
+                                  : '-';
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: InkWell(
+                                  key: Key(
+                                    'notification_log_item_${log.id}',
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    AppRadius.base,
+                                  ),
+                                  onTap: () => _openLogDetail(log),
+                                  child: AppCard(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              dateStr,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                color: isDark
+                                                    ? AppColors.darkTextMuted
+                                                    : AppColors.lightTextMuted,
+                                              ),
+                                            ),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (!log.isRead) ...[
+                                                  const Padding(
+                                                    padding: EdgeInsets.only(right: 6),
+                                                    child: AppBadge(
+                                                      label: 'BARU',
+                                                      backgroundColor: AppColors.accent,
+                                                      textColor: Colors.white,
                                                     ),
                                                   ),
-                                                  const AppBadge(
-                                                    label: 'TERKIRIM',
-                                                    backgroundColor: AppColors.success,
-                                                    textColor: Colors.white,
-                                                  ),
                                                 ],
+                                                const AppBadge(
+                                                  label: 'TERKIRIM',
+                                                  backgroundColor: AppColors.success,
+                                                  textColor: Colors.white,
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Row(
+                                          children: [
+                                            if (!log.isRead)
+                                              Container(
+                                                width: 8,
+                                                height: 8,
+                                                margin: const EdgeInsets.only(right: 6),
+                                                decoration: const BoxDecoration(
+                                                  color: AppColors.accent,
+                                                  shape: BoxShape.circle,
+                                                ),
                                               ),
-                                              const SizedBox(height: 6),
-                                              Text(
+                                            Expanded(
+                                              child: Text(
                                                 log.title,
                                                 style: theme.textTheme.bodyMedium
                                                     ?.copyWith(
-                                                  fontWeight: FontWeight.bold,
+                                                  fontWeight: log.isRead
+                                                      ? FontWeight.w600
+                                                      : FontWeight.bold,
                                                 ),
                                               ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                log.body,
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                  color: isDark
-                                                      ? AppColors.darkTextMuted
-                                                      : AppColors.lightTextMuted,
-                                                ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          log.body,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: isDark
+                                                ? AppColors.darkTextMuted
+                                                : AppColors.lightTextMuted,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              _knownEventNames[log.eventType] ?? log.eventType,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: isDark
+                                                    ? AppColors.darkTextMuted
+                                                    : AppColors.lightTextMuted,
                                               ),
-                                              const SizedBox(height: 6),
+                                            ),
+                                            if (isAdmin)
                                               Text(
                                                 'Penerima: ${log.recipientsCount} perangkat',
                                                 style: TextStyle(
@@ -1442,16 +1907,15 @@ class _NotificationManagementScreenState
                                                       : AppColors.lightTextMuted,
                                                 ),
                                               ),
-                                            ],
-                                          ),
+                                          ],
                                         ),
-                                      ),
-                                    );
-                                  },
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                ),
-              ],
-            ),
+                              );
+                            },
+                          ),
           ),
         ],
       ),

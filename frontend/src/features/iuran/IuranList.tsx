@@ -4,7 +4,6 @@ import {
   DollarOutlined,
   CloseOutlined,
   DownOutlined,
-  AlertOutlined,
   PlusOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -30,14 +29,14 @@ import { DueCreate } from './DueCreate'
 import { IuranDetail } from './IuranDetail'
 import { IuranPayment } from './IuranPayment'
 import type { IuranBill, IuranStatus, DueType } from './iuranTypes'
-import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiGetDueMonths, apiUpdateDuePeriodStatus, type DueMonthSummary, apiTriggerWasteTruckArrival, type ApiBill, type ApiDue, apiGenerateBills, getSessionPair } from '@/app/api'
+import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiGetDueMonths, apiUpdateDuePeriodStatus, type DueMonthSummary, type ApiBill, type ApiDue, apiGenerateBills, getSessionPair } from '@/app/api'
 
 type FilterType = 'semua' | 'status' | 'pembayaran' | 'periode' | 'jenis'
 
 export type PaymentFilterStatus = 'pending' | 'approved' | 'rejected'
 
 export const PAYMENT_STATUS_OPTIONS: { value: PaymentFilterStatus; label: string }[] = [
-  { value: 'pending', label: 'Menunggu Verifikasi' },
+  { value: 'pending', label: 'Tertunda' },
   { value: 'approved', label: 'Disetujui' },
   { value: 'rejected', label: 'Ditolak' },
 ]
@@ -98,9 +97,17 @@ export function IuranList() {
   function isWarga(u: {
     systemRole?: string | null
     role?: string
+    jabatan?: string | null
   }): boolean {
     if (u.systemRole === 'super_admin') return false
-    return u.role === 'warga'
+    if (u.role !== 'warga') return false
+    // A warga with a management jabatan is not a plain warga for tab purposes.
+    // They hold an RT position (ketua, wakil_ketua, sekretaris, bendahara) and
+    // should see the full iuran tab navigation, not be clamped to "Iuran Saya".
+    const jabatan = (u.jabatan ?? '').trim().toLowerCase()
+    const managementJabatans = new Set(['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'])
+    if (managementJabatans.has(jabatan)) return false
+    return true
   }
 
   function canAccessIuranTabs(u: {
@@ -167,11 +174,12 @@ export function IuranList() {
   const [deactivateDueId, setDeactivateDueId] = useState<string | null>(null)
   const [deactivateLoading, setDeactivateLoading] = useState(false)
 
+  const currentYear = String(new Date().getFullYear())
   const initialSearch = searchParams.get('q') || searchParams.get('search') || ''
-  const initialFilter = (searchParams.get('filter') as FilterType) ?? 'semua'
+  const initialFilter = (searchParams.get('filter') as FilterType) ?? (effectiveInitialTab === 'tagihan' && !searchParams.get('filter') ? 'periode' : 'semua')
   const initialStatus = (searchParams.get('status') as IuranStatus) || null
   const initialPembayaran = (searchParams.get('pembayaran') as PaymentFilterStatus) || null
-  const initialPeriode = searchParams.get('periode') ?? ''
+  const initialPeriode = searchParams.get('periode') ?? (effectiveInitialTab === 'tagihan' ? currentYear : '')
   const initialJenis = searchParams.get('jenis') ?? ''
   const initialPage = parseInt(searchParams.get('page') || '1', 10) || 1
   const initialPageSize = parseInt(searchParams.get('page_size') || searchParams.get('per_page') || '', 10) || undefined
@@ -245,35 +253,6 @@ export function IuranList() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Notification state
-  const [wasteTruckStatus, setWasteTruckStatus] = useState<string | null>(null)
-  const [wasteTruckLoading, setWasteTruckLoading] = useState(false)
-
-  const canTriggerWasteTruck =
-    user?.role === 'pengurus' ||
-    user?.role === 'bendahara' ||
-    user?.systemRole === 'super_admin' ||
-    user?.jabatan === 'ketua' ||
-    user?.jabatan === 'bendahara' ||
-    user?.jabatan === 'sekretaris' ||
-    user?.jabatan === 'wakil_ketua'
-
-  const handleWasteTruckArrival = async () => {
-    const token = getSessionPair()?.accessToken
-    if (!token) return
-    setWasteTruckLoading(true)
-    setWasteTruckStatus(null)
-    try {
-      const res = await apiTriggerWasteTruckArrival(token)
-      setWasteTruckStatus(res.message || 'Notifikasi kedatangan truk sampah berhasil dikirim')
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Gagal mengirim notifikasi'
-      setWasteTruckStatus(msg)
-    } finally {
-      setWasteTruckLoading(false)
-    }
-  }
-
   const fetchedPaymentBillIds = useRef<Set<string>>(new Set())
   const requestIdRef = useRef(0)
   const [total, setTotal] = useState(0)
@@ -288,6 +267,7 @@ export function IuranList() {
     const paidAmount = b.paid_amount ? parseMoney(b.paid_amount) : 0
     const pendingAmount = b.pending_amount ? parseMoney(b.pending_amount) : 0
     const isVoluntary = Boolean(b.is_voluntary || nominal === 0)
+    const isObligatory = b.is_obligatory !== false
     // Prioritas utama: jika ada pembayaran yang menunggu verifikasi → status tersendiri
     let status: IuranStatus
     if (isVoluntary && nominal === 0) {
@@ -311,6 +291,9 @@ export function IuranList() {
       pendingAmount,
       status,
       isVoluntary,
+      isObligatory,
+      moveInDate: b.move_in_date ?? undefined,
+      moveOutDate: b.move_out_date ?? undefined,
       isActive: b.is_active !== false,
       dueId: b.due_id,
       dueType: (b.due_type as DueType) ?? (isVoluntary ? 'voluntary' : 'regular'),
@@ -387,7 +370,7 @@ export function IuranList() {
   // Auto-refresh when user returns to tab
   useEffect(() => {
     function handleVisibilityChange() {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && activeTab !== 'list-iuran') {
         void loadData()
       }
     }
@@ -602,7 +585,9 @@ export function IuranList() {
   useEffect(() => {
     let cancelled = false
     const token = getSessionPair()?.accessToken
-    if (!token || paginatedBills.length === 0) return
+    // BillList already returns paid_amount and pending_amount for Iuran Warga.
+    // Avoid one payments request per bill, which can overwhelm RT validation.
+    if (activeTab === 'list-iuran' || !token || paginatedBills.length === 0) return
 
     const unfetched = paginatedBills.filter((b) => !fetchedPaymentBillIds.current.has(b.id))
     if (unfetched.length === 0) return
@@ -641,7 +626,7 @@ export function IuranList() {
     return () => {
       cancelled = true
     }
-  }, [paginatedBills])
+  }, [paginatedBills, activeTab])
 
   const handleFilter = (filter: FilterType) => {
     setFilterType(filter)
@@ -709,10 +694,13 @@ export function IuranList() {
     return Array.from(allPeriodesSet).sort().reverse()
   }, [allPeriodesSet])
 
-  const uniquePeriodesOptions = useMemo(
-    () => uniquePeriodes.map((p) => ({ value: p, label: formatPeriodeLabel(p) })),
-    [uniquePeriodes]
-  )
+  const uniquePeriodesOptions = useMemo(() => {
+    const opts = uniquePeriodes.map((p) => ({ value: p, label: formatPeriodeLabel(p) }))
+    if (!uniquePeriodes.includes(currentYear)) {
+      opts.unshift({ value: currentYear, label: `Semua Bulan (${currentYear})` })
+    }
+    return opts
+  }, [uniquePeriodes, currentYear])
 
   const handleRowClick = useCallback((billId: string) => {
     setShowDetailBillId(billId)
@@ -1164,19 +1152,6 @@ export function IuranList() {
                 <PlusOutlined style={{ marginRight: 0, fontSize: 12 }} />
               </button>
             )}
-            {/* "Truk Sampah Tiba" always visible in "Iuran Warga" tab */}
-            {activeTab === 'list-iuran' && canTriggerWasteTruck && (
-              <button
-                type="button"
-                className="sf-btn-secondary"
-                disabled={wasteTruckLoading}
-                onClick={() => void handleWasteTruckArrival()}
-                title="Kirim notifikasi kedatangan truk sampah ke seluruh warga RT"
-              >
-                <AlertOutlined style={{ marginRight: 4, fontSize: 12 }} />
-                {wasteTruckLoading ? 'Mengirim...' : 'Truk Sampah Tiba'}
-              </button>
-            )}
           </div>
         </div>
 
@@ -1240,33 +1215,6 @@ export function IuranList() {
               }}
             >
               Kelola Iuran
-            </button>
-          </div>
-        )}
-
-        {wasteTruckStatus && activeTab === 'list-iuran' && (
-          <div
-            className="sf-alert-banner"
-            style={{
-              margin: '8px 0',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              background: 'var(--sf-success-light, #e6f7ed)',
-              color: 'var(--sf-success, #1a7f37)',
-              fontSize: '13px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <span>{wasteTruckStatus}</span>
-            <button
-              type="button"
-              onClick={() => setWasteTruckStatus(null)}
-              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 'bold' }}
-              aria-label="Tutup notifikasi"
-            >
-              ✕
             </button>
           </div>
         )}
@@ -1599,19 +1547,19 @@ export function IuranList() {
 
             {/* Bill Table */}
             {!loading && filteredBills.length > 0 && (
-              <div className="table-wrapper sf-auto-layout-wrapper" style={{ overflowX: 'auto' }}>
-                <table className="sf-auto-layout-table">
+              <div className="table-wrapper sf-auto-layout-wrapper" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table className="sf-auto-layout-table" style={{ minWidth: '1050px', width: '100%' }}>
                   <thead>
                     <tr>
-                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>NAMA WARGA</th>
-                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '50px' }}>RT</th>
-                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '120px' }}>NAMA IURAN</th>
-                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', width: '100px' }}>JENIS IURAN</th>
-                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '160px' }}>PERIODE</th>
-                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '140px' }}>NOMINAL</th>
-                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '110px' }}>DIBAYAR</th>
-                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '110px' }}>TERTUNDA</th>
-                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '120px' }}>STATUS</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', minWidth: '180px' }}>NAMA WARGA</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '60px', minWidth: '60px' }}>RT</th>
+                      <th style={{ textAlign: 'left', whiteSpace: 'nowrap', minWidth: '150px' }}>NAMA IURAN</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '120px', minWidth: '120px' }}>JENIS IURAN</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '160px', minWidth: '160px' }}>PERIODE</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '140px', minWidth: '130px' }}>NOMINAL</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '130px', minWidth: '120px' }}>DIBAYAR</th>
+                      <th style={{ textAlign: 'right', whiteSpace: 'nowrap', fontFamily: 'monospace', width: '130px', minWidth: '120px' }}>TERTUNDA</th>
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap', width: '130px', minWidth: '120px' }}>STATUS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1669,6 +1617,8 @@ export function IuranList() {
                           <td style={{ textAlign: 'center' }}>
                             {bill.isActive === false ? (
                               <Badge variant="gray">Tidak Aktif</Badge>
+                            ) : bill.isObligatory === false ? (
+                              <Badge variant="gray">Tidak Wajib</Badge>
                             ) : (
                               <Badge variant={getStatusVariant(bill.status)}>
                                 {getStatusLabel(bill.status)}

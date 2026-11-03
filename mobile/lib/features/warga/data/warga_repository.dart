@@ -296,6 +296,21 @@ class WargaRepository {
     );
   }
 
+  Future<Map<String, dynamic>> generateResetPasswordCode(String residentId) async {
+    try {
+      final response = await client.dio.post(
+        '/api/v1/residents/$residentId/reset-password-code',
+      );
+      final data = response.data;
+      if (data is! Map) {
+        throw const FormatException('Expected JSON object in reset password code response');
+      }
+      return Map<String, dynamic>.from(data);
+    } catch (e) {
+      throw mapDioError(e);
+    }
+  }
+
   ServerException mapDioError(dynamic error) {
     if (error is ServerException) return error;
 

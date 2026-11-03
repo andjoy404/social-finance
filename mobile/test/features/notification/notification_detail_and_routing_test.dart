@@ -199,6 +199,7 @@ class _FakeNotificationRepository extends NotificationRepository {
     int page = 1,
     int perPage = 20,
     String? eventType,
+    String? status,
   }) async {
     return NotificationLogsResponse(
       data: [
@@ -279,10 +280,10 @@ void main() {
         },
       );
 
-      expect(
-        target,
-        equals('/home/iuran/detail/bill-777?payment_id=pay-888'),
-      );
+      final uri = Uri.parse(target);
+      expect(uri.path, equals('/home/iuran/detail/bill-777'));
+      expect(uri.queryParameters['payment_id'], equals('pay-888'));
+      expect(uri.queryParameters['action'], equals('verify'));
     });
 
     test('constructs payment verification route from payload if deep_link is missing', () {
@@ -296,10 +297,10 @@ void main() {
         },
       );
 
-      expect(
-        target,
-        equals('/home/iuran/detail/bill-555?payment_id=pay-666'),
-      );
+      final uri = Uri.parse(target);
+      expect(uri.path, equals('/home/iuran/detail/bill-555'));
+      expect(uri.queryParameters['payment_id'], equals('pay-666'));
+      expect(uri.queryParameters['view'], equals('status'));
     });
 
     test('routes unknown or incomplete notification payload safely to /home/notifikasi/detail', () {

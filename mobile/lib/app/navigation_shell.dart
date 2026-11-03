@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
+import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/notification/data/models/notification_models.dart';
@@ -53,6 +55,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.people_outline,
     activeIcon: Icons.people,
   );
+  static const _rwDataTab = _NavRoute(
+    path: '/home/rw-data',
+    label: 'Data RW',
+    icon: Icons.area_chart_outlined,
+    activeIcon: Icons.area_chart,
+  );
   static const _profileTab = _NavRoute(
     path: '/home/profile',
     label: 'Profil',
@@ -74,17 +82,42 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     return role == AppRole.bendahara ||
         role == AppRole.pengurus ||
         isKetuaRTUser(user) ||
-        jabatan == 'bendahara';
+        jabatan == 'bendahara' ||
+        jabatan == 'ketua' ||
+        jabatan == 'wakil_ketua' ||
+        jabatan == 'sekretaris';
   }
 
   bool _canAccessNotifikasi(Map<String, dynamic>? user) {
     return canUserAccessNotificationMenu(user);
   }
 
+  List<RWMembership> _getValidRWMemberships(Map<String, dynamic>? user) {
+    if (user == null) return [];
+    final systemRole = (user['system_role'] ?? '').toString().toLowerCase();
+    final role = (user['role'] ?? '').toString().toLowerCase();
+    final isSuperAdmin = systemRole == 'super_admin' ||
+        role == 'super_admin' ||
+        role.contains('superadmin');
+    final rawList = (user['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
+            .toList() ??
+        <RWMembership>[];
+    return rawList
+        .where((m) =>
+            isSuperAdmin ||
+            (m.jabatan != null &&
+                ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara']
+                    .contains(m.jabatan!.toLowerCase())))
+        .toList();
+  }
+
   List<_NavRoute> _getActiveTabs() {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final canNotifikasi = _canAccessNotifikasi(user);
+    final rwMemberships = _getValidRWMemberships(user);
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
       return [
@@ -93,12 +126,14 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
         _wargaTab,
+        if (rwMemberships.isNotEmpty) _rwDataTab,
         if (canNotifikasi) _notifikasiTab,
         _profileTab,
       ];
     }
     return [
       _homeTab,
+      if (rwMemberships.isNotEmpty) _rwDataTab,
       if (canNotifikasi) _notifikasiTab,
       _profileTab,
     ];
@@ -116,6 +151,21 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         }
       }
     }
+    // Also check RW routes — if location starts with /rw/, match the RW data tab.
+    if (!found || tabs[bestMatch].path != '/home/rw-data') {
+      final rwDataIndex = tabs.indexWhere((t) => t.path == '/home/rw-data');
+      if (rwDataIndex >= 0 && location.startsWith('/rw/')) {
+        // Prefer RW data tab when on an RW route, but only if not already
+        // on a more specific tab (e.g. /home, /home/kas, etc.).
+        final rwDataPreferred = tabs[rwDataIndex].path;
+        final isRWScope = location.startsWith('/rw/') ||
+            (location == rwDataPreferred || location.startsWith('/home/rw-data/'));
+        // Only pick RW data if we're not already on a /home/* tab.
+        if (isRWScope && !location.startsWith('/home')) {
+          return rwDataIndex;
+        }
+      }
+    }
     return bestMatch;
   }
 
@@ -126,6 +176,8 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   /// Used by DoubleBackExitScope to determine whether system back should
   /// exit the app or navigate to the parent route.
   bool _isDirectlyOnTopLevelTab(String currentLocation, List<_NavRoute> tabs) {
+    // Consider RW routes (/rw/:rwId/*) as top-level too.
+    if (currentLocation.startsWith('/rw/')) return true;
     return tabs.any((t) => t.path == currentLocation);
   }
 
@@ -220,22 +272,53 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
             ],
           ),
         ),
+        drawer: _AppDrawer(
+          tabs: tabs,
+          currentMatch: currentMatch,
+          user: user,
+          onSelectTab: (index) => _onTabTapped(tabs, index, context),
+        ),
         bottomNavigationBar: BottomAppBar(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(
-              tabs.length,
-              (index) => Flexible(
-                child: _NavRailItem(
-                  key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
-                  tab: tabs[index],
-                  isSelected: index == _currentMatch,
-                  onTap: () => _onTabTapped(tabs, index, context),
+          child: tabs.length <= 4
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: List.generate(
+                    tabs.length,
+                    (index) => Expanded(
+                      child: _NavRailItem(
+                        key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
+                        tab: tabs[index],
+                        isSelected: index == _currentMatch,
+                        onTap: () => _onTabTapped(tabs, index, context),
+                      ),
+                    ),
+                  ),
+                )
+              : LayoutBuilder(
+                  builder: (context, constraints) => SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: List.generate(
+                          tabs.length,
+                          (index) => Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: _NavRailItem(
+                              key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
+                              tab: tabs[index],
+                              isSelected: index == _currentMatch,
+                              onTap: () => _onTabTapped(tabs, index, context),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ),
         ),
       ),
     );
@@ -245,6 +328,47 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (index >= 0 && index < tabs.length) {
       final tab = tabs[index];
       final currentLocation = _currentLocation(tapContext);
+
+      // Special handling for RW data tab
+      if (tab.path == '/home/rw-data') {
+        final authState = ref.read(authRepositoryProvider);
+        final user = authState?.valueOrNull;
+        final rwMemberships = _getValidRWMemberships(user);
+
+        if (rwMemberships.isEmpty) return;
+
+        if (rwMemberships.length == 1) {
+          context.go('/rw/${rwMemberships.first.rwId}/dashboard');
+        } else {
+          // Multiple memberships: show selection dialog
+          showDialog<String>(
+            context: tapContext,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Pilih RW'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: rwMemberships.map((m) {
+                  return ListTile(
+                    title: Text(((m.rwName ?? '').isNotEmpty) ? m.rwName! : m.displayName),
+                    subtitle: ((m.jabatan ?? '').isNotEmpty)
+                        ? Text('Jabatan: ${m.jabatan}')
+                        : null,
+                    onTap: () {
+                      Navigator.pop(dialogContext, m.rwId);
+                    },
+                  );
+                }).toList(),
+              ),
+            ),
+          ).then((selectedRwId) {
+            if (selectedRwId != null && selectedRwId.isNotEmpty && mounted) {
+              context.go('/rw/$selectedRwId/dashboard');
+            }
+          });
+        }
+        return;
+      }
+
       if (currentLocation != tab.path) {
         context.go(tab.path);
       }
@@ -299,6 +423,7 @@ class _NavRailItem extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
+        alignment: Alignment.center,
         padding: EdgeInsets.symmetric(
           horizontal: isProminent ? 10 : 5,
           vertical: isProminent ? 4 : 5,
@@ -339,6 +464,161 @@ class _NavRailItem extends StatelessWidget {
                     : (isProminent ? FontWeight.w600 : FontWeight.normal),
                 fontSize: isProminent ? 11.5 : 11,
                 height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AppDrawer extends StatelessWidget {
+  final List<_NavRoute> tabs;
+  final int currentMatch;
+  final Map<String, dynamic>? user;
+  final void Function(int index) onSelectTab;
+
+  const _AppDrawer({
+    required this.tabs,
+    required this.currentMatch,
+    required this.user,
+    required this.onSelectTab,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final drawerWidth = (screenWidth * 0.75).clamp(240.0, 320.0);
+
+    final name = (user?['name'] as String?)?.isNotEmpty == true
+        ? user!['name'] as String
+        : (user?['email'] as String? ?? 'Pengguna');
+    final role = user?['role']?.toString().split('.').last ?? '';
+    final jabatan = user?['jabatan'] as String? ?? '';
+    final rt = user?['rt']?.toString() ?? '';
+    final rawRw = user?['rw']?.toString() ?? '';
+    final rw = looksLikeUuid(rawRw)
+        ? (resolveRwNumber(rawRw, user?['rw_memberships']) ?? '')
+        : rawRw;
+    final rtRwText = [
+      if (rt.isNotEmpty) 'RT $rt',
+      if (rw.isNotEmpty) 'RW $rw',
+    ].join(' / ');
+
+    return SizedBox(
+      width: drawerWidth,
+      child: Drawer(
+        child: Column(
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+              ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: AppColors.accent,
+                    child: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      if (jabatan.isNotEmpty || role.isNotEmpty)
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              jabatan.isNotEmpty ? jabatan.toUpperCase() : role.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if ((jabatan.isNotEmpty || role.isNotEmpty) && rtRwText.isNotEmpty)
+                        const SizedBox(width: 6),
+                      if (rtRwText.isNotEmpty)
+                        Expanded(
+                          child: Text(
+                            rtRwText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: tabs.length,
+                itemBuilder: (context, index) {
+                  final tab = tabs[index];
+                  final isSelected = index == currentMatch;
+                  return ListTile(
+                    leading: Icon(
+                      isSelected ? tab.activeIcon : tab.icon,
+                      color: isSelected
+                          ? AppColors.seed
+                          : (tab.isProminent ? AppColors.accent : theme.colorScheme.onSurfaceVariant),
+                    ),
+                    title: Text(
+                      tab.label,
+                      style: TextStyle(
+                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                        color: isSelected
+                            ? AppColors.seed
+                            : (tab.isProminent ? AppColors.accent : null),
+                      ),
+                    ),
+                    selected: isSelected,
+                    selectedTileColor: AppColors.hoverTint,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                    dense: true,
+                    onTap: () {
+                      Navigator.pop(context);
+                      onSelectTab(index);
+                    },
+                  );
+                },
               ),
             ),
           ],

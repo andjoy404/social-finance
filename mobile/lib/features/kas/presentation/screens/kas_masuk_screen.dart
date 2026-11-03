@@ -4,6 +4,7 @@
 /// UUID to the POST /api/v1/transactions body.
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -162,13 +163,26 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
 
       final desc = _keteranganCtrl.text.trim();
 
+      String method = _paymentMethod;
+      if (_selectedLocationId != null) {
+        final loc = _locations.where((l) => l.id == _selectedLocationId).firstOrNull;
+        if (loc != null) {
+          final catName = loc.category.name.toLowerCase();
+          if (catName == 'rekening') {
+            method = 'TRANSFER';
+          } else if (catName == 'coh' || catName == 'brankas') {
+            method = 'CASH';
+          }
+        }
+      }
+
       await repository.createTransaction(
         categoryId: _selectedCategoryId,
         amount: nominalInt,
         jenis: KasJenis.masuk,
         description: desc,
         occurredAt: occurredAt,
-        paymentMethod: _paymentMethod,
+        paymentMethod: method,
         locationId: _selectedLocationId,
         idempotencyKey: _generateUuid(),
       );
@@ -435,136 +449,6 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Metode Pembayaran (Tunai / Transfer)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Metode Pembayaran',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => setState(() => _paymentMethod = 'CASH'),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                              border: Border.all(
-                                color: _paymentMethod == 'CASH'
-                                    ? AppColors.accent
-                                    : (isDark
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBorder),
-                                width: _paymentMethod == 'CASH' ? 2 : 1,
-                              ),
-                              color: _paymentMethod == 'CASH'
-                                  ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                                  : (isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurface),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.payments_outlined,
-                                  color: AppColors.info,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Tunai (Cash)',
-                                  style: TextStyle(
-                                    fontWeight: _paymentMethod == 'CASH'
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: _paymentMethod == 'CASH'
-                                        ? AppColors.accent
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: InkWell(
-                          onTap: () =>
-                              setState(() => _paymentMethod = 'TRANSFER'),
-                          borderRadius: BorderRadius.circular(AppRadius.base),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.base,
-                              ),
-                              border: Border.all(
-                                color: _paymentMethod == 'TRANSFER'
-                                    ? AppColors.accent
-                                    : (isDark
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBorder),
-                                width: _paymentMethod == 'TRANSFER' ? 2 : 1,
-                              ),
-                              color: _paymentMethod == 'TRANSFER'
-                                  ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                                  : (isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurface),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.account_balance_outlined,
-                                  color: AppColors.accent,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Transfer Bank',
-                                  style: TextStyle(
-                                    fontWeight: _paymentMethod == 'TRANSFER'
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: _paymentMethod == 'TRANSFER'
-                                        ? AppColors.accent
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-
-              // Nominal
-              AppTextField(
-                controller: _nominalCtrl,
-                label: 'Nominal (Rp)',
-                hintText: 'Masukkan nominal',
-                keyboardType: TextInputType.number,
-                inputFormatters: [RupiahInputFormatter()],
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-
               // Kategori
               if (_loadingCategories)
                 Padding(
@@ -597,11 +481,11 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                 ),
               const SizedBox(height: AppSpacing.sm),
 
-              // Lokasi Dana (Opsional)
+              // Lokasi Dana
               DropdownButtonFormField<String?>(
                 value: _selectedLocationId,
                 decoration: InputDecoration(
-                  labelText: 'Lokasi Dana (Opsional)',
+                  labelText: 'Lokasi Dana',
                   hintText: 'Pilih lokasi penyimpanan dana',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
@@ -619,7 +503,33 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
                     );
                   }),
                 ],
-                onChanged: (val) => setState(() => _selectedLocationId = val),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedLocationId = val;
+                    if (val != null) {
+                      final loc = _locations.where((l) => l.id == val).firstOrNull;
+                      if (loc != null) {
+                        final cat = loc.category.name.toLowerCase();
+                        if (cat == 'rekening') {
+                          _paymentMethod = 'TRANSFER';
+                        } else if (cat == 'coh' || cat == 'brankas') {
+                          _paymentMethod = 'CASH';
+                        }
+                      }
+                    }
+                  });
+                },
+              ),
+              const SizedBox(height: AppSpacing.sm),
+
+              // Nominal
+              AppTextField(
+                controller: _nominalCtrl,
+                label: 'Nominal (Rp)',
+                hintText: 'Masukkan nominal',
+                keyboardType: TextInputType.number,
+                inputFormatters: [RupiahInputFormatter()],
+                onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: AppSpacing.sm),
 
@@ -635,70 +545,122 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Bukti Bayar',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  InkWell(
-                    onTap: _saving
-                        ? null
-                        : () => _pickImage(ImageSource.gallery),
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: _proofFile != null
-                              ? AppColors.accent
-                              : (isDark
-                                    ? AppColors.darkBorder
-                                    : AppColors.lightBorder),
-                          width: _proofFile != null ? 2 : 1,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Bukti Bayar',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
-                        borderRadius: BorderRadius.circular(AppRadius.base),
-                        color: _proofFile != null
-                            ? AppColors.accent.withAlpha(isDark ? 50 : 25)
-                            : (isDark
-                                  ? AppColors.darkSurface
-                                  : AppColors.lightSurface),
                       ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.photo_library_outlined,
-                            color: AppColors.accent,
-                            size: 16,
+                      if (_proofFile != null)
+                        TextButton(
+                          onPressed: _saving
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _proofFile = null;
+                                    _proofPreviewPath = null;
+                                  });
+                                },
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: AppColors.danger,
                           ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              _proofFile?.name ?? 'Pilih Berkas Bukti Bayar',
-                              style: theme.textTheme.bodyLarge,
-                            ),
-                          ),
-                          const Spacer(),
-                          if (_proofFile != null)
-                            IconButton(
-                              icon: const Icon(
-                                Icons.close,
-                                size: 18,
-                                color: AppColors.danger,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _proofFile = null;
-                                  _proofPreviewPath = null;
-                                });
-                              },
-                            ),
-                        ],
+                          child: const Text('Hapus', style: TextStyle(fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  if (_proofFile != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: Image.file(
+                        File(_proofPreviewPath!),
+                        height: 120,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: _saving
+                            ? null
+                            : () async {
+                                final picker = ImagePicker();
+                                final picked = await picker.pickImage(
+                                  source: ImageSource.camera,
+                                  maxWidth: 1920,
+                                  maxHeight: 1920,
+                                  imageQuality: 85,
+                                );
+                                if (picked != null && mounted) {
+                                  setState(() {
+                                    _proofFile = picked;
+                                    _proofPreviewPath = picked.path;
+                                  });
+                                }
+                              },
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Ganti Foto', style: TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                  ] else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () async {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.camera,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked != null && mounted) {
+                                      setState(() {
+                                        _proofFile = picked;
+                                        _proofPreviewPath = picked.path;
+                                      });
+                                    }
+                                  },
+                            icon: const Icon(Icons.camera_alt, size: 16),
+                            label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () async {
+                                    final picker = ImagePicker();
+                                    final picked = await picker.pickImage(
+                                      source: ImageSource.gallery,
+                                      maxWidth: 1920,
+                                      maxHeight: 1920,
+                                      imageQuality: 85,
+                                    );
+                                    if (picked != null && mounted) {
+                                      setState(() {
+                                        _proofFile = picked;
+                                        _proofPreviewPath = picked.path;
+                                      });
+                                    }
+                                  },
+                            icon: const Icon(Icons.photo_library, size: 16),
+                            label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
 

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -59,15 +61,33 @@ type ChangePasswordRequest struct {
 	NewPassword     string `json:"new_password"`
 }
 
-// Handler handles auth endpoints (login, refresh, logout, me, profile, password).
-type Handler struct {
-	svc *Service
-	p   *database.Pool
+// ResetPasswordWithCodeRequest defines the body for resetting password with 4-digit code.
+type ResetPasswordWithCodeRequest struct {
+	Identifier      string `json:"identifier"`
+	Code            string `json:"code"`
+	NewPassword     string `json:"new_password"`
+	ConfirmPassword string `json:"confirm_password"`
 }
 
-// NewHandler creates a new auth handler.
-func NewHandler(pool *database.Pool, svc *Service) *Handler {
-	return &Handler{svc: svc, p: pool}
+// Handler handles auth endpoints (login, refresh, logout, me, profile, password).
+type Handler struct {
+	svc        *Service
+	p          *database.Pool
+	scopingCfg *ScopingConfig
+}
+
+// NewHandler creates a new auth handler with optional scoping configuration.
+func NewHandler(pool *database.Pool, svc *Service, scopingCfg ...*ScopingConfig) *Handler {
+	var sc *ScopingConfig
+	if len(scopingCfg) > 0 {
+		sc = scopingCfg[0]
+	}
+	return &Handler{svc: svc, p: pool, scopingCfg: sc}
+}
+
+// SetScopingConfig updates the scoping configuration on the handler.
+func (h *Handler) SetScopingConfig(cfg *ScopingConfig) {
+	h.scopingCfg = cfg
 }
 
 // Register mounts the auth routes on the given router group.
@@ -110,6 +130,201 @@ func (h *Handler) ChangePassword() http.Handler {
 	return http.HandlerFunc(h.handleChangePassword)
 }
 
+// ResetPasswordWithCode returns an HTTP handler for POST /api/v1/auth/reset-password-with-code
+func (h *Handler) ResetPasswordWithCode() http.Handler {
+	return http.HandlerFunc(h.handleResetPasswordWithCode)
+}
+
+func (h *Handler) handleResetPasswordWithCode(w http.ResponseWriter, r *http.Request) {
+	var req ResetPasswordWithCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "format data tidak valid")
+		return
+	}
+
+	identifier := strings.TrimSpace(req.Identifier)
+	code := strings.TrimSpace(req.Code)
+	newPass := strings.TrimSpace(req.NewPassword)
+	confirmPass := strings.TrimSpace(req.ConfirmPassword)
+
+	if identifier == "" || code == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "email/nomor telepon dan kode reset wajib diisi")
+		return
+	}
+
+	if len(code) != 4 || !regexp.MustCompile(`^[0-9]{4}$`).MatchString(code) {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "kode reset harus berupa 4 digit angka")
+		return
+	}
+
+	if len(newPass) < 8 {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "kata sandi baru minimal 8 karakter")
+		return
+	}
+
+	if newPass != confirmPass {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "validation_error", "konfirmasi kata sandi tidak cocok")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	tx, err := h.p.BeginTx(ctx)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// Normalize identifier: lower for email or normalized phone
+	lowerEmail := strings.ToLower(identifier)
+	canonPhone := ""
+	if cp, err := NormalizePhone(identifier); err == nil {
+		canonPhone = cp
+	}
+
+	var userID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT id FROM users
+		WHERE (lower(email) = $1 OR ($2 != '' AND phone = $2)) AND is_active = true
+		LIMIT 1
+	`, lowerEmail, canonPhone).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_identity", "identitas akun atau kode tidak cocok")
+		return
+	}
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "terjadi kesalahan server")
+		return
+	}
+
+	// Fetch recent reset codes for this user (including used and expired to provide accurate feedback)
+	type resetCodeRow struct {
+		id        string
+		codeHash  string
+		rtID      string
+		expiresAt time.Time
+		usedAt    sql.NullTime
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, code_hash, rt_id, expires_at, used_at
+		FROM resident_password_reset_codes
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT 10
+		FOR UPDATE
+	`, userID)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "terjadi kesalahan server")
+		return
+	}
+	defer rows.Close()
+
+	var codeRows []resetCodeRow
+	for rows.Next() {
+		var r resetCodeRow
+		if err := rows.Scan(&r.id, &r.codeHash, &r.rtID, &r.expiresAt, &r.usedAt); err != nil {
+			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "terjadi kesalahan server")
+			return
+		}
+		codeRows = append(codeRows, r)
+	}
+	if err := rows.Err(); err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "terjadi kesalahan server")
+		return
+	}
+
+	if len(codeRows) == 0 {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_code", "identitas akun atau kode tidak cocok")
+		return
+	}
+
+	// Find if the entered code matches any recent code for this user
+	var matchedRow *resetCodeRow
+	for i := range codeRows {
+		if err := VerifyCode(code, codeRows[i].codeHash); err == nil {
+			matchedRow = &codeRows[i]
+			break
+		}
+	}
+
+	if matchedRow == nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_code", "kode reset tidak sesuai")
+		return
+	}
+
+	// 1. Check if the matched code was already used
+	if matchedRow.usedAt.Valid {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "code_used", "kode reset sudah digunakan")
+		return
+	}
+
+	// 2. Check if the matched code has expired
+	if time.Now().After(matchedRow.expiresAt) {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "code_expired", "kode reset sudah kedaluwarsa")
+		return
+	}
+
+	codeID := matchedRow.id
+	codeRTID := matchedRow.rtID
+
+	// Hash new password
+	newHash, err := Hash(newPass)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to hash password")
+		return
+	}
+
+	// Update user password
+	if err := UpdateUserPassword(ctx, tx, userID, newHash); err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to update password")
+		return
+	}
+
+	// Mark code as used
+	_, err = tx.ExecContext(ctx, `
+		UPDATE resident_password_reset_codes
+		SET used_at = now()
+		WHERE id = $1
+	`, codeID)
+	if err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to mark code used")
+		return
+	}
+
+	// Revoke refresh tokens
+	_, err = tx.ExecContext(ctx, `
+		UPDATE refresh_tokens
+		SET revoked_at = COALESCE(revoked_at, now())
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID)
+	if err != nil {
+		slog.Error("revoke tokens err", "error", err)
+	}
+
+	// Audit log
+	clientIP := ClientIP(r)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO audit_logs (rt_id, user_id, action, entity_type, entity_id, new_values, ip_address)
+		VALUES ($1, $2, 'reset_password_with_code', 'user', $3, '{"method": "4_digit_code"}', $4)
+	`, codeRTID, userID, userID, clientIP)
+	if err != nil {
+		slog.Error("audit log err", "error", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to commit transaction")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Kata sandi berhasil diubah. Silakan masuk dengan kata sandi baru.",
+	})
+}
+
 // handleLogin processes login requests.
 func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
@@ -144,7 +359,41 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("login failed", "error", err, "identifier", identifier, "has_password", req.Password != "")
 		switch err {
-		case ErrInvalidPassword, ErrUserNotFound:
+		case ErrInvalidPassword:
+			// If password failed and input looks like a 4-digit code, check if it matches an active reset code
+			trimmedPass := strings.TrimSpace(req.Password)
+			if len(trimmedPass) == 4 && regexp.MustCompile(`^[0-9]{4}$`).MatchString(trimmedPass) {
+				lowerIdent := strings.ToLower(strings.TrimSpace(identifier))
+				canonPhone := ""
+				if cp, err := NormalizePhone(identifier); err == nil {
+					canonPhone = cp
+				}
+				var uID string
+				_ = tx.QueryRowContext(ctx, `
+					SELECT id FROM users
+					WHERE (lower(email) = $1 OR ($2 != '' AND phone = $2)) AND is_active = true
+					LIMIT 1
+				`, lowerIdent, canonPhone).Scan(&uID)
+				if uID != "" {
+					var cHash string
+					var expAt time.Time
+					var uAt sql.NullTime
+					_ = tx.QueryRowContext(ctx, `
+						SELECT code_hash, expires_at, used_at
+						FROM resident_password_reset_codes
+						WHERE user_id = $1
+						ORDER BY created_at DESC LIMIT 1
+					`, uID).Scan(&cHash, &expAt, &uAt)
+					if cHash != "" && !uAt.Valid && time.Now().Before(expAt) {
+						if VerifyCode(trimmedPass, cHash) == nil {
+							httpx.ErrorJSON(w, http.StatusBadRequest, "reset_code_entered", "Kode 4 digit yang Anda masukkan adalah kode reset kata sandi. Silakan gunakan menu 'Lupa Kata Sandi?' untuk membuat kata sandi baru Anda.")
+							return
+						}
+					}
+				}
+			}
+			httpx.ErrorJSON(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
+		case ErrUserNotFound:
 			httpx.ErrorJSON(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
 		case ErrNotAuthorized:
 			httpx.ErrorJSON(w, http.StatusUnauthorized, "not_authorized", "account is not authorized to login")
@@ -345,6 +594,71 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Populate scoped RW memberships for Super Admin.
+	// Super Admin does not hold user_rw_memberships rows; their access
+	// is governed by SCOPED_RW_IDS. Active RWs in scope are exposed so that
+	// Super Admin can navigate and switch contexts among authorized RWs.
+	if profile != nil && profile.SystemRole == string(SystemRoleSuperAdmin) {
+		var scopedRWIDs []string
+		if h.scopingCfg != nil && len(h.scopingCfg.RWIDs) > 0 {
+			scopedRWIDs = h.scopingCfg.RWIDs
+		} else if rawEnv := os.Getenv("SCOPED_RW_IDS"); rawEnv != "" {
+			if parsed, errParse := parseUUIDList(rawEnv); errParse == nil {
+				scopedRWIDs = parsed
+			}
+		}
+
+		if len(scopedRWIDs) > 0 {
+			placeholders := make([]string, len(scopedRWIDs))
+			args := make([]interface{}, len(scopedRWIDs))
+			for i, id := range scopedRWIDs {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+				args[i] = id
+			}
+			q := fmt.Sprintf(`
+				SELECT id, rw_number, name
+				FROM rws
+				WHERE id IN (%s) AND is_active = true
+				ORDER BY rw_number ASC, name ASC
+			`, strings.Join(placeholders, ","))
+
+			rows, errScoped := tx.QueryContext(ctx, q, args...)
+			if errScoped == nil {
+				defer rows.Close()
+				var saMemberships []RWMembership
+				for rows.Next() {
+					var sID string
+					var sNumber int
+					var sName string
+					if errScan := rows.Scan(&sID, &sNumber, &sName); errScan == nil {
+						saMemberships = append(saMemberships, RWMembership{
+							RWID:     sID,
+							RWNumber: sNumber,
+							RWName:   sName,
+							Jabatan:  "super_admin",
+						})
+					}
+				}
+				if len(saMemberships) > 0 {
+					profile.RWMemberships = saMemberships
+					found := false
+					if profile.RWID != nil && *profile.RWID != "" {
+						for _, m := range saMemberships {
+							if m.RWID == *profile.RWID {
+								found = true
+								break
+							}
+						}
+					}
+					if !found {
+						profile.RWID = &saMemberships[0].RWID
+						profile.RWName = &saMemberships[0].RWName
+					}
+				}
+			}
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile")
 		return
@@ -448,6 +762,71 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile permissions")
 		return
+	}
+
+	// Populate scoped RW memberships for Super Admin.
+	// Super Admin does not hold user_rw_memberships rows; their access
+	// is governed by SCOPED_RW_IDS. Active RWs in scope are exposed so that
+	// Super Admin can navigate and switch contexts among authorized RWs.
+	if profile != nil && profile.SystemRole == string(SystemRoleSuperAdmin) {
+		var scopedRWIDs []string
+		if h.scopingCfg != nil && len(h.scopingCfg.RWIDs) > 0 {
+			scopedRWIDs = h.scopingCfg.RWIDs
+		} else if rawEnv := os.Getenv("SCOPED_RW_IDS"); rawEnv != "" {
+			if parsed, errParse := parseUUIDList(rawEnv); errParse == nil {
+				scopedRWIDs = parsed
+			}
+		}
+
+		if len(scopedRWIDs) > 0 {
+			placeholders := make([]string, len(scopedRWIDs))
+			args := make([]interface{}, len(scopedRWIDs))
+			for i, id := range scopedRWIDs {
+				placeholders[i] = fmt.Sprintf("$%d", i+1)
+				args[i] = id
+			}
+			q := fmt.Sprintf(`
+				SELECT id, rw_number, name
+				FROM rws
+				WHERE id IN (%s) AND is_active = true
+				ORDER BY rw_number ASC, name ASC
+			`, strings.Join(placeholders, ","))
+
+			rows, errScoped := tx.QueryContext(ctx, q, args...)
+			if errScoped == nil {
+				defer rows.Close()
+				var saMemberships []RWMembership
+				for rows.Next() {
+					var sID string
+					var sNumber int
+					var sName string
+					if errScan := rows.Scan(&sID, &sNumber, &sName); errScan == nil {
+						saMemberships = append(saMemberships, RWMembership{
+							RWID:     sID,
+							RWNumber: sNumber,
+							RWName:   sName,
+							Jabatan:  "super_admin",
+						})
+					}
+				}
+				if len(saMemberships) > 0 {
+					profile.RWMemberships = saMemberships
+					found := false
+					if profile.RWID != nil && *profile.RWID != "" {
+						for _, m := range saMemberships {
+							if m.RWID == *profile.RWID {
+								found = true
+								break
+							}
+						}
+					}
+					if !found {
+						profile.RWID = &saMemberships[0].RWID
+						profile.RWName = &saMemberships[0].RWName
+					}
+				}
+			}
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

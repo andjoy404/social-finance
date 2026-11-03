@@ -22,6 +22,12 @@ export interface ApiUser {
   rt_rt?: string
   rw_id?: string
   rw_name?: string
+  rw_memberships?: Array<{
+    rw_id: string
+    rw_name: string
+    rw_number?: number
+    jabatan: string
+  }>
 }
 
 export interface ApiRefreshResponse {
@@ -162,6 +168,67 @@ export async function apiLogin(identifier: string, password: string): Promise<Ap
     throw new ApiError(body?.code ?? 'unexpected', body?.message ?? 'Login failed')
   }
   return data
+}
+
+export interface ApiResetPasswordWithCodeBody {
+  identifier: string
+  code: string
+  new_password: string
+  confirm_password: string
+}
+
+export async function apiResetPasswordWithCode(body: ApiResetPasswordWithCodeBody): Promise<{ status: string; message: string }> {
+  const res = await fetch(BASE + '/auth/reset-password-with-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const raw = await res.text()
+  let parsed: any = null
+  try {
+    parsed = raw ? JSON.parse(raw) : null
+  } catch {
+    /* ignore */
+  }
+
+  if (!res.ok || !parsed) {
+    const errObj = parsed?.error || parsed
+    throw new ApiError(errObj?.code ?? 'unexpected', errObj?.message ?? 'Gagal mengatur ulang kata sandi')
+  }
+  return parsed
+}
+
+export interface ApiGenerateResetCodeResponse {
+  code: string
+  expires_at: string
+  resident_id: string
+  resident_name: string
+  identifier: string
+}
+
+export async function apiGenerateResidentResetCode(token: string, residentId: string): Promise<ApiGenerateResetCodeResponse> {
+  const res = await fetch(BASE + `/residents/${residentId}/reset-password-code`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const raw = await res.text()
+  let parsed: any = null
+  try {
+    parsed = raw ? JSON.parse(raw) : null
+  } catch {
+    /* ignore */
+  }
+
+  if (!res.ok || !parsed) {
+    const errObj = parsed?.error || parsed
+    throw new ApiError(errObj?.code ?? 'unexpected', errObj?.message ?? 'Gagal membuat kode reset kata sandi')
+  }
+  return parsed
 }
 
 export interface ApiUpdateProfileBody {
@@ -605,6 +672,8 @@ export interface ApiHousehold {
   head_resident?: ApiResident | null
   start_date?: string | null
   end_date?: string | null
+  move_in_date?: string | null
+  move_out_date?: string | null
   created_at: string
   updated_at: string
 }
@@ -629,6 +698,8 @@ export interface ApiCreateHouseholdBody {
   address?: string | null
   start_date?: string
   end_date?: string
+  move_in_date?: string
+  move_out_date?: string | null
   rt_id?: string
   is_active?: boolean
   password?: string
@@ -644,6 +715,8 @@ export interface ApiUpdateHouseholdBody {
   occupancy_status?: 'OWNER' | 'TENANT'
   start_date?: string
   end_date?: string | null
+  move_in_date?: string
+  move_out_date?: string | null
   is_active?: boolean
   password?: string
 }
@@ -1153,7 +1226,10 @@ export interface ApiBill {
   due_year?: number | null
   house_number?: string | null
   head_name?: string | null
+  move_in_date?: string | null
+  move_out_date?: string | null
   is_voluntary?: boolean
+  is_obligatory?: boolean
   paid_amount?: string | null
   pending_amount?: string | null
 }
@@ -1184,6 +1260,8 @@ export interface ApiPayment {
   verified_by_name?: string | null
   payment_no?: string | null
   actual_received_date?: string | null
+  location_id?: string | null
+  location_name?: string | null
   created_at: string
   updated_at: string
 }
@@ -1678,6 +1756,8 @@ export interface ApiNotificationLog {
   image_url?: string | null
   status: string
   created_at: string
+  is_read?: boolean
+  read_at?: string | null
 }
 
 export async function apiGetNotificationSystemTypes(token: string): Promise<ApiSystemNotificationType[]> {
@@ -1808,11 +1888,13 @@ export async function apiGetNotificationLogs(
   page = 1,
   pageSize = 20,
   eventType?: string,
+  status?: string,
 ): Promise<{ data: ApiNotificationLog[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> {
   const params = new URLSearchParams()
   params.set('page', String(page))
   params.set('page_size', String(pageSize))
   if (eventType) params.set('event_type', eventType)
+  if (status && status !== 'all') params.set('status', status)
 
   const res = await authenticatedApiRequest(BASE + `/notifications/logs?${params.toString()}`, {
     method: 'GET',
@@ -1823,6 +1905,46 @@ export async function apiGetNotificationLogs(
   if (!res.ok || !body) {
     const err = await json<ApiError>(res).catch(() => null)
     throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load notification logs')
+  }
+  return body
+}
+
+export async function apiMarkNotificationAsRead(token: string, id: string): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + `/notifications/logs/${id}/read`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to mark notification as read')
+  }
+}
+
+export async function apiMarkAllNotificationsAsRead(token: string): Promise<{ marked: number }> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/logs/read-all', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ marked: number }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to mark all notifications as read')
+  }
+  return body
+}
+
+export async function apiGetNotificationUnreadCount(token: string): Promise<{ unread_count: number }> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/unread-count', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ unread_count: number }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load unread notification count')
   }
   return body
 }
@@ -1943,6 +2065,7 @@ export interface ApiTransaction {
   house_number?: string | null
   location_id?: string | null
   location_name?: string | null
+  expense_category?: string | null
 }
 
 export interface ApiTransactionPaginated {
@@ -1979,6 +2102,7 @@ export interface ApiCreateTransactionInput {
   occurred_at?: string
   payment_method?: 'CASH' | 'TRANSFER'
   location_id?: string
+  expense_category?: string
 }
 
 export async function apiListTransactions(
@@ -1992,6 +2116,7 @@ export async function apiListTransactions(
     period?: string
     start_date?: string
     end_date?: string
+    search?: string
   },
 ): Promise<ApiTransactionPaginated> {
   const q = new URLSearchParams()
@@ -2003,6 +2128,7 @@ export async function apiListTransactions(
   if (params?.period) q.set('period', params.period)
   if (params?.start_date) q.set('start_date', params.start_date)
   if (params?.end_date) q.set('end_date', params.end_date)
+  if (params?.search) q.set('search', params.search)
   const res = await authenticatedApiRequest(BASE + '/transactions' + (q.toString() ? '?' + q.toString() : ''), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },

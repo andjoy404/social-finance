@@ -273,18 +273,20 @@ Future<Uint8List> generateKasReportPdf({
             style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 6),
-          pw.Table(
-            border: pw.TableBorder.all(width: 0.4),
-            columnWidths: {
-              0: const pw.FixedColumnWidth(52),
-              1: const pw.FixedColumnWidth(34),
-              2: const pw.FixedColumnWidth(62),
-              3: const pw.FixedColumnWidth(44),
-              4: const pw.FlexColumnWidth(),
-              5: const pw.FixedColumnWidth(66),
-              6: const pw.FixedColumnWidth(66),
-            },
-            children: [
+          () {
+            final iuranWarga = posted
+                .where((t) =>
+                    t.type == 'income' &&
+                    (t.categoryName ?? '').trim().toLowerCase() ==
+                        'iuran warga')
+                .toList();
+            final otherPosted = posted
+                .where((t) => !(t.type == 'income' &&
+                    (t.categoryName ?? '').trim().toLowerCase() ==
+                        'iuran warga'))
+                .toList();
+
+            final tableRows = <pw.TableRow>[
               pw.TableRow(
                 repeat: true,
                 children: [
@@ -300,7 +302,30 @@ Future<Uint8List> generateKasReportPdf({
                     cell(h, bold: true, size: 7.5),
                 ],
               ),
-              for (final t in posted)
+            ];
+
+            if (iuranWarga.isNotEmpty) {
+              final totalIuranCents = iuranWarga.fold<int>(
+                0,
+                (sum, t) => sum + parseCents(t.amount),
+              );
+              tableRows.add(
+                pw.TableRow(
+                  children: [
+                    cell('-', size: 7.5),
+                    cell('Masuk', size: 7.5),
+                    cell('Iuran Warga', size: 7.5),
+                    cell('-', size: 7.5),
+                    cell('Akumulasi Iuran Warga', size: 7.5),
+                    cell(formatRp(totalIuranCents), right: true, size: 7.5),
+                    cell('', right: true, size: 7.5),
+                  ],
+                ),
+              );
+            }
+
+            for (final t in otherPosted) {
+              tableRows.add(
                 pw.TableRow(
                   children: [
                     cell(_dateLabel(t.occurredAt), size: 7.5),
@@ -323,8 +348,23 @@ Future<Uint8List> generateKasReportPdf({
                     ),
                   ],
                 ),
-            ],
-          ),
+              );
+            }
+
+            return pw.Table(
+              border: pw.TableBorder.all(width: 0.4),
+              columnWidths: {
+                0: const pw.FixedColumnWidth(52),
+                1: const pw.FixedColumnWidth(34),
+                2: const pw.FixedColumnWidth(62),
+                3: const pw.FixedColumnWidth(44),
+                4: const pw.FlexColumnWidth(),
+                5: const pw.FixedColumnWidth(66),
+                6: const pw.FixedColumnWidth(66),
+              },
+              children: tableRows,
+            );
+          }(),
         ],
       ],
     ),
@@ -471,7 +511,36 @@ Future<Uint8List> generateKasReportXlsx({
   var r3 = 1;
   var sumDebit = 0;
   var sumCredit = 0;
-  for (final t in transactions.where((t) => t.status == 'posted')) {
+
+  final posted = transactions.where((t) => t.status == 'posted').toList();
+  final iuranWarga = posted
+      .where((t) =>
+          t.type == 'income' &&
+          (t.categoryName ?? '').trim().toLowerCase() == 'iuran warga')
+      .toList();
+  final otherPosted = posted
+      .where((t) => !(t.type == 'income' &&
+          (t.categoryName ?? '').trim().toLowerCase() == 'iuran warga'))
+      .toList();
+
+  if (iuranWarga.isNotEmpty) {
+    final totalIuranCents = iuranWarga.fold<int>(
+      0,
+      (sum, t) => sum + parseCents(t.amount),
+    );
+    put(s3, 0, r3, TextCellValue(''));
+    put(s3, 1, r3, TextCellValue(''));
+    put(s3, 2, r3, TextCellValue('Masuk'));
+    put(s3, 3, r3, TextCellValue('Iuran Warga'));
+    put(s3, 4, r3, TextCellValue('Akumulasi Iuran Warga'));
+    put(s3, 5, r3, TextCellValue('-'));
+    put(s3, 6, r3, _num(totalIuranCents), fmt: _rpFormat);
+    sumDebit += totalIuranCents;
+    put(s3, 8, r3, TextCellValue('posted'));
+    r3++;
+  }
+
+  for (final t in otherPosted) {
     final cents = parseCents(t.amount);
     put(s3, 0, r3, TextCellValue(_dateLabel(t.occurredAt)));
     put(s3, 1, r3, TextCellValue(t.paymentNo ?? ''));

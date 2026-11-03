@@ -191,30 +191,29 @@ describe('KasReport authorization', () => {
     expect(screen.queryByText(/Ekspor XLSX/i)).toBeInTheDocument()
   })
 
-  it('Warga = tidak bisa export (tombol tidak muncul)', async () => {
+  it('Warga = boleh export PDF, tidak bisa export XLSX atau print', async () => {
     const user = makeUser({ role: 'warga', jabatan: null })
     renderKasReport(user)
 
     await waitFor(() => {
       expect(screen.queryByText(/Rekap Pengeluaran per Kategori/)).toBeInTheDocument()
     })
-    // canExport = false untuk warga biasa, jadi tombol export tidak muncul.
-    expect(screen.queryByText(/Ekspor PDF/i)).not.toBeInTheDocument()
+    // Semua warga berhak export PDF, tetapi TIDAK berhak XLSX dan print.
+    expect(screen.queryByText(/Ekspor PDF/i)).toBeInTheDocument()
     expect(screen.queryByText(/Ekspor XLSX/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Cetak$/i })).not.toBeInTheDocument()
   })
 
-  it('SUPER_ADMIN = tidak bisa export (tidak ada jabatan/bendahara)', async () => {
-    // SUPER_ADMIN bukan jabatan ketua/wakil_ketua dan bukan role bendahara.
-    // canExport = jabatan === 'ketua' || jabatan === 'wakil_ketua' || role === 'bendahara'
-    // Maka SUPER_ADMIN tanpa jabatan tersebut TIDAK bisa export.
+  it('SUPER_ADMIN = boleh export PDF, XLSX, dan print', async () => {
     const user = makeUser({ systemRole: 'super_admin', role: 'warga', jabatan: null })
     renderKasReport(user)
 
     await waitFor(() => {
       expect(screen.queryByText(/Rekap Pengeluaran per Kategori/)).toBeInTheDocument()
     })
-    expect(screen.queryByText(/Ekspor PDF/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Ekspor XLSX/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ekspor PDF/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Ekspor XLSX/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Cetak$/i })).toBeInTheDocument()
   })
 
   // ---- Unauthorized Jabatan Tests ----
@@ -237,7 +236,7 @@ describe('KasReport authorization', () => {
     })
   })
 
-  it('Pengurus biasa (role pengurus, jabatan null) = boleh akses, tidak bisa export', async () => {
+  it('Pengurus biasa (role pengurus, jabatan null) = boleh akses, export PDF, XLSX, dan print', async () => {
     const user = makeUser({ role: 'pengurus', jabatan: null })
     renderKasReport(user)
 
@@ -245,9 +244,9 @@ describe('KasReport authorization', () => {
       expect(screen.queryByText('Akses Ditolak')).not.toBeInTheDocument()
     })
     expect(screen.queryByText(/Rekap Pengeluaran per Kategori/)).toBeInTheDocument()
-    // Pengurus biasa bukan ketua/wakil_ketua jabatan dan bukan bendahara role.
-    expect(screen.queryByText(/Ekspor PDF/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Ekspor XLSX/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ekspor PDF/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Ekspor XLSX/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Cetak$/i })).toBeInTheDocument()
   })
 
   it('Bonus: role bendahara + jabatan ketua = tetap boleh akses', async () => {

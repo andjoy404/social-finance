@@ -48,3 +48,23 @@ func Verify(password, hash string) error {
 	}
 	return nil
 }
+
+// HashCode hashes a short verification/reset code (e.g. 4-6 digits) using Argon2id.
+func HashCode(code string) (string, error) {
+	if len(code) == 0 || len(code) > 16 {
+		return "", fmt.Errorf("code length invalid")
+	}
+	return argon2id.CreateHash(code, argon2id.DefaultParams)
+}
+
+// VerifyCode verifies a short verification/reset code against its Argon2id hash.
+func VerifyCode(code, hash string) error {
+	match, err := argon2id.ComparePasswordAndHash(code, hash)
+	if err != nil {
+		return fmt.Errorf("verify code: %w", err)
+	}
+	if !match {
+		return ErrInvalidPassword
+	}
+	return nil
+}

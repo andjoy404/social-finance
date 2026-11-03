@@ -494,6 +494,8 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 			}
 			importedResidents++
 		}
+
+		triggerSyncBills(ctx, tx, rtID, hoID)
 	}
 
 	// Record audit log

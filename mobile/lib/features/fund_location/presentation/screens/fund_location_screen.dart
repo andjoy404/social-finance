@@ -55,8 +55,18 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
   bool _isWarga(WidgetRef ref) {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
+    final systemRole = user?['system_role'] as String?;
+    if (systemRole == 'super_admin') return false;
     final role = user?['role'] as AppRole?;
-    return role == AppRole.warga;
+    if (role != AppRole.warga) return false;
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'bendahara' ||
+        jabatan == 'ketua' ||
+        jabatan == 'wakil_ketua' ||
+        jabatan == 'sekretaris') {
+      return false;
+    }
+    return true;
   }
 
   bool _canManage(WidgetRef ref) {
@@ -435,27 +445,37 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     bool isDark,
   ) {
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        color: color.withValues(alpha: isDark ? 0.08 : 0.05),
         borderRadius: BorderRadius.circular(AppRadius.base),
         border: Border.all(
-          color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+          color: color.withValues(alpha: isDark ? 0.25 : 0.15),
+          width: 1,
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 4),
+              Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
+                ),
+                child: Icon(icon, size: 12, color: color),
+              ),
+              const SizedBox(width: 5),
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textMutedColor(context),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -463,16 +483,19 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            amount,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: color,
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              amount,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+              maxLines: 1,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -1345,11 +1368,15 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                     TextField(
                       controller: amountCtrl,
                       decoration: InputDecoration(
-                        labelText: 'Nominal Transfer (Rp)',
+                        labelText: 'Nominal Transfer',
+                        hintText: 'Rp 0',
                         helperText:
                             'Maksimal: ${formatRupiah(fromLoc.balanceRupiah)}',
                       ),
                       keyboardType: TextInputType.number,
+                      inputFormatters: const [
+                        RupiahInputFormatter.withPrefix(),
+                      ],
                       onChanged: (v) {
                         final parsed = parseRupiahInput(v);
                         if (parsed != null && parsed > fromLoc.balanceRupiah) {

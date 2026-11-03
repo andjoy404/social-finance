@@ -36,6 +36,8 @@ services:
       - FCM_CREDENTIALS=${FCM_CREDENTIALS:-}
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
       - API_PUBLIC_URL=${API_PUBLIC_URL:-}
+      - SCOPED_RT_IDS=${SCOPED_RT_IDS:-}
+      - SCOPED_RW_IDS=${SCOPED_RW_IDS:-}
       - TZ=Asia/Jakarta
     depends_on:
       postgres:
@@ -88,6 +90,8 @@ services:
       - FCM_CREDENTIALS=${FCM_CREDENTIALS:-}
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
       - API_PUBLIC_URL=${API_PUBLIC_URL:-}
+      - SCOPED_RT_IDS=${SCOPED_RT_IDS:-}
+      - SCOPED_RW_IDS=${SCOPED_RW_IDS:-}
       - TZ=Asia/Jakarta
     depends_on:
       postgres:

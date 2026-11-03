@@ -32,9 +32,12 @@ type Repository interface {
 	ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error)
 	DeleteTemplate(ctx context.Context, rtID, id string) error
 
-	// Logs listing
-	ListLogs(ctx context.Context, rtID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error)
+	// Logs listing & read receipts
+	ListLogs(ctx context.Context, rtID, userID, eventType, status string, isOfficer bool, offset, limit int) ([]NotificationLogEntry, int, error)
 	GetLogByID(ctx context.Context, rtID, id string) (*NotificationLogEntry, error)
+	MarkAsRead(ctx context.Context, rtID, userID, id string, isOfficer bool) error
+	MarkAllAsRead(ctx context.Context, rtID, userID string, isOfficer bool) (int, error)
+	GetUnreadCount(ctx context.Context, rtID, userID string, isOfficer bool) (int, error)
 
 	// Tenant resolution fallback for system roles
 	GetDefaultRTID(ctx context.Context) (string, error)
@@ -566,16 +569,55 @@ func (r *pgRepository) DeleteTemplate(ctx context.Context, rtID, id string) erro
 	return nil
 }
 
-func (r *pgRepository) ListLogs(ctx context.Context, rtID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error) {
-	countQuery := `SELECT COUNT(*) FROM notification_logs WHERE rt_id = $1`
-	countArgs := []any{rtID}
+func (r *pgRepository) ListLogs(ctx context.Context, rtID, userID, eventType, status string, isOfficer bool, offset, limit int) ([]NotificationLogEntry, int, error) {
+	var countQuery strings.Builder
+	var query strings.Builder
+	var args []any
+
+	countQuery.WriteString(`
+		SELECT COUNT(*)
+		FROM notification_logs nl
+		LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
+		WHERE nl.rt_id = $2
+	`)
+	query.WriteString(`
+		SELECT
+			nl.id, nl.rt_id, nl.user_id, nl.event_type, nl.dedup_key, nl.title, nl.body, nl.status, nl.created_at, nl.image_url,
+			(nr.read_at IS NOT NULL) AS is_read,
+			nr.read_at, nl.payload
+		FROM notification_logs nl
+		LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
+		WHERE nl.rt_id = $2
+	`)
+	args = append(args, userID, rtID)
+	argIdx := 3
+
+	if !isOfficer {
+		countQuery.WriteString(fmt.Sprintf(` AND (nl.user_id = $1 OR nl.event_type IN ('%s', '%s')) AND NOT (nl.dedup_key LIKE 'test_push:%%')`, EventManualPush, EventWasteTruckArrival))
+		query.WriteString(fmt.Sprintf(` AND (nl.user_id = $1 OR nl.event_type IN ('%s', '%s')) AND NOT (nl.dedup_key LIKE 'test_push:%%')`, EventManualPush, EventWasteTruckArrival))
+	} else {
+		countQuery.WriteString(` AND (NOT (nl.dedup_key LIKE 'test_push:%') OR nl.user_id = $1)`)
+		query.WriteString(` AND (NOT (nl.dedup_key LIKE 'test_push:%') OR nl.user_id = $1)`)
+	}
+
 	if strings.TrimSpace(eventType) != "" {
-		countQuery += " AND event_type = $2"
-		countArgs = append(countArgs, strings.TrimSpace(eventType))
+		countQuery.WriteString(fmt.Sprintf(" AND nl.event_type = $%d", argIdx))
+		query.WriteString(fmt.Sprintf(" AND nl.event_type = $%d", argIdx))
+		args = append(args, strings.TrimSpace(eventType))
+		argIdx++
+	}
+
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status == "unread" {
+		countQuery.WriteString(" AND nr.read_at IS NULL")
+		query.WriteString(" AND nr.read_at IS NULL")
+	} else if status == "read" {
+		countQuery.WriteString(" AND nr.read_at IS NOT NULL")
+		query.WriteString(" AND nr.read_at IS NOT NULL")
 	}
 
 	var total int
-	err := r.pool.Raw().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total)
+	err := r.pool.Raw().QueryRowContext(ctx, countQuery.String(), args...).Scan(&total)
 	if err != nil {
 		if isTableMissingErr(err) {
 			return []NotificationLogEntry{}, 0, nil
@@ -583,23 +625,15 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, eventType string, off
 		return nil, 0, err
 	}
 
-	query := `
-		SELECT id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at, image_url
-		FROM notification_logs
-		WHERE rt_id = $1
-	`
-	args := []any{rtID}
-	argIdx := 2
-	if strings.TrimSpace(eventType) != "" {
-		query += fmt.Sprintf(" AND event_type = $%d", argIdx)
-		args = append(args, strings.TrimSpace(eventType))
-		argIdx++
-	}
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
-	args = append(args, limit, offset)
+	query.WriteString(fmt.Sprintf(" ORDER BY nl.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1))
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, limit, offset)
 
-	rows, err := r.pool.Raw().QueryContext(ctx, query, args...)
+	rows, err := r.pool.Raw().QueryContext(ctx, query.String(), queryArgs...)
 	if err != nil {
+		if isTableMissingErr(err) {
+			return []NotificationLogEntry{}, 0, nil
+		}
 		return nil, 0, err
 	}
 	defer rows.Close()
@@ -607,8 +641,23 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, eventType string, off
 	var logs []NotificationLogEntry
 	for rows.Next() {
 		var entry NotificationLogEntry
-		if err := rows.Scan(&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL); err != nil {
+		var isRead sql.NullBool
+		var readAt sql.NullTime
+		var payloadBytes []byte
+		if err := rows.Scan(
+			&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey,
+			&entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL,
+			&isRead, &readAt, &payloadBytes,
+		); err != nil {
 			return nil, 0, err
+		}
+		entry.IsRead = isRead.Valid && isRead.Bool
+		if readAt.Valid {
+			t := readAt.Time
+			entry.ReadAt = &t
+		}
+		if len(payloadBytes) > 0 {
+			_ = json.Unmarshal(payloadBytes, &entry.Payload)
 		}
 		logs = append(logs, entry)
 	}
@@ -618,22 +667,146 @@ func (r *pgRepository) ListLogs(ctx context.Context, rtID, eventType string, off
 	return logs, total, rows.Err()
 }
 
+func (r *pgRepository) MarkAsRead(ctx context.Context, rtID, userID, id string, isOfficer bool) error {
+	var ownerID *string
+	var eventType, dedupKey string
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT user_id, event_type, dedup_key
+		FROM notification_logs
+		WHERE id = $1 AND rt_id = $2
+	`, id, rtID).Scan(&ownerID, &eventType, &dedupKey)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
+			return sql.ErrNoRows
+		}
+		return err
+	}
+
+	if strings.HasPrefix(dedupKey, "test_push:") {
+		if ownerID == nil || *ownerID != userID {
+			return ErrForbidden
+		}
+	} else if !isOfficer {
+		// Non-officer (Warga) can only mark:
+		// 1. Their own personal notification: ownerID != nil && *ownerID == userID
+		// 2. OR Public RT announcements: eventType == EventManualPush || eventType == EventWasteTruckArrival
+		isOwn := ownerID != nil && *ownerID == userID
+		isPublic := eventType == EventManualPush || eventType == EventWasteTruckArrival
+		if !isOwn && !isPublic {
+			return ErrForbidden
+		}
+	}
+
+	targetUserID := userID
+	if isOfficer && ownerID != nil && *ownerID != "" {
+		targetUserID = *ownerID
+	}
+
+	insertQuery := `
+		INSERT INTO notification_reads (notification_id, user_id, read_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (notification_id, user_id) DO NOTHING;
+	`
+	_, err = r.pool.Raw().ExecContext(ctx, insertQuery, id, targetUserID)
+	if err != nil && !isTableMissingErr(err) {
+		return err
+	}
+	if targetUserID != userID {
+		_, _ = r.pool.Raw().ExecContext(ctx, insertQuery, id, userID)
+	}
+	return nil
+}
+
+func (r *pgRepository) MarkAllAsRead(ctx context.Context, rtID, userID string, isOfficer bool) (int, error) {
+	var insertQuery string
+	if !isOfficer {
+		insertQuery = fmt.Sprintf(`
+			INSERT INTO notification_reads (notification_id, user_id, read_at)
+			SELECT nl.id, $1, NOW()
+			FROM notification_logs nl
+			LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
+			WHERE nl.rt_id = $2
+			  AND (nl.user_id = $1 OR nl.event_type IN ('%s', '%s'))
+			  AND NOT (nl.dedup_key LIKE 'test_push:%%')
+			  AND nr.read_at IS NULL
+			ON CONFLICT (notification_id, user_id) DO NOTHING;
+		`, EventManualPush, EventWasteTruckArrival)
+	} else {
+		insertQuery = `
+			INSERT INTO notification_reads (notification_id, user_id, read_at)
+			SELECT nl.id, $1, NOW()
+			FROM notification_logs nl
+			LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
+			WHERE nl.rt_id = $2
+			  AND NOT (nl.dedup_key LIKE 'test_push:%')
+			  AND nr.read_at IS NULL
+			ON CONFLICT (notification_id, user_id) DO NOTHING;
+		`
+	}
+	res, err := r.pool.Raw().ExecContext(ctx, insertQuery, userID, rtID)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	rows, _ := res.RowsAffected()
+	return int(rows), nil
+}
+
+func (r *pgRepository) GetUnreadCount(ctx context.Context, rtID, userID string, isOfficer bool) (int, error) {
+	var countQuery string
+	if !isOfficer {
+		countQuery = fmt.Sprintf(`
+			SELECT COUNT(*)
+			FROM notification_logs nl
+			LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
+			WHERE nl.rt_id = $2
+			  AND (nl.user_id = $1 OR nl.event_type IN ('%s', '%s'))
+			  AND NOT (nl.dedup_key LIKE 'test_push:%%')
+			  AND nr.read_at IS NULL
+		`, EventManualPush, EventWasteTruckArrival)
+	} else {
+		countQuery = `
+			SELECT COUNT(*)
+			FROM notification_logs nl
+			LEFT JOIN notification_reads nr ON nr.notification_id = nl.id AND nr.user_id = $1
+			WHERE nl.rt_id = $2
+			  AND NOT (nl.dedup_key LIKE 'test_push:%')
+			  AND nr.read_at IS NULL
+		`
+	}
+	var count int
+	err := r.pool.Raw().QueryRowContext(ctx, countQuery, userID, rtID).Scan(&count)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *pgRepository) GetLogByID(ctx context.Context, rtID, id string) (*NotificationLogEntry, error) {
 	query := `
-		SELECT id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at, image_url
+		SELECT id, rt_id, user_id, event_type, dedup_key, title, body, status, created_at, image_url, payload
 		FROM notification_logs
 		WHERE id = $1 AND rt_id = $2
 		LIMIT 1;
 	`
 	var entry NotificationLogEntry
+	var payloadBytes []byte
 	err := r.pool.Raw().QueryRowContext(ctx, query, id, rtID).Scan(
-		&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL,
+		&entry.ID, &entry.RTID, &entry.UserID, &entry.EventType, &entry.DedupKey, &entry.Title, &entry.Body, &entry.Status, &entry.CreatedAt, &entry.ImageURL, &payloadBytes,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || isTableMissingErr(err) {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if len(payloadBytes) > 0 {
+		_ = json.Unmarshal(payloadBytes, &entry.Payload)
 	}
 	return &entry, nil
 }

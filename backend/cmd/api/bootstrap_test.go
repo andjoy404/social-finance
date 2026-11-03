@@ -14,6 +14,18 @@ import (
 // use the test database so runBootstrap() operates on the same pool as the test.
 func setBootstrapEnv(t *testing.T) {
 	t.Helper()
+	setIfEmpty := func(key, val string) {
+		if os.Getenv(key) == "" {
+			os.Setenv(key, val)
+			t.Cleanup(func() { os.Unsetenv(key) })
+		}
+	}
+	setIfEmpty("DB_HOST", "localhost")
+	setIfEmpty("DB_PORT", "5432")
+	setIfEmpty("DB_USER", "social_finance")
+	setIfEmpty("DB_PASSWORD", "social_finance_dev_password")
+	setIfEmpty("JWT_SECRET", "test_jwt_secret_must_be_32_bytes_long_minimum")
+
 	os.Setenv("DB_NAME", "social_finance_test")
 	os.Setenv("BOOTSTRAP_EMAIL", "admin@test.local")
 	os.Setenv("BOOTSTRAP_PASSWORD", "TestUser123!")
@@ -167,6 +179,7 @@ func TestBootstrap_SuperAdminHasCorrectRole(t *testing.T) {
 }
 
 func TestBootstrap_MultiTenantSameRTNumberRegression(t *testing.T) {
+	setBootstrapEnv(t)
 	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
@@ -261,7 +274,8 @@ func TestBootstrap_MultiTenantSameRTNumberRegression(t *testing.T) {
 }
 
 func TestBootstrap_DevseedNeverCreatesSuperAdmin(t *testing.T) {
-	// Ensure no bootstrap env vars are set so bootstrap won't interfere
+	setBootstrapEnv(t)
+	// Ensure no bootstrap email is set initially so bootstrap won't interfere with devseed
 	os.Unsetenv("BOOTSTRAP_EMAIL")
 	os.Unsetenv("BOOTSTRAP_PASSWORD")
 	os.Unsetenv("BOOTSTRAP_NAME")

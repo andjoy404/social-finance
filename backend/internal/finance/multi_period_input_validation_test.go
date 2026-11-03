@@ -110,7 +110,7 @@ func TestMultiPeriod_InputValidation_Max12Bills(t *testing.T) {
 		billIDs13[i] = bills13[i].ID
 		allocations13[i] = AllocationEntry{BillID: bills13[i].ID, Amount: "100000"}
 	}
-	body13 := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body13 := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs13), mustMarshal(t, allocations13))
 	req13 := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body13))
 	req13.Header.Set("Authorization", "Bearer "+tokenWarga13)
@@ -131,7 +131,7 @@ func TestMultiPeriod_InputValidation_Max12Bills(t *testing.T) {
 		billIDs12[i] = bills12[i].ID
 		allocations12[i] = AllocationEntry{BillID: bills12[i].ID, Amount: "100000"}
 	}
-	body12 := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body12 := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs12), mustMarshal(t, allocations12))
 	req12 := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body12))
 	req12.Header.Set("Authorization", "Bearer "+tokenWarga12)
@@ -154,7 +154,7 @@ func TestMultiPeriod_InputValidation_EmptyBillIDs(t *testing.T) {
 	defer cleanupTestRT(t, pool, rtID)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period",
-		bytes.NewBufferString(`{"bill_ids":[],"allocations":[{"bill_id":"dummy","amount":"100000"}],"method":"CASH"}`))
+		bytes.NewBufferString(`{"bill_ids":[],"allocations":[{"bill_id":"dummy","amount":"100000"}],"method": "CASH", "proof_path": "proofs/test.jpg"}`))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -180,7 +180,7 @@ func TestMultiPeriod_InputValidation_DuplicateBillIDs(t *testing.T) {
 		{BillID: dupID, Amount: "100000"},
 		{BillID: dupID, Amount: "100000"},
 	}
-	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs), mustMarshal(t, allocations))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -209,7 +209,7 @@ func TestMultiPeriod_InputValidation_DuplicateAllocationBillIDs(t *testing.T) {
 		{BillID: bills[0].ID, Amount: "100000"},
 		{BillID: bills[0].ID, Amount: "50000"},
 	}
-	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs), mustMarshal(t, allocations))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -239,7 +239,7 @@ func TestMultiPeriod_InputValidation_AllocationMismatch(t *testing.T) {
 		{BillID: bills[0].ID, Amount: "100000"},
 		{BillID: bills[2].ID, Amount: "100000"},
 	}
-	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs), mustMarshal(t, allocations))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -255,7 +255,7 @@ func TestMultiPeriod_InputValidation_AllocationMismatch(t *testing.T) {
 		{BillID: bills[0].ID, Amount: "100000"},
 		{BillID: bills[1].ID, Amount: "100000"},
 	}
-	body2 := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body2 := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs2), mustMarshal(t, allocations2))
 	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body2))
 	req2.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -281,7 +281,7 @@ func TestMultiPeriod_InputValidation_CountMismatch(t *testing.T) {
 
 	billIDs := []string{bills[0].ID, bills[1].ID}
 	allocations := []AllocationEntry{{BillID: bills[0].ID, Amount: "100000"}}
-	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs), mustMarshal(t, allocations))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -304,7 +304,7 @@ func TestMultiPeriod_InputValidation_EmptyAllocations(t *testing.T) {
 	defer cleanupTestRT(t, pool, rtID)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period",
-		bytes.NewBufferString(`{"bill_ids":["dummy"],"allocations":[],"method":"CASH"}`))
+		bytes.NewBufferString(`{"bill_ids":["dummy"],"allocations":[],"method": "CASH", "proof_path": "proofs/test.jpg"}`))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -333,7 +333,7 @@ func TestMultiPeriod_InputValidation_12BillsSuccess(t *testing.T) {
 		allocations[i] = AllocationEntry{BillID: bills[i].ID, Amount: "100000"}
 	}
 
-	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs), mustMarshal(t, allocations))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -370,7 +370,7 @@ func TestMultiPeriod_InputValidation_DuplicateBeforeLock(t *testing.T) {
 		{BillID: dupID, Amount: "100000"},
 		{BillID: dupID, Amount: "100000"},
 	}
-	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method":"CASH"}`,
+	body := fmt.Sprintf(`{"bill_ids":%s,"allocations":%s,"method": "CASH", "proof_path": "proofs/test.jpg"}`,
 		mustMarshal(t, billIDs), mustMarshal(t, allocations))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
@@ -403,7 +403,7 @@ func TestMultiPeriod_InputValidation_EmptyBillIDsAndAllocations(t *testing.T) {
 	defer cleanupTestRT(t, pool, rtID)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/multi-period",
-		bytes.NewBufferString(`{"bill_ids":[],"allocations":[],"method":"CASH"}`))
+		bytes.NewBufferString(`{"bill_ids":[],"allocations":[],"method": "CASH", "proof_path": "proofs/test.jpg"}`))
 	req.Header.Set("Authorization", "Bearer "+tokenWarga)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

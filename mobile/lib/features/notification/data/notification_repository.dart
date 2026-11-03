@@ -118,17 +118,59 @@ class NotificationRepository {
     }
   }
 
+  Future<String> uploadImage({
+    required String eventType,
+    required List<int> bytes,
+    required String filename,
+  }) async {
+    try {
+      return await apiClient.uploadImage(
+        eventType: eventType,
+        bytes: bytes,
+        filename: filename,
+      );
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   Future<NotificationLogsResponse> fetchLogs({
     int page = 1,
     int perPage = 20,
     String? eventType,
+    String? status,
   }) async {
     try {
       return await apiClient.getLogs(
         page: page,
         perPage: perPage,
         eventType: eventType,
+        status: status,
       );
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> markAsRead(String id) async {
+    try {
+      await apiClient.markAsRead(id);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<int> markAllAsRead() async {
+    try {
+      return await apiClient.markAllAsRead();
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<int> fetchUnreadCount() async {
+    try {
+      return await apiClient.getUnreadCount();
     } catch (e) {
       throw _handleError(e);
     }

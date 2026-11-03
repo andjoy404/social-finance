@@ -151,13 +151,16 @@ export function Dashboard() {
             onClick={handlePrevMonth}
             disabled={isAllPeriods}
             style={{
-              padding: '6px 10px',
+              padding: '8px 20px',
               fontSize: 13,
+              fontWeight: 600,
+              lineHeight: '1.2',
               background: 'rgba(169, 112, 255, 0.06)',
               border: '1px solid rgba(169, 112, 255, 0.35)',
               color: 'var(--sf-accent)',
               borderRadius: 'var(--sf-radius-sm)',
               transition: 'all 0.25s ease',
+              boxSizing: 'border-box',
               opacity: isAllPeriods ? 0.5 : 1,
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
             }}
@@ -175,14 +178,16 @@ export function Dashboard() {
               setSelectedMonth(parseInt(e.target.value, 10))
             }}
             style={{
-              padding: '6px 12px',
+              padding: '8px 20px',
               fontSize: 13,
               fontWeight: 600,
+              lineHeight: '1.2',
               borderRadius: 'var(--sf-radius-sm)',
               border: '1px solid var(--sf-border)',
               background: 'var(--sf-bg)',
               color: 'var(--sf-text)',
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
+              boxSizing: 'border-box',
             }}
             aria-label="Pilih Bulan"
           >
@@ -201,14 +206,16 @@ export function Dashboard() {
               setSelectedYear(parseInt(e.target.value, 10))
             }}
             style={{
-              padding: '6px 12px',
+              padding: '8px 20px',
               fontSize: 13,
               fontWeight: 600,
+              lineHeight: '1.2',
               borderRadius: 'var(--sf-radius-sm)',
               border: '1px solid var(--sf-border)',
               background: 'var(--sf-bg)',
               color: 'var(--sf-text)',
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
+              boxSizing: 'border-box',
             }}
             aria-label="Pilih Tahun"
           >
@@ -225,13 +232,16 @@ export function Dashboard() {
             onClick={handleNextMonth}
             disabled={isAllPeriods}
             style={{
-              padding: '6px 10px',
+              padding: '8px 20px',
               fontSize: 13,
+              fontWeight: 600,
+              lineHeight: '1.2',
               background: 'rgba(169, 112, 255, 0.06)',
               border: '1px solid rgba(169, 112, 255, 0.35)',
               color: 'var(--sf-accent)',
               borderRadius: 'var(--sf-radius-sm)',
               transition: 'all 0.25s ease',
+              boxSizing: 'border-box',
               opacity: isAllPeriods ? 0.5 : 1,
               cursor: isAllPeriods ? 'not-allowed' : 'pointer',
             }}
@@ -249,8 +259,10 @@ export function Dashboard() {
             className={`sf-btn sf-kas-period-button ${isAllPeriods ? 'sf-btn-primary' : 'sf-btn-outline'}`}
             onClick={() => setIsAllPeriods(!isAllPeriods)}
             style={{
-              fontSize: 12,
-              padding: '6px 12px',
+              padding: '8px 20px',
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: '1.2',
               background: isAllPeriods
                 ? 'rgba(169, 112, 255, 0.14)'
                 : 'rgba(169, 112, 255, 0.06)',
@@ -260,6 +272,7 @@ export function Dashboard() {
               color: isAllPeriods ? 'var(--sf-accent)' : 'var(--sf-accent)',
               borderRadius: 'var(--sf-radius-sm)',
               transition: 'all 0.25s ease',
+              boxSizing: 'border-box',
               boxShadow: isAllPeriods
                 ? '0 0 12px rgba(169, 112, 255, 0.18)'
                 : '0 0 6px rgba(169, 112, 255, 0.06)',
@@ -487,6 +500,13 @@ export function Dashboard() {
                   const isIncome = t.type === 'income'
                   const metode = t.payment_method === 'TRANSFER' ? 'Transfer' : t.payment_method === 'CASH' ? 'Tunai' : null
                   const refNo = t.payment_no || t.reference_no || (t.payment_id ? `PAY-${t.payment_id.slice(0, 8)}` : '')
+                  const handleCopyRef = async (e: React.MouseEvent) => {
+                    e.stopPropagation()
+                    const { copyToClipboard, showCopyFeedback } = await import('@/utils/clipboard')
+                    const result = await copyToClipboard(refNo)
+                    const toast = showCopyFeedback(result, result.success)
+                    setTimeout(() => toast.remove(), 2600)
+                  }
                   return (
                     <tr key={t.id}>
                       <td>
@@ -494,8 +514,30 @@ export function Dashboard() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <Badge variant="blue">{t.due_name}</Badge>
                             {refNo && (
-                              <span style={{ fontWeight: 500, fontFamily: 'monospace', color: 'var(--sf-text-muted)', fontSize: 12 }}>
-                                {refNo}
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontWeight: 500, fontFamily: 'monospace', color: 'var(--sf-text-muted)', fontSize: 12 }}>
+                                  {refNo}
+                                </span>
+                                <button
+                                  onClick={handleCopyRef}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: '2px',
+                                    cursor: 'pointer',
+                                    color: 'var(--sf-accent)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                  title="Salin Referensi"
+                                  aria-label="Salin referensi"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                </button>
                               </span>
                             )}
                           </div>
@@ -505,8 +547,30 @@ export function Dashboard() {
                               {cleanKasDescription(t.description)}
                             </span>
                             {refNo && (
-                              <span style={{ fontFamily: 'monospace', color: 'var(--sf-text-muted)', fontSize: 11 }}>
-                                ({refNo})
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontFamily: 'monospace', color: 'var(--sf-text-muted)', fontSize: 11 }}>
+                                  ({refNo})
+                                </span>
+                                <button
+                                  onClick={handleCopyRef}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    padding: '2px',
+                                    cursor: 'pointer',
+                                    color: 'var(--sf-accent)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    flexShrink: 0,
+                                  }}
+                                  title="Salin Referensi"
+                                  aria-label="Salin referensi"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                </button>
                               </span>
                             )}
                           </div>

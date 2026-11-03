@@ -375,7 +375,7 @@ func TestVoluntaryDuesZeroAmount(t *testing.T) {
 		balanceBefore := getBalance()
 
 		// 1. Submit voluntary payment on this bill
-		bodyPay := fmt.Sprintf(`{"bill_id":"%s","amount":"150000","method":"TRANSFER"}`, billID)
+		bodyPay := fmt.Sprintf(`{"bill_id":"%s","amount":"150000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billID)
 		reqPay := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(bodyPay))
 		reqPay.Header.Set("Authorization", "Bearer "+tokenWarga)
 		reqPay.Header.Set("Content-Type", "application/json")
@@ -414,7 +414,7 @@ func TestVoluntaryDuesZeroAmount(t *testing.T) {
 		}
 
 		// 3. Second donation to the same voluntary bill
-		bodyPay2 := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER"}`, billID)
+		bodyPay2 := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billID)
 		reqPay2 := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(bodyPay2))
 		reqPay2.Header.Set("Authorization", "Bearer "+tokenWarga)
 		reqPay2.Header.Set("Content-Type", "application/json")
@@ -540,7 +540,7 @@ func TestVoluntaryHardeningScenarios(t *testing.T) {
 
 	// 2. Cross-household protection: Warga A2 cannot pay bill of Household A1
 	t.Run("Cross-household payment is rejected", func(t *testing.T) {
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER"}`, billVolA1)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billVolA1)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWargaA2)
 		req.Header.Set("Content-Type", "application/json")
@@ -553,7 +553,7 @@ func TestVoluntaryHardeningScenarios(t *testing.T) {
 
 	// 3. Tenant isolation: Warga in RT B cannot access or pay bill in RT A
 	t.Run("Cross-tenant payment is rejected", func(t *testing.T) {
-		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER"}`, billVolA1)
+		body := fmt.Sprintf(`{"bill_id":"%s","amount":"50000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billVolA1)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer "+tokenWargaB)
 		req.Header.Set("Content-Type", "application/json")
@@ -598,7 +598,7 @@ func TestVoluntaryHardeningScenarios(t *testing.T) {
 		}
 
 		// Trying to pay 60000 on a 50000 bill
-		bodyOver := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"TRANSFER"}`, billMandatoryA1)
+		bodyOver := fmt.Sprintf(`{"bill_id":"%s","amount":"60000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billMandatoryA1)
 		reqOver := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(bodyOver))
 		reqOver.Header.Set("Authorization", "Bearer "+tokenWargaA1)
 		reqOver.Header.Set("Content-Type", "application/json")
@@ -627,7 +627,7 @@ func TestVoluntaryHardeningScenarios(t *testing.T) {
 		).Scan(&billEdgeID)
 
 		// Trying to submit 25000 on this non-voluntary bill must be rejected
-		bodyEdge := fmt.Sprintf(`{"bill_id":"%s","amount":"25000","method":"TRANSFER"}`, billEdgeID)
+		bodyEdge := fmt.Sprintf(`{"bill_id":"%s","amount":"25000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billEdgeID)
 		reqEdge := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(bodyEdge))
 		reqEdge.Header.Set("Authorization", "Bearer "+tokenWargaA1)
 		reqEdge.Header.Set("Content-Type", "application/json")
@@ -641,7 +641,7 @@ func TestVoluntaryHardeningScenarios(t *testing.T) {
 	// 6. Idempotency on voluntary payment does not duplicate payments or transactions
 	t.Run("Idempotent voluntary payment retry returns cached response", func(t *testing.T) {
 		idemKey := fmt.Sprintf("idem-vol-%d", time.Now().UnixNano())
-		bodyPay := fmt.Sprintf(`{"bill_id":"%s","amount":"75000","method":"TRANSFER"}`, billVolA1)
+		bodyPay := fmt.Sprintf(`{"bill_id":"%s","amount":"75000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billVolA1)
 
 		req1 := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(bodyPay))
 		req1.Header.Set("Authorization", "Bearer "+tokenWargaA1)
@@ -675,7 +675,7 @@ func TestVoluntaryHardeningScenarios(t *testing.T) {
 
 	// 7. Payment rejection does not transition bill to paid and does not increment ledger
 	t.Run("Rejection of voluntary payment does not post income and keeps bill pending/unpaid", func(t *testing.T) {
-		bodyPay := fmt.Sprintf(`{"bill_id":"%s","amount":"30000","method":"TRANSFER"}`, billVolA1)
+		bodyPay := fmt.Sprintf(`{"bill_id":"%s","amount":"30000","method":"TRANSFER","proof_path":"proofs/test.jpg"}`, billVolA1)
 		reqPay := httptest.NewRequest(http.MethodPost, "/api/v1/payments", bytes.NewBufferString(bodyPay))
 		reqPay.Header.Set("Authorization", "Bearer "+tokenWargaA1)
 		reqPay.Header.Set("Content-Type", "application/json")

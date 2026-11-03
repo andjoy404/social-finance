@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/app_colors.dart';
+import '../utils/rw_utils.dart';
 import '../widgets/logo_preview_dialog.dart';
 import '../../features/auth/data/mock_auth_repository.dart';
 import '../../features/warga/data/api_warga_models.dart';
@@ -60,11 +61,24 @@ class MenuAppBarTitle extends ConsumerWidget {
                     ? firstResident.rtNumber!
                     : '001'));
 
-    final effectiveRw = (rw != null && rw!.isNotEmpty)
-        ? rw!
-        : ((userRw != null && userRw.isNotEmpty)
-              ? userRw
-              : (firstResident?.rw != null ? '${firstResident!.rw}' : '002'));
+    // Resolve rw: if rw param is a UUID, try to find rw_number from memberships.
+    String effectiveRw;
+    final rwParam = rw ?? '';
+    final rwMemberships =
+        (user?['rw_memberships'] as List?)?.whereType<Map<String, dynamic>>().toList() ?? <Map<String, dynamic>>[];
+    if (rwParam.isNotEmpty && !looksLikeUuid(rwParam)) {
+      effectiveRw = rwParam;
+    } else {
+      // rw is a UUID or empty — resolve from rw_memberships.
+      final resolved = resolveRwNumber(rwParam.isNotEmpty ? rwParam : userRw, rwMemberships);
+      if (resolved != null && resolved.isNotEmpty) {
+        effectiveRw = resolved;
+      } else if (userRw != null && userRw.isNotEmpty && !looksLikeUuid(userRw)) {
+        effectiveRw = userRw;
+      } else {
+        effectiveRw = firstResident?.rw?.toString() ?? '002';
+      }
+    }
 
     final effectiveLocation = (location != null && location!.isNotEmpty)
         ? location!
@@ -79,8 +93,12 @@ class MenuAppBarTitle extends ConsumerWidget {
                         ? firstResident.rtName!
                         : 'Wisma Rukun Tunggal')));
 
-    final rtText = effectiveRt.isNotEmpty ? 'RT $effectiveRt' : 'RT';
-    final rwText = effectiveRw.isNotEmpty ? 'RW $effectiveRw' : '';
+    final rtText = effectiveRt.isNotEmpty
+        ? (effectiveRt.toUpperCase().startsWith('RT') ? effectiveRt : 'RT $effectiveRt')
+        : 'RT';
+    final rwText = effectiveRw.isNotEmpty
+        ? (effectiveRw.toUpperCase().startsWith('RW') ? effectiveRw : 'RW $effectiveRw')
+        : '';
     final line1 = rwText.isNotEmpty
         ? 'Lingkungan $rtText $rwText'
         : 'Lingkungan $rtText';

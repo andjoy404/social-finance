@@ -2,11 +2,13 @@ package household
 
 import (
 	"context"
+	crand "crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1700,4 +1702,158 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resident)
+}
+
+// GenerateResetPasswordCode handles POST /api/v1/residents/{id}/reset-password-code
+// Authorized for Pengurus RT and Super Admin. Generates a 4-digit numeric code valid for 24h.
+func (h *Handler) GenerateResetPasswordCode(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
+	isSuperAdmin := ac.SystemRole == auth.SystemRoleSuperAdmin
+	isOfficer := ac.TenantRole == auth.RolePengurus || ac.TenantRole == auth.RoleBendahara
+	if !isSuperAdmin && !isOfficer {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "only pengurus or super admin can generate reset codes")
+		return
+	}
+
+	residentID := chi.URLParam(r, "id")
+	if residentID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "bad_request", "resident id is required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	tx, err := h.pool.BeginTx(ctx)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	// Query resident
+	var resID, resRTID, resFullName string
+	var resUserID, resPhone, resEmail sql.NullString
+	var query string
+	var args []any
+	if isSuperAdmin {
+		query = `SELECT id, rt_id, user_id, full_name, phone, email FROM residents WHERE id = $1 AND is_active = true`
+		args = []any{residentID}
+	} else {
+		rtID, ok := requireRTID(w, r)
+		if !ok {
+			return
+		}
+		query = `SELECT id, rt_id, user_id, full_name, phone, email FROM residents WHERE id = $1 AND rt_id = $2 AND is_active = true`
+		args = []any{residentID, rtID}
+	}
+
+	err = tx.QueryRowContext(ctx, query, args...).Scan(&resID, &resRTID, &resUserID, &resFullName, &resPhone, &resEmail)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteNotFound(w, "resident not found")
+		return
+	}
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to lookup resident")
+		return
+	}
+
+	// If resident has no user_id, create or link user account
+	var targetUserID string
+	if resUserID.Valid && resUserID.String != "" {
+		targetUserID = resUserID.String
+	} else {
+		// Generate an initial random password to link user account
+		dummyPass := fmt.Sprintf("InitPass#%d%d", time.Now().UnixNano(), time.Now().Nanosecond()%1000)
+		var pEmail, pPhone *string
+		if resEmail.Valid && resEmail.String != "" {
+			pEmail = &resEmail.String
+		}
+		if resPhone.Valid && resPhone.String != "" {
+			pPhone = &resPhone.String
+		}
+		if err := syncResidentUserAccount(ctx, tx, resRTID, resID, resFullName, pPhone, pEmail, &dummyPass); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to initialize resident user account")
+			return
+		}
+		// Fetch newly linked user_id
+		err = tx.QueryRowContext(ctx, `SELECT user_id FROM residents WHERE id = $1`, resID).Scan(&targetUserID)
+		if err != nil || targetUserID == "" {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load linked user id")
+			return
+		}
+	}
+
+	// Invalidate any previous unused codes for this user
+	_, err = tx.ExecContext(ctx, `
+		UPDATE resident_password_reset_codes
+		SET used_at = now()
+		WHERE user_id = $1 AND used_at IS NULL
+	`, targetUserID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to invalidate previous codes")
+		return
+	}
+
+	// Generate 4-digit code (0000 - 9999) using crypto/rand
+	num, err := crand.Int(crand.Reader, big.NewInt(10000))
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to generate secure code")
+		return
+	}
+	code := fmt.Sprintf("%04d", num.Int64())
+
+	// Hash code with Argon2id
+	codeHash, err := auth.HashCode(code)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to hash reset code")
+		return
+	}
+
+	var expiresAt time.Time
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO resident_password_reset_codes (
+			user_id, resident_id, rt_id, code_hash, expires_at, created_by
+		) VALUES (
+			$1, $2, $3, $4, now() + interval '24 hours', $5
+		) RETURNING expires_at
+	`, targetUserID, resID, resRTID, codeHash, ac.UserID).Scan(&expiresAt)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to save reset code")
+		return
+	}
+
+	// Determine user identifier (prefer email, else phone, else email on user record)
+	identifier := ""
+	if resEmail.Valid && resEmail.String != "" {
+		identifier = resEmail.String
+	} else if resPhone.Valid && resPhone.String != "" {
+		identifier = resPhone.String
+	} else {
+		_ = tx.QueryRowContext(ctx, `SELECT COALESCE(email, phone, '') FROM users WHERE id = $1`, targetUserID).Scan(&identifier)
+	}
+
+	// Record audit log
+	_, _ = tx.ExecContext(ctx, `
+		INSERT INTO audit_logs (rt_id, user_id, action, entity_type, entity_id, new_values)
+		VALUES ($1, $2, 'generate_password_reset_code', 'resident', $3, $4)
+	`, resRTID, ac.UserID, resID, fmt.Sprintf(`{"resident_id": "%s", "expires_at": "%s"}`, resID, expiresAt.Format(time.RFC3339)))
+
+	if err := tx.Commit(); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to commit transaction")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"code":          code,
+		"expires_at":    expiresAt.Format(time.RFC3339),
+		"resident_id":   resID,
+		"resident_name": resFullName,
+		"identifier":    identifier,
+	})
 }

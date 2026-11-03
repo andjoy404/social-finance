@@ -1,5 +1,25 @@
 export type KasJenis = 'masuk' | 'keluar'
 
+export const EXPENSE_CATEGORIES = [
+  'Konsumsi',
+  'Kebersihan & Sampah',
+  'Keamanan & Ronda',
+  'Acara Warga & PHBI',
+  'Alat Tulis & Administrasi',
+  'Perbaikan Fasilitas RT',
+  'Sosial & Duka Cita',
+  'Listrik & Air Fasum',
+  'Honor Petugas Kebersihan/Keamanan',
+  'Perlengkapan & Logistik',
+  'Internet & Komunikasi',
+  'Transportasi Operasional',
+  'Kasbon Petugas/Warga',
+  'Pajak & Retribusi',
+  'Lain-lain',
+] as const
+
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]
+
 export interface KasTransaction {
   id: string
   tanggal: string
@@ -9,6 +29,7 @@ export interface KasTransaction {
   referensi?: string
   nominal: string
   saldo: string
+  expense_category?: string | null
 }
 
 export type KategoriKas =
