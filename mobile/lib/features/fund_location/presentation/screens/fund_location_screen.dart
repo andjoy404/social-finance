@@ -1066,9 +1066,9 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                   });
                                 }
                               },
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: AppColors.accentSoftColor(context),
-                                side: const BorderSide(color: AppColors.accent),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.success,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(AppRadius.base),
                                 ),
@@ -1081,7 +1081,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                         strokeWidth: 2,
                                         backgroundColor: Colors.transparent,
                                         valueColor: AlwaysStoppedAnimation<Color>(
-                                          AppColors.accent,
+                                          AppColors.success,
                                         ),
                                       ),
                                     )
@@ -1100,14 +1100,11 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
+                            child: ElevatedButton(
                               onPressed: saving ? null : () => Navigator.pop(dialogCtx),
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: Theme.of(context).brightness == Brightness.dark
-                                    ? AppColors.darkDangerSoft
-                                    : AppColors.danger.withValues(alpha: 0.20),
-                                side: const BorderSide(color: AppColors.danger),
-                                foregroundColor: AppColors.danger,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.danger,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(AppRadius.base),
                                 ),
@@ -1200,7 +1197,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
+                            child: ElevatedButton(
                               onPressed: saving ? null : () async {
                                 final name = nameCtrl.text.trim();
                                 if (name.isEmpty) {
@@ -1257,9 +1254,10 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                   });
                                 }
                               },
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: AppColors.accentSoftColor(context),
-                                side: const BorderSide(color: AppColors.accent),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.success,
+                                foregroundColor: Colors.white,
+                                // side removed for solid style
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(AppRadius.base),
                                 ),
@@ -1272,7 +1270,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                         strokeWidth: 2,
                                         backgroundColor: Colors.transparent,
                                         valueColor: AlwaysStoppedAnimation<Color>(
-                                          AppColors.accent,
+                                          AppColors.success,
                                         ),
                                       ),
                                     )
@@ -1291,14 +1289,13 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
+                            child: ElevatedButton(
                               onPressed: saving ? null : () => Navigator.pop(dialogCtx),
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: Theme.of(context).brightness == Brightness.dark
-                                    ? AppColors.darkDangerSoft
-                                    : AppColors.danger.withValues(alpha: 0.20),
-                                side: const BorderSide(color: AppColors.danger),
-                                foregroundColor: AppColors.danger,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.danger,
+                                foregroundColor: Colors.white,
+                                // side removed for solid style
+                                // foregroundColor: AppColors.danger removed
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(AppRadius.base),
                                 ),
