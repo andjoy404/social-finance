@@ -93,14 +93,20 @@ func RequireAuth(next http.Handler) http.Handler {
 			}
 		}
 
-		// Per-request validation: ensure every claimed RW membership is still
-		// active in the database. This is the revocation-safe layer — if a
-		// user's RW membership is deactivated or revoked, subsequent requests
-		// with the same stale JWT will silently drop that membership from the
+		// ── Per-request RW membership validation ────────────────────
+		// Re-validate every RW membership claimed in the JWT against the
+		// database. This is the revocation-safe layer — if a user's RW
+		// membership is deactivated or revoked, subsequent requests with
+		// the same stale JWT will silently drop that membership from the
 		// context. The user's existing RT access is unaffected.
+		//
+		// We re-run the same logic as loadRWMemberships so that both
+		// explicit and inferred memberships are re-validated on every
+		// request, with their Source field preserved.
 		var validRWMemberships []RWMembership
+
+		// 1. Validate explicit memberships from user_rw_memberships.
 		if len(rwContextFromToken) > 0 {
-			// Collect all rw_ids claimed in the token for a single query.
 			rwIDs := make(map[string]bool, len(rwContextFromToken))
 			for _, m := range rwContextFromToken {
 				rwIDs[m.RWID] = true
@@ -111,11 +117,10 @@ func RequireAuth(next http.Handler) http.Handler {
 			}
 
 			if len(ids) > 0 && AuthDBPool != nil {
-				// Build parameter placeholders: $1, $2, …
 				placeholders := make([]string, len(ids))
 				args := make([]interface{}, len(ids))
 				for i, id := range ids {
-					placeholders[i] = fmt.Sprintf("$%d", i+2) // +2 because $1 is user_id
+					placeholders[i] = fmt.Sprintf("$%d", i+2)
 					args[i] = id
 				}
 				q := fmt.Sprintf(
@@ -137,13 +142,81 @@ func RequireAuth(next http.Handler) http.Handler {
 					}
 					for _, tc := range rwContextFromToken {
 						if j, ok := validSet[tc.RWID]; ok {
+							// Preserve Source from the token: explicit remains explicit.
 							validRWMemberships = append(validRWMemberships, RWMembership{
 								RWID:    tc.RWID,
 								Jabatan: j,
+								Source:  tc.Source,
 							})
 						}
 					}
 				}
+			}
+		}
+
+		// 2. Re-infer RW memberships from the user's active RT membership.
+		//    This ensures RT officials get their inferred RW membership
+		//    validated on every request (not just at login time).
+		if AuthDBPool != nil {
+			rtRows, err := AuthDBPool.Raw().QueryContext(validateCtx, `
+				SELECT urm.jabatan, r.rw_id
+				FROM user_rt_memberships urm
+				JOIN rts r ON r.id = urm.rt_id
+				WHERE urm.user_id = $1
+				  AND urm.is_active = true
+				  AND urm.jabatan IS NOT NULL
+				  AND urm.jabatan != ''
+			`, claims.UserID)
+			if err == nil {
+				defer rtRows.Close()
+				// Collect already-validated explicit memberships to avoid duplicates.
+				existingRWIDs := make(map[string]struct{})
+				for _, m := range validRWMemberships {
+					existingRWIDs[m.RWID] = struct{}{}
+				}
+
+				for rtRows.Next() {
+					var rtJabatan, rtRWID string
+					if err := rtRows.Scan(&rtJabatan, &rtRWID); err != nil {
+						continue
+					}
+					// Only eligible RT jabatan can infer RW access.
+					if _, ok := validRTJabatans[rtJabatan]; !ok {
+						continue
+					}
+					// Skip if already have an explicit membership for this RW.
+					if _, dup := existingRWIDs[rtRWID]; dup {
+						continue
+					}
+					// Validate the RT's RW is active.
+					var rwNumber int
+					var rwName string
+					var rwActive bool
+					err = AuthDBPool.Raw().QueryRowContext(validateCtx,
+						`SELECT rw_number, name, is_active FROM rws WHERE id = $1`,
+						rtRWID,
+					).Scan(&rwNumber, &rwName, &rwActive)
+					if err != nil {
+						if err == sql.ErrNoRows {
+							continue
+						}
+						continue
+					}
+					if !rwActive {
+						continue
+					}
+					existingRWIDs[rtRWID] = struct{}{}
+					validRWMemberships = append(validRWMemberships, RWMembership{
+						RWID:     rtRWID,
+						RWNumber: rwNumber,
+						RWName:   rwName,
+						Jabatan:  rtJabatan,
+						Source:   RWMembershipSourceRTInferred,
+					})
+				}
+				// Log inference errors silently — RT inference failure does
+				// not invalidate explicit memberships, but we still record it.
+				_ = err
 			}
 		}
 

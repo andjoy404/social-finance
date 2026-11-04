@@ -284,12 +284,27 @@ func ValidateSAForRW(ctx context.Context, cfg *ScopingConfig, pool *database.Poo
 	return nil
 }
 
+// rwPermissionMapReadOnly defines RW permissions for RT officials accessing RW
+// through inferred membership (rt_inferred).  These users may ONLY read RW
+// data; create, update, approve and all mutations are denied.
+var rwPermissionMapReadOnly = map[string][]string{
+	"ketua":       {"finance.read"},
+	"wakil_ketua": {"finance.read"},
+	"sekretaris":  {"finance.read"},
+	"bendahara":   {"finance.read"},
+}
+
 // rwPermissionMap defines RW-specific permissions mapped by jabatan.
 // Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara').
 // Permission codes use the existing 'finance' domain.
 //
 // This map is HARD-CODED to avoid modifying the database or position_permissions
 // table (which has a strict CHECK constraint with only 8 RT jabatan values).
+//
+// NOTE: This map is intentionally unchanged.  The permission layer in
+// checkRWPermission() distinguishes between explicit (RW officials) and
+// inferred (RT officials) memberships to prevent RT officials from getting
+// write access to RW finances.
 var rwPermissionMap = map[string][]string{
 	"ketua": {
 		"finance.read",
@@ -314,19 +329,36 @@ var rwPermissionMap = map[string][]string{
 	},
 }
 
-// HasRWScopePermission checks whether the given RW jabatan grants the specified
-// permission code. Returns false if the jabatan has no entry in rwPermissionMap.
+// HasRWScopePermission checks whether the given RW jabatan and source
+// grants the specified permission code.
+//
+// Source must be one of:
+//   - RWMembershipSourceExplicit  — from user_rw_memberships (RW officials).
+//   - RWMembershipSourceRTInferred — from user_rt_memberships + rts.rw_id (RT officials).
+//
+// RT officials (rt_inferred) may ONLY read RW data.
+// RW officials (explicit) retain their full permissions per rwPermissionMap.
 //
 // Exported as HasRWScopePermission for use by external packages (e.g., internal/rw).
-// The lowercase hasRWScopePermission is kept for backward compatibility with existing tests.
-func HasRWScopePermission(jabatan string, permissionCode string) bool {
+func HasRWScopePermission(jabatan string, source RWMembershipSource, permissionCode string) bool {
+	if source == RWMembershipSourceRTInferred {
+		// RT officials get ONLY read access.
+		return hasRWScopePermissionMap(jabatan, permissionCode, rwPermissionMapReadOnly)
+	}
+	// RW officials (explicit) use the full permission map.
 	return hasRWScopePermission(jabatan, permissionCode)
 }
 
 // hasRWScopePermission checks whether the given RW jabatan grants the specified
-// permission code. Returns false if the jabatan has no entry in rwPermissionMap.
+// permission code against rwPermissionMap. Returns false if no entry exists.
+// This is kept for backward compatibility with existing tests and internal use.
 func hasRWScopePermission(jabatan string, permissionCode string) bool {
-	perms, ok := rwPermissionMap[jabatan]
+	return hasRWScopePermissionMap(jabatan, permissionCode, rwPermissionMap)
+}
+
+// hasRWScopePermissionMap checks permissions against a given permission map.
+func hasRWScopePermissionMap(jabatan string, permissionCode string, permMap map[string][]string) bool {
+	perms, ok := permMap[jabatan]
 	if !ok {
 		return false
 	}

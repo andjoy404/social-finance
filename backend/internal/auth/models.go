@@ -2,13 +2,28 @@ package auth
 
 import "social-finance/internal/database"
 
+// RWMembershipSource indicates how an RW membership was granted.
+type RWMembershipSource string
+
+const (
+	RWMembershipSourceExplicit   RWMembershipSource = "explicit"
+	RWMembershipSourceRTInferred RWMembershipSource = "rt_inferred"
+)
+
 // RWMembership represents a user's active membership in a Rukun Warga (RW).
-// Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara')
+// Jabatan uses RT-style values ('ketua', 'wakil_ketua', 'sekretaris', 'bendahara').
+// Source indicates whether the membership is explicit (user_rw_memberships) or
+// inferred from RT membership (user_rt_memberships + rts.rw_id). The Source field
+// is populated by the server during token generation and validated on every request.
+//
+// NOTE: Source is serialized in the JWT (rw_context claim) so the middleware can
+// distinguish explicit from inferred memberships.  Client input is NEVER trusted.
 type RWMembership struct {
-	RWID     string `json:"rw_id"`
-	RWNumber int    `json:"rw_number"`
-	RWName   string `json:"rw_name"`
-	Jabatan  string `json:"jabatan"`
+	RWID     string              `json:"rw_id"`
+	RWNumber int                 `json:"rw_number"`
+	RWName   string              `json:"rw_name"`
+	Jabatan  string              `json:"jabatan"`
+	Source   RWMembershipSource  `json:"source"`
 }
 
 // SystemRole represents a global-level role (not tied to an RT).

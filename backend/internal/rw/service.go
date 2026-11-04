@@ -45,7 +45,11 @@ func (s *Service) checkRWAccess(ctx context.Context, ac *auth.AuthContext, rwID 
 }
 
 // checkRWPermission verifies the AuthContext has the required permission code
-// based on their RW membership jabatan.
+// based on their RW membership jabatan and source.
+//
+// The source distinguishes between:
+//   - explicit membership (RW officials) — full permissions per rwPermissionMap.
+//   - inferred membership (RT officials) — read-only access only.
 func (s *Service) checkRWPermission(ac *auth.AuthContext, rwID string, requiredPermission string) error {
 	if ac == nil {
 		return fmt.Errorf("no authentication context")
@@ -56,10 +60,14 @@ func (s *Service) checkRWPermission(ac *auth.AuthContext, rwID string, requiredP
 	}
 	for _, rm := range ac.RWMemberships {
 		if rm.RWID == rwID {
-			if auth.HasRWScopePermission(rm.Jabatan, requiredPermission) {
+			// Pass the membership source so the permission layer can
+			// distinguish RT officials (rt_inferred → read-only) from
+			// RW officials (explicit → full permissions).
+			if auth.HasRWScopePermission(rm.Jabatan, rm.Source, requiredPermission) {
 				return nil
 			}
-			return fmt.Errorf("%w: required %q for jabatan %q", ErrPermissionDenied, requiredPermission, rm.Jabatan)
+			return fmt.Errorf("%w: required %q for jabatan %q (source: %s)",
+				ErrPermissionDenied, requiredPermission, rm.Jabatan, rm.Source)
 		}
 	}
 	return fmt.Errorf("%w: no RW membership for %s", ErrRWAccessDenied, rwID)
@@ -171,6 +179,9 @@ func (s *Service) GetTransactions(ctx context.Context, ac *auth.AuthContext, rwI
 		return nil, 0, fmt.Errorf("commit transaction: %w", err)
 	}
 
+	if list == nil {
+		list = []*TransactionEntry{}
+	}
 	return list, total, nil
 }
 
@@ -253,7 +264,16 @@ func (s *Service) GetTransactionProofInfo(ctx context.Context, ac *auth.AuthCont
 	}
 	defer tx.Rollback()
 
-	return s.repo.GetTransactionProofInfo(ctx, tx, rwID, txID)
+	proofPath, mimeType, err = s.repo.GetTransactionProofInfo(ctx, tx, rwID, txID)
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", "", fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return proofPath, mimeType, nil
 }
 
 // =========================================================================
@@ -281,6 +301,9 @@ func (s *Service) GetLocations(ctx context.Context, ac *auth.AuthContext, rwID s
 		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
+	if locations == nil {
+		locations = []*LocationSummary{}
+	}
 	return locations, nil
 }
 
@@ -501,15 +524,22 @@ func (s *Service) GetTransfers(ctx context.Context, ac *auth.AuthContext, rwID s
 		return nil, 0, fmt.Errorf("commit transaction: %w", err)
 	}
 
+	if transfers == nil {
+		transfers = []FundTransfer{}
+	}
 	return transfers, total, nil
 }
 
 // ---- Money utility functions (delegates to finance package) ----
 
+// ParseMoney parses a money string into cents and a canonical representation.
+// It delegates to the finance package for consistent money handling across modules.
 func ParseMoney(s string) (int64, string, error) {
 	return finance.ParseMoney(s)
 }
 
+// FormatMoney formats cents into a human-readable money string.
+// It delegates to the finance package for consistent money handling across modules.
 func FormatMoney(cents int64) string {
 	return finance.FormatMoney(cents)
 }
