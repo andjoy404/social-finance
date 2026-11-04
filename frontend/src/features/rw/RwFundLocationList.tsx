@@ -25,7 +25,7 @@ import {
 } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
-import { useAuth } from '@/app/AuthContext'
+import { useAuth, hasRwWriteAccess } from '@/app/AuthContext'
 import { getSessionPair } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
 import { resolveRwLabel } from '@/utils/rwUtils'
@@ -54,8 +54,11 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
   const displayRwLabel = resolveRwLabel(rwId, rwMemberships, rwName)
   const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
 
-  const canCreate = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
-  const canUpdate = isSuperAdmin || ['ketua', 'bendahara'].includes(jabatan)
+  // Source-aware write permission: RT inferred users see read-only UI.
+  // Explicit wins over inferred — only show read-only if ALL memberships are inferred.
+  const canWrite = hasRwWriteAccess(user)
+  const canCreate = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
+  const canUpdate = isSuperAdmin || (canWrite && ['ketua', 'bendahara'].includes(jabatan))
   const isReadOnly = !canCreate && !canUpdate
 
   const [locations, setLocations] = useState<ApiRWLocation[]>([])

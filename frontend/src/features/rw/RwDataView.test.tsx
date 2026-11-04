@@ -22,7 +22,7 @@ describe('RwDataView', () => {
         name: 'Bendahara RW 002',
         role: 'bendahara',
         rwMemberships: [
-          { rw_id: 'rw-002', rw_name: 'RW 002 Urena', jabatan: 'bendahara' },
+          { rw_id: 'rw-002', rw_name: 'RW 002 Urena', jabatan: 'bendahara', source: 'explicit' },
         ],
       } as any,
       isAuthenticated: true,
@@ -65,7 +65,7 @@ describe('RwDataView', () => {
         name: 'Sekretaris RW 002',
         role: 'sekretaris',
         rwMemberships: [
-          { rw_id: 'rw-002', rw_name: 'RW 002 Urena', jabatan: 'sekretaris' },
+          { rw_id: 'rw-002', rw_name: 'RW 002 Urena', jabatan: 'sekretaris', source: 'explicit' },
         ],
       } as any,
       isAuthenticated: true,
@@ -95,7 +95,7 @@ describe('RwDataView', () => {
         name: 'Warga RW 002',
         role: 'warga',
         rwMemberships: [
-          { rw_id: 'rw-002', rw_name: 'RW 002 Urena', jabatan: 'anggota' },
+          { rw_id: 'rw-002', rw_name: 'RW 002 Urena', jabatan: 'anggota', source: 'explicit' },
         ],
       } as any,
       isAuthenticated: true,

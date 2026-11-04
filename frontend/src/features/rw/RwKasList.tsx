@@ -15,7 +15,7 @@ import { CheckCircleOutlined, WalletOutlined, ArrowDownOutlined, ArrowUpOutlined
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
-import { useAuth } from '@/app/AuthContext'
+import { useAuth, hasRwWriteAccess } from '@/app/AuthContext'
 import { getSessionPair } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
 import { resolveRwLabel } from '@/utils/rwUtils'
@@ -50,9 +50,13 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const currentRw = rwMemberships.find((m: any) => m.rw_id === rwId)
   const displayRwLabel = resolveRwLabel(rwId, rwMemberships, rwName)
   const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
-  const canCreate = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
-  const canUpdate = isSuperAdmin || ['ketua', 'bendahara'].includes(jabatan)
-  const canEditSaldoAwal = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
+
+  // Source-aware write permission: RT inferred users see read-only UI.
+  // Explicit wins over inferred — only show read-only if ALL memberships are inferred.
+  const canWrite = hasRwWriteAccess(user)
+  const canCreate = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
+  const canUpdate = isSuperAdmin || (canWrite && ['ketua', 'bendahara'].includes(jabatan))
+  const canEditSaldoAwal = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
   const isReadOnly = !canCreate && !canUpdate
 
   // Month filter state

@@ -10,7 +10,7 @@ vi.mock('@/app/AuthContext', () => ({
       name: 'Bendahara RW 002',
       role: 'bendahara',
       jabatan: 'bendahara',
-      rw_memberships: [{ rw_id: 'rw-002', jabatan: 'bendahara' }],
+      rwMemberships: [{ rw_id: 'rw-002', jabatan: 'bendahara', source: 'explicit' }],
     },
   }),
 }))

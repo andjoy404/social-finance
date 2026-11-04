@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useAuth, type RWMembership } from '@/app/AuthContext'
+import { useAuth, hasRwWriteAccess, type RWMembership } from '@/app/AuthContext'
 import { RwDashboard } from './RwDashboard'
 import { RwKasList } from './RwKasList'
 import { RwFundLocationList } from './RwFundLocationList'
@@ -186,8 +186,10 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   const membership = rwMemberships.find((m) => m.rw_id === selectedRwId)
   const displayName = membership?.rw_name || selectedRwName || 'DATA RW'
   const jabatan = (membership?.jabatan || user?.jabatan || '').toLowerCase()
-  const canCreate = isSuperAdmin || ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan)
-  const canUpdate = isSuperAdmin || ['ketua', 'bendahara'].includes(jabatan)
+  // Source-aware: RT inferred users get read-only badge.
+  const canWrite = hasRwWriteAccess(user)
+  const canCreate = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
+  const canUpdate = isSuperAdmin || (canWrite && ['ketua', 'bendahara'].includes(jabatan))
   const isReadOnly = !canCreate && !canUpdate
 
   return (
