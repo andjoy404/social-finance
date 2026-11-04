@@ -38,6 +38,19 @@ type Service interface {
 	MarkAllAsRead(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error)
 	GetUnreadCount(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error)
 	ResolveTenantRT(ctx context.Context, ac *auth.AuthContext, reqHeaderRT, reqQueryRT string) (string, error)
+
+	// Schedule management
+	ListSchedules(ctx context.Context, rtID, eventType string, isActive *bool) ([]*NotificationSchedule, error)
+	GetSchedule(ctx context.Context, rtID, id string) (*NotificationSchedule, error)
+	CreateSchedule(ctx context.Context, rtID, userID string, in CreateScheduleInput) (*NotificationSchedule, error)
+	UpdateSchedule(ctx context.Context, rtID, id, userID string, in UpdateScheduleInput) (*NotificationSchedule, error)
+	DeleteSchedule(ctx context.Context, rtID, id string) error
+	ToggleScheduleActive(ctx context.Context, rtID, id, userID string) (*NotificationSchedule, error)
+	// GetDueSchedules returns active schedules due for execution at the given time.
+	GetDueSchedules(ctx context.Context, now time.Time) ([]*NotificationSchedule, error)
+	// ExecuteSchedule runs a single schedule: resolves recipients, sends pushes,
+	// and records per-recipient delivery logs with idempotency.
+	ExecuteSchedule(ctx context.Context, schedule *NotificationSchedule, now time.Time) (int, error)
 }
 
 var ErrForbidden = errors.New("forbidden: akses detail notifikasi ditolak")
@@ -663,6 +676,19 @@ var SystemNotificationTypes = []SystemNotificationType{
 		SupportsImage:    true,
 		SupportsTest:     true,
 	},
+	{
+		EventType:        EventPaymentReminder,
+		Name:             "Pengingat Pembayaran Iuran",
+		Trigger:          "Jadwal otomatis bulanan (tanggal dan jam dapat diatur per RT)",
+		Channel:          "push",
+		RecipientsRule:   "Warga yang masih memiliki kewajiban pembayaran tagihan iuran yang belum lunas",
+		DefaultTitle:     "Pengingat Pembayaran Iuran",
+		DefaultBody:      "Anda masih memiliki tagihan iuran yang belum lunas. Segera lakukan pembayaran sebelum jatuh tempo.",
+		AllowedVariables: []string{"bill_id", "period", "amount", "due_date", "deep_link"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     false,
+	},
 }
 
 func (s *service) GetSystemTypes() []SystemNotificationType {
@@ -948,4 +974,213 @@ func (s *service) ResolveTenantRT(ctx context.Context, ac *auth.AuthContext, req
 		return "", fmt.Errorf("super admin must specify a target RT via X-RT-ID header or JWT membership")
 	}
 	return "", fmt.Errorf("missing tenant context: user has no active RT membership")
+}
+
+// Schedule management
+
+func (s *service) ListSchedules(ctx context.Context, rtID, eventType string, isActive *bool) ([]*NotificationSchedule, error) {
+	return s.repo.ListSchedules(ctx, rtID, eventType, isActive)
+}
+
+func (s *service) GetSchedule(ctx context.Context, rtID, id string) (*NotificationSchedule, error) {
+	return s.repo.GetSchedule(ctx, rtID, id)
+}
+
+func (s *service) CreateSchedule(ctx context.Context, rtID, userID string, in CreateScheduleInput) (*NotificationSchedule, error) {
+	if strings.TrimSpace(in.EventType) == "" {
+		return nil, errors.New("jenis event wajib diisi")
+	}
+	if strings.TrimSpace(in.TemplateID) == "" {
+		return nil, errors.New("template wajib dipilih")
+	}
+	sysType := findSystemType(in.EventType)
+	if sysType == nil {
+		return nil, fmt.Errorf("jenis event '%s' tidak valid atau tidak didukung", in.EventType)
+	}
+	// Template must exist, belong to this RT, match the event type, and be active.
+	tmpl, err := s.repo.GetTemplateByID(ctx, rtID, in.TemplateID)
+	if err != nil {
+		return nil, fmt.Errorf("template tidak ditemukan: %w", err)
+	}
+	if tmpl == nil {
+		return nil, errors.New("template tidak ditemukan")
+	}
+	if tmpl.EventType != in.EventType {
+		return nil, errors.New("template tidak cocok dengan jenis event yang dipilih")
+	}
+	if !tmpl.IsActive {
+		return nil, errors.New("template tidak aktif, tidak dapat digunakan dalam jadwal")
+	}
+	return s.repo.CreateSchedule(ctx, rtID, userID, in)
+}
+
+func (s *service) UpdateSchedule(ctx context.Context, rtID, id, userID string, in UpdateScheduleInput) (*NotificationSchedule, error) {
+	return s.repo.UpdateSchedule(ctx, rtID, id, userID, in)
+}
+
+func (s *service) DeleteSchedule(ctx context.Context, rtID, id string) error {
+	return s.repo.DeleteSchedule(ctx, rtID, id)
+}
+
+func (s *service) ToggleScheduleActive(ctx context.Context, rtID, id, userID string) (*NotificationSchedule, error) {
+	return s.repo.ToggleScheduleActive(ctx, rtID, id, userID)
+}
+
+func (s *service) GetDueSchedules(ctx context.Context, now time.Time) ([]*NotificationSchedule, error) {
+	return s.repo.GetDueSchedules(ctx, now)
+}
+
+// ExecuteSchedule runs a single schedule: resolves recipients based on the event
+// type, renders title/body from the linked template, sends pushes with
+// per-recipient idempotency, and updates the schedule's last execution info.
+//
+// The whole execution runs inside a transaction holding a Postgres advisory
+// lock keyed by (schedule ID, execution date). pg_try_advisory_xact_lock is
+// used so that, across multiple backend instances, only one instance can
+// process a given schedule on a given date. Other instances skip immediately.
+// Combined with the UNIQUE dedup_key on notification_logs (per schedule, date,
+// and recipient), this guarantees at-most-once delivery even after restarts.
+func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSchedule, now time.Time) (int, error) {
+	if schedule == nil {
+		return 0, errors.New("schedule is required")
+	}
+
+	rtID := schedule.RTID
+
+	// Execution date in the schedule's own timezone (for dedup key + lock).
+	loc, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		loc = time.FixedZone(schedule.Timezone, 7*3600) // default WIB
+	}
+	execDate := now.In(loc).Format("2006-01-02")
+
+	// Run the whole execution inside a transaction so the Postgres advisory
+	// lock (claimed below) is held until commit. This guarantees at-most-once
+	// execution across multiple backend instances: only one instance can hold
+	// the advisory lock for a given (schedule, execDate) at a time.
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { if tx != nil { _ = tx.Rollback() } }()
+
+	// Claim the advisory lock for this (schedule, execDate). pg_try_advisory_
+	// xact_lock returns false immediately if another instance already holds it.
+	claimed, err := s.repo.ClaimExecutionTx(tx, schedule.ID, execDate)
+	if err != nil {
+		return 0, fmt.Errorf("claim execution lock: %w", err)
+	}
+	if !claimed {
+		slog.Info("schedule execution claimed by another instance", "schedule_id", schedule.ID, "exec_date", execDate)
+		return 0, nil
+	}
+
+	// Defensive schedule-level dedup: already executed today?
+	already, err := s.repo.IsScheduleExecutedTodayTx(tx, schedule.ID, execDate)
+	if err != nil {
+		return 0, fmt.Errorf("check executed today: %w", err)
+	}
+	if already {
+		slog.Info("schedule already executed today", "schedule_id", schedule.ID, "exec_date", execDate)
+		return 0, nil
+	}
+
+	bgCtx := ctx
+
+	// Resolve the active template for this event type + RT.
+	tmpl, err := s.repo.GetActiveTemplateForEvent(bgCtx, rtID, schedule.EventType)
+	if err != nil {
+		slog.Warn("no active template for reminder schedule", "rt_id", rtID, "event_type", schedule.EventType, "error", err)
+		return 0, nil
+	}
+	if tmpl == nil || !tmpl.IsActive {
+		return 0, nil
+	}
+
+	title := tmpl.Title
+	body := tmpl.Body
+
+	// Resolve recipients based on event type.
+	var recipients []*IuranReminderRecipient
+	if schedule.EventType == EventPaymentReminder {
+		recs, err := s.repo.GetIuranReminderRecipients(bgCtx, rtID, now)
+		if err != nil {
+			slog.Error("failed to resolve iuran reminder recipients", "rt_id", rtID, "error", err)
+			return 0, err
+		}
+		recipients = recs
+	} else {
+		return 0, fmt.Errorf("unsupported event type for scheduled execution: %s", schedule.EventType)
+	}
+
+	if len(recipients) == 0 {
+		return 0, nil
+	}
+
+	sent := 0
+	for _, rec := range recipients {
+		vars := map[string]string{
+			"bill_id":   rec.BillID,
+			"period":    rec.Period,
+			"amount":    rec.Amount,
+			"due_date":  rec.DueDate,
+			"deep_link": fmt.Sprintf("/home/iuran/detail/%s", rec.BillID),
+		}
+		t := interpolate(title, vars)
+		b := interpolate(body, vars)
+
+		payload := NotificationPayload{
+			Type:     schedule.EventType,
+			RTID:     rec.RTID,
+			Title:    t,
+			Body:     b,
+			BillID:   rec.BillID,
+			DeepLink: vars["deep_link"],
+			SentAt:   now.UTC().Format(time.RFC3339Nano),
+		}
+
+		dedupKey := fmt.Sprintf("schedule:%s:%s:%s", schedule.ID, execDate, rec.UserID)
+		payloadMap := payload.ToMap()
+		ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, rec.UserID, schedule.EventType, dedupKey, t, b, payloadMap)
+		if err != nil {
+			slog.Warn("schedule dedup check failed", "user_id", rec.UserID, "error", err)
+			continue
+		}
+		if !ok {
+			continue // deduplicated
+		}
+
+		if notifID := payloadMap["notification_id"]; notifID != "" {
+			payloadMap["deep_link"] = "/home/iuran/detail/" + notifID
+		}
+
+		tokens, err := s.repo.GetTokensForUser(bgCtx, rec.UserID)
+		if err != nil {
+			slog.Error("failed to get tokens for reminder recipient", "user_id", rec.UserID, "error", err)
+			continue
+		}
+		if len(tokens) > 0 {
+			s.sendPushToTokens(bgCtx, tokens, t, b, payloadMap)
+			sent++
+		}
+	}
+
+	// Update last executed status.
+	status := "success"
+	if sent == 0 && len(recipients) > 0 {
+		status = "failed"
+	} else if sent > 0 && sent < len(recipients) {
+		status = "partial"
+	}
+	if err := s.repo.UpdateScheduleExecuted(bgCtx, schedule.ID, rtID, now, status); err != nil {
+		slog.Warn("failed to update schedule last executed", "schedule_id", schedule.ID, "error", err)
+	}
+
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return 0, fmt.Errorf("commit schedule execution: %w", err)
+		}
+	}
+
+	return sent, nil
 }

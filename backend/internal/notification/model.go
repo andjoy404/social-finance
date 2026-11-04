@@ -9,6 +9,8 @@ const (
 	EventPaymentVerified   = "iuran_payment_verified"
 	EventWasteTruckArrival = "waste_truck_arrival"
 	EventManualPush        = "manual_push"
+	// EventPaymentReminder is the auto reminder for unpaid obligatory iuran bills.
+	EventPaymentReminder = "iuran_payment_reminder"
 )
 
 // Device platforms.
@@ -182,4 +184,57 @@ type NotificationLogEntry struct {
 	CreatedAt time.Time  `json:"created_at"`
 	IsRead    bool       `json:"is_read"`
 	ReadAt    *time.Time `json:"read_at,omitempty"`
+}
+
+// NotificationSchedule represents a configurable notification schedule row.
+type NotificationSchedule struct {
+	ID                 string     `json:"id"`
+	RTID               string     `json:"rt_id"`
+	EventType          string     `json:"event_type"`
+	TemplateID         string     `json:"template_id"`
+	Name               string     `json:"name"`
+	IsActive           bool       `json:"is_active"`
+	SendDays           []int      `json:"send_days"`
+	SendHour           int        `json:"send_hour"`
+	SendMinute         int        `json:"send_minute"`
+	Timezone           string     `json:"timezone"`
+	LastExecutedAt     *time.Time `json:"last_executed_at,omitempty"`
+	LastExecutedStatus string     `json:"last_executed_status,omitempty"`
+	CreatedBy          string     `json:"created_by,omitempty"`
+	UpdatedBy          string     `json:"updated_by,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+// CreateScheduleInput represents payload to create a new schedule.
+type CreateScheduleInput struct {
+	EventType  string `json:"event_type"`
+	TemplateID string `json:"template_id"`
+	Name       string `json:"name"`
+	// SendDays is a list of day-of-month (1-31).
+	SendDays   []int  `json:"send_days"`
+	SendHour   int    `json:"send_hour"`
+	SendMinute int    `json:"send_minute"`
+	Timezone   string `json:"timezone"`
+}
+
+// UpdateScheduleInput represents payload to edit an existing schedule.
+type UpdateScheduleInput struct {
+	Name       *string `json:"name,omitempty"`
+	IsActive   *bool   `json:"is_active,omitempty"`
+	SendDays   *[]int  `json:"send_days,omitempty"`
+	SendHour   *int    `json:"send_hour,omitempty"`
+	SendMinute *int    `json:"send_minute,omitempty"`
+	Timezone   *string `json:"timezone,omitempty"`
+}
+
+// IuranReminderRecipient represents a warga + bill that should receive the
+// iuran payment reminder for a single execution date.
+type IuranReminderRecipient struct {
+    BillID   string `json:"bill_id"`
+    UserID   string `json:"user_id"`
+    RTID     string `json:"rt_id"`
+    Period   string `json:"period"`
+    Amount   string `json:"amount"`
+    DueDate  string `json:"due_date"`
 }

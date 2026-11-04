@@ -811,6 +811,14 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// Wire notification into finance service
 	finSvc.SetNotifier(notifSvc)
 
+	// Start the generic notification scheduler (auto reminder iuran, etc.).
+	// It runs catch-up on startup then ticks every minute. Disabled in the test
+	// environment so automated tests are not affected by background pushes.
+	if appEnv != "test" {
+		notifScheduler := notification.NewScheduler(pool, notifSvc, appEnv)
+		notifScheduler.Start(context.Background())
+	}
+
 	// Public notification image streaming
 	r.Get("/api/v1/notifications/images/*", notifH.GetImage)
 
@@ -862,6 +870,15 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Delete("/api/v1/notifications/templates/{id}", notifH.DeleteTemplate)
 		r.Post("/api/v1/notifications/upload-image", notifH.UploadImage)
 		r.Post("/api/v1/notifications/test-push", notifH.TestPush)
+
+		// Notification schedules (generic scheduler). Access-controlled with the
+		// same notification.manage permission (SUPER_ADMIN + Ketua RT).
+		r.Get("/api/v1/notifications/schedules", notifH.ListSchedules)
+		r.Post("/api/v1/notifications/schedules", notifH.CreateSchedule)
+		r.Get("/api/v1/notifications/schedules/{id}", notifH.GetSchedule)
+		r.Put("/api/v1/notifications/schedules/{id}", notifH.UpdateSchedule)
+		r.Patch("/api/v1/notifications/schedules/{id}/toggle-active", notifH.ToggleScheduleActive)
+		r.Delete("/api/v1/notifications/schedules/{id}", notifH.DeleteSchedule)
 	})
 
 	return r

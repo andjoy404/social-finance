@@ -243,6 +243,181 @@ class NotificationLogEntry {
   }
 }
 
+/// Jadwal notifikasi generik yang terkelola per RT.
+class NotificationSchedule {
+  final String id;
+  final String rtId;
+  final String eventType;
+  final String templateId;
+  final String name;
+  final bool isActive;
+  final List<int> sendDays;
+  final int sendHour;
+  final int sendMinute;
+  final String timezone;
+  final DateTime? lastExecutedAt;
+  final String? lastExecutedStatus;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const NotificationSchedule({
+    required this.id,
+    required this.rtId,
+    required this.eventType,
+    required this.templateId,
+    required this.name,
+    required this.isActive,
+    required this.sendDays,
+    required this.sendHour,
+    required this.sendMinute,
+    required this.timezone,
+    this.lastExecutedAt,
+    this.lastExecutedStatus,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory NotificationSchedule.fromJson(Map<String, dynamic> json) {
+    return NotificationSchedule(
+      id: json['id'] as String? ?? '',
+      rtId: json['rt_id'] as String? ?? '',
+      eventType: json['event_type'] as String? ?? '',
+      templateId: json['template_id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      isActive: json['is_active'] as bool? ?? false,
+      sendDays: (json['send_days'] as List<dynamic>?)
+              ?.map((e) => (e as num).toInt())
+              .toList() ??
+          const [],
+      sendHour: (json['send_hour'] as num?)?.toInt() ?? 0,
+      sendMinute: (json['send_minute'] as num?)?.toInt() ?? 0,
+      timezone: json['timezone'] as String? ?? 'Asia/Jakarta',
+      lastExecutedAt: json['last_executed_at'] != null
+          ? DateTime.tryParse(json['last_executed_at'].toString())
+          : null,
+      lastExecutedStatus: json['last_executed_status'] as String?,
+      createdAt: json['created_at'] != null
+          ? (DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now())
+          : DateTime.now(),
+      updatedAt: json['updated_at'] != null
+          ? (DateTime.tryParse(json['updated_at'].toString()) ?? DateTime.now())
+          : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'rt_id': rtId,
+        'event_type': eventType,
+        'template_id': templateId,
+        'name': name,
+        'is_active': isActive,
+        'send_days': sendDays,
+        'send_hour': sendHour,
+        'send_minute': sendMinute,
+        'timezone': timezone,
+        'last_executed_at': lastExecutedAt?.toIso8601String(),
+        'last_executed_status': lastExecutedStatus,
+        'created_at': createdAt.toIso8601String(),
+        'updated_at': updatedAt.toIso8601String(),
+      };
+
+  NotificationSchedule copyWith({
+    String? id,
+    String? rtId,
+    String? eventType,
+    String? templateId,
+    String? name,
+    bool? isActive,
+    List<int>? sendDays,
+    int? sendHour,
+    int? sendMinute,
+    String? timezone,
+    DateTime? lastExecutedAt,
+    String? lastExecutedStatus,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return NotificationSchedule(
+      id: id ?? this.id,
+      rtId: rtId ?? this.rtId,
+      eventType: eventType ?? this.eventType,
+      templateId: templateId ?? this.templateId,
+      name: name ?? this.name,
+      isActive: isActive ?? this.isActive,
+      sendDays: sendDays ?? this.sendDays,
+      sendHour: sendHour ?? this.sendHour,
+      sendMinute: sendMinute ?? this.sendMinute,
+      timezone: timezone ?? this.timezone,
+      lastExecutedAt: lastExecutedAt ?? this.lastExecutedAt,
+      lastExecutedStatus: lastExecutedStatus ?? this.lastExecutedStatus,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+/// Input untuk membuat jadwal notifikasi baru.
+class CreateNotificationScheduleInput {
+  final String eventType;
+  final String templateId;
+  final String name;
+  final List<int> sendDays;
+  final int sendHour;
+  final int sendMinute;
+  final String timezone;
+
+  const CreateNotificationScheduleInput({
+    required this.eventType,
+    required this.templateId,
+    required this.name,
+    required this.sendDays,
+    required this.sendHour,
+    required this.sendMinute,
+    this.timezone = 'Asia/Jakarta',
+  });
+
+  Map<String, dynamic> toJson() => {
+        'event_type': eventType,
+        'template_id': templateId,
+        'name': name,
+        'send_days': sendDays,
+        'send_hour': sendHour,
+        'send_minute': sendMinute,
+        'timezone': timezone,
+      };
+}
+
+/// Input untuk mengubah jadwal notifikasi yang ada.
+class UpdateNotificationScheduleInput {
+  final String? name;
+  final bool? isActive;
+  final List<int>? sendDays;
+  final int? sendHour;
+  final int? sendMinute;
+  final String? timezone;
+
+  const UpdateNotificationScheduleInput({
+    this.name,
+    this.isActive,
+    this.sendDays,
+    this.sendHour,
+    this.sendMinute,
+    this.timezone,
+  });
+
+  Map<String, dynamic> toJson() {
+    final map = <String, dynamic>{};
+    if (name != null) map['name'] = name;
+    if (isActive != null) map['is_active'] = isActive;
+    if (sendDays != null) map['send_days'] = sendDays;
+    if (sendHour != null) map['send_hour'] = sendHour;
+    if (sendMinute != null) map['send_minute'] = sendMinute;
+    if (timezone != null) map['timezone'] = timezone;
+    return map;
+  }
+}
+
 class NotificationLogsResponse {
   final List<NotificationLogEntry> data;
   final int page;

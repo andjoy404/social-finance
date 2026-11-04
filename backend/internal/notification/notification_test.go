@@ -2,10 +2,12 @@ package notification_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +27,8 @@ type inMemoryRepo struct {
 	dedupRecords        map[string]bool            // dedupKey:userID -> exists
 	dedupForceError     bool                       // when true, CheckAndRecordDedup returns an error
 	dedupForceErrorOnce bool                       // when true, error is returned only once
+	schedules           map[string]*notification.NotificationSchedule
+	reminderTemplate    *notification.NotificationTemplate
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -34,6 +38,7 @@ func newInMemoryRepo() *inMemoryRepo {
 		rtUsers:      make(map[string][]string),
 		billUsers:    make(map[string][]string),
 		dedupRecords: make(map[string]bool),
+		schedules:    make(map[string]*notification.NotificationSchedule),
 	}
 }
 
@@ -156,6 +161,9 @@ func (r *inMemoryRepo) GetTemplateByID(ctx context.Context, rtID, id string) (*n
 }
 
 func (r *inMemoryRepo) GetActiveTemplateForEvent(ctx context.Context, rtID, eventType string) (*notification.NotificationTemplate, error) {
+	if r.reminderTemplate != nil {
+		return r.reminderTemplate, nil
+	}
 	return nil, nil
 }
 
@@ -218,6 +226,193 @@ func (r *inMemoryRepo) GetUnreadCount(ctx context.Context, rtID, userID string, 
 
 func (r *inMemoryRepo) GetDefaultRTID(ctx context.Context) (string, error) {
 	return "test-rt-002", nil
+}
+
+// Schedule management (mock)
+
+func (r *inMemoryRepo) CreateSchedule(ctx context.Context, rtID, userID string, in notification.CreateScheduleInput) (*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	id := "sched-" + strconv.Itoa(len(r.schedules)+1)
+	now := time.Now()
+	s := &notification.NotificationSchedule{
+		ID:         id,
+		RTID:       rtID,
+		EventType:  in.EventType,
+		TemplateID: in.TemplateID,
+		Name:       in.Name,
+		IsActive:   true,
+		SendDays:   append([]int{}, in.SendDays...),
+		SendHour:   in.SendHour,
+		SendMinute: in.SendMinute,
+		Timezone:   in.Timezone,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		CreatedBy:  userID,
+		UpdatedBy:  userID,
+	}
+	r.schedules[id] = s
+	return s, nil
+}
+
+func (r *inMemoryRepo) GetSchedule(ctx context.Context, rtID, id string) (*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[id]
+	if !ok || s.RTID != rtID {
+		return nil, nil
+	}
+	copied := *s
+	return &copied, nil
+}
+
+func (r *inMemoryRepo) ListSchedules(ctx context.Context, rtID, eventType string, isActive *bool) ([]*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var list []*notification.NotificationSchedule
+	for _, s := range r.schedules {
+		if s.RTID != rtID {
+			continue
+		}
+		if eventType != "" && s.EventType != eventType {
+			continue
+		}
+		if isActive != nil && s.IsActive != *isActive {
+			continue
+		}
+		copied := *s
+		list = append(list, &copied)
+	}
+	return list, nil
+}
+
+func (r *inMemoryRepo) UpdateSchedule(ctx context.Context, rtID, id, userID string, in notification.UpdateScheduleInput) (*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[id]
+	if !ok || s.RTID != rtID {
+		return nil, sql.ErrNoRows
+	}
+	if in.Name != nil {
+		s.Name = *in.Name
+	}
+	if in.IsActive != nil {
+		s.IsActive = *in.IsActive
+	}
+	if in.SendDays != nil {
+		s.SendDays = append([]int{}, *in.SendDays...)
+	}
+	if in.SendHour != nil {
+		s.SendHour = *in.SendHour
+	}
+	if in.SendMinute != nil {
+		s.SendMinute = *in.SendMinute
+	}
+	if in.Timezone != nil {
+		s.Timezone = *in.Timezone
+	}
+	s.UpdatedAt = time.Now()
+	s.UpdatedBy = userID
+	r.schedules[id] = s
+	copied := *s
+	return &copied, nil
+}
+
+func (r *inMemoryRepo) DeleteSchedule(ctx context.Context, rtID, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[id]
+	if !ok || s.RTID != rtID {
+		return sql.ErrNoRows
+	}
+	delete(r.schedules, id)
+	return nil
+}
+
+func (r *inMemoryRepo) ToggleScheduleActive(ctx context.Context, rtID, id, userID string) (*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[id]
+	if !ok || s.RTID != rtID {
+		return nil, nil
+	}
+	s.IsActive = !s.IsActive
+	s.UpdatedAt = time.Now()
+	s.UpdatedBy = userID
+	r.schedules[id] = s
+	copied := *s
+	return &copied, nil
+}
+
+func (r *inMemoryRepo) GetDueSchedules(ctx context.Context, now time.Time) ([]*notification.NotificationSchedule, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var list []*notification.NotificationSchedule
+	for _, s := range r.schedules {
+		if !s.IsActive {
+			continue
+		}
+		dayMatch := false
+		for _, d := range s.SendDays {
+			if d == now.Day() {
+				dayMatch = true
+				break
+			}
+		}
+		if !dayMatch {
+			continue
+		}
+		if now.Hour() == s.SendHour && now.Minute() == s.SendMinute {
+			copied := *s
+			list = append(list, &copied)
+		}
+	}
+	return list, nil
+}
+
+func (r *inMemoryRepo) GetIuranReminderRecipients(ctx context.Context, rtID string, asOf time.Time) ([]*notification.IuranReminderRecipient, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var list []*notification.IuranReminderRecipient
+	for billID, userIDs := range r.billUsers {
+		for _, uid := range userIDs {
+			list = append(list, &notification.IuranReminderRecipient{
+				BillID: billID,
+				UserID: uid,
+				RTID:   rtID,
+				Period: "bulan ini",
+				Amount: "100000",
+				DueDate: asOf.Format("2006-01-02"),
+			})
+		}
+	}
+	return list, nil
+}
+
+func (r *inMemoryRepo) UpdateScheduleExecuted(ctx context.Context, scheduleID, rtID string, at time.Time, status string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.schedules[scheduleID]
+	if !ok || s.RTID != rtID {
+		return sql.ErrNoRows
+	}
+	s.LastExecutedAt = &at
+	s.LastExecutedStatus = status
+	s.UpdatedAt = at
+	r.schedules[scheduleID] = s
+	return nil
+}
+
+func (r *inMemoryRepo) BeginTx(ctx context.Context) (*sql.Tx, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) ClaimExecutionTx(tx *sql.Tx, scheduleID, execDate string) (bool, error) {
+	return true, nil
+}
+
+func (r *inMemoryRepo) IsScheduleExecutedTodayTx(tx *sql.Tx, scheduleID, execDate string) (bool, error) {
+	return false, nil
 }
 
 func TestDeviceRegistrationLifecycle(t *testing.T) {
@@ -1633,5 +1828,110 @@ func TestPaymentVerified_Unit_WargaKetuaTokenInVerifierList(t *testing.T) {
 	}
 	if len(msgs) != 2 {
 		t.Errorf("expected 2 messages (submitter + warga ketua), got %d", len(msgs))
+	}
+}
+
+// TestExecuteSchedule_PaymentReminder verifies the iuran payment reminder
+// execution: per-recipient idempotency (dedup) and that multiple recipients
+// each receive exactly one push per schedule execution date.
+func TestExecuteSchedule_PaymentReminder(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC) // WIB-alike day 5, 08:00
+
+	// Active template for the reminder event.
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:       "tmpl-remind",
+		RTID:     rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:    "Pengingat Pembayaran Iuran {{period}}",
+		Body:     "Tagihan {{amount}} jatuh tempo {{due_date}}.",
+		IsActive: true,
+	}
+
+	// Two recipients (two bills / two users) eligible for reminder.
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	repo.billUsers["bill-2"] = []string{"user-b"}
+	// Both users have active FCM tokens.
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+	_ = repo.RegisterDevice(context.Background(), "user-b", "tok-b", "android", nil)
+
+	scheduleInput := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat Bulanan",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", scheduleInput)
+	if err != nil {
+		t.Fatalf("CreateSchedule returned error: %v", err)
+	}
+	schedule := created
+
+	// First execution: both recipients receive a push.
+	sent, err := svc.ExecuteSchedule(context.Background(), schedule, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 2 {
+		t.Fatalf("expected 2 sends on first execution, got %d", sent)
+	}
+	msgs := provider.GetMessages()
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 push messages after first execution, got %d", len(msgs))
+	}
+
+	// Second execution same date: dedup should suppress all pushes.
+	sent2, err := svc.ExecuteSchedule(context.Background(), schedule, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule second run returned error: %v", err)
+	}
+	if sent2 != 0 {
+		t.Fatalf("expected 0 sends on duplicate execution, got %d", sent2)
+	}
+	msgs = provider.GetMessages()
+	if len(msgs) != 2 {
+		t.Fatalf("expected still 2 push messages after dedup, got %d", len(msgs))
+	}
+
+	// Schedule last executed should be updated.
+	sched, err := repo.GetSchedule(context.Background(), rtID, schedule.ID)
+	if err != nil || sched == nil {
+		t.Fatalf("failed to fetch schedule: %v", err)
+	}
+	if sched.LastExecutedAt == nil {
+		t.Error("expected schedule LastExecutedAt to be set")
+	}
+}
+
+// TestExecuteSchedule_NoRecipients verifies that a schedule with no eligible
+// recipients sends nothing without error.
+func TestExecuteSchedule_NoRecipients(t *testing.T) {
+	repo := newInMemoryRepo()
+	svc := notification.NewService(repo, notification.NewMockPushProvider())
+
+	schedule := &notification.NotificationSchedule{
+		ID:        "sched-empty",
+		RTID:      "test-rt-002",
+		EventType: notification.EventPaymentReminder,
+		TemplateID: "tmpl-x",
+		IsActive:  true,
+		SendDays:  []int{5},
+		SendHour:  8,
+		Timezone:  "Asia/Jakarta",
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), schedule, time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("expected 0 sends when no recipients, got %d", sent)
 	}
 }

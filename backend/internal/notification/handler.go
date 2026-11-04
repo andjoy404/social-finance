@@ -727,3 +727,216 @@ func (h *Handler) GetNotificationDetail(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// ListSchedules returns the notification schedules for the tenant RT.
+func (h *Handler) ListSchedules(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	eventType := r.URL.Query().Get("event_type")
+	var isActive *bool
+	if activeStr := r.URL.Query().Get("is_active"); activeStr != "" {
+		val := activeStr == "true" || activeStr == "1"
+		isActive = &val
+	}
+
+	schedules, err := h.svc.ListSchedules(r.Context(), rtID, eventType, isActive)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to list notification schedules")
+		return
+	}
+	if schedules == nil {
+		schedules = []*NotificationSchedule{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": schedules,
+	})
+}
+
+// GetSchedule returns detail of a single notification schedule.
+func (h *Handler) GetSchedule(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		httpx.WriteValidationError(w, "schedule id is required", nil)
+		return
+	}
+
+	schedule, err := h.svc.GetSchedule(r.Context(), rtID, id)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to get notification schedule")
+		return
+	}
+	if schedule == nil {
+		httpx.WriteNotFound(w, "schedule not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": schedule,
+	})
+}
+
+// CreateSchedule creates a new notification schedule.
+func (h *Handler) CreateSchedule(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	var in CreateScheduleInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	schedule, err := h.svc.CreateSchedule(r.Context(), rtID, ac.UserID, in)
+	if err != nil {
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": schedule,
+	})
+}
+
+// UpdateSchedule updates an existing notification schedule.
+func (h *Handler) UpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		httpx.WriteValidationError(w, "schedule id is required", nil)
+		return
+	}
+
+	var in UpdateScheduleInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	schedule, err := h.svc.UpdateSchedule(r.Context(), rtID, id, ac.UserID, in)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteNotFound(w, "schedule not found")
+			return
+		}
+		httpx.WriteValidationError(w, err.Error(), nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": schedule,
+	})
+}
+
+// DeleteSchedule deletes a notification schedule.
+func (h *Handler) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		httpx.WriteValidationError(w, "schedule id is required", nil)
+		return
+	}
+
+	if err := h.svc.DeleteSchedule(r.Context(), rtID, id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.WriteNotFound(w, "schedule not found")
+			return
+		}
+		httpx.WriteInternalServerError(w, "failed to delete notification schedule")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ToggleScheduleActive toggles the is_active state of a notification schedule.
+func (h *Handler) ToggleScheduleActive(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		httpx.WriteValidationError(w, "schedule id is required", nil)
+		return
+	}
+
+	schedule, err := h.svc.ToggleScheduleActive(r.Context(), rtID, id, ac.UserID)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to toggle schedule status")
+		return
+	}
+	if schedule == nil {
+		httpx.WriteNotFound(w, "schedule not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": schedule,
+	})
+}
+

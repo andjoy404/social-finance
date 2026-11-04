@@ -184,6 +184,62 @@ class NotificationRepository {
     }
   }
 
+  // ===== Schedule management =====
+
+  Future<List<NotificationSchedule>> fetchSchedules({
+    String? eventType,
+    bool? isActive,
+  }) async {
+    try {
+      return await apiClient.getSchedules(
+        eventType: eventType,
+        isActive: isActive,
+      );
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<NotificationSchedule> fetchSchedule(String id) async {
+    try {
+      return await apiClient.getSchedule(id);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<NotificationSchedule> createSchedule(CreateNotificationScheduleInput input) async {
+    try {
+      return await apiClient.createSchedule(input);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<NotificationSchedule> updateSchedule(String id, UpdateNotificationScheduleInput input) async {
+    try {
+      return await apiClient.updateSchedule(id, input);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> deleteSchedule(String id) async {
+    try {
+      await apiClient.deleteSchedule(id);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<NotificationSchedule> toggleScheduleActive(String id) async {
+    try {
+      return await apiClient.toggleScheduleActive(id);
+    } catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   Object _handleError(dynamic error) {
     if (error is ServerException) return error;
     if (error is AppWithMessageError) return error;
@@ -225,4 +281,10 @@ final notificationTemplatesProvider =
     FutureProvider.autoDispose<List<NotificationTemplate>>((ref) async {
   final repo = ref.watch(notificationRepositoryProvider);
   return repo.fetchTemplates();
+});
+
+final notificationSchedulesProvider =
+    FutureProvider.autoDispose<List<NotificationSchedule>>((ref) async {
+  final repo = ref.watch(notificationRepositoryProvider);
+  return repo.fetchSchedules();
 });

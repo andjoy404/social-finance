@@ -234,5 +234,88 @@ class NotificationApiClient {
     }
     throw const FormatException('Unexpected response fetching notification detail');
   }
+
+  /// GET /api/v1/notifications/schedules
+  Future<List<NotificationSchedule>> getSchedules({
+    String? eventType,
+    bool? isActive,
+  }) async {
+    final queryParams = <String, dynamic>{};
+    if (eventType != null && eventType.isNotEmpty) {
+      queryParams['event_type'] = eventType;
+    }
+    if (isActive != null) {
+      queryParams['is_active'] = isActive ? 'true' : 'false';
+    }
+    final response = await dio.get(
+      '/api/v1/notifications/schedules',
+      queryParameters: queryParams,
+    );
+    final data = response.data;
+    if (data is Map && data['data'] is List) {
+      final list = data['data'] as List;
+      return list
+          .map((e) => NotificationSchedule.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    return [];
+  }
+
+  /// GET /api/v1/notifications/schedules/{id}
+  Future<NotificationSchedule> getSchedule(String id) async {
+    final response = await dio.get('/api/v1/notifications/schedules/$id');
+    final data = response.data;
+    if (data is Map) {
+      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      return NotificationSchedule.fromJson(payload);
+    }
+    throw const FormatException('Unexpected response fetching schedule');
+  }
+
+  /// POST /api/v1/notifications/schedules
+  Future<NotificationSchedule> createSchedule(CreateNotificationScheduleInput input) async {
+    final response = await dio.post(
+      '/api/v1/notifications/schedules',
+      data: input.toJson(),
+    );
+    final data = response.data;
+    if (data is Map) {
+      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      return NotificationSchedule.fromJson(payload);
+    }
+    throw const FormatException('Unexpected response creating schedule');
+  }
+
+  /// PUT /api/v1/notifications/schedules/{id}
+  Future<NotificationSchedule> updateSchedule(String id, UpdateNotificationScheduleInput input) async {
+    final response = await dio.put(
+      '/api/v1/notifications/schedules/$id',
+      data: input.toJson(),
+    );
+    final data = response.data;
+    if (data is Map) {
+      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      return NotificationSchedule.fromJson(payload);
+    }
+    throw const FormatException('Unexpected response updating schedule');
+  }
+
+  /// PATCH /api/v1/notifications/schedules/{id}/toggle-active
+  Future<NotificationSchedule> toggleScheduleActive(String id) async {
+    final response = await dio.patch(
+      '/api/v1/notifications/schedules/$id/toggle-active',
+    );
+    final data = response.data;
+    if (data is Map) {
+      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      return NotificationSchedule.fromJson(payload);
+    }
+    throw const FormatException('Unexpected response toggling schedule active');
+  }
+
+  /// DELETE /api/v1/notifications/schedules/{id}
+  Future<void> deleteSchedule(String id) async {
+    await dio.delete('/api/v1/notifications/schedules/$id');
+  }
 }
 

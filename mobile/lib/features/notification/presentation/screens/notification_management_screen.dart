@@ -36,6 +36,7 @@ class _NotificationManagementScreenState
     'manual_push': 'Pengumuman Pengurus',
     'waste_truck_arrival': 'Kedatangan Mobil Sampah',
     'iuran_bill_created': 'Penerbitan Tagihan Iuran',
+    'iuran_payment_reminder': 'Pengingat Pembayaran Iuran',
     'payment_verified': 'Pembayaran Diverifikasi',
     'payment_rejected': 'Pembayaran Ditolak',
   };
@@ -47,11 +48,17 @@ class _NotificationManagementScreenState
   String _selectedLogEventType = '';
   String _selectedLogStatus = 'all';
 
+  // Schedules state
+  List<NotificationSchedule> _schedules = [];
+  bool _isLoadingSchedules = false;
+  String? _schedulesError;
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadLogs();
+    _loadSchedules();
   }
 
   @override
@@ -84,6 +91,30 @@ class _NotificationManagementScreenState
         setState(() {
           _logsError = e.toString();
           _isLoadingLogs = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadSchedules() async {
+    setState(() {
+      _isLoadingSchedules = true;
+      _schedulesError = null;
+    });
+    try {
+      final repo = ref.read(notificationRepositoryProvider);
+      final list = await repo.fetchSchedules();
+      if (mounted) {
+        setState(() {
+          _schedules = list;
+          _isLoadingSchedules = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _schedulesError = e.toString();
+          _isLoadingSchedules = false;
         });
       }
     }
@@ -1183,6 +1214,10 @@ class _NotificationManagementScreenState
               icon: Icon(Icons.history_rounded, size: 20),
               text: 'Riwayat',
             ),
+            Tab(
+              icon: Icon(Icons.schedule_rounded, size: 20),
+              text: 'Penjadwalan',
+            ),
           ],
         ),
       ),
@@ -1668,9 +1703,521 @@ class _NotificationManagementScreenState
             isAdmin: true,
             systemTypes: systemTypesAsync.valueOrNull ?? [],
           ),
+
+          // TAB 4: PENJADWALAN NOTIFIKASI
+          RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(notificationSchedulesProvider);
+              _loadSchedules();
+            },
+            child: _buildSchedulesTab(
+              theme: theme,
+              isDark: isDark,
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  // ========================================================================
+  // TAB 4: PENJADWALAN NOTIFIKASI
+  // ========================================================================
+
+  Widget _buildSchedulesTab({
+    required ThemeData theme,
+    required bool isDark,
+  }) {
+    final textColor = isDark ? AppColors.darkText : AppColors.lightText;
+    final muted = isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted;
+
+    if (_isLoadingSchedules) {
+      return const Center(child: LoadingIndicator());
+    }
+    if (_schedulesError != null) {
+      return ErrorState(message: _schedulesError!, onRetry: _loadSchedules);
+    }
+    if (_schedules.isEmpty) {
+      return EmptyState(
+        icon: Icons.schedule_outlined,
+        title: 'Belum Ada Jadwal Notifikasi',
+        description:
+            'Buat jadwal untuk mengirim notifikasi otomatis (misal pengingat pembayaran iuran) sesuai tanggal dan jam yang ditentukan.',
+        actionText: 'Buat Jadwal',
+        onAction: () => _showAddEditScheduleDialog(),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _schedules.length,
+      itemBuilder: (context, index) {
+        final s = _schedules[index];
+        final eventName = _knownEventNames[s.eventType] ?? s.eventType;
+        final days = s.sendDays.isNotEmpty
+            ? s.sendDays.join(', ')
+            : '-';
+        return AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              s.name,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            AppBadge(
+                              label: s.isActive ? 'Aktif' : 'Nonaktif',
+                              backgroundColor: s.isActive
+                                  ? AppColors.success
+                                  : AppColors.darkDangerSoft,
+                              textColor: s.isActive
+                                  ? Colors.white
+                                  : AppColors.danger,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          eventName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: textColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Tanggal: $days | Jam: ${s.sendHour.toString().padLeft(2, '0')}:${s.sendMinute.toString().padLeft(2, '0')} WIB',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: muted,
+                          ),
+                        ),
+                        if (s.timezone.isNotEmpty && s.timezone != 'Asia/Jakarta')
+                          Text(
+                            'Timezone: ${s.timezone}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        if (s.lastExecutedAt != null) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(Icons.access_time, size: 14, color: AppColors.accent),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Terakhir dieksekusi: ${_formatDateTime(s.lastExecutedAt!)} (${s.lastExecutedStatus ?? '-'})',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: muted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          s.isActive ? Icons.toggle_on : Icons.toggle_off,
+                          color: s.isActive ? AppColors.success : AppColors.danger,
+                        ),
+                        tooltip: s.isActive ? 'Nonaktifkan' : 'Aktifkan',
+                        onPressed: () => _toggleSchedule(s),
+                      ),
+                      const SizedBox(height: 8),
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.accent),
+                        tooltip: 'Ubah Jadwal',
+                        onPressed: () => _showAddEditScheduleDialog(schedule: s),
+                      ),
+                      const SizedBox(height: 8),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.danger),
+                        tooltip: 'Hapus Jadwal',
+                        onPressed: () => _confirmDeleteSchedule(s),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }
+    );
+  }
+
+  Future<void> _toggleSchedule(NotificationSchedule schedule) async {
+    try {
+      final repo = ref.read(notificationRepositoryProvider);
+      await repo.toggleScheduleActive(schedule.id);
+      if (mounted) {
+        setState(() {
+          _schedules = _schedules.map((s) {
+            if (s.id == schedule.id) {
+              return s.copyWith(isActive: !s.isActive);
+            }
+            return s;
+          }).toList();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Jadwal ${schedule.isActive ? 'dinonaktifkan' : 'diaktifkan'}'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal mengubah status jadwal: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteSchedule(NotificationSchedule schedule) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hapus Jadwal'),
+        content: Text('Hapus jadwal "${schedule.name}"? Tindakan tidak dapat dibatalkan.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) {
+      try {
+        final repo = ref.read(notificationRepositoryProvider);
+        await repo.deleteSchedule(schedule.id);
+        if (mounted) {
+          setState(() {
+            _schedules.removeWhere((s) => s.id == schedule.id);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Jadwal dihapus')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Gagal menghapus jadwal: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showAddEditScheduleDialog({NotificationSchedule? schedule}) async {
+    final isEdit = schedule != null;
+    final repo = ref.read(notificationRepositoryProvider);
+
+    final nameCtrl = TextEditingController(text: schedule?.name ?? '');
+    final timezoneCtrl = TextEditingController(text: schedule?.timezone ?? 'Asia/Jakarta');
+    final selectedDays = <int>{}..addAll(schedule?.sendDays ?? []);
+    var sendHour = schedule?.sendHour ?? 8;
+    var sendMinute = schedule?.sendMinute ?? 0;
+    var isActive = schedule?.isActive ?? true;
+
+    // Fetch system types and templates upfront.
+    List<SystemNotificationType> systemTypes = [];
+    List<NotificationTemplate> templates = [];
+    try {
+      systemTypes = await ref.read(notificationSystemTypesProvider.future);
+      templates = await ref.read(notificationTemplatesProvider.future);
+    } catch (_) {}
+
+    String? selectedEventType = schedule?.eventType;
+    if (selectedEventType == null && systemTypes.isNotEmpty) {
+      selectedEventType = systemTypes.first.eventType;
+    }
+    String? selectedTemplateId = schedule?.templateId;
+    if (selectedTemplateId == null && templates.isNotEmpty) {
+      selectedTemplateId = templates.first.id;
+    }
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setState) {
+            final activeTemplates =
+                templates.where((t) => t.isActive).toList();
+            if (selectedTemplateId == null && activeTemplates.isNotEmpty) {
+              selectedTemplateId = activeTemplates.first.id;
+            } else if (selectedTemplateId != null &&
+                !activeTemplates.any((t) => t.id == selectedTemplateId)) {
+              selectedTemplateId =
+                  activeTemplates.isNotEmpty ? activeTemplates.first.id : null;
+            }
+
+            return AlertDialog(
+              title: Text(isEdit ? 'Ubah Jadwal' : 'Buat Jadwal Baru'),
+              content: SizedBox(
+                width: 440,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Nama Jadwal *',
+                          hintText: 'Contoh: Pengingat Iuran Bulanan',
+                        ),
+                        maxLength: 128,
+                      ),
+                      const SizedBox(height: 12),
+                      // Event type
+                      if (systemTypes.isNotEmpty)
+                        DropdownButtonFormField<String>(
+                          value: selectedEventType,
+                          items: systemTypes
+                              .map((t) => DropdownMenuItem(
+                                    value: t.eventType,
+                                    child: Text(t.name),
+                                  ))
+                              .toList(),
+                          decoration: const InputDecoration(
+                            labelText: 'Jenis Notifikasi *',
+                          ),
+                          onChanged: (v) {
+                            setState(() {
+                              selectedEventType = v;
+                              selectedTemplateId = null;
+                            });
+                          },
+                        ),
+                      if (systemTypes.isEmpty)
+                        const Text('Tidak ada jenis notifikasi tersedia.',
+                            style: TextStyle(color: AppColors.danger)),
+                      const SizedBox(height: 12),
+                      // Template
+                      if (activeTemplates.isNotEmpty)
+                        DropdownButtonFormField<String>(
+                          value: selectedTemplateId,
+                          items: activeTemplates
+                              .map((t) => DropdownMenuItem(
+                                    value: t.id,
+                                    child: Text('${t.name} (${t.eventType})'),
+                                  ))
+                              .toList(),
+                          decoration: const InputDecoration(
+                            labelText: 'Template Pesan *',
+                          ),
+                          onChanged: (v) => selectedTemplateId = v,
+                        ),
+                      if (activeTemplates.isEmpty)
+                        const Text(
+                          'Tidak ada template aktif tersedia.',
+                          style: TextStyle(color: AppColors.danger),
+                        ),
+                      const SizedBox(height: 12),
+                      // Send days
+                      const Text(
+                        'Tanggal Pengiriman (1-31)',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: List.generate(31, (i) {
+                          final day = i + 1;
+                          final selected = selectedDays.contains(day);
+                          return ChoiceChip(
+                            label: Text(day.toString()),
+                            selected: selected,
+                            onSelected: (sel) {
+                              setState(() {
+                                if (sel) {
+                                  selectedDays.add(day);
+                                } else {
+                                  selectedDays.remove(day);
+                                }
+                              });
+                            },
+                            selectedColor: AppColors.accent.withValues(alpha: 0.2),
+                          );
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                      // Time + timezone
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<int>(
+                              value: sendHour,
+                              items: List.generate(24, (h) => h)
+                                  .map((h) => DropdownMenuItem(
+                                        value: h,
+                                        child: Text('${h.toString().padLeft(2, '0')}:00'),
+                                      ))
+                                  .toList(),
+                              decoration: const InputDecoration(
+                                labelText: 'Jam',
+                              ),
+                              onChanged: (v) => sendHour = v ?? sendHour,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: DropdownButtonFormField<int>(
+                              value: sendMinute,
+                              items: List.generate(60, (m) => m)
+                                  .map((m) => DropdownMenuItem(
+                                        value: m,
+                                        child: Text(':${m.toString().padLeft(2, '0')}'),
+                                      ))
+                                  .toList(),
+                              decoration: const InputDecoration(
+                                labelText: 'Menit',
+                              ),
+                              onChanged: (v) => sendMinute = v ?? sendMinute,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: timezoneCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Timezone',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        title: const Text('Aktif'),
+                        subtitle: const Text(
+                            'Jadwal akan dijalankan sesuai tanggal dan jam yang ditetapkan.'),
+                        value: isActive,
+                        onChanged: (v) => setState(() => isActive = v),
+                        activeColor: AppColors.accent,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (nameCtrl.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Nama jadwal wajib diisi')),
+                      );
+                      return;
+                    }
+                    if (selectedDays.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Pilih minimal satu tanggal pengiriman')),
+                      );
+                      return;
+                    }
+                    if (selectedEventType == null ||
+                        selectedTemplateId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content:
+                                Text('Jenis notifikasi dan template wajib dipilih')),
+                      );
+                      return;
+                    }
+                    final tz = timezoneCtrl.text.trim().isNotEmpty
+                        ? timezoneCtrl.text.trim()
+                        : 'Asia/Jakarta';
+                    try {
+                      final input = CreateNotificationScheduleInput(
+                        eventType: selectedEventType!,
+                        templateId: selectedTemplateId!,
+                        name: nameCtrl.text.trim(),
+                        sendDays: selectedDays.toList()..sort(),
+                        sendHour: sendHour,
+                        sendMinute: sendMinute,
+                        timezone: tz,
+                      );
+                      if (isEdit) {
+                        await repo.updateSchedule(schedule!.id,
+                            UpdateNotificationScheduleInput(
+                          name: nameCtrl.text.trim(),
+                          isActive: isActive,
+                          sendDays: selectedDays.toList()..sort(),
+                          sendHour: sendHour,
+                          sendMinute: sendMinute,
+                          timezone: tz,
+                        ));
+                      } else {
+                        await repo.createSchedule(input);
+                      }
+                      if (mounted) {
+                        Navigator.of(dialogContext).pop(true);
+                        _loadSchedules();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Jadwal ${isEdit ? 'diperbarui' : 'dibuat'}'),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Gagal menyimpan jadwal: $e')),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.accent,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: Text(isEdit ? 'Simpan Perubahan' : 'Buat Jadwal'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (result == true && mounted) {
+      _loadSchedules();
+    }
+  }
+
+  String _formatDateTime(DateTime dt) {
+    return '${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _buildLogsTab({

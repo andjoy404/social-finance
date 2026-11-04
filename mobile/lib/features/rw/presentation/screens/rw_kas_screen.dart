@@ -126,10 +126,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     final currentMembership = rwMemberships
         .where((m) => m['rw_id'] == widget.rwId)
         .firstOrNull as Map<String, dynamic>?;
-    final rwNumberText = currentMembership?.rwNumber != null
-        ? currentMembership!.rwNumber!.toString().padLeft(3, '0')
+    final rwNumberText = currentMembership?['rwNumber'] != null
+        ? currentMembership!['rwNumber'].toString().padLeft(3, '0')
         : resolveRwNumber(widget.rwId, rwMemberships);
-    final rwDisplayName = currentMembership?.rwName ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
+    final rwDisplayName = currentMembership?['rwName'] ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
 
     super.build(context);
     final body = NestedScrollView(
