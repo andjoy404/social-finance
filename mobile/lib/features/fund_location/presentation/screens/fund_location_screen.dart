@@ -1149,7 +1149,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Edit Lokasi Dana'),
+              title: const Text('Ubah Lokasi Dana'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
