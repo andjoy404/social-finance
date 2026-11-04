@@ -49,20 +49,26 @@ export function isKetuaRTUser(user: AuthUser | null | undefined): boolean {
 }
 
 /**
- * Check whether a user has full RW write access.
+ * Check whether a user has full RW write access for a specific RW.
  *
- * Returns `true` if ANY RW membership has source === 'explicit' or the user
- * is super_admin. Returns `false` only when ALL memberships are
- * source === 'rt_inferred'.
+ * Checks only the membership for the given `rwId`. Returns `true` if that
+ * membership has `source === 'explicit'` or the user is super_admin.
+ * Returns `false` only when the membership is `source === 'rt_inferred'`
+ * or when no matching membership is found.
  *
- * This is the single source of truth for frontend RW write permission checks.
+ * Super Admin always gets `true`.
  */
-export function hasRwWriteAccess(user: AuthUser | null | undefined): boolean {
+export function hasRwWriteAccess(
+  user: AuthUser | null | undefined,
+  rwId?: string | null,
+): boolean {
   if (!user) return false
   if (user.systemRole === 'super_admin' || user.role === 'super_admin') return true
   const memberships = user.rwMemberships ?? []
-  // Explicit always wins. If ANY membership is explicit, user can write.
-  return memberships.some((m) => m.source === 'explicit')
+  if (!rwId) return false
+  const membership = memberships.find((m) => m.rw_id === rwId)
+  if (!membership) return false
+  return membership.source === 'explicit'
 }
 
 export function canAccessNotificationAdmin(user: AuthUser | null | undefined): boolean {
@@ -97,7 +103,9 @@ function mapUser(raw: ApiUser): AuthUser {
         rw_name: m.rw_name,
         rw_number: m.rw_number,
         jabatan: m.jabatan,
-        source: m.source,
+        source: m.source === 'explicit' || m.source === 'rt_inferred'
+          ? (m.source as RWMembershipSource)
+          : undefined,
       }))
     : []
   return {

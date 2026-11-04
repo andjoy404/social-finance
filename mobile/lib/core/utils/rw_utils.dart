@@ -229,3 +229,37 @@ class RwBadgeStyle {
     );
   }
 }
+
+// =============================================================================
+// RW Source-Aware Permission Helpers
+// =============================================================================
+
+/// Helper untuk mengecek apakah user memiliki akses tulis (write) ke RW tertentu.
+///
+/// Berdasarkan membership RW yang dipilih:
+/// - Super Admin selalu dapat write.
+/// - Membership dengan source === 'explicit' → write access.
+/// - Membership dengan source === 'rt_inferred' → read-only.
+/// - Tidak ada membership → read-only.
+bool rwMembershipHasWriteAccess(
+  Map<String, dynamic>? user,
+  String rwId, {
+  List<Map<String, dynamic>>? rwMemberships,
+}) {
+  if (user == null) return false;
+  if (user['role'] == 'super_admin' || user['system_role'] == 'super_admin') return true;
+
+  final memberships = rwMemberships ??
+      ((user['rw_memberships'] as List?)
+          ?.whereType<Map<String, dynamic>>()
+          .toList() ?? []);
+
+  final currentMembership = memberships
+      .where((m) => m['rw_id'] == rwId)
+      .firstOrNull as Map<String, dynamic>?;
+
+  if (currentMembership == null) return false;
+
+  final source = currentMembership['source'] as String?;
+  return source == 'explicit';
+}

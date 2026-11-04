@@ -192,5 +192,147 @@ describe('RwFundLocationList', () => {
     const reverseBtn = screen.getByText('Batalkan (Reversal)')
     expect(reverseBtn).toBeInTheDocument()
   })
+
+  it('shows read-only UI when membership source is rt_inferred', async () => {
+    vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      user: {
+        id: 'user-rt-inferred',
+        name: 'Ketua RT',
+        role: 'warga',
+        jabatan: 'ketua',
+        rwMemberships: [
+          { rw_id: 'rw-016', rw_name: 'RW 016', jabatan: 'ketua', source: 'rt_inferred' },
+        ],
+      } as any,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    })
+
+    vi.spyOn(rwApi, 'apiListRWLocations').mockResolvedValue([
+      {
+        id: 'loc-1',
+        rt_id: '',
+        rt_name: 'RW',
+        name: 'Rekening Operasional RW',
+        category: 'rekening',
+        bank_name: 'BCA',
+        account_number: '1234567890',
+        account_holder: 'Pengurus RW',
+        is_active: true,
+        current_balance: '10000000.00',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ])
+
+    render(<RwFundLocationList rwId="rw-016" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Lokasi Dana RW — rw-016')).toBeInTheDocument()
+    })
+
+    // Read-only notice should appear
+    expect(screen.getByText(/Mode Read-Only/i)).toBeInTheDocument()
+
+    // Action buttons must NOT appear for inferred user
+    expect(screen.queryByText('Tambah Lokasi')).not.toBeInTheDocument()
+    expect(screen.queryByText('Transfer Antar-Lokasi')).not.toBeInTheDocument()
+  })
+
+  it('multi-RW: inferred RW → read-only even when explicit RW exists', async () => {
+    vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      user: {
+        id: 'user-multi',
+        name: 'Ketua RT',
+        role: 'warga',
+        jabatan: 'ketua',
+        rwMemberships: [
+          { rw_id: 'rw-016', rw_name: 'RW 016', jabatan: 'ketua', source: 'rt_inferred' },
+          { rw_id: 'rw-017', rw_name: 'RW 017', jabatan: 'bendahara', source: 'explicit' },
+        ],
+      } as any,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    })
+
+    vi.spyOn(rwApi, 'apiListRWLocations').mockResolvedValue([
+      {
+        id: 'loc-1',
+        rt_id: '',
+        rt_name: 'RW',
+        name: 'Rekening Operasional RW',
+        category: 'rekening',
+        bank_name: 'BCA',
+        account_number: '1234567890',
+        account_holder: 'Pengurus RW',
+        is_active: true,
+        current_balance: '10000000.00',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ])
+
+    render(<RwFundLocationList rwId="rw-016" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Lokasi Dana RW — rw-016')).toBeInTheDocument()
+    })
+
+    // Even though user has explicit RW-017, viewing inferred RW-016 → read-only
+    expect(screen.getByText(/Mode Read-Only/i)).toBeInTheDocument()
+    expect(screen.queryByText('Tambah Lokasi')).not.toBeInTheDocument()
+    expect(screen.queryByText('Transfer Antar-Lokasi')).not.toBeInTheDocument()
+  })
+
+  it('multi-RW: explicit RW → full controls even when inferred RW also exists', async () => {
+    vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      user: {
+        id: 'user-multi',
+        name: 'Ketua RT',
+        role: 'warga',
+        jabatan: 'ketua',
+        rwMemberships: [
+          { rw_id: 'rw-016', rw_name: 'RW 016', jabatan: 'ketua', source: 'rt_inferred' },
+          { rw_id: 'rw-017', rw_name: 'RW 017', jabatan: 'bendahara', source: 'explicit' },
+        ],
+      } as any,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    })
+
+    vi.spyOn(rwApi, 'apiListRWLocations').mockResolvedValue([
+      {
+        id: 'loc-1',
+        rt_id: '',
+        rt_name: 'RW',
+        name: 'Rekening Operasional RW',
+        category: 'rekening',
+        bank_name: 'BCA',
+        account_number: '1234567890',
+        account_holder: 'Pengurus RW',
+        is_active: true,
+        current_balance: '10000000.00',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ])
+
+    render(<RwFundLocationList rwId="rw-017" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Lokasi Dana RW — rw-017')).toBeInTheDocument()
+    })
+
+    // Explicit RW → full controls despite inferred RW also existing
+    expect(screen.queryByText(/Mode Read-Only/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Tambah Lokasi')).toBeInTheDocument()
+    expect(screen.getByText('Transfer Antar-Lokasi')).toBeInTheDocument()
+  })
 })
 

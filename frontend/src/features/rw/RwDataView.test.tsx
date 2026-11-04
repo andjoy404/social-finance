@@ -117,4 +117,81 @@ describe('RwDataView', () => {
     expect(screen.getByText('Anda tidak memiliki akses ke RW mana pun')).toBeInTheDocument()
     expect(screen.queryByText('Keuangan RW 002 Urena')).not.toBeInTheDocument()
   })
+
+  it('shows read-only badge when membership source is rt_inferred', () => {
+    vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      user: {
+        id: 'user-rt-inferred',
+        name: 'Ketua RT 002',
+        role: 'warga',
+        jabatan: 'ketua',
+        rwMemberships: [
+          { rw_id: 'rw-002', rw_name: 'RW 002 Urena', jabatan: 'ketua', source: 'rt_inferred' },
+        ],
+      } as any,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-002/dashboard']}>
+        <Routes>
+          <Route path="/rw-view/:rwId/*" element={<RwDataView />} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    expect(screen.getByText('Keuangan RW 002 Urena')).toBeInTheDocument()
+    // Read-only badge should appear for inferred membership
+    expect(screen.getByText('Mode Read-Only')).toBeInTheDocument()
+  })
+
+  it('multi-RW: inferred RW 016 → read-only, explicit RW 017 → full access', () => {
+    // Test with inferred RW
+    vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      user: {
+        id: 'user-multi',
+        name: 'Ketua RT',
+        role: 'warga',
+        jabatan: 'ketua',
+        rwMemberships: [
+          { rw_id: 'rw-016', rw_name: 'RW 016', jabatan: 'ketua', source: 'rt_inferred' },
+          { rw_id: 'rw-017', rw_name: 'RW 017', jabatan: 'bendahara', source: 'explicit' },
+        ],
+      } as any,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    })
+
+    // Render with inferred RW selected
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-016/dashboard']}>
+        <Routes>
+          <Route path="/rw-view/:rwId/*" element={<RwDataView />} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    expect(screen.getByText('Keuangan RW 016')).toBeInTheDocument()
+    expect(screen.getByText('Mode Read-Only')).toBeInTheDocument()
+
+    // Now switch to explicit RW
+    render(
+      <MemoryRouter initialEntries={['/rw-view/rw-017/dashboard']}>
+        <Routes>
+          <Route path="/rw-view/:rwId/*" element={<RwDataView />} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    expect(screen.getByText('Keuangan RW 017')).toBeInTheDocument()
+    // No read-only badge for explicit RW
+    expect(screen.queryByText('Mode Read-Only')).not.toBeInTheDocument()
+  })
 })

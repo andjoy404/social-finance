@@ -37,23 +37,31 @@ export function RwDataView({ rwId }: { rwId?: string }) {
     (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'].includes(m.jabatan.toLowerCase()))
   )
 
-  const tabs: { key: RwViewTab; label: string; icon: React.ReactNode }[] = useMemo(() => [
-    {
-      key: 'dashboard',
-      label: 'BERANDA',
-      icon: <DashboardOutlined />,
-    },
-    {
-      key: 'kas',
-      label: 'KAS',
-      icon: <WalletOutlined />,
-    },
-    {
-      key: 'lokasi-dana',
-      label: 'Lokasi Dana',
-      icon: <BankOutlined />,
-    },
-  ], [])
+  // Source-aware: RT inferred users cannot see the Lokasi Dana tab.
+  const canWriteForSelected = hasRwWriteAccess(user, selectedRwId)
+  const visibleTabs: { key: RwViewTab; label: string; icon: React.ReactNode }[] = useMemo(() => {
+    const base: { key: RwViewTab; label: string; icon: React.ReactNode }[] = [
+      {
+        key: 'dashboard',
+        label: 'BERANDA',
+        icon: <DashboardOutlined />,
+      },
+      {
+        key: 'kas',
+        label: 'KAS',
+        icon: <WalletOutlined />,
+      },
+    ]
+    if (canWriteForSelected) {
+      base.push({
+        key: 'lokasi-dana',
+        label: 'Lokasi Dana',
+        icon: <BankOutlined />,
+      })
+    }
+    return base
+  }, [canWriteForSelected])
+  const tabs = visibleTabs
 
   // Initialize selected RW from URL param or auto-select single membership
   useEffect(() => {
@@ -187,7 +195,8 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   const displayName = membership?.rw_name || selectedRwName || 'DATA RW'
   const jabatan = (membership?.jabatan || user?.jabatan || '').toLowerCase()
   // Source-aware: RT inferred users get read-only badge.
-  const canWrite = hasRwWriteAccess(user)
+  // Checks the membership for the selected RW only.
+  const canWrite = hasRwWriteAccess(user, selectedRwId)
   const canCreate = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
   const canUpdate = isSuperAdmin || (canWrite && ['ketua', 'bendahara'].includes(jabatan))
   const isReadOnly = !canCreate && !canUpdate

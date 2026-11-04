@@ -158,7 +158,7 @@ void main() {
     'jabatan': 'bendahara',
     'rw': '002',
     'rw_memberships': [
-      {'rw_id': 'rw-002', 'jabatan': 'bendahara', 'rw_name': 'RW 002'},
+      {'rw_id': 'rw-002', 'jabatan': 'bendahara', 'rw_name': 'RW 002', 'source': 'explicit'},
     ],
   };
 
@@ -288,7 +288,7 @@ void main() {
         'role': AppRole.warga,
         'rw': '002',
         'rw_memberships': [
-          {'rw_id': 'rw-002', 'jabatan': 'anggota', 'rw_name': 'RW 002'},
+          {'rw_id': 'rw-002', 'jabatan': 'anggota', 'rw_name': 'RW 002', 'source': 'explicit'},
         ],
       };
 
@@ -337,7 +337,7 @@ void main() {
         'role': AppRole.warga,
         'rw': '002',
         'rw_memberships': [
-          {'rw_id': 'rw-002', 'jabatan': 'wakil_ketua', 'rw_name': 'RW 002'},
+          {'rw_id': 'rw-002', 'jabatan': 'wakil_ketua', 'rw_name': 'RW 002', 'source': 'explicit'},
         ],
       };
 
@@ -466,6 +466,7 @@ void main() {
             'rw_id': 'rw-002',
             'rw_name': 'RW 002 Urena',
             'jabatan': 'bendahara',
+            'source': 'explicit',
           }
         ],
       };
@@ -797,6 +798,120 @@ void main() {
       expect(find.text('TOTAL SALDO'), findsOneWidget);
       expect(find.text('TOTAL PEMASUKAN'), findsOneWidget);
       expect(find.text('TOTAL PENGELUARAN'), findsOneWidget);
+
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+    });
+
+    testWidgets('RT inferred membership → read-only UI for all RW screens', (tester) async {
+      final rtInferredUser = {
+        'id': 'user-rt-inferred',
+        'email': 'ketua.rt@test.com',
+        'name': 'Ketua RT 002',
+        'role': AppRole.warga,
+        'rw': '002',
+        'jabatan': 'ketua',
+        'rw_memberships': [
+          {'rw_id': 'rw-016', 'jabatan': 'ketua', 'rw_name': 'RW 016', 'source': 'rt_inferred'},
+        ],
+      };
+
+      // 1. Fund location screen should be read-only
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(rtInferredUser)),
+          ],
+          child: const MaterialApp(
+            home: RwFundLocationScreen(rwId: 'rw-016'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
+      expect(find.text('Tambah Lokasi'), findsNothing);
+      expect(find.text('Transfer Antar-Lokasi'), findsNothing);
+
+      // 2. KAS screen should be read-only
+      tester.view.physicalSize = const Size(1200, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(rtInferredUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKasScreen(rwId: 'rw-016'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
+      expect(find.text('Catat Kas Masuk'), findsNothing);
+      expect(find.text('Catat Kas Keluar'), findsNothing);
+
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+    });
+
+    testWidgets('multi-RW: explicit RW has write, inferred RW has read-only', (tester) async {
+      final multiMembershipUser = {
+        'id': 'user-multi',
+        'email': 'multi@test.com',
+        'name': 'Ketua RT',
+        'role': AppRole.warga,
+        'jabatan': 'ketua',
+        'rw_memberships': [
+          {'rw_id': 'rw-016', 'jabatan': 'ketua', 'rw_name': 'RW 016', 'source': 'rt_inferred'},
+          {'rw_id': 'rw-017', 'jabatan': 'bendahara', 'rw_name': 'RW 017', 'source': 'explicit'},
+        ],
+      };
+
+      // 1. Viewing inferred RW-016 → read-only
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(multiMembershipUser)),
+          ],
+          child: const MaterialApp(
+            home: RwFundLocationScreen(rwId: 'rw-016'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Mode Read-Only'), findsOneWidget);
+      expect(find.text('Tambah Lokasi'), findsNothing);
+      expect(find.text('Transfer Antar-Lokasi'), findsNothing);
+
+      // 2. Switching to explicit RW-017 → full controls
+      tester.view.physicalSize = const Size(1200, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            rwApiClientProvider.overrideWithValue(MockRwApiClient()),
+            authRepositoryProvider.overrideWith((ref) => _MockAuthRepo(multiMembershipUser)),
+          ],
+          child: const MaterialApp(
+            home: RwKasScreen(rwId: 'rw-017'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Mode Read-Only'), findsNothing);
+      expect(find.text('Catat Kas Masuk'), findsOneWidget);
+      expect(find.text('Catat Kas Keluar'), findsOneWidget);
 
       addTearDown(() {
         tester.view.resetPhysicalSize();

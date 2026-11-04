@@ -52,8 +52,8 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
 
   // Source-aware write permission: RT inferred users see read-only UI.
-  // Explicit wins over inferred — only show read-only if ALL memberships are inferred.
-  const canWrite = hasRwWriteAccess(user)
+  // Checks the membership for the current RW only.
+  const canWrite = hasRwWriteAccess(user, rwId)
   const canCreate = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
   const canUpdate = isSuperAdmin || (canWrite && ['ketua', 'bendahara'].includes(jabatan))
   const canEditSaldoAwal = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))

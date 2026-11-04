@@ -3,12 +3,14 @@ class RWMembership {
   final int? rwNumber;
   final String? rwName;
   final String? jabatan;
+  final String? source; // 'explicit' | 'rt_inferred'
 
   const RWMembership({
     required this.rwId,
     this.rwNumber,
     this.rwName,
     this.jabatan,
+    this.source,
   });
 
   factory RWMembership.fromJson(Map<String, dynamic> json) {
@@ -19,6 +21,7 @@ class RWMembership {
           : null,
       rwName: json['rw_name'] as String?,
       jabatan: json['jabatan'] as String?,
+      source: json['source'] as String?,
     );
   }
 
@@ -28,6 +31,7 @@ class RWMembership {
       if (rwNumber != null) 'rw_number': rwNumber,
       if (rwName != null) 'rw_name': rwName,
       if (jabatan != null) 'jabatan': jabatan,
+      if (source != null) 'source': source,
     };
   }
 
@@ -42,6 +46,11 @@ class RWMembership {
     }
     return 'RW';
   }
+
+  /// Returns true if this membership has full write access.
+  /// Returns true for explicit source.
+  /// Returns false for rt_inferred or missing source.
+  bool get hasWriteAccess => source == 'explicit';
 }
 
 class AuthUser {

@@ -49,12 +49,16 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
   bool _canCreateRw(Map<String, dynamic>? user) {
     if (user == null) return false;
     if (user['role'] == AppRole.superAdmin || user['system_role'] == 'super_admin') return true;
+    // Source-aware: RT inferred users have read-only access.
+    final hasWriteAccess = rwMembershipHasWriteAccess(user, widget.rwId);
+    if (!hasWriteAccess) return false;
     final rwMemberships = (user['rw_memberships'] as List?)
         ?.whereType<Map<String, dynamic>>()
-        .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
-        .toList() ?? <RWMembership>[];
-    final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
-    final jabatan = (currentMembership?.jabatan ?? '').toLowerCase();
+        .toList() ?? <Map<String, dynamic>>[];
+    final currentMembership = rwMemberships
+        .where((m) => m['rw_id'] == widget.rwId)
+        .firstOrNull as Map<String, dynamic>?;
+    final jabatan = (currentMembership?['jabatan'] ?? '').toLowerCase();
     return jabatan == 'bendahara' || jabatan == 'ketua' || jabatan == 'wakil_ketua';
   }
 
@@ -118,9 +122,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
 
     final rwMemberships = (user?['rw_memberships'] as List?)
         ?.whereType<Map<String, dynamic>>()
-        .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
-        .toList() ?? <RWMembership>[];
-    final currentMembership = rwMemberships.where((m) => m.rwId == widget.rwId).firstOrNull;
+        .toList() ?? <Map<String, dynamic>>[];
+    final currentMembership = rwMemberships
+        .where((m) => m['rw_id'] == widget.rwId)
+        .firstOrNull as Map<String, dynamic>?;
     final rwNumberText = currentMembership?.rwNumber != null
         ? currentMembership!.rwNumber!.toString().padLeft(3, '0')
         : resolveRwNumber(widget.rwId, rwMemberships);

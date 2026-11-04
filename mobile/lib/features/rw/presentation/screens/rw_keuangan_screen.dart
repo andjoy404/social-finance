@@ -10,6 +10,31 @@ import 'rw_dashboard_screen.dart';
 import 'rw_fund_location_screen.dart';
 import 'rw_kas_screen.dart';
 
+/// Check if a user has full RW write access for a specific RW.
+///
+/// Checks only the membership for the given `rwId`:
+/// - Super Admin → true
+/// - source === 'explicit' → true
+/// - source === 'rt_inferred' or missing → false
+bool _rwMembershipHasWriteAccess(
+  Map<String, dynamic>? user,
+  String rwId,
+) {
+  if (user == null) return false;
+  if (user['role'] == 'super_admin' || user['system_role'] == 'super_admin') return true;
+
+  final rawMemberships = (user['rw_memberships'] as List?)
+          ?.whereType<Map<String, dynamic>>()
+          .toList() ??
+      <Map<String, dynamic>>[];
+  final membership = rawMemberships
+      .where((m) => m['rw_id'] == rwId)
+      .firstOrNull as Map<String, dynamic>?;
+
+  if (membership == null) return false;
+  return membership['source'] == 'explicit';
+}
+
 /// Screen gabungan Keuangan / DATA RW dengan 3 Tab: BERANDA, KAS, dan LOKASI DANA.
 class RwKeuanganScreen extends ConsumerStatefulWidget {
   final String rwId;
@@ -68,6 +93,21 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
         ? currentMembership!.rwNumber!.toString().padLeft(3, '0')
         : resolveRwNumber(widget.rwId, rwMemberships);
 
+    // Source-aware: hide LOKASI DANA tab for rt_inferred users.
+    final hasWriteAccess = _rwMembershipHasWriteAccess(user, widget.rwId);
+    final showLokasiDana = hasWriteAccess;
+    final tabCount = 2 + (showLokasiDana ? 1 : 0);
+
+    // Re-init TabController if tab count changed.
+    if (_tabController.length != tabCount) {
+      _tabController.dispose();
+      _tabController = TabController(
+        length: tabCount,
+        vsync: this,
+        initialIndex: widget.initialTab.clamp(0, tabCount - 1),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: true,
@@ -78,10 +118,10 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
           labelColor: AppColors.accent,
           indicatorColor: AppColors.accent,
           indicatorWeight: 3,
-          tabs: const [
-            Tab(text: 'BERANDA'),
-            Tab(text: 'KAS'),
-            Tab(text: 'LOKASI DANA'),
+          tabs: [
+            const Tab(text: 'BERANDA'),
+            const Tab(text: 'KAS'),
+            if (showLokasiDana) const Tab(text: 'LOKASI DANA'),
           ],
         ),
       ),
@@ -90,7 +130,8 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
         children: [
           RwDashboardScreen(rwId: widget.rwId, isTabView: true),
           RwKasScreen(rwId: widget.rwId, isTabView: true),
-          RwFundLocationScreen(rwId: widget.rwId, isTabView: true),
+          if (showLokasiDana)
+            RwFundLocationScreen(rwId: widget.rwId, isTabView: true),
         ],
       ),
     );
