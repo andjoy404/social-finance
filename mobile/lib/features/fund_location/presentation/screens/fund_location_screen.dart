@@ -740,7 +740,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                   children: [
                     Icon(Icons.edit_outlined, size: 18),
                     SizedBox(width: 8),
-                    Text('Edit Lokasi'),
+                    Text('Ubah Lokasi'),
                   ],
                 ),
               ),
