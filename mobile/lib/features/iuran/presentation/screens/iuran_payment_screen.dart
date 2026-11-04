@@ -1007,10 +1007,11 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
   Widget _buildBillSummary(ThemeData theme, bool isDark, IuranBill bill) {
     final maxMonths = _multiBills.length > 12 ? 12 : _multiBills.length;
+    final effectiveMax = maxMonths > 0 ? maxMonths : 1;
     final selectedBills = bill.isMultiMonthDues
         ? (_selectedMonthCount > 0
               ? _multiBills
-                    .take(_selectedMonthCount.clamp(1, maxMonths))
+                    .take(_selectedMonthCount.clamp(1, effectiveMax))
                     .toList()
               : <BackendBill>[])
         : <BackendBill>[];
@@ -1322,6 +1323,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.success,
           foregroundColor: Colors.white,
+          disabledBackgroundColor: AppColors.success,
+          disabledForegroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           visualDensity: VisualDensity.compact,
           shape: RoundedRectangleBorder(

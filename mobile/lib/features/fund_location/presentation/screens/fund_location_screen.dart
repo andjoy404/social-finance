@@ -277,6 +277,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       Icons.account_balance,
                       AppColors.accent,
                       isDark,
+                      subtitle: 'Total saldo seluruh rekening bank RT.',
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -287,6 +288,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       Icons.lock_outline,
                       AppColors.success,
                       isDark,
+                      subtitle: 'Total saldo seluruh brankas fisik RT.',
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -297,6 +299,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                       Icons.payments_outlined,
                       AppColors.warning,
                       isDark,
+                      subtitle: 'Total saldo kas di tangan (COH) RT.',
                     ),
                   ),
                 ],
@@ -316,55 +319,33 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
               ),
               const SizedBox(height: AppSpacing.md),
 
-              // Action Toolbar: Transfer button (subtle neon badge style)
+              // Action Toolbar: Transfer button
               if (_canManage(ref)) ...[
                 Row(
                   children: [
                     Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.accent
-                              .withValues(alpha: isDark ? 0.08 : 0.06),
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                          border: Border.all(
-                            color: AppColors.accent.withValues(alpha: 0.35),
-                            width: 0.5,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isDark
+                              ? AppColors.accent
+                              : AppColors.accent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(AppRadius.sm),
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.accent
-                                  .withValues(alpha: isDark ? 0.15 : 0.10),
-                              blurRadius: 4,
-                              spreadRadius: 0,
-                              offset: const Offset(0, 0),
-                            ),
-                          ],
                         ),
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: isDark
-                                ? Colors.white
-                                : AppColors.accent,
-                            side: BorderSide.none,
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.sm),
-                            ),
-                          ),
-                          onPressed: () =>
-                              _showTransferDialog(context, locations),
-                          icon: Icon(Icons.swap_horiz,
-                              color: isDark ? Colors.white : AppColors.accent,
-                              size: 16),
-                          label: Text(
-                            'Transfer Antar Lokasi',
-                            style: TextStyle(
-                              color: isDark ? Colors.white : AppColors.accent,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                            ),
+                        onPressed: () =>
+                            _showTransferDialog(context, locations),
+                        icon: Icon(Icons.swap_horiz, size: 16),
+                        label: Text(
+                          'Transfer Antar Lokasi',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
                           ),
                         ),
                       ),
@@ -437,67 +418,185 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
     );
   }
 
+  void _showSummaryCardDetail({
+    required BuildContext context,
+    required String title,
+    required String value,
+    required Color color,
+    IconData? icon,
+    String? subtitle,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.base),
+                Row(
+                  children: [
+                    if (icon != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: color.withValues(
+                            alpha: isDark ? 0.2 : 0.1,
+                          ),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                        ),
+                        child: Icon(icon, size: 20, color: color),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: Theme.of(
+                              ctx,
+                            ).textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          SelectableText(
+                            value,
+                            style: Theme.of(ctx).textTheme.headlineSmall
+                                ?.copyWith(
+                                  color: color,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    subtitle,
+                    style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.base),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Tutup'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildSummaryCard(
     String title,
     String amount,
     IconData icon,
     Color color,
-    bool isDark,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: isDark ? 0.08 : 0.05),
-        borderRadius: BorderRadius.circular(AppRadius.base),
-        border: Border.all(
-          color: color.withValues(alpha: isDark ? 0.25 : 0.15),
-          width: 1,
-        ),
+    bool isDark, {
+    String? subtitle,
+  }) {
+    return InkWell(
+      onTap: () => _showSummaryCardDetail(
+        context: context,
+        title: title,
+        value: amount,
+        color: color,
+        icon: icon,
+        subtitle: subtitle,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: isDark ? 0.2 : 0.1),
-                  borderRadius: BorderRadius.circular(AppRadius.xs),
-                ),
-                child: Icon(icon, size: 12, color: color),
-              ),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textMutedColor(context),
+      borderRadius: BorderRadius.circular(AppRadius.base),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: isDark ? 0.08 : 0.05),
+          borderRadius: BorderRadius.circular(AppRadius.base),
+          border: Border.all(
+            color: color.withValues(alpha: isDark ? 0.25 : 0.15),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: isDark ? 0.2 : 0.1),
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  child: Icon(icon, size: 12, color: color),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              amount,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: color,
-              ),
-              maxLines: 1,
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textMutedColor(context),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                amount,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+                maxLines: 1,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1414,7 +1513,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
+                            child: ElevatedButton(
                               onPressed: saving
                                   ? null
                                   : () async {
@@ -1484,9 +1583,9 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                                         });
                                       }
                                     },
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: AppColors.accentSoftColor(context),
-                                side: const BorderSide(color: AppColors.accent),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.accent,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(AppRadius.base),
                                 ),
@@ -1524,14 +1623,11 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
                         Expanded(
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton(
+                            child: ElevatedButton(
                               onPressed: saving ? null : () => Navigator.pop(dialogCtx),
-                              style: OutlinedButton.styleFrom(
-                                backgroundColor: Theme.of(context).brightness == Brightness.dark
-                                    ? AppColors.darkDangerSoft
-                                    : AppColors.danger.withValues(alpha: 0.20),
-                                side: const BorderSide(color: AppColors.danger),
-                                foregroundColor: AppColors.danger,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.danger,
+                                foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(AppRadius.base),
                                 ),

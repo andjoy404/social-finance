@@ -816,14 +816,14 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
                       width: buttonWidth > 0
                           ? buttonWidth
                           : availableWidth - 32,
-                      child: _buildSimpanButton(),
+                      child: _buildBatalButton(),
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     SizedBox(
                       width: buttonWidth > 0
                           ? buttonWidth
                           : availableWidth - 32,
-                      child: _buildBatalButton(),
+                      child: _buildSimpanButton(),
                     ),
                   ],
                 );

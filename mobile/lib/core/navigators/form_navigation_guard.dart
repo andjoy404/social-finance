@@ -66,11 +66,11 @@ class FormNavigationGuard {
             alignment: Alignment.center,
             child: SizedBox(
               height: 48,
-              child: OutlinedButton(
+              child: ElevatedButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFF6366F1)),
-                  backgroundColor: const Color(0xFFF1F0FF),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B5CF6),
+                  foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -82,30 +82,18 @@ class FormNavigationGuard {
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFEF4444).withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 0),
+            child: SizedBox(
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFEF4444),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ],
-              ),
-              child: SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFFEF4444)),
-                    backgroundColor: const Color(0xFFFEF2F2),
-                    foregroundColor: const Color(0xFFEF4444),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text('Ya, Batalkan'),
                 ),
+                child: const Text('Ya, Batalkan'),
               ),
             ),
           ),

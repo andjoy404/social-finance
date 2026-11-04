@@ -1512,8 +1512,10 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                         vertical: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        border: Border.all(color: theme.dividerColor),
+                        color: theme.colorScheme.surface,
+                        border: Border.all(
+                          color: theme.colorScheme.outline,
+                        ),
                         borderRadius: BorderRadius.circular(AppRadius.base),
                       ),
                       child: Row(
@@ -1725,7 +1727,57 @@ class _EditDueDialogState extends ConsumerState<_EditDueDialog> {
                 child: OutlinedButton(
                   onPressed: _loading
                       ? null
-                      : () => Navigator.of(context).pop(false),
+                      : () async {
+                          if (!context.mounted) return;
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (dialogContext) => AlertDialog(
+                              title: const Text('Apakah Anda yakin ingin membatalkan?'),
+                              content: const Text('Perubahan yang belum disimpan akan hilang.'),
+                              actions: [
+                                Align(
+                                  alignment: Alignment.center,
+                                  child: SizedBox(
+                                    height: 48,
+                                    child: ElevatedButton(
+                                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF8B5CF6),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(AppRadius.base),
+                                        ),
+                                      ),
+                                      child: const Text('Tidak, Tetap di Halaman'),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.center,
+                                  child: SizedBox(
+                                    height: 48,
+                                    child: ElevatedButton(
+                                      onPressed: () => Navigator.of(dialogContext).pop(true),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFEF4444),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(AppRadius.base),
+                                        ),
+                                      ),
+                                      child: const Text('Ya, Batalkan'),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true && context.mounted) {
+                            Navigator.of(context).pop(false);
+                          }
+                        },
                   style: OutlinedButton.styleFrom(
                     backgroundColor: AppColors.danger,
                     foregroundColor: Colors.white,

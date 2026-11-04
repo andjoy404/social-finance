@@ -175,11 +175,11 @@ class _SpecialResidentCreateScreenState
             alignment: Alignment.center,
             child: SizedBox(
               height: 48,
-              child: OutlinedButton(
+              child: ElevatedButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.accent),
-                  backgroundColor: AppColors.accentSoftColor(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B5CF6),
+                  foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
@@ -191,33 +191,18 @@ class _SpecialResidentCreateScreenState
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.center,
-            child: Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.danger.withValues(alpha: 0.15),
-                    blurRadius: 8,
-                    offset: const Offset(0, 0),
+            child: SizedBox(
+              height: 48,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFEF4444),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.base),
                   ),
-                ],
-              ),
-              child: SizedBox(
-                height: 48,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.danger),
-                    backgroundColor:
-                        Theme.of(dialogContext).brightness == Brightness.dark
-                        ? AppColors.darkDangerSoft
-                        : AppColors.danger.withValues(alpha: 0.20),
-                    foregroundColor: AppColors.danger,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                    ),
-                  ),
-                  child: const Text('Ya, Batalkan'),
                 ),
+                child: const Text('Ya, Batalkan'),
               ),
             ),
           ),
