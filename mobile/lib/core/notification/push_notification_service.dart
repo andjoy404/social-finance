@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/device_service.dart';
+import 'notification_url_helper.dart';
 
 /// Top-level background message handler for FCM.
 /// Must be annotated with `@pragma('vm:entry-point')` for Flutter execution.
@@ -246,6 +247,25 @@ class PushNotificationService {
       return link;
     } catch (e) {
       return null;
+    }
+  }
+
+  /// Opens a validated HTTP/HTTPS URL in the external default browser via the native Android channel.
+  Future<bool> openExternalUrl(String rawUrl) async {
+    final validUrl = validateSafeHttpUrl(rawUrl);
+    if (validUrl == null) return false;
+    if (kIsWeb) return false;
+    try {
+      final opened = await _nativeChannel.invokeMethod<bool>(
+        'openExternalUrl',
+        {'url': validUrl},
+      );
+      return opened ?? false;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('PushNotificationService: failed to open external URL: $e');
+      }
+      return false;
     }
   }
 

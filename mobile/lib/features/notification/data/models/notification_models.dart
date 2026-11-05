@@ -142,6 +142,7 @@ class NotificationLogEntry {
   final String rtId;
   final String? templateId;
   final String eventType;
+  final String? dedupKey;
   final String title;
   final String body;
   final String? imageUrl;
@@ -157,6 +158,7 @@ class NotificationLogEntry {
     required this.rtId,
     this.templateId,
     required this.eventType,
+    this.dedupKey,
     required this.title,
     required this.body,
     this.imageUrl,
@@ -174,6 +176,7 @@ class NotificationLogEntry {
       rtId: json['rt_id'] as String? ?? '',
       templateId: json['template_id'] as String?,
       eventType: json['event_type'] as String? ?? '',
+      dedupKey: json['dedup_key'] as String?,
       title: json['title'] as String? ?? '',
       body: json['body'] as String? ?? '',
       imageUrl: json['image_url'] as String?,
@@ -199,6 +202,7 @@ class NotificationLogEntry {
         'rt_id': rtId,
         'template_id': templateId,
         'event_type': eventType,
+        if (dedupKey != null) 'dedup_key': dedupKey,
         'title': title,
         'body': body,
         if (imageUrl != null) 'image_url': imageUrl,
@@ -215,6 +219,7 @@ class NotificationLogEntry {
     String? rtId,
     String? templateId,
     String? eventType,
+    String? dedupKey,
     String? title,
     String? body,
     String? imageUrl,
@@ -230,6 +235,7 @@ class NotificationLogEntry {
       rtId: rtId ?? this.rtId,
       templateId: templateId ?? this.templateId,
       eventType: eventType ?? this.eventType,
+      dedupKey: dedupKey ?? this.dedupKey,
       title: title ?? this.title,
       body: body ?? this.body,
       imageUrl: imageUrl ?? this.imageUrl,

@@ -13,6 +13,7 @@ import '../core/theme/app_colors.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/providers/theme_provider.dart';
+import '../core/notification/notification_url_helper.dart';
 import '../core/notification/push_notification_service.dart';
 import '../features/auth/data/mock_auth_repository.dart';
 import '../features/auth/presentation/screens/login_screen.dart';
@@ -395,6 +396,17 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     Future.delayed(_deeplinkDedupWindow, () {
       _deeplinkInFlight.remove(target);
     });
+
+    // If this notification tap is specifically a Manual Notification (`manual_push`)
+    // and its body contains at least one valid HTTP/HTTPS URL, open the first valid
+    // URL in the external default browser instead of navigating in-app.
+    final externalManualUrl =
+        resolveManualNotificationTrayExternalUrl(link, payload: payload) ??
+            resolveManualNotificationTrayExternalUrl(target, payload: payload);
+    if (externalManualUrl != null) {
+      ref.read(pushNotificationServiceProvider).openExternalUrl(externalManualUrl);
+      return;
+    }
 
     final user = ref.read(authRepositoryProvider)?.valueOrNull;
     if (user == null) {

@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:social_finance/app/app.dart';
 import 'package:social_finance/core/api/config.dart';
+import 'package:social_finance/core/notification/notification_url_helper.dart';
+import 'package:social_finance/core/notification/push_notification_service.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
@@ -1012,8 +1014,12 @@ class _NotificationManagementScreenState
                       Row(
                         children: [
                           Expanded(
-                            child: OutlinedButton(
+                            child: ElevatedButton(
                               onPressed: () => Navigator.of(ctx).pop(),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.danger,
+                                foregroundColor: Colors.white,
+                              ),
                               child: const Text('Batal'),
                             ),
                           ),
@@ -1367,11 +1373,16 @@ class _NotificationManagementScreenState
                             Row(
                               children: [
                                 Expanded(
-                                  child: OutlinedButton(
+                                  child: ElevatedButton(
                                     onPressed: () => _showPreviewBanner(
                                       title: st.defaultTitle,
                                       body: st.defaultBody,
                                       eventName: st.name,
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.info,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                     ),
                                     child: const Text('Preview Banner'),
                                   ),
@@ -1386,6 +1397,7 @@ class _NotificationManagementScreenState
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppColors.accent,
                                       foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                     ),
                                     child: const Text('Kustomisasi'),
                                   ),
@@ -1607,13 +1619,19 @@ class _NotificationManagementScreenState
                               ),
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              tmpl.body,
+                            NotificationBodyText(
+                              text: tmpl.body,
+                              eventType: tmpl.eventType,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: isDark
                                     ? AppColors.darkTextMuted
                                     : AppColors.lightTextMuted,
                               ),
+                              onOpenUrl: (url) {
+                                ref
+                                    .read(pushNotificationServiceProvider)
+                                    .openExternalUrl(url);
+                              },
                             ),
                             const SizedBox(height: 12),
                             Row(
@@ -2155,8 +2173,12 @@ class _NotificationManagementScreenState
                 ),
               ),
               actions: [
-                TextButton(
+                ElevatedButton(
                   onPressed: () => Navigator.of(dialogContext).pop(false),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.danger,
+                    foregroundColor: Colors.white,
+                  ),
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
@@ -2464,14 +2486,23 @@ class _NotificationManagementScreenState
                                           ],
                                         ),
                                         const SizedBox(height: 2),
-                                        Text(
-                                          log.body,
+                                        NotificationBodyText(
+                                          text: log.body,
+                                          eventType: log.eventType,
+                                          dedupKey: log.dedupKey,
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                             color: isDark
                                                 ? AppColors.darkTextMuted
                                                 : AppColors.lightTextMuted,
                                           ),
+                                          onOpenUrl: (url) {
+                                            ref
+                                                .read(
+                                                  pushNotificationServiceProvider,
+                                                )
+                                                .openExternalUrl(url);
+                                          },
                                         ),
                                         const SizedBox(height: 6),
                                         Row(

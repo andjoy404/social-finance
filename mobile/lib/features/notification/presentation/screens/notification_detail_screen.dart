@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/errors/app_errors.dart';
+import 'package:social_finance/core/notification/notification_url_helper.dart';
+import 'package:social_finance/core/notification/push_notification_service.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
@@ -432,11 +434,18 @@ class _NotificationDetailScreenState
                           effectiveBody.isNotEmpty)
                         const SizedBox(height: 12),
                       if (effectiveBody.isNotEmpty)
-                        Text(
-                          effectiveBody,
+                        NotificationBodyText(
+                          text: effectiveBody,
+                          eventType: effectiveEventType,
+                          dedupKey: _fetchedEntry?.dedupKey,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             height: 1.5,
                           ),
+                          onOpenUrl: (url) {
+                            ref
+                                .read(pushNotificationServiceProvider)
+                                .openExternalUrl(url);
+                          },
                         ),
                       if (rawImageUrl != null && rawImageUrl.isNotEmpty) ...[
                         const SizedBox(height: 16),

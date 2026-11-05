@@ -45,6 +45,7 @@ import {
   type ApiNotificationSchedule,
   type ApiCreateNotificationScheduleBody,
 } from '@/app/api'
+import { renderNotificationBody } from './notificationUrl'
 
 export function NotificationScreen() {
   const { user } = useAuth()
@@ -118,6 +119,8 @@ export function NotificationScreen() {
     title: string
     body: string
     eventName: string
+    eventType?: string | null
+    dedupKey?: string | null
     imageUrl?: string | null
   } | null>(null)
 
@@ -351,6 +354,8 @@ export function NotificationScreen() {
       title: log.title,
       body: log.body,
       eventName,
+      eventType: log.event_type,
+      dedupKey: log.dedup_key,
       imageUrl: log.image_url,
     })
     handleMarkAsRead(log)
@@ -781,7 +786,9 @@ export function NotificationScreen() {
 
                       <div style={{ fontSize: 12, borderLeft: '3px solid var(--sf-accent)', paddingLeft: 8, marginBottom: 12 }}>
                         <div style={{ fontWeight: 600, color: 'var(--sf-text)' }}>{st.default_title}</div>
-                        <div style={{ color: 'var(--sf-text-muted)' }}>{st.default_body}</div>
+                        <div style={{ color: 'var(--sf-text-muted)' }}>
+                          {renderNotificationBody(st.default_body, st.event_type)}
+                        </div>
                       </div>
 
                       {st.allowed_variables.length > 0 && (
@@ -799,9 +806,20 @@ export function NotificationScreen() {
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button
                           type="button"
-                          className="sf-btn-outline"
-                          style={{ flex: 1 }}
-                          onClick={() => setPreviewItem({ title: st.default_title, body: st.default_body, eventName: st.name })}
+                          style={{
+                            flex: 1,
+                            padding: '8px 20px',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            fontFamily: 'inherit',
+                            color: '#fff',
+                            background: '#3b82f6',
+                            border: 'none',
+                            borderRadius: 'var(--sf-radius-sm)',
+                            cursor: 'pointer',
+                            transition: 'background 150ms ease',
+                          }}
+                          onClick={() => setPreviewItem({ title: st.default_title, body: st.default_body, eventName: st.name, eventType: st.event_type })}
                         >
                           Preview Banner
                         </button>
@@ -896,7 +914,7 @@ export function NotificationScreen() {
                               {t.image_url && <PictureOutlined style={{ color: 'var(--sf-accent)', fontSize: 13 }} title="Memiliki lampiran gambar" />}
                             </div>
                             <div style={{ color: 'var(--sf-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {t.body}
+                              {renderNotificationBody(t.body, t.event_type)}
                             </div>
                           </td>
                           <td style={{ padding: '14px 16px' }}>
@@ -912,7 +930,7 @@ export function NotificationScreen() {
                                 type="button"
                                 className="sf-btn-outline"
                                 style={{ padding: '4px 8px', fontSize: 12 }}
-                                onClick={() => setPreviewItem({ title: t.title, body: t.body, eventName: t.name, imageUrl: t.image_url })}
+                                onClick={() => setPreviewItem({ title: t.title, body: t.body, eventName: t.name, eventType: t.event_type, imageUrl: t.image_url })}
                                 title="Lihat Tampilan Banner"
                               >
                                 <MobileOutlined />
@@ -1081,7 +1099,14 @@ export function NotificationScreen() {
                                     onClick={() => {
                                       const template = templates.find((t) => t.id === s.template_id)
                                       if (template) {
-                                        setPreviewItem({ title: template.title, body: template.body, eventName: s.name, imageUrl: template.image_url })
+                                        setPreviewItem({
+                                          title: template.title,
+                                          body: template.body,
+                                          eventName: s.name,
+                                          eventType: s.event_type,
+                                          dedupKey: `schedule:${s.id}`,
+                                          imageUrl: template.image_url,
+                                        })
                                       }
                                     }}
                                     title="Lihat Tampilan Banner"
@@ -1294,7 +1319,7 @@ export function NotificationScreen() {
                               </span>
                             </div>
                             <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', maxWidth: 460 }}>
-                              {l.body}
+                              {renderNotificationBody(l.body, l.event_type, l.dedup_key)}
                             </div>
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
@@ -1510,7 +1535,8 @@ export function NotificationScreen() {
             <ModalFooter>
               <button
                 type="button"
-                className="sf-btn-outline"
+                className="sf-btn-primary"
+                style={{ background: '#ef4444', borderColor: '#ef4444' }}
                 onClick={() => setShowCreateModal(false)}
                 disabled={formSubmitting}
               >
@@ -1755,7 +1781,9 @@ export function NotificationScreen() {
             </div>
             <div style={{ background: 'var(--sf-card-bg)', border: '1px solid var(--sf-border)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
               <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{confirmBroadcastItem.title}</div>
-              <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>{confirmBroadcastItem.body}</div>
+              <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
+                {renderNotificationBody(confirmBroadcastItem.body, confirmBroadcastItem.event_type)}
+              </div>
               {confirmBroadcastItem.image_url && (
                 <div style={{ marginTop: 8 }}>
                   <img src={confirmBroadcastItem.image_url} alt="Lampiran" style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover' }} />
@@ -1828,7 +1856,7 @@ export function NotificationScreen() {
                   {previewItem.title}
                 </div>
                 <div style={{ fontSize: 13, color: '#CBD5E1', lineHeight: 1.4 }}>
-                  {previewItem.body}
+                  {renderNotificationBody(previewItem.body, previewItem.eventType, previewItem.dedupKey)}
                 </div>
                 {previewItem.imageUrl && (
                   <div style={{ marginTop: 10 }}>
@@ -2034,7 +2062,8 @@ export function NotificationScreen() {
             <ModalFooter>
               <button
                 type="button"
-                className="sf-btn-outline"
+                className="sf-btn-primary"
+                style={{ background: '#ef4444', borderColor: '#ef4444' }}
                 onClick={() => setShowScheduleModal(false)}
                 disabled={scheduleFormSubmitting}
               >

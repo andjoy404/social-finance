@@ -2,6 +2,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { NotificationScreen } from './NotificationScreen'
+import {
+  isManualNotification,
+  validateSafeHttpUrl,
+  parseNotificationTextSegments,
+} from './notificationUrl'
 import * as api from '@/app/api'
 
 import * as AuthModule from '@/app/AuthContext'
@@ -334,5 +339,194 @@ describe('NotificationScreen', () => {
     await waitFor(() => {
       expect(api.apiMarkAllNotificationsAsRead).toHaveBeenCalledWith('mock-token')
     })
+  })
+
+  it('renders HTTP/HTTPS URLs as clickable external links ONLY for manual_push notifications', async () => {
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: {
+        id: 'usr-warga',
+        name: 'Warga Contoh',
+        email: 'warga@local.com',
+        systemRole: null,
+        role: 'warga',
+        jabatan: null,
+        rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+        rtCode: '002',
+        rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    vi.mocked(api.apiGetNotificationLogs).mockResolvedValue({
+      data: [
+        {
+          id: 'log-manual-https',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'manual_push',
+          dedup_key: 'manual_push:a95c1cb5:123',
+          title: 'Unduhan Laporan RT',
+          body: 'Silakan unduh di https://urena.id/files/laporan-rt.pdf?dl=1&ver=2, atau cek http://rt02.urena.id/info.',
+          status: 'sent',
+          created_at: '2026-10-29T01:00:00Z',
+        },
+        {
+          id: 'log-manual-plain',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'manual_push',
+          dedup_key: 'manual_push:a95c1cb5:124',
+          title: 'Kerja Bakti Minggu Ini',
+          body: 'Kerja bakti dilaksanakan pukul 07.00 WIB di lapangan RT.',
+          status: 'sent',
+          created_at: '2026-10-29T02:00:00Z',
+        },
+        {
+          id: 'log-system-url',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'iuran_bill_created',
+          dedup_key: 'bill:101',
+          title: 'Tagihan Baru',
+          body: 'Tagihan terbit, cek https://urena.id/system-should-not-link',
+          status: 'sent',
+          created_at: '2026-10-29T03:00:00Z',
+        },
+        {
+          id: 'log-scheduler-overdue',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'iuran_overdue_3_months',
+          dedup_key: 'schedule:sched-1:2026-10-29:bill-1:usr-warga',
+          title: 'Pengingat Tunggakan Iuran',
+          body: 'Segera lunasi tunggakan di https://urena.id/scheduler-should-not-link',
+          status: 'sent',
+          created_at: '2026-10-29T04:00:00Z',
+        },
+        {
+          id: 'log-scheduler-upcoming',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'iuran_upcoming_due_3_months',
+          dedup_key: 'schedule:sched-2:2026-10-29:bill-2:usr-warga',
+          title: 'Pengingat Jatuh Tempo Iuran',
+          body: 'Info lengkap di https://urena.id/upcoming-should-not-link',
+          status: 'sent',
+          created_at: '2026-10-29T05:00:00Z',
+        },
+        {
+          id: 'log-manual-unsafe',
+          rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+          user_id: 'usr-warga',
+          event_type: 'manual_push',
+          dedup_key: 'manual_push:a95c1cb5:125',
+          title: 'Tautan Tidak Valid',
+          body: 'Jangan buka javascript:alert(1) atau data:text/html,hi atau file:///etc/passwd atau intent://scan atau market://details atau https://.',
+          status: 'sent',
+          created_at: '2026-10-29T06:00:00Z',
+        },
+      ],
+      pagination: {
+        page: 1,
+        page_size: 15,
+        total: 6,
+        total_pages: 1,
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <NotificationScreen />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Unduhan Laporan RT')).toBeInTheDocument()
+    })
+
+    // 1 & 2. Manual notification with https:// and http:// renders clickable links with target="_blank" and rel="noopener noreferrer"
+    const httpsLink = screen.getByRole('link', {
+      name: 'https://urena.id/files/laporan-rt.pdf?dl=1&ver=2',
+    })
+    expect(httpsLink).toHaveAttribute('href', 'https://urena.id/files/laporan-rt.pdf?dl=1&ver=2')
+    expect(httpsLink).toHaveAttribute('target', '_blank')
+    expect(httpsLink).toHaveAttribute('rel', 'noopener noreferrer')
+
+    const httpLink = screen.getByRole('link', {
+      name: 'http://rt02.urena.id/info',
+    })
+    expect(httpLink).toHaveAttribute('href', 'http://rt02.urena.id/info')
+    expect(httpLink).toHaveAttribute('target', '_blank')
+    expect(httpLink).toHaveAttribute('rel', 'noopener noreferrer')
+
+    // 3. Manual notification without URL renders plain text normally
+    expect(
+      screen.getByText('Kerja bakti dilaksanakan pukul 07.00 WIB di lapangan RT.')
+    ).toBeInTheDocument()
+
+    // 4 & 5 & 6. System notifications & scheduler notifications MUST NOT render links even if body has URL
+    expect(
+      screen.queryByRole('link', { name: 'https://urena.id/system-should-not-link' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'https://urena.id/scheduler-should-not-link' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'https://urena.id/upcoming-should-not-link' })
+    ).not.toBeInTheDocument()
+
+    // 6. Non-HTTP/HTTPS schemes and malformed URLs MUST NOT become links; only the 2 valid manual links exist
+    const allLinks = screen.getAllByRole('link')
+    expect(allLinks).toHaveLength(2)
+  })
+})
+
+describe('notificationUrl helpers', () => {
+  it('identifies manual notifications strictly from trusted event_type and dedup_key', () => {
+    expect(isManualNotification('manual_push', 'manual_push:rt1:1')).toBe(true)
+    expect(isManualNotification('manual_push', null)).toBe(true)
+    expect(isManualNotification('manual_push', 'schedule:sched-1:2026-10-29')).toBe(false)
+    expect(isManualNotification('iuran_bill_created', 'dedup-1')).toBe(false)
+    expect(isManualNotification('iuran_upcoming_due_3_months', 'schedule:1')).toBe(false)
+    expect(isManualNotification('iuran_overdue_3_months', 'schedule:2')).toBe(false)
+    expect(isManualNotification('waste_truck_arrival', null)).toBe(false)
+  })
+
+  it('validates only safe http/https URLs and preserves query strings intact', () => {
+    expect(
+      validateSafeHttpUrl('https://example.com/download?file=dokumen_rt.pdf&token=abc-123')
+    ).toBe('https://example.com/download?file=dokumen_rt.pdf&token=abc-123')
+    expect(validateSafeHttpUrl('http://192.168.1.10:8080/status')).toBe(
+      'http://192.168.1.10:8080/status'
+    )
+    expect(validateSafeHttpUrl('javascript:alert(1)')).toBeNull()
+    expect(validateSafeHttpUrl('data:text/html;base64,PHNjcmlwdD4=')).toBeNull()
+    expect(validateSafeHttpUrl('file:///sdcard/Download/a.pdf')).toBeNull()
+    expect(validateSafeHttpUrl('intent://scan/#Intent;scheme=zxing;end')).toBeNull()
+    expect(validateSafeHttpUrl('market://details?id=com.example')).toBeNull()
+    expect(validateSafeHttpUrl('https://')).toBeNull()
+    expect(validateSafeHttpUrl('http://')).toBeNull()
+    expect(validateSafeHttpUrl('https://.')).toBeNull()
+    expect(validateSafeHttpUrl('http:///path')).toBeNull()
+    expect(validateSafeHttpUrl('')).toBeNull()
+  })
+
+  it('parses text segments accurately with balanced parentheses and trailing punctuation', () => {
+    const segments = parseNotificationTextSegments(
+      'Unduh (https://example.com/doc_(v1).pdf?dl=1). Jangan klik javascript:alert(1)!',
+      true
+    )
+    expect(segments).toEqual([
+      { type: 'text', text: 'Unduh (' },
+      {
+        type: 'link',
+        text: 'https://example.com/doc_(v1).pdf?dl=1',
+        url: 'https://example.com/doc_(v1).pdf?dl=1',
+      },
+      { type: 'text', text: '). Jangan klik javascript:alert(1)!' },
+    ])
   })
 })

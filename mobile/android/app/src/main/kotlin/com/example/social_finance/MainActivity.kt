@@ -199,6 +199,11 @@ class MainActivity : FlutterActivity() {
                         pendingDeepLink = null
                         result.success(payload)
                     }
+                    "openExternalUrl" -> {
+                        val rawUrl = call.argument<String>("url")
+                        val opened = openExternalUrl(rawUrl)
+                        result.success(opened)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -230,6 +235,7 @@ class MainActivity : FlutterActivity() {
         val body = (intent.getStringExtra("body") ?: extras.getString("gcm.n.body"))?.trim()
         val imageUrl = (intent.getStringExtra("image_url") ?: extras.getString("gcm.n.image"))?.trim()
         val sentAt = intent.getStringExtra("sent_at")?.trim()
+        val dedupKey = intent.getStringExtra("dedup_key")?.trim()
 
         var resolvedLink = rawDeepLink
         if (resolvedLink.isNullOrEmpty()) {
@@ -258,12 +264,39 @@ class MainActivity : FlutterActivity() {
         if (!body.isNullOrEmpty()) map["body"] = body
         if (!imageUrl.isNullOrEmpty()) map["image_url"] = imageUrl
         if (!sentAt.isNullOrEmpty()) map["sent_at"] = sentAt
+        if (!dedupKey.isNullOrEmpty()) map["dedup_key"] = dedupKey
 
         pendingDeepLink = resolvedLink
         pendingPayload = map
 
         intent.removeExtra("deep_link")
         intent.removeExtra("notification_id")
+    }
+
+    private fun openExternalUrl(rawUrl: String?): Boolean {
+        val trimmed = rawUrl?.trim() ?: return false
+        if (trimmed.isEmpty()) return false
+        if (trimmed.any { it.isWhitespace() || it.code < 0x20 || it.code == 0x7F }) return false
+
+        return try {
+            val uri = Uri.parse(trimmed)
+            val scheme = uri.scheme?.lowercase()
+            val host = uri.host
+            if ((scheme != "http" && scheme != "https") || host.isNullOrBlank()) {
+                return false
+            }
+            if (host.startsWith(".") || host.endsWith(".") || host.contains("..")) {
+                return false
+            }
+            val browserIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(browserIntent)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun showHeadsUpNotification(
