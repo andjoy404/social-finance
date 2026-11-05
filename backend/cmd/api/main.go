@@ -712,6 +712,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/categories", finH.ListCategories)
 		r.Get("/api/v1/dues", finH.ListDues)
 		r.Get("/api/v1/dues/{id}/months", finH.GetDueMonths)
+		r.Get("/api/v1/bills/overdue-summary", finH.GetOverdueWarningSummary)
 		r.Get("/api/v1/bills", finH.ListBills)
 		r.Get("/api/v1/bills/{id}", finH.GetBill)
 		r.Get("/api/v1/payments", finH.ListPayments)

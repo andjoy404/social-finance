@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"social-finance/internal/auth"
+	"social-finance/internal/finance"
 )
 
 // Service defines notification operations.
@@ -698,7 +701,33 @@ var SystemNotificationTypes = []SystemNotificationType{
 		RecipientsRule:   "Warga yang masih memiliki kewajiban pembayaran tagihan iuran yang belum lunas",
 		DefaultTitle:     "Pengingat Pembayaran Iuran",
 		DefaultBody:      "Anda masih memiliki tagihan iuran yang belum lunas. Segera lakukan pembayaran sebelum jatuh tempo.",
-		AllowedVariables: []string{"bill_id", "period", "amount", "due_date", "deep_link"},
+		AllowedVariables: []string{"nama", "bill_id", "period", "amount", "due_date", "deep_link"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     false,
+	},
+	{
+		EventType:        EventUpcomingDue3Months,
+		Name:             "Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)",
+		Trigger:          "Otomatis dikirim satu kali saat tagihan iuran wajib memasuki 3 bulan kalender sebelum tanggal jatuh tempo",
+		Channel:          "push",
+		RecipientsRule:   "Warga penghuni aktif yang memiliki tagihan iuran wajib belum lunas yang memasuki 3 bulan kalender sebelum jatuh tempo",
+		DefaultTitle:     "Pengingat Pembayaran Iuran",
+		DefaultBody:      "Halo {{nama}}, kami mengingatkan bahwa tagihan iuran Anda akan jatuh tempo dalam waktu 3 bulan. Silakan periksa tagihan Anda dan lakukan pembayaran sesuai ketentuan. Terima kasih.",
+		AllowedVariables: []string{"nama", "bill_id", "period", "amount", "total_outstanding", "bill_count", "due_date", "deep_link"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     false,
+	},
+	{
+		EventType:        EventOverdue3Months,
+		Name:             "Pengingat Tunggakan Iuran (3 Bulan+)",
+		Trigger:          "Otomatis dikirim saat tagihan iuran wajib menunggak minimal 3 bulan kalender setelah jatuh tempo, dan diulang setiap bulan selama belum lunas",
+		Channel:          "push",
+		RecipientsRule:   "Warga penghuni aktif yang memiliki tagihan iuran wajib belum lunas dengan tunggakan minimal 3 bulan kalender",
+		DefaultTitle:     "Pengingat Tunggakan Iuran",
+		DefaultBody:      "Halo {{nama}}, terdapat tagihan iuran Anda yang telah menunggak selama 3 bulan atau lebih. Mohon segera lakukan pembayaran untuk menyelesaikan kewajiban iuran Anda. Terima kasih.",
+		AllowedVariables: []string{"nama", "bill_id", "period", "amount", "total_outstanding", "bill_count", "due_date", "deep_link"},
 		IsConfigurable:   true,
 		SupportsImage:    false,
 		SupportsTest:     false,
@@ -1044,7 +1073,168 @@ func (s *service) GetDueSchedules(ctx context.Context, now time.Time) ([]*Notifi
 	return s.repo.GetDueSchedules(ctx, now)
 }
 
-// ExecuteSchedule runs a single schedule: resolves recipients based on the event
+// BuildScheduleDedupKey constructs a deterministic deduplication key for a scheduled notification delivery.
+// It preserves the prefix format `schedule:<schedule_id>:<exec_date>:<user_id>...` required by
+// ListSchedulerHistory and GetSchedulerRecipientDetail while incorporating eventType, periodKey,
+// and billGroupKey when provided.
+func BuildScheduleDedupKey(scheduleID, execDate, userID, eventType, periodKey, billGroupKey string) string {
+	if eventType == "" && periodKey == "" && billGroupKey == "" {
+		return fmt.Sprintf("schedule:%s:%s:%s", scheduleID, execDate, userID)
+	}
+	return fmt.Sprintf("schedule:%s:%s:%s:%s:%s:%s", scheduleID, execDate, userID, eventType, periodKey, billGroupKey)
+}
+
+type scheduledRecipientGroup struct {
+	userID                string
+	userFullName          string
+	rtID                  string
+	primaryBillID         string
+	periodDisplay         string
+	amountDisplay         string
+	totalOutstandingCents int64
+	billCount             int
+	dueDateDisplay        string
+	deepLink              string
+	periodKey             string
+	billGroupKey          string
+	dedupKey              string
+}
+
+func (s *service) resolveOverdueOrUpcomingRecipientGroups(
+	ctx context.Context,
+	schedule *NotificationSchedule,
+	localNow time.Time,
+	execDate string,
+) ([]scheduledRecipientGroup, error) {
+	extRepo, ok := s.repo.(OverdueReminderRepository)
+	if !ok {
+		return nil, nil
+	}
+
+	bills, err := extRepo.GetRTUserBillsForEvaluation(ctx, schedule.RTID)
+	if err != nil {
+		return nil, fmt.Errorf("get rt user bills for evaluation: %w", err)
+	}
+	if len(bills) == 0 {
+		return nil, nil
+	}
+
+	periodKey := "upcoming_3m"
+	if schedule.EventType == EventOverdue3Months {
+		periodKey = finance.NormalizeDateJakarta(localNow).Format("2006-01")
+	}
+
+	byUser := make(map[string][]finance.EligibleBillResult)
+	var userOrder []string
+
+	for _, b := range bills {
+		var (
+			res      finance.EligibleBillResult
+			eligible bool
+		)
+		switch schedule.EventType {
+		case EventUpcomingDue3Months:
+			res, eligible = finance.EvaluateBillForUpcomingDue3Months(b, localNow)
+		case EventOverdue3Months:
+			res, eligible = finance.EvaluateBillForOverdue3Months(b, localNow)
+		default:
+			continue
+		}
+		if !eligible {
+			continue
+		}
+
+		alreadySent, err := extRepo.IsReminderAlreadySentForPeriod(ctx, schedule.RTID, b.UserID, schedule.EventType, periodKey, b.BillID)
+		if err != nil {
+			return nil, err
+		}
+		if alreadySent {
+			continue
+		}
+
+		if _, exists := byUser[b.UserID]; !exists {
+			userOrder = append(userOrder, b.UserID)
+		}
+		byUser[b.UserID] = append(byUser[b.UserID], res)
+	}
+
+	sort.Strings(userOrder)
+	groups := make([]scheduledRecipientGroup, 0, len(userOrder))
+
+	for _, uid := range userOrder {
+		userBills := byUser[uid]
+		if len(userBills) == 0 {
+			continue
+		}
+		sort.Slice(userBills, func(i, j int) bool {
+			di, dj := time.Time{}, time.Time{}
+			if userBills[i].Bill.DueDate != nil {
+				di = *userBills[i].Bill.DueDate
+			}
+			if userBills[j].Bill.DueDate != nil {
+				dj = *userBills[j].Bill.DueDate
+			}
+			if !di.Equal(dj) {
+				return di.Before(dj)
+			}
+			if userBills[i].Bill.Period != userBills[j].Bill.Period {
+				return userBills[i].Bill.Period < userBills[j].Bill.Period
+			}
+			return userBills[i].Bill.BillID < userBills[j].Bill.BillID
+		})
+
+		first := userBills[0]
+		var totalCents int64
+		billIDs := make([]string, 0, len(userBills))
+		periods := make([]string, 0, len(userBills))
+		seenPeriods := make(map[string]bool)
+
+		for _, ub := range userBills {
+			totalCents += ub.OutstandingCents
+			billIDs = append(billIDs, ub.Bill.BillID)
+			if ub.Bill.Period != "" && !seenPeriods[ub.Bill.Period] {
+				seenPeriods[ub.Bill.Period] = true
+				periods = append(periods, ub.Bill.Period)
+			}
+		}
+
+		billGroupKey := strings.Join(billIDs, ",")
+		periodDisplay := first.Bill.Period
+		if len(periods) > 1 {
+			periodDisplay = strings.Join(periods, ", ")
+		}
+
+		fullName := strings.TrimSpace(first.Bill.UserFullName)
+		if fullName == "" {
+			fullName = "Warga"
+		}
+
+		deepLink := fmt.Sprintf("/home/iuran/detail/%s", first.Bill.BillID)
+		if len(userBills) > 1 {
+			deepLink = "/home/iuran"
+		}
+
+		dedupKey := BuildScheduleDedupKey(schedule.ID, execDate, uid, schedule.EventType, periodKey, billGroupKey)
+
+		groups = append(groups, scheduledRecipientGroup{
+			userID:                uid,
+			userFullName:          fullName,
+			rtID:                  schedule.RTID,
+			primaryBillID:         first.Bill.BillID,
+			periodDisplay:         periodDisplay,
+			amountDisplay:         finance.FormatRupiahDisplay(totalCents),
+			totalOutstandingCents: totalCents,
+			billCount:             len(userBills),
+			dueDateDisplay:        first.DueDateFormatted,
+			deepLink:              deepLink,
+			periodKey:             periodKey,
+			billGroupKey:          billGroupKey,
+			dedupKey:              dedupKey,
+		})
+	}
+
+	return groups, nil
+}
 // type, renders title/body from the linked template, sends pushes with
 // per-recipient idempotency, and updates the schedule's last execution info.
 //
@@ -1133,23 +1323,6 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 	title := tmpl.Title
 	body := tmpl.Body
 
-	// Resolve recipients based on event type (read-only).
-	var recipients []*IuranReminderRecipient
-	if schedule.EventType == EventPaymentReminder {
-		recs, err := s.repo.GetIuranReminderRecipients(bgCtx, rtID, now)
-		if err != nil {
-			slog.Error("failed to resolve iuran reminder recipients", "rt_id", rtID, "error", err)
-			return 0, err
-		}
-		recipients = recs
-	} else {
-		return 0, fmt.Errorf("unsupported event type for scheduled execution: %s", schedule.EventType)
-	}
-
-	if len(recipients) == 0 {
-		return 0, nil
-	}
-
 	type delivery struct {
 		userID   string
 		dedupKey string
@@ -1159,54 +1332,133 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 		billID   string
 		ok       bool // true if push delivered successfully
 	}
-	deliveries := make([]delivery, 0, len(recipients))
-
+	var deliveries []delivery
 	sent := 0
 	failed := 0
-	for _, rec := range recipients {
-		vars := map[string]string{
-			"bill_id":   rec.BillID,
-			"period":    rec.Period,
-			"amount":    rec.Amount,
-			"due_date":  rec.DueDate,
-			"deep_link": fmt.Sprintf("/home/iuran/detail/%s", rec.BillID),
-		}
-		t := interpolate(title, vars)
-		b := interpolate(body, vars)
+	totalRecipients := 0
 
-		payload := NotificationPayload{
-			Type:     schedule.EventType,
-			RTID:     rec.RTID,
-			Title:    t,
-			Body:     b,
-			BillID:   rec.BillID,
-			// Deep link uses the bill ID (the navigable entity), not the
-			// notification ID, which is only generated at log insert time.
-			DeepLink: vars["deep_link"],
-			SentAt:   now.UTC().Format(time.RFC3339Nano),
-		}
-		payloadMap := payload.ToMap()
-
-		dedupKey := fmt.Sprintf("schedule:%s:%s:%s", schedule.ID, execDate, rec.UserID)
-
-		// Empty token list => cannot deliver => failure, not success.
-		tokens, err := s.repo.GetTokensForUser(bgCtx, rec.UserID)
+	switch schedule.EventType {
+	case EventPaymentReminder:
+		recipients, err := s.repo.GetIuranReminderRecipients(bgCtx, rtID, now)
 		if err != nil {
-			slog.Error("failed to get tokens for reminder recipient", "user_id", rec.UserID, "error", err)
-			deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, false})
-			failed++
-			continue
+			slog.Error("failed to resolve iuran reminder recipients", "rt_id", rtID, "error", err)
+			return 0, err
 		}
-		if len(tokens) == 0 {
-			deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, false})
-			failed++
-			continue
+		if len(recipients) == 0 {
+			return 0, nil
+		}
+		totalRecipients = len(recipients)
+		deliveries = make([]delivery, 0, len(recipients))
+
+		for _, rec := range recipients {
+			userName := strings.TrimSpace(rec.UserFullName)
+			if userName == "" {
+				userName = "Warga"
+			}
+			vars := map[string]string{
+				"nama":      userName,
+				"bill_id":   rec.BillID,
+				"period":    rec.Period,
+				"amount":    rec.Amount,
+				"due_date":  rec.DueDate,
+				"deep_link": fmt.Sprintf("/home/iuran/detail/%s", rec.BillID),
+			}
+			t := interpolate(title, vars)
+			b := interpolate(body, vars)
+
+			payload := NotificationPayload{
+				Type:     schedule.EventType,
+				RTID:     rec.RTID,
+				Title:    t,
+				Body:     b,
+				BillID:   rec.BillID,
+				DeepLink: vars["deep_link"],
+				SentAt:   now.UTC().Format(time.RFC3339Nano),
+			}
+			payloadMap := payload.ToMap()
+			dedupKey := fmt.Sprintf("schedule:%s:%s:%s", schedule.ID, execDate, rec.UserID)
+
+			tokens, err := s.repo.GetTokensForUser(bgCtx, rec.UserID)
+			if err != nil {
+				slog.Error("failed to get tokens for reminder recipient", "user_id", rec.UserID, "error", err)
+				deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, false})
+				failed++
+				continue
+			}
+			if len(tokens) == 0 {
+				deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, false})
+				failed++
+				continue
+			}
+
+			sentN, failedN := s.sendPushToTokens(bgCtx, tokens, t, b, payloadMap)
+			sent += sentN
+			failed += failedN
+			deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, sentN > 0})
 		}
 
-		sentN, failedN := s.sendPushToTokens(bgCtx, tokens, t, b, payloadMap)
-		sent += sentN
-		failed += failedN
-		deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, sentN > 0})
+	case EventUpcomingDue3Months, EventOverdue3Months:
+		groups, err := s.resolveOverdueOrUpcomingRecipientGroups(bgCtx, schedule, now.In(loc), execDate)
+		if err != nil {
+			slog.Error("failed to resolve upcoming/overdue iuran recipients", "rt_id", rtID, "event_type", schedule.EventType, "error", err)
+			return 0, err
+		}
+		if len(groups) == 0 {
+			return 0, nil
+		}
+		totalRecipients = len(groups)
+		deliveries = make([]delivery, 0, len(groups))
+
+		for _, grp := range groups {
+			vars := map[string]string{
+				"nama":              grp.userFullName,
+				"bill_id":           grp.primaryBillID,
+				"period":            grp.periodDisplay,
+				"amount":            grp.amountDisplay,
+				"total_outstanding": grp.amountDisplay,
+				"bill_count":        strconv.Itoa(grp.billCount),
+				"due_date":          grp.dueDateDisplay,
+				"deep_link":         grp.deepLink,
+			}
+			t := interpolate(title, vars)
+			b := interpolate(body, vars)
+
+			payload := NotificationPayload{
+				Type:     schedule.EventType,
+				RTID:     grp.rtID,
+				Title:    t,
+				Body:     b,
+				BillID:   grp.primaryBillID,
+				DeepLink: grp.deepLink,
+				SentAt:   now.UTC().Format(time.RFC3339Nano),
+			}
+			payloadMap := payload.ToMap()
+			payloadMap["reminder_period"] = grp.periodKey
+			payloadMap["bill_ids"] = grp.billGroupKey
+			payloadMap["bill_count"] = strconv.Itoa(grp.billCount)
+			payloadMap["total_outstanding"] = strconv.FormatInt(grp.totalOutstandingCents/100, 10)
+
+			tokens, err := s.repo.GetTokensForUser(bgCtx, grp.userID)
+			if err != nil {
+				slog.Error("failed to get tokens for upcoming/overdue recipient", "user_id", grp.userID, "error", err)
+				deliveries = append(deliveries, delivery{grp.userID, grp.dedupKey, t, b, payloadMap, grp.primaryBillID, false})
+				failed++
+				continue
+			}
+			if len(tokens) == 0 {
+				deliveries = append(deliveries, delivery{grp.userID, grp.dedupKey, t, b, payloadMap, grp.primaryBillID, false})
+				failed++
+				continue
+			}
+
+			sentN, failedN := s.sendPushToTokens(bgCtx, tokens, t, b, payloadMap)
+			sent += sentN
+			failed += failedN
+			deliveries = append(deliveries, delivery{grp.userID, grp.dedupKey, t, b, payloadMap, grp.primaryBillID, sentN > 0})
+		}
+
+	default:
+		return 0, fmt.Errorf("unsupported event type for scheduled execution: %s", schedule.EventType)
 	}
 
 	// Record per-recipient delivery logs with ACTUAL status and update the
@@ -1225,7 +1477,7 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 
 	// Schedule-level status reflects real delivery outcomes.
 	status := "success"
-	total := len(recipients)
+	total := totalRecipients
 	if sent == 0 && total > 0 {
 		status = "failed"
 	} else if sent > 0 && sent < total {

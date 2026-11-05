@@ -445,10 +445,14 @@ class IuranRepository {
         .toList();
   }
 
-  // ─── Reports ────────────────────────────────────────────────────────
+  // ─── Reports & Summaries ────────────────────────────────────────────
 
   Future<BackendBalance> fetchBalance() async {
     return apiClient.getBalance();
+  }
+
+  Future<OverdueWarningSummary> fetchOverdueWarningSummary() async {
+    return apiClient.getOverdueWarningSummary();
   }
 
   // ─── Error mapping ──────────────────────────────────────────────────

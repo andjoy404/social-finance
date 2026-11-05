@@ -36,6 +36,7 @@ import '../features/iuran/presentation/screens/iuran_detail_screen.dart';
 import '../features/iuran/presentation/screens/iuran_payment_screen.dart';
 import '../features/iuran/presentation/screens/iuran_report_screen.dart';
 import '../features/iuran/data/iuran_access.dart';
+import '../features/iuran/data/iuran_providers.dart';
 import '../features/kas/presentation/screens/kas_screen.dart';
 import '../features/kas/presentation/screens/kas_detail_screen.dart';
 import '../features/kas/presentation/screens/kas_masuk_screen.dart';
@@ -91,7 +92,10 @@ String normalizeNotificationTarget(
 
   final isPaymentType = type == 'iuran_payment_submitted' ||
       type == 'iuran_payment_verified' ||
-      type == 'iuran_bill_created';
+      type == 'iuran_bill_created' ||
+      type == 'iuran_payment_reminder' ||
+      type == 'iuran_upcoming_due_3_months' ||
+      type == 'iuran_overdue_3_months';
 
   final isDetailNotificationType = type == 'manual_push' ||
       type == 'waste_truck_arrival' ||
@@ -286,6 +290,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               profileStatus == 'error' ||
               profileStatus == 'permissions_unavailable')) {
         ref.read(authRepositoryProvider.notifier).reloadProfile();
+      }
+      if (isPlainWargaUser(user)) {
+        ref.read(overdueWarningSummaryProvider.notifier).refresh(throttled: true);
       }
     }
   }

@@ -37,6 +37,8 @@ class _NotificationManagementScreenState
     'waste_truck_arrival': 'Kedatangan Mobil Sampah',
     'iuran_bill_created': 'Penerbitan Tagihan Iuran',
     'iuran_payment_reminder': 'Pengingat Pembayaran Iuran',
+    'iuran_upcoming_due_3_months': 'Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)',
+    'iuran_overdue_3_months': 'Pengingat Tunggakan Iuran (3 Bulan+)',
     'payment_verified': 'Pembayaran Diverifikasi',
     'payment_rejected': 'Pembayaran Ditolak',
   };

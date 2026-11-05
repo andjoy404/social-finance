@@ -1,0 +1,250 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
+import { useAuth, type AuthUser } from '@/app/AuthContext'
+import {
+  apiGetOverdueWarningSummary,
+  getSessionPair,
+  IURAN_DATA_UPDATED_EVENT,
+  type ApiOverdueWarningSummary,
+} from '@/app/api'
+import { formatRupiah } from '@/features/iuran/iuranTypes'
+
+const MANAGEMENT_JABATANS = new Set([
+  'ketua',
+  'ketua_rt',
+  'ketua rt',
+  'wakil_ketua',
+  'wakil ketua',
+  'sekretaris',
+  'bendahara',
+])
+
+export function isPlainWargaUser(user: AuthUser | null | undefined): boolean {
+  if (!user) return false
+  const sysRole = (user.systemRole ?? '').trim().toLowerCase()
+  if (sysRole === 'super_admin') return false
+  const role = (user.role ?? '').trim().toLowerCase()
+  if (role !== 'warga') return false
+  const jabatan = (user.jabatan ?? '').trim().toLowerCase()
+  if (jabatan && MANAGEMENT_JABATANS.has(jabatan)) return false
+  if (Array.isArray(user.rwMemberships)) {
+    for (const m of user.rwMemberships) {
+      const rwJabatan = (m?.jabatan ?? '').trim().toLowerCase()
+      if (rwJabatan && MANAGEMENT_JABATANS.has(rwJabatan)) {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+const FOCUS_REFRESH_THROTTLE_MS = 2000
+
+export function OverdueWarningCard() {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [summary, setSummary] = useState<ApiOverdueWarningSummary | null>(null)
+  const requestSeqRef = useRef(0)
+  const lastFetchedAtRef = useRef(0)
+
+  const eligibleWarga = isPlainWargaUser(user)
+  const userId = user?.id ?? null
+  const rtId = user?.rtId ?? user?.rt?.id ?? null
+
+  const fetchSummary = useCallback(
+    async (force = false) => {
+      if (!eligibleWarga || !userId) {
+        setSummary(null)
+        return
+      }
+      const now = Date.now()
+      if (!force && now - lastFetchedAtRef.current < FOCUS_REFRESH_THROTTLE_MS) {
+        return
+      }
+      const token = getSessionPair()?.accessToken
+      if (!token) {
+        setSummary(null)
+        return
+      }
+
+      lastFetchedAtRef.current = now
+      const reqId = ++requestSeqRef.current
+      try {
+        const res = await apiGetOverdueWarningSummary(token)
+        if (reqId === requestSeqRef.current) {
+          setSummary(res)
+        }
+      } catch {
+        // Fail silently: never render a broken warning card on network/API errors
+        if (reqId === requestSeqRef.current) {
+          setSummary((prev) => prev)
+        }
+      }
+    },
+    [eligibleWarga, userId, rtId],
+  )
+
+  // Initial load on login / user or RT context change
+  useEffect(() => {
+    if (!eligibleWarga || !userId) {
+      setSummary(null)
+      return
+    }
+    void fetchSummary(true)
+  }, [eligibleWarga, userId, rtId, fetchSummary])
+
+  // Refresh on window focus / visibilitychange and on explicit iuran data updates
+  useEffect(() => {
+    if (!eligibleWarga || !userId) return
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return
+      }
+      void fetchSummary(false)
+    }
+
+    const handleIuranDataUpdated = () => {
+      void fetchSummary(true)
+    }
+
+    window.addEventListener('focus', handleVisibilityOrFocus)
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus)
+    window.addEventListener(IURAN_DATA_UPDATED_EVENT, handleIuranDataUpdated)
+
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus)
+      window.removeEventListener(IURAN_DATA_UPDATED_EVENT, handleIuranDataUpdated)
+    }
+  }, [eligibleWarga, userId, fetchSummary])
+
+  if (
+    !eligibleWarga ||
+    !summary ||
+    !summary.has_overdue_3_months ||
+    summary.total_outstanding <= 0 ||
+    summary.overdue_bill_count <= 0
+  ) {
+    return null
+  }
+
+  return (
+    <section
+      role="region"
+      aria-label="Peringatan Tunggakan Iuran"
+      data-testid="overdue-warning-card"
+      style={{
+        marginBottom: 16,
+        padding: '14px 18px',
+        borderRadius: 10,
+        background: 'rgba(245, 158, 11, 0.10)',
+        border: '1px solid rgba(245, 158, 11, 0.45)',
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 14,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: '1 1 320px', minWidth: 0 }}>
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 8,
+            background: 'rgba(245, 158, 11, 0.18)',
+            color: '#d97706',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            marginTop: 2,
+          }}
+        >
+          <WarningOutlined style={{ fontSize: 18 }} />
+        </div>
+
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+            <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--sf-text-primary, #1f2937)' }}>
+              Peringatan Tunggakan Iuran
+            </span>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '2px 8px',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 600,
+                background: 'rgba(217, 119, 6, 0.16)',
+                color: '#b45309',
+                border: '1px solid rgba(217, 119, 6, 0.32)',
+              }}
+            >
+              Tunggakan 3 Bulan+
+            </span>
+          </div>
+
+          <p
+            style={{
+              margin: '0 0 8px 0',
+              fontSize: 13,
+              lineHeight: 1.45,
+              color: 'var(--sf-text-secondary, #4b5563)',
+            }}
+          >
+            Anda memiliki tagihan iuran yang belum lunas selama 3 bulan atau lebih. Mohon segera lakukan pembayaran agar kewajiban iuran tidak semakin menumpuk.
+          </p>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+              fontSize: 13,
+            }}
+          >
+            <span style={{ color: 'var(--sf-text-secondary, #4b5563)' }}>
+              Total Tunggakan:{' '}
+              <strong style={{ color: '#b45309', fontWeight: 700 }}>
+                {formatRupiah(summary.total_outstanding)}
+              </strong>
+            </span>
+            <span style={{ color: 'var(--sf-border, #d1d5db)' }}>•</span>
+            <span style={{ fontWeight: 600, color: 'var(--sf-text-primary, #374151)' }}>
+              {summary.overdue_bill_count} tagihan
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <button
+          type="button"
+          onClick={() => navigate('/iuran?tab=tagihan')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            borderRadius: 8,
+            border: '1px solid #d97706',
+            background: '#d97706',
+            color: '#ffffff',
+            fontWeight: 600,
+            fontSize: 13,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span>Lihat Tagihan Saya</span>
+          <ArrowRightOutlined style={{ fontSize: 12 }} />
+        </button>
+      </div>
+    </section>
+  )
+}

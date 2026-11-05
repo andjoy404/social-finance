@@ -82,6 +82,7 @@ class _IuranDetailScreenState extends ConsumerState<IuranDetailScreen> {
       ref.invalidate(billDetailProvider(_billId));
       ref.invalidate(billPaymentsProvider(_billId));
       ref.invalidate(pendingPaymentsProvider(true));
+      ref.read(overdueWarningSummaryProvider.notifier).refresh();
       await Future.wait([
         ref.read(billDetailProvider(_billId).future),
         ref.read(billPaymentsProvider(_billId).future),

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '@/app/AuthContext'
 import { Sidebar } from '@/components/Sidebar'
+import { OverdueWarningCard } from '@/components/OverdueWarningCard'
 import { ThemeMenu } from '@/components/ThemeMenu'
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
 import { Dropdown, Avatar } from 'antd'
@@ -95,6 +96,7 @@ export function AppLayout() {
         <Sidebar />
 
         <main className="sf-content">
+          <OverdueWarningCard />
           <Outlet />
         </main>
       </div>

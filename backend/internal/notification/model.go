@@ -11,6 +11,10 @@ const (
 	EventManualPush        = "manual_push"
 	// EventPaymentReminder is the auto reminder for unpaid obligatory iuran bills.
 	EventPaymentReminder = "iuran_payment_reminder"
+	// EventUpcomingDue3Months is the auto reminder sent once when an obligatory bill enters 3 calendar months before due_date.
+	EventUpcomingDue3Months = "iuran_upcoming_due_3_months"
+	// EventOverdue3Months is the auto reminder sent when an obligatory bill is >= 3 calendar months past due_date (and monthly thereafter).
+	EventOverdue3Months = "iuran_overdue_3_months"
 )
 
 // Device platforms.
@@ -231,12 +235,13 @@ type UpdateScheduleInput struct {
 // IuranReminderRecipient represents a warga + bill that should receive the
 // iuran payment reminder for a single execution date.
 type IuranReminderRecipient struct {
-    BillID   string `json:"bill_id"`
-    UserID   string `json:"user_id"`
-    RTID     string `json:"rt_id"`
-    Period   string `json:"period"`
-    Amount   string `json:"amount"`
-    DueDate  string `json:"due_date"`
+	BillID       string `json:"bill_id"`
+	UserID       string `json:"user_id"`
+	UserFullName string `json:"user_full_name,omitempty"`
+	RTID         string `json:"rt_id"`
+	Period       string `json:"period"`
+	Amount       string `json:"amount"`
+	DueDate      string `json:"due_date"`
 }
 
 // NotificationSchedulerHistory represents an aggregated view of one scheduler

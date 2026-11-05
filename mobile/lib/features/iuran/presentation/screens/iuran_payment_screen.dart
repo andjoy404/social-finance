@@ -260,6 +260,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
             ref.invalidate(billPaymentsProvider(id));
           }
           ref.invalidate(billsProvider);
+          ref.invalidate(myBillsProvider);
+          ref.read(overdueWarningSummaryProvider.notifier).refresh();
 
           final isPending = payment.status == PaymentStatus.pending;
           final msg = isPending
@@ -322,6 +324,8 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
         ref.invalidate(billDetailProvider(widget.billId));
         ref.invalidate(billPaymentsProvider(widget.billId));
         ref.invalidate(billsProvider);
+        ref.invalidate(myBillsProvider);
+        ref.read(overdueWarningSummaryProvider.notifier).refresh();
       }
 
       if (mounted) {

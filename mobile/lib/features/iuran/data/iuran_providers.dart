@@ -9,11 +9,59 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/features/iuran/data/iuran_access.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_repository.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+
+const Set<String> _managementJabatans = {
+  'ketua',
+  'ketua_rt',
+  'ketua rt',
+  'wakil_ketua',
+  'wakil ketua',
+  'sekretaris',
+  'bendahara',
+};
+
+/// Returns true only when [user] is an ordinary RT resident (`warga`)
+/// and NOT a `super_admin`, `pengurus`, `bendahara`, or RT/RW officer.
+bool isPlainWargaUser(Map<String, dynamic>? user) {
+  if (user == null) return false;
+  final systemRole = (user['system_role'] ?? '').toString().trim().toLowerCase();
+  if (systemRole == 'super_admin') return false;
+
+  final rawRole = user['role'];
+  final bool isWargaRole;
+  if (rawRole is AppRole) {
+    isWargaRole = rawRole == AppRole.warga;
+  } else {
+    isWargaRole = rawRole?.toString().trim().toLowerCase() == 'warga';
+  }
+  if (!isWargaRole) return false;
+
+  final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+  if (jabatan.isNotEmpty && _managementJabatans.contains(jabatan)) {
+    return false;
+  }
+
+  final rawRwMemberships = user['rw_memberships'];
+  if (rawRwMemberships is List) {
+    for (final item in rawRwMemberships) {
+      if (item is Map) {
+        final rwJabatan =
+            (item['jabatan'] ?? '').toString().trim().toLowerCase();
+        if (rwJabatan.isNotEmpty && _managementJabatans.contains(rwJabatan)) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
 
 /// Check whether the current user can verify payments.
 ///
@@ -254,6 +302,9 @@ class BillsNotifier extends AutoDisposeAsyncNotifier<List<IuranBill>> {
       final result = await repository.fetchAllBills(myBills: true);
       debugPrint('[IuranDebug] myBillsProvider got=${result.length} bills');
       state = AsyncData(result);
+      Future.microtask(() {
+        ref.read(overdueWarningSummaryProvider.notifier).refresh();
+      });
       return result;
     } catch (e, st) {
       debugPrint('[IuranDebug] myBillsProvider error=$e');
@@ -658,5 +709,76 @@ class BalanceNotifier extends AutoDisposeAsyncNotifier<BackendBalance> {
         transactionCount: 0,
       );
     }
+  }
+}
+
+// ─── Overdue Warning Summary (Global Warning Card) ────────────────────
+
+/// Non-autoDispose provider so switching Bottom Navigation tabs does not
+/// re-trigger network calls. Refreshed on login/user change, app resume,
+/// or after iuran/payment data refreshes.
+final overdueWarningSummaryProvider =
+    AsyncNotifierProvider<OverdueWarningSummaryNotifier, OverdueWarningSummary>(
+      OverdueWarningSummaryNotifier.new,
+    );
+
+class OverdueWarningSummaryNotifier
+    extends AsyncNotifier<OverdueWarningSummary> {
+  DateTime? _lastFetchedAt;
+  static const Duration _resumeThrottle = Duration(seconds: 2);
+
+  @override
+  Future<OverdueWarningSummary> build() async {
+    final userKey = ref.watch(
+      authRepositoryProvider.select((authAsync) {
+        final u = authAsync?.valueOrNull;
+        if (!isPlainWargaUser(u)) return '';
+        final id = (u?['id'] ?? '').toString();
+        final rtId = (u?['rt_id'] ?? u?['rt']?['id'] ?? '').toString();
+        return '$id:$rtId';
+      }),
+    );
+
+    if (userKey.isEmpty) {
+      return OverdueWarningSummary.empty;
+    }
+
+    return _fetch();
+  }
+
+  Future<OverdueWarningSummary> _fetch() async {
+    final user = ref.read(authRepositoryProvider)?.valueOrNull;
+    if (!isPlainWargaUser(user)) {
+      state = const AsyncData(OverdueWarningSummary.empty);
+      return OverdueWarningSummary.empty;
+    }
+
+    final repository = ref.read(iuranRepositoryProvider);
+    _lastFetchedAt = DateTime.now();
+
+    try {
+      final summary = await repository.fetchOverdueWarningSummary();
+      state = AsyncData(summary);
+      return summary;
+    } catch (_) {
+      // Never surface an error state that could break global layout;
+      // preserve previous data or fall back to empty.
+      final previous = state.valueOrNull ?? OverdueWarningSummary.empty;
+      state = AsyncData(previous);
+      return previous;
+    }
+  }
+
+  Future<void> refresh({bool throttled = false}) async {
+    final user = ref.read(authRepositoryProvider)?.valueOrNull;
+    if (!isPlainWargaUser(user)) {
+      state = const AsyncData(OverdueWarningSummary.empty);
+      return;
+    }
+    if (throttled && _lastFetchedAt != null) {
+      final elapsed = DateTime.now().difference(_lastFetchedAt!);
+      if (elapsed < _resumeThrottle) return;
+    }
+    await _fetch();
   }
 }

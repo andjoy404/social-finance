@@ -978,5 +978,93 @@ func seedDefaultNotificationForRT(ctx context.Context, tx *sql.Tx, notifSvc noti
 			return fmt.Errorf("create default schedule: %w", err)
 		}
 	}
+
+	allDays := make([]int, 31)
+	for i := 0; i < 31; i++ {
+		allDays[i] = i + 1
+	}
+
+	// 3. Seed default template + schedule for iuran_upcoming_due_3_months.
+	upcomingTemplates, err := notifSvc.ListTemplates(ctx, rtID, notification.EventUpcomingDue3Months, nil)
+	if err != nil {
+		return fmt.Errorf("list upcoming due templates: %w", err)
+	}
+	var upcomingTemplateID string
+	if len(upcomingTemplates) == 0 {
+		tmpl, err := notifSvc.CreateTemplate(ctx, rtID, notification.CreateTemplateInput{
+			Name:      "Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)",
+			EventType: notification.EventUpcomingDue3Months,
+			Channel:   "push",
+			Title:     "Pengingat Pembayaran Iuran",
+			Body:      "Halo {{nama}}, kami mengingatkan bahwa tagihan iuran Anda akan jatuh tempo dalam waktu 3 bulan. Silakan periksa tagihan Anda dan lakukan pembayaran sesuai ketentuan. Terima kasih.",
+		})
+		if err != nil {
+			return fmt.Errorf("create default upcoming due template: %w", err)
+		}
+		upcomingTemplateID = tmpl.ID
+	} else {
+		upcomingTemplateID = upcomingTemplates[0].ID
+	}
+
+	upcomingSchedules, err := notifSvc.ListSchedules(ctx, rtID, notification.EventUpcomingDue3Months, nil)
+	if err != nil {
+		return fmt.Errorf("list upcoming due schedules: %w", err)
+	}
+	if len(upcomingSchedules) == 0 {
+		_, err := notifSvc.CreateSchedule(ctx, rtID, "", notification.CreateScheduleInput{
+			EventType:  notification.EventUpcomingDue3Months,
+			TemplateID: upcomingTemplateID,
+			Name:       "Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)",
+			SendDays:   allDays,
+			SendHour:   8,
+			SendMinute: 0,
+			Timezone:   "Asia/Jakarta",
+		})
+		if err != nil {
+			return fmt.Errorf("create default upcoming due schedule: %w", err)
+		}
+	}
+
+	// 4. Seed default template + schedule for iuran_overdue_3_months.
+	overdueTemplates, err := notifSvc.ListTemplates(ctx, rtID, notification.EventOverdue3Months, nil)
+	if err != nil {
+		return fmt.Errorf("list overdue templates: %w", err)
+	}
+	var overdueTemplateID string
+	if len(overdueTemplates) == 0 {
+		tmpl, err := notifSvc.CreateTemplate(ctx, rtID, notification.CreateTemplateInput{
+			Name:      "Pengingat Tunggakan Iuran (3 Bulan+)",
+			EventType: notification.EventOverdue3Months,
+			Channel:   "push",
+			Title:     "Pengingat Tunggakan Iuran",
+			Body:      "Halo {{nama}}, terdapat tagihan iuran Anda yang telah menunggak selama 3 bulan atau lebih. Mohon segera lakukan pembayaran untuk menyelesaikan kewajiban iuran Anda. Terima kasih.",
+		})
+		if err != nil {
+			return fmt.Errorf("create default overdue template: %w", err)
+		}
+		overdueTemplateID = tmpl.ID
+	} else {
+		overdueTemplateID = overdueTemplates[0].ID
+	}
+
+	overdueSchedules, err := notifSvc.ListSchedules(ctx, rtID, notification.EventOverdue3Months, nil)
+	if err != nil {
+		return fmt.Errorf("list overdue schedules: %w", err)
+	}
+	if len(overdueSchedules) == 0 {
+		_, err := notifSvc.CreateSchedule(ctx, rtID, "", notification.CreateScheduleInput{
+			EventType:  notification.EventOverdue3Months,
+			TemplateID: overdueTemplateID,
+			Name:       "Pengingat Tunggakan Iuran Bulanan (3 Bulan+)",
+			SendDays:   allDays,
+			SendHour:   8,
+			SendMinute: 0,
+			Timezone:   "Asia/Jakarta",
+		})
+		if err != nil {
+			return fmt.Errorf("create default overdue schedule: %w", err)
+		}
+	}
+
 	return nil
 }

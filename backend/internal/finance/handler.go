@@ -572,6 +572,70 @@ func (h *Handler) hasStaffFinanceRead(ctx context.Context, tx *sql.Tx, ac *auth.
 
 // --- Bills Handlers ---
 
+// isWargaForOverdueWarning returns true only when the authenticated principal is a plain
+// resident (warga) without Super Admin privileges, staff tenant roles (pengurus/bendahara),
+// or RT/RW management jabatan (ketua, wakil_ketua, sekretaris, bendahara).
+func isWargaForOverdueWarning(ac *auth.AuthContext) bool {
+	if ac == nil || ac.UserID == "" || ac.RTID == "" {
+		return false
+	}
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return false
+	}
+	if ac.TenantRole != auth.RoleWarga {
+		return false
+	}
+	jabatan := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	switch jabatan {
+	case "ketua", "ketua_rt", "ketua rt", "wakil_ketua", "sekretaris", "bendahara":
+		return false
+	}
+	for _, rwm := range ac.RWMemberships {
+		rwJab := strings.ToLower(strings.TrimSpace(rwm.Jabatan))
+		switch rwJab {
+		case "ketua", "wakil_ketua", "sekretaris", "bendahara":
+			return false
+		}
+	}
+	return true
+}
+
+// GetOverdueWarningSummary returns the global overdue warning summary for the currently
+// authenticated resident (warga). Identity and RT scope are derived strictly from AuthContext.
+func (h *Handler) GetOverdueWarningSummary(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok || ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !isWargaForOverdueWarning(ac) {
+		writeJSON(w, http.StatusOK, OverdueWarningSummary{
+			HasOverdue3Months: false,
+			TotalOutstanding:  0,
+			OverdueBillCount:  0,
+		})
+		return
+	}
+
+	if h.pool == nil {
+		writeJSON(w, http.StatusOK, OverdueWarningSummary{
+			HasOverdue3Months: false,
+			TotalOutstanding:  0,
+			OverdueBillCount:  0,
+		})
+		return
+	}
+
+	summary, err := GetOverdueWarningSummaryForUser(r.Context(), h.pool.Raw(), ac.RTID, ac.UserID, time.Now())
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to compute overdue summary")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, summary)
+}
+
 func (h *Handler) ListBills(w http.ResponseWriter, r *http.Request) {
 	ac, ok := getAuthContext(r)
 	if !ok {

@@ -29,7 +29,7 @@ import { DueCreate } from './DueCreate'
 import { IuranDetail } from './IuranDetail'
 import { IuranPayment } from './IuranPayment'
 import type { IuranBill, IuranStatus, DueType } from './iuranTypes'
-import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiGetDueMonths, apiUpdateDuePeriodStatus, type DueMonthSummary, type ApiBill, type ApiDue, apiGenerateBills, getSessionPair } from '@/app/api'
+import { apiListBills, apiListPayments, apiListDues, apiUpdateDue, apiDeactivateDue, apiGetDueMonths, apiUpdateDuePeriodStatus, type DueMonthSummary, type ApiBill, type ApiDue, apiGenerateBills, getSessionPair, notifyIuranDataUpdated } from '@/app/api'
 
 type FilterType = 'semua' | 'status' | 'pembayaran' | 'periode' | 'jenis'
 
@@ -342,6 +342,9 @@ export function IuranList() {
 
       const bills = resp?.data?.map(mapBill) ?? []
       setAllBills(bills)
+      if (activeTab === 'tagihan') {
+        notifyIuranDataUpdated()
+      }
 
       const serverTotal = resp.pagination?.total ?? bills.length
       const serverTotalPages = resp.pagination?.total_pages ?? Math.max(1, Math.ceil(serverTotal / pageSize))

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"social-finance/internal/database"
+	"social-finance/internal/finance"
 )
 
 // Repository manages persistence for devices and notification delivery logs.
@@ -83,6 +84,14 @@ type Repository interface {
 
 	// Tenant resolution fallback for system roles
 	GetDefaultRTID(ctx context.Context) (string, error)
+}
+
+// OverdueReminderRepository is an optional extension of Repository that evaluates
+// upcoming due (3 months before due_date) and overdue (3+ months after due_date)
+// bills using the shared finance calculation and checks period-level deduplication.
+type OverdueReminderRepository interface {
+	GetRTUserBillsForEvaluation(ctx context.Context, rtID string) ([]finance.BillEvaluationInput, error)
+	IsReminderAlreadySentForPeriod(ctx context.Context, rtID, userID, eventType, periodKey, billID string) (bool, error)
 }
 
 type pgRepository struct {
@@ -922,7 +931,7 @@ func (r *pgRepository) GetIuranReminderRecipients(ctx context.Context, rtID stri
 	query := `
 		WITH eligible AS (
 		    SELECT b.id AS bill_id, b.amount::text AS amount, b.period, b.due_date, b.rt_id,
-		           u.id AS user_id
+		           u.id AS user_id, COALESCE(u.full_name, '') AS user_full_name
 		    FROM bills b
 		    JOIN household_occupancies ho ON b.household_occupancy_id = ho.id AND ho.end_date IS NULL
 		    JOIN residency_periods rp ON rp.household_occupancy_id = ho.id AND rp.end_date IS NULL
@@ -942,7 +951,7 @@ func (r *pgRepository) GetIuranReminderRecipients(ctx context.Context, rtID stri
 		            WHERE (p.bill_id = b.id OR pa.bill_id = b.id) AND p.status = 'APPROVED'
 		        ), 0)) > 0
 		)
-		SELECT DISTINCT ON (user_id) bill_id, user_id, rt_id, period, amount, due_date
+		SELECT DISTINCT ON (user_id) bill_id, user_id, user_full_name, rt_id, period, amount, due_date
 		FROM eligible
 		ORDER BY user_id, due_date ASC NULLS LAST, bill_id
 	`
@@ -955,12 +964,47 @@ func (r *pgRepository) GetIuranReminderRecipients(ctx context.Context, rtID stri
 	var list []*IuranReminderRecipient
 	for rows.Next() {
 		var rec IuranReminderRecipient
-		if err := rows.Scan(&rec.BillID, &rec.UserID, &rec.RTID, &rec.Period, &rec.Amount, &rec.DueDate); err != nil {
+		if err := rows.Scan(&rec.BillID, &rec.UserID, &rec.UserFullName, &rec.RTID, &rec.Period, &rec.Amount, &rec.DueDate); err != nil {
 			return nil, err
 		}
 		list = append(list, &rec)
 	}
 	return list, rows.Err()
+}
+
+func (r *pgRepository) GetRTUserBillsForEvaluation(ctx context.Context, rtID string) ([]finance.BillEvaluationInput, error) {
+	return finance.GetRTUserBillsForEvaluation(ctx, r.pool.Raw(), rtID)
+}
+
+func (r *pgRepository) IsReminderAlreadySentForPeriod(ctx context.Context, rtID, userID, eventType, periodKey, billID string) (bool, error) {
+	var exists bool
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM notification_logs
+			WHERE rt_id = $1
+			  AND user_id = $2
+			  AND event_type = $3
+			  AND status = 'SENT'
+			  AND (
+				payload->>'reminder_period' = $4
+				OR split_part(dedup_key, ':', 6) = $4
+			  )
+			  AND (
+				payload->>'bill_id' = $5
+				OR ($5 = ANY(string_to_array(COALESCE(payload->>'bill_ids', ''), ',')))
+				OR ($5 = ANY(string_to_array(split_part(dedup_key, ':', 7), ',')))
+			  )
+			LIMIT 1
+		)
+	`, rtID, userID, eventType, periodKey, billID).Scan(&exists)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("check reminder already sent for period: %w", err)
+	}
+	return exists, nil
 }
 
 func (r *pgRepository) UpdateScheduleExecuted(ctx context.Context, scheduleID, rtID string, at time.Time, status string) error {

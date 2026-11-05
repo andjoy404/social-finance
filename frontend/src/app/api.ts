@@ -1154,6 +1154,59 @@ export async function apiUpdateDuePeriodStatus(
   return jsonResp?.data ?? []
 }
 
+export const IURAN_DATA_UPDATED_EVENT = 'sf:iuran-updated'
+
+export function notifyIuranDataUpdated(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(IURAN_DATA_UPDATED_EVENT))
+  }
+}
+
+export interface ApiOverdueWarningSummary {
+  has_overdue_3_months: boolean
+  total_outstanding: number
+  overdue_bill_count: number
+}
+
+export async function apiGetOverdueWarningSummary(
+  token: string,
+): Promise<ApiOverdueWarningSummary> {
+  const res = await authenticatedApiRequest(BASE + '/bills/overdue-summary', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<Record<string, unknown>>(res)
+  if (!res.ok || !data || typeof data !== 'object') {
+    const bodyErr = data && typeof data === 'object' && 'error' in data
+      ? (data as { error?: ApiError }).error
+      : undefined
+    if (res.status >= 400 && bodyErr?.code) {
+      throw new ApiError(bodyErr.code, bodyErr.message)
+    }
+    throw new ApiError('unexpected', 'Failed to fetch overdue summary')
+  }
+  const rawTotal = data.total_outstanding
+  let totalOutstanding = 0
+  if (typeof rawTotal === 'number' && Number.isFinite(rawTotal)) {
+    totalOutstanding = Math.max(0, Math.trunc(rawTotal))
+  } else if (typeof rawTotal === 'string') {
+    const parsed = Math.trunc(Number(rawTotal))
+    if (Number.isFinite(parsed) && parsed > 0) {
+      totalOutstanding = parsed
+    }
+  }
+  const rawCount = data.overdue_bill_count
+  const billCount = typeof rawCount === 'number' && Number.isFinite(rawCount)
+    ? Math.max(0, Math.trunc(rawCount))
+    : 0
+  return {
+    has_overdue_3_months: Boolean(data.has_overdue_3_months) && billCount > 0 && totalOutstanding > 0,
+    total_outstanding: totalOutstanding,
+    overdue_bill_count: billCount,
+  }
+}
+
 export async function apiUpdateBillStatus(
   token: string,
   billId: string,
@@ -1167,6 +1220,7 @@ export async function apiUpdateBillStatus(
   })
   const data = await json<ApiBill>(res)
   if (!data) throw new ApiError('unexpected', 'Response data missing')
+  notifyIuranDataUpdated()
   return data
 }
 
@@ -1204,6 +1258,7 @@ export async function apiGenerateBills(
   if (!Array.isArray(data.bills) || data.generated_count !== data.bills.length) {
     throw new ApiError('malformed_response', 'Respons pembuatan tagihan tidak valid.')
   }
+  notifyIuranDataUpdated()
   return data
 }
 
@@ -1426,6 +1481,7 @@ export async function apiCreatePayment(
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
+  notifyIuranDataUpdated()
   return data as ApiPayment
 }
 
@@ -1512,6 +1568,7 @@ export async function apiCreateMultiPeriodPayment(
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
+  notifyIuranDataUpdated()
   return data as ApiMultiPeriodPaymentResult
 }
 
@@ -1597,6 +1654,7 @@ export async function apiVerifyPayment(
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
+  notifyIuranDataUpdated()
   return data
 }
 
@@ -1622,6 +1680,7 @@ export async function apiReversePayment(
     }
     throw new ApiError('unexpected', 'Unexpected response')
   }
+  notifyIuranDataUpdated()
   return data
 }
 

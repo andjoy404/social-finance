@@ -8,6 +8,7 @@ import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
+import 'package:social_finance/core/widgets/overdue_warning_card.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/notification/data/models/notification_models.dart';
 
@@ -269,6 +270,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                     ),
                   ),
                 ),
+              const OverdueWarningCard(),
               Expanded(child: widget.child),
             ],
           ),
