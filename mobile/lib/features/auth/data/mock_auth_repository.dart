@@ -514,6 +514,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
         'rw_name': m.rwName,
         'rw_number': m.rwNumber,
         'jabatan': m.jabatan,
+        if (m.source != null) 'source': m.source,
       }).toList(),
       'access_token': accessToken,
     };

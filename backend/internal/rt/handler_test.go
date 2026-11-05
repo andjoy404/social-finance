@@ -16,6 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
+	"social-finance/internal/notification"
 	httpx "social-finance/internal/http"
 	"social-finance/internal/testutil"
 )
@@ -118,7 +119,8 @@ func insertRT(t *testing.T, pool *database.Pool, name string, rw int, rt string)
 func buildRouter(pool *database.Pool) *chi.Mux {
 	auth.AuthDBPool = pool
 	svc := NewService()
-	h := NewHandler(svc, pool)
+	var notifSvc notification.Service
+	h := NewHandler(svc, pool, notifSvc)
 
 	r := chi.NewRouter()
 	r.Use(httpx.RequestID)

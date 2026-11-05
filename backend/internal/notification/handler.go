@@ -763,6 +763,108 @@ func (h *Handler) ListSchedules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListSchedulerHistory returns aggregated scheduler execution history for the
+// tenant RT. One row per (schedule, execution date). Accessible to
+// notification.manage users (Ketua RT / Super Admin).
+func (h *Handler) ListSchedulerHistory(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	page := 1
+	if p := r.URL.Query().Get("page"); p != "" {
+		if val, err := strconv.Atoi(p); err == nil && val > 0 {
+			page = val
+		}
+	}
+
+	pageSize := 20
+	if ps := r.URL.Query().Get("page_size"); ps != "" {
+		if val, err := strconv.Atoi(ps); err == nil && val > 0 {
+			pageSize = val
+		}
+	} else if ps := r.URL.Query().Get("page"); ps != "" {
+		if val, err := strconv.Atoi(ps); err == nil && val > 0 {
+			pageSize = val
+		}
+	}
+
+	history, total, err := h.svc.ListSchedulerHistory(r.Context(), rtID, page, pageSize)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to list scheduler history")
+		return
+	}
+	if history == nil {
+		history = []*NotificationSchedulerHistory{}
+	}
+
+	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": history,
+		"pagination": map[string]any{
+			"page":        page,
+			"page_size":   pageSize,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
+}
+
+// GetSchedulerRecipientDetail returns individual recipient delivery results for
+// a single scheduler execution. Accessible to notification.manage users.
+func (h *Handler) GetSchedulerRecipientDetail(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	scheduleID := strings.TrimSpace(chi.URLParam(r, "schedule_id"))
+	if scheduleID == "" {
+		httpx.WriteValidationError(w, "schedule id is required", nil)
+		return
+	}
+
+	execDate := r.URL.Query().Get("exec_date")
+	if execDate == "" {
+		httpx.WriteValidationError(w, "exec_date is required", nil)
+		return
+	}
+
+	details, err := h.svc.GetSchedulerRecipientDetail(r.Context(), rtID, scheduleID, execDate)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to get scheduler recipient detail")
+		return
+	}
+	if details == nil {
+		details = []*NotificationSchedulerRecipientDetail{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": details,
+	})
+}
+
 // GetSchedule returns detail of a single notification schedule.
 func (h *Handler) GetSchedule(w http.ResponseWriter, r *http.Request) {
 	ac := auth.GetAuthContext(r)

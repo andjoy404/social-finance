@@ -2,8 +2,10 @@ package rt
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,18 +15,20 @@ import (
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	"social-finance/internal/finance"
+	"social-finance/internal/notification"
 	httpx "social-finance/internal/http"
 )
 
 // Handler handles RT HTTP endpoints.
 type Handler struct {
-	svc *RTManager
-	p   *database.Pool
+	svc      *RTManager
+	p        *database.Pool
+	notifSvc notification.Service
 }
 
 // NewHandler creates a new RT handler.
-func NewHandler(svc *RTManager, pool *database.Pool) *Handler {
-	return &Handler{svc: svc, p: pool}
+func NewHandler(svc *RTManager, pool *database.Pool, notifSvc notification.Service) *Handler {
+	return &Handler{svc: svc, p: pool, notifSvc: notifSvc}
 }
 
 // CreateRequest is the body of a Create RT POST request.
@@ -415,6 +419,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if err := finance.AuditLogInsert(ctx, tx, finance.AuditLog{RTID: result.ID, UserID: &actor, Action: "create", EntityType: "rt", EntityID: result.ID, NewValues: newValues, IPAddress: auditIP(r)}); err != nil {
 		httpx.WriteInternalServerError(w, "failed to write audit log")
 		return
+	}
+
+	// Seed default iuran payment reminder template + schedule for the new RT.
+	if h.notifSvc != nil {
+		if err := seedDefaultNotificationForRT(ctx, tx, h.notifSvc, result.ID); err != nil {
+			httpx.WriteInternalServerError(w, "failed to seed default notification for RT")
+			return
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -918,4 +930,53 @@ func (h *Handler) DeactivateRW(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// seedDefaultNotificationForRT creates the default iuran payment reminder
+// template and schedule for a newly created RT. It is idempotent: existing
+// templates or schedules for the same event type are left untouched so a
+// Ketua RT's customisation is never overwritten.
+func seedDefaultNotificationForRT(ctx context.Context, tx *sql.Tx, notifSvc notification.Service, rtID string) error {
+	// 1. Create default template if none exists for this event type.
+	existingTemplates, err := notifSvc.ListTemplates(ctx, rtID, "iuran_payment_reminder", nil)
+	if err != nil {
+		return fmt.Errorf("list templates: %w", err)
+	}
+	var templateID string
+	if len(existingTemplates) == 0 {
+		tmpl, err := notifSvc.CreateTemplate(ctx, rtID, notification.CreateTemplateInput{
+			Name:      "Pengingat Pembayaran Iuran",
+			EventType: "iuran_payment_reminder",
+			Channel:   "push",
+			Title:     "Pengingat Pembayaran Iuran",
+			Body:      "Anda masih memiliki tagihan iuran yang belum lunas. Segera lakukan pembayaran sebelum jatuh tempo.",
+		})
+		if err != nil {
+			return fmt.Errorf("create default template: %w", err)
+		}
+		templateID = tmpl.ID
+	} else {
+		templateID = existingTemplates[0].ID
+	}
+
+	// 2. Create default schedule if none exists for this RT + event type.
+	existingSchedules, err := notifSvc.ListSchedules(ctx, rtID, "iuran_payment_reminder", nil)
+	if err != nil {
+		return fmt.Errorf("list schedules: %w", err)
+	}
+	if len(existingSchedules) == 0 {
+		_, err := notifSvc.CreateSchedule(ctx, rtID, "", notification.CreateScheduleInput{
+			EventType:  "iuran_payment_reminder",
+			TemplateID: templateID,
+			Name:       "Pengingat Pembayaran Iuran Bulanan",
+			SendDays:   []int{2, 25},
+			SendHour:   8,
+			SendMinute: 0,
+			Timezone:   "Asia/Jakarta",
+		})
+		if err != nil {
+			return fmt.Errorf("create default schedule: %w", err)
+		}
+	}
+	return nil
 }

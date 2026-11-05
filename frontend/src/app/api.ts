@@ -2731,3 +2731,203 @@ export async function apiGetFundLocationReconciliation(token: string): Promise<R
   const resData = await json<any>(res)
   return unpackReconciliation(resData)
 }
+
+// ── Notification Schedules ──────────────────────────────────────────────
+
+export interface ApiNotificationSchedule {
+  id: string
+  rt_id: string
+  event_type: string
+  template_id: string
+  name: string
+  is_active: boolean
+  send_days: number[]
+  send_hour: number
+  send_minute: number
+  timezone: string
+  last_executed_at?: string | null
+  last_executed_status?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiCreateNotificationScheduleBody {
+  event_type: string
+  template_id: string
+  name: string
+  send_days: number[]
+  send_hour: number
+  send_minute: number
+  timezone?: string
+}
+
+export interface ApiUpdateNotificationScheduleBody {
+  name?: string
+  is_active?: boolean
+  send_days?: number[]
+  send_hour?: number
+  send_minute?: number
+  timezone?: string
+}
+
+export interface ApiPaginatedSchedules {
+  data: ApiNotificationSchedule[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+}
+
+export async function apiGetNotificationSchedules(
+  token: string,
+  params?: { page?: number; page_size?: number; event_type?: string; is_active?: boolean },
+): Promise<ApiPaginatedSchedules> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  if (params?.event_type) q.set('event_type', params.event_type)
+  if (params?.is_active != null) q.set('is_active', String(params.is_active))
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules?' + q.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiPaginatedSchedules>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetNotificationSchedule(token: string, id: string): Promise<ApiNotificationSchedule> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/' + encodeURIComponent(id), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiNotificationSchedule>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiCreateNotificationSchedule(
+  token: string,
+  body: ApiCreateNotificationScheduleBody,
+): Promise<ApiNotificationSchedule> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiNotificationSchedule }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiUpdateNotificationSchedule(
+  token: string,
+  id: string,
+  body: ApiUpdateNotificationScheduleBody,
+): Promise<ApiNotificationSchedule> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/' + encodeURIComponent(id), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiNotificationSchedule }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiToggleNotificationScheduleActive(
+  token: string,
+  id: string,
+): Promise<ApiNotificationSchedule> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/' + encodeURIComponent(id) + '/toggle-active', {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiNotificationSchedule }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiDeleteNotificationSchedule(token: string, id: string): Promise<void> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/' + encodeURIComponent(id), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  if (res.status !== 204 && !res.ok) {
+    const bodyErr = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(bodyErr?.code ?? 'unexpected', bodyErr?.message ?? 'Gagal menghapus jadwal notifikasi.')
+  }
+}
+
+// --- Notification Scheduler History (aggregated per execution) ---
+
+export interface ApiSchedulerHistoryEntry {
+  schedule_id: string
+  schedule_name: string
+  event_type: string
+  exec_date: string
+  total_recipients: number
+  sent_count: number
+  failed_count: number
+  execution_time?: string | null
+}
+
+export interface ApiSchedulerHistoryResponse {
+  data: ApiSchedulerHistoryEntry[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+}
+
+export interface ApiSchedulerRecipientDetail {
+  user_id: string
+  status: string
+  title: string
+  created_at: string
+}
+
+export async function apiGetNotificationSchedulerHistory(
+  token: string,
+  params?: { page?: number; page_size?: number },
+): Promise<ApiSchedulerHistoryResponse> {
+  const q = new URLSearchParams()
+  if (params?.page != null) q.set('page', String(params.page))
+  if (params?.page_size != null) q.set('page_size', String(params.page_size))
+  const res = await authenticatedApiRequest(BASE + '/notifications/schedules/history?' + q.toString(), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<ApiSchedulerHistoryResponse>(res)
+  if (!data) throw new ApiError('unexpected', 'Response data missing')
+  return data
+}
+
+export async function apiGetNotificationSchedulerRecipientDetail(
+  token: string,
+  scheduleId: string,
+  execDate: string,
+): Promise<ApiSchedulerRecipientDetail[]> {
+  const res = await authenticatedApiRequest(
+    BASE + '/notifications/schedules/' + encodeURIComponent(scheduleId) + '/recipients?exec_date=' + encodeURIComponent(execDate),
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    },
+  )
+  const data = await json<{ data: ApiSchedulerRecipientDetail[] }>(res)
+  if (!data || !Array.isArray(data.data)) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}

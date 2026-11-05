@@ -28,6 +28,7 @@ type inMemoryRepo struct {
 	dedupForceError     bool                       // when true, CheckAndRecordDedup returns an error
 	dedupForceErrorOnce bool                       // when true, error is returned only once
 	schedules           map[string]*notification.NotificationSchedule
+	scheduleLogs        map[string]bool            // schedule dedupKey -> exists
 	reminderTemplate    *notification.NotificationTemplate
 }
 
@@ -39,6 +40,7 @@ func newInMemoryRepo() *inMemoryRepo {
 		billUsers:    make(map[string][]string),
 		dedupRecords: make(map[string]bool),
 		schedules:    make(map[string]*notification.NotificationSchedule),
+		scheduleLogs: make(map[string]bool),
 	}
 }
 
@@ -397,22 +399,60 @@ func (r *inMemoryRepo) UpdateScheduleExecuted(ctx context.Context, scheduleID, r
 		return sql.ErrNoRows
 	}
 	s.LastExecutedAt = &at
-	s.LastExecutedStatus = status
+	s.LastExecutedStatus = &status
 	s.UpdatedAt = at
 	r.schedules[scheduleID] = s
 	return nil
 }
 
-func (r *inMemoryRepo) BeginTx(ctx context.Context) (*sql.Tx, error) {
+func (r *inMemoryRepo) AcquireConn(ctx context.Context) (*sql.Conn, error) {
 	return nil, nil
 }
 
-func (r *inMemoryRepo) ClaimExecutionTx(tx *sql.Tx, scheduleID, execDate string) (bool, error) {
+func (r *inMemoryRepo) TryAdvisoryLockConn(conn *sql.Conn, ctx context.Context, scheduleID, execDate string) (bool, error) {
 	return true, nil
 }
 
-func (r *inMemoryRepo) IsScheduleExecutedTodayTx(tx *sql.Tx, scheduleID, execDate string) (bool, error) {
+func (r *inMemoryRepo) ReleaseAdvisoryLockConn(conn *sql.Conn, ctx context.Context, scheduleID, execDate string) error {
+	return nil
+}
+
+func (r *inMemoryRepo) IsScheduleExecutedToday(ctx context.Context, scheduleID, execDate string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	prefix := "schedule:" + scheduleID + ":" + execDate + ":"
+	for k := range r.scheduleLogs {
+		if strings.HasPrefix(k, prefix) {
+			return true, nil
+		}
+	}
 	return false, nil
+}
+
+func (r *inMemoryRepo) RecordScheduleDelivery(ctx context.Context, rtID, userID, eventType, dedupKey, title, body string, payload map[string]string, status string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.scheduleLogs[dedupKey] {
+		return "", nil // duplicate
+	}
+	r.scheduleLogs[dedupKey] = true
+	return "log-" + dedupKey, nil
+}
+
+func (r *inMemoryRepo) ListSchedulerHistory(ctx context.Context, rtID string, page, pageSize int) ([]*notification.NotificationSchedulerHistory, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Return empty for in-memory repo (history is tracked via notification_logs in pgRepository)
+	return []*notification.NotificationSchedulerHistory{}, 0, nil
+}
+
+func (r *inMemoryRepo) GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string) ([]*notification.NotificationSchedulerRecipientDetail, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Return empty for in-memory repo
+	return []*notification.NotificationSchedulerRecipientDetail{}, nil
 }
 
 func TestDeviceRegistrationLifecycle(t *testing.T) {
@@ -1933,5 +1973,361 @@ func TestExecuteSchedule_NoRecipients(t *testing.T) {
 	}
 	if sent != 0 {
 		t.Fatalf("expected 0 sends when no recipients, got %d", sent)
+	}
+}
+
+// failProvider fails every send.
+type failProvider struct {
+	notification.MockPushProvider
+}
+
+func (p *failProvider) Send(ctx context.Context, token string, title, body string, data map[string]string) error {
+	return p.MockPushProvider.Send(ctx, token, title, body, data)
+}
+
+// partialFailProvider fails sends to a specific token, succeeds others.
+type partialFailProvider struct {
+	notification.MockPushProvider
+	failToken string
+}
+
+func (p *partialFailProvider) Send(ctx context.Context, token string, title, body string, data map[string]string) error {
+	if token == p.failToken {
+		return errors.New("simulated FCM failure for " + token)
+	}
+	return p.MockPushProvider.Send(ctx, token, title, body, data)
+}
+
+// TestExecuteSchedule_CatchUpAfterRestart verifies catch-up: a schedule set for
+// 08:00 still executes when the backend comes back at 08:15 on the same local
+// day (shouldExecuteNow no longer requires an exact minute match).
+func TestExecuteSchedule_CatchUpAfterRestart(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	scheduleTime := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 11, 5, 8, 15, 0, 0, time.UTC) // backend restarted 15 min late
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	repo.billUsers["bill-2"] = []string{"user-b"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+	_ = repo.RegisterDevice(context.Background(), "user-b", "tok-b", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{scheduleTime.Day()},
+		SendHour:   scheduleTime.Hour(),
+		SendMinute: scheduleTime.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), created, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 2 {
+		t.Fatalf("expected catch-up to send 2 pushes at 08:15, got %d", sent)
+	}
+	if len(provider.GetMessages()) != 2 {
+		t.Fatalf("expected 2 recorded messages, got %d", len(provider.GetMessages()))
+	}
+}
+
+// TestExecuteSchedule_FCMFailLogsFailed verifies that when FCM fails, the log
+// status is FAILED (not SENT), no message is recorded as delivered, and the
+// schedule status is "failed".
+func TestExecuteSchedule_FCMFailLogsFailed(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	provider.SetSendError(errors.New("FCM unavailable"))
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), created, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("expected 0 successful sends when FCM fails, got %d", sent)
+	}
+	if len(provider.GetMessages()) != 0 {
+		t.Fatalf("expected no delivered messages on FCM failure, got %d", len(provider.GetMessages()))
+	}
+
+	sched, err := repo.GetSchedule(context.Background(), rtID, created.ID)
+	if err != nil || sched == nil {
+		t.Fatalf("get schedule: %v", err)
+	}
+	status := "<nil>"
+	if sched.LastExecutedStatus != nil {
+		status = *sched.LastExecutedStatus
+	}
+	if status != "failed" {
+		t.Fatalf("expected schedule status 'failed', got %q", status)
+	}
+}
+
+// TestExecuteSchedule_NoRetryAfterSuccess verifies that a successful execution
+// is not repeated on the same execution date (dedup).
+func TestExecuteSchedule_NoRetryAfterSuccess(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	// First execution delivers.
+	if sent, _ := svc.ExecuteSchedule(context.Background(), created, now); sent != 1 {
+		t.Fatalf("expected 1 send on first execution, got %d", sent)
+	}
+	if got := len(provider.GetMessages()); got != 1 {
+		t.Fatalf("expected 1 message after first execution, got %d", got)
+	}
+
+	// Second execution same date: dedup suppresses re-delivery.
+	if sent, _ := svc.ExecuteSchedule(context.Background(), created, now); sent != 0 {
+		t.Fatalf("expected 0 sends on duplicate execution, got %d", sent)
+	}
+	if got := len(provider.GetMessages()); got != 1 {
+		t.Fatalf("expected still 1 message after dedup, got %d", got)
+	}
+}
+
+// TestExecuteSchedule_EmptyTokenNotSuccess verifies that a recipient with no
+// FCM token is recorded as FAILED, not counted as a successful delivery.
+func TestExecuteSchedule_EmptyTokenNotSuccess(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	// user-a has NO registered device (empty tokens).
+	repo.billUsers["bill-1"] = []string{"user-a"}
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), created, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 0 {
+		t.Fatalf("expected 0 successful sends with empty token, got %d", sent)
+	}
+	if len(provider.GetMessages()) != 0 {
+		t.Fatalf("expected no messages for empty-token recipient, got %d", len(provider.GetMessages()))
+	}
+
+	sched, err := repo.GetSchedule(context.Background(), rtID, created.ID)
+	if err != nil || sched == nil {
+		t.Fatalf("get schedule: %v", err)
+	}
+	status := "<nil>"
+	if sched.LastExecutedStatus != nil {
+		status = *sched.LastExecutedStatus
+	}
+	if status != "failed" {
+		t.Fatalf("expected schedule status 'failed' (no deliverable recipient), got %q", status)
+	}
+}
+
+// TestExecuteSchedule_DeepLinkUsesBillID verifies the FCM deep link points to
+// the bill ID (not the notification ID) and the notification_id is carried as
+// metadata.
+func TestExecuteSchedule_DeepLinkUsesBillID(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := notification.NewMockPushProvider()
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	billID := "bill-abc-123"
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers[billID] = []string{"user-a"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, _ := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	_, _ = svc.ExecuteSchedule(context.Background(), created, now)
+
+	msgs := provider.GetMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	deepLink := msgs[0].Data["deep_link"]
+	expected := "/home/iuran/detail/" + billID
+	if deepLink != expected {
+		t.Fatalf("expected deep link %q, got %q", expected, deepLink)
+	}
+}
+
+// TestExecuteSchedule_PartialFailure verifies that when FCM fails for some but
+// not all tokens, the per-recipient logs reflect SENT/FAILED and the schedule
+// status is "partial".
+func TestExecuteSchedule_PartialFailure(t *testing.T) {
+	repo := newInMemoryRepo()
+	provider := &partialFailProvider{
+		MockPushProvider: *notification.NewMockPushProvider(),
+		failToken:        "tok-b",
+	}
+	svc := notification.NewService(repo, provider)
+
+	rtID := "test-rt-002"
+	now := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+
+	repo.reminderTemplate = &notification.NotificationTemplate{
+		ID:        "tmpl-remind",
+		RTID:      rtID,
+		EventType: notification.EventPaymentReminder,
+		Title:     "Pengingat {{period}}",
+		Body:      "Tagihan {{amount}}.",
+		IsActive:  true,
+	}
+	repo.billUsers["bill-1"] = []string{"user-a"}
+	repo.billUsers["bill-2"] = []string{"user-b"}
+	_ = repo.RegisterDevice(context.Background(), "user-a", "tok-a", "android", nil)
+	_ = repo.RegisterDevice(context.Background(), "user-b", "tok-b", "android", nil)
+
+	in := notification.CreateScheduleInput{
+		EventType:  notification.EventPaymentReminder,
+		TemplateID: "tmpl-remind",
+		Name:       "Pengingat",
+		SendDays:   []int{now.Day()},
+		SendHour:   now.Hour(),
+		SendMinute: now.Minute(),
+		Timezone:   "Asia/Jakarta",
+	}
+	created, err := repo.CreateSchedule(context.Background(), rtID, "user-test", in)
+	if err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	sent, err := svc.ExecuteSchedule(context.Background(), created, now)
+	if err != nil {
+		t.Fatalf("ExecuteSchedule returned error: %v", err)
+	}
+	if sent != 1 {
+		t.Fatalf("expected 1 successful send (partial), got %d", sent)
+	}
+	if len(provider.GetMessages()) != 1 {
+		t.Fatalf("expected 1 delivered message on partial failure, got %d", len(provider.GetMessages()))
+	}
+
+	sched, err := repo.GetSchedule(context.Background(), rtID, created.ID)
+	if err != nil || sched == nil {
+		t.Fatalf("get schedule: %v", err)
+	}
+	status := "<nil>"
+	if sched.LastExecutedStatus != nil {
+		status = *sched.LastExecutedStatus
+	}
+	if status != "partial" {
+		t.Fatalf("expected schedule status 'partial', got %q", status)
 	}
 }

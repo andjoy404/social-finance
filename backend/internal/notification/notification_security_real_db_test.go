@@ -364,7 +364,8 @@ func buildNotificationTestRouter(pool *database.Pool) http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireNotificationAdmin())
+		r.Use(auth.RequireNotificationAdmin(pool))
+
 		r.Get("/api/v1/notifications/system-types", notifH.GetSystemTypes)
 		r.Get("/api/v1/notifications/templates", notifH.ListTemplates)
 		r.Post("/api/v1/notifications/templates", notifH.CreateTemplate)

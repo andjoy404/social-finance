@@ -199,7 +199,7 @@ type NotificationSchedule struct {
 	SendMinute         int        `json:"send_minute"`
 	Timezone           string     `json:"timezone"`
 	LastExecutedAt     *time.Time `json:"last_executed_at,omitempty"`
-	LastExecutedStatus string     `json:"last_executed_status,omitempty"`
+	LastExecutedStatus *string    `json:"last_executed_status,omitempty"`
 	CreatedBy          string     `json:"created_by,omitempty"`
 	UpdatedBy          string     `json:"updated_by,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
@@ -237,4 +237,28 @@ type IuranReminderRecipient struct {
     Period   string `json:"period"`
     Amount   string `json:"amount"`
     DueDate  string `json:"due_date"`
+}
+
+// NotificationSchedulerHistory represents an aggregated view of one scheduler
+// execution (one schedule + one execution date), used by pengurus/Super Admin
+// in the Riwayat Notifikasi tab. One row = one execution, not one row per
+// recipient.
+type NotificationSchedulerHistory struct {
+	ScheduleID    string     `json:"schedule_id"`
+	ScheduleName  string     `json:"schedule_name"`
+	EventType     string     `json:"event_type"`
+	ExecDate      string     `json:"exec_date"` // YYYY-MM-DD in schedule's timezone
+	TotalRecipients int      `json:"total_recipients"`
+	SentCount     int        `json:"sent_count"`
+	FailedCount   int        `json:"failed_count"`
+	ExecutionTime *time.Time `json:"execution_time,omitempty"`
+}
+
+// NotificationSchedulerRecipientDetail represents an individual recipient's
+// delivery result within a single scheduler execution.
+type NotificationSchedulerRecipientDetail struct {
+	UserID   string    `json:"user_id"`
+	Status   string    `json:"status"` // SENT or FAILED
+	Title    string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
 }

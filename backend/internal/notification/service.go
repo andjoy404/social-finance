@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -51,6 +52,10 @@ type Service interface {
 	// ExecuteSchedule runs a single schedule: resolves recipients, sends pushes,
 	// and records per-recipient delivery logs with idempotency.
 	ExecuteSchedule(ctx context.Context, schedule *NotificationSchedule, now time.Time) (int, error)
+
+	// Scheduler history (aggregated per execution, for pengurus/Super Admin)
+	ListSchedulerHistory(ctx context.Context, rtID string, page, pageSize int) ([]*NotificationSchedulerHistory, int, error)
+	GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string) ([]*NotificationSchedulerRecipientDetail, error)
 }
 
 var ErrForbidden = errors.New("forbidden: akses detail notifikasi ditolak")
@@ -566,14 +571,17 @@ func dedupeUserIDs(ids []string) []string {
 	return out
 }
 
-func (s *service) sendPushToTokens(ctx context.Context, tokens []string, title, body string, payload map[string]string) {
+func (s *service) sendPushToTokens(ctx context.Context, tokens []string, title, body string, payload map[string]string) (sent, failed int) {
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	for _, tok := range tokens {
 		tok := tok
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if err := s.provider.Send(ctx, tok, title, body, payload); err != nil {
+				mu.Lock()
+				failed++
 				slog.Warn("push send failed", "token", maskToken(tok), "error", err)
 				if isInvalidTokenError(err) {
 					if dErr := s.repo.DeactivateToken(ctx, tok); dErr != nil {
@@ -582,10 +590,16 @@ func (s *service) sendPushToTokens(ctx context.Context, tokens []string, title, 
 						slog.Info("deactivated invalid/unregistered token", "token", maskToken(tok))
 					}
 				}
+				mu.Unlock()
+			} else {
+				mu.Lock()
+				sent++
+				mu.Unlock()
 			}
 		}()
 	}
 	wg.Wait()
+	return sent, failed
 }
 
 func isInvalidTokenError(err error) bool {
@@ -1034,12 +1048,29 @@ func (s *service) GetDueSchedules(ctx context.Context, now time.Time) ([]*Notifi
 // type, renders title/body from the linked template, sends pushes with
 // per-recipient idempotency, and updates the schedule's last execution info.
 //
-// The whole execution runs inside a transaction holding a Postgres advisory
-// lock keyed by (schedule ID, execution date). pg_try_advisory_xact_lock is
-// used so that, across multiple backend instances, only one instance can
-// process a given schedule on a given date. Other instances skip immediately.
-// Combined with the UNIQUE dedup_key on notification_logs (per schedule, date,
-// and recipient), this guarantees at-most-once delivery even after restarts.
+// Execution guarantees (at-most-once delivery, no duplicate pushes):
+//
+//  1. A dedicated DB connection is acquired and a SESSION-LEVEL Postgres
+//     advisory lock (pg_try_advisory_lock) keyed by (schedule ID, execution
+//     date) is held for the WHOLE execution, including the FCM network call.
+//     Only one backend instance can hold this lock for a given
+//     (schedule, execDate) at a time, so concurrent instances skip immediately.
+//     The lock is released when the connection is closed (also on crash), so
+//     there is no deadlock risk.
+//
+//  2. The database transaction is NOT held during the network call: only a
+//     short tx is used at the end to insert delivery logs (with actual
+//     SENT/FAILED status) and update the schedule's last execution info.
+//
+//  3. The UNIQUE dedup_key on notification_logs
+//     (schedule:<id>:<local-date>:<userId>) is the final backstop: even if two
+//     instances somehow both send, only one log row sticks per recipient per
+//     date, and the log status reflects the actual delivery result.
+//
+// Logs are written with the ACTUAL delivery status (SENT/FAILED), never
+// "SENT" before a successful push. An empty FCM token list is treated as a
+// delivery failure (not success). Partial failures are recorded per recipient
+// and aggregated into the schedule-level status.
 func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSchedule, now time.Time) (int, error) {
 	if schedule == nil {
 		return 0, errors.New("schedule is required")
@@ -1054,29 +1085,31 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 	}
 	execDate := now.In(loc).Format("2006-01-02")
 
-	// Run the whole execution inside a transaction so the Postgres advisory
-	// lock (claimed below) is held until commit. This guarantees at-most-once
-	// execution across multiple backend instances: only one instance can hold
-	// the advisory lock for a given (schedule, execDate) at a time.
-	tx, err := s.repo.BeginTx(ctx)
+	// Acquire a dedicated connection and hold a session-level advisory lock for
+	// the whole execution (network call included). This guarantees at-most-once
+	// execution across multiple backend instances without holding a DB tx open
+	// during the network call. In tests (mock repo) conn may be nil; the lock
+	// is then skipped because tests run a single instance per schedule.
+	var conn *sql.Conn
+	conn, err = s.repo.AcquireConn(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("begin tx: %w", err)
+		return 0, fmt.Errorf("acquire conn: %w", err)
 	}
-	defer func() { if tx != nil { _ = tx.Rollback() } }()
+	if conn != nil {
+		defer conn.Close()
+		claimed, err := s.repo.TryAdvisoryLockConn(conn, ctx, schedule.ID, execDate)
+		if err != nil {
+			return 0, fmt.Errorf("try advisory lock: %w", err)
+		}
+		if !claimed {
+			slog.Info("schedule execution claimed by another instance", "schedule_id", schedule.ID, "exec_date", execDate)
+			return 0, nil
+		}
+		defer s.repo.ReleaseAdvisoryLockConn(conn, ctx, schedule.ID, execDate)
+	}
 
-	// Claim the advisory lock for this (schedule, execDate). pg_try_advisory_
-	// xact_lock returns false immediately if another instance already holds it.
-	claimed, err := s.repo.ClaimExecutionTx(tx, schedule.ID, execDate)
-	if err != nil {
-		return 0, fmt.Errorf("claim execution lock: %w", err)
-	}
-	if !claimed {
-		slog.Info("schedule execution claimed by another instance", "schedule_id", schedule.ID, "exec_date", execDate)
-		return 0, nil
-	}
-
-	// Defensive schedule-level dedup: already executed today?
-	already, err := s.repo.IsScheduleExecutedTodayTx(tx, schedule.ID, execDate)
+	// Defensive schedule-level dedup: already completed today (SENT/FAILED)?
+	already, err := s.repo.IsScheduleExecutedToday(ctx, schedule.ID, execDate)
 	if err != nil {
 		return 0, fmt.Errorf("check executed today: %w", err)
 	}
@@ -1087,7 +1120,7 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 
 	bgCtx := ctx
 
-	// Resolve the active template for this event type + RT.
+	// Resolve the active template for this event type + RT (read-only).
 	tmpl, err := s.repo.GetActiveTemplateForEvent(bgCtx, rtID, schedule.EventType)
 	if err != nil {
 		slog.Warn("no active template for reminder schedule", "rt_id", rtID, "event_type", schedule.EventType, "error", err)
@@ -1100,7 +1133,7 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 	title := tmpl.Title
 	body := tmpl.Body
 
-	// Resolve recipients based on event type.
+	// Resolve recipients based on event type (read-only).
 	var recipients []*IuranReminderRecipient
 	if schedule.EventType == EventPaymentReminder {
 		recs, err := s.repo.GetIuranReminderRecipients(bgCtx, rtID, now)
@@ -1117,7 +1150,19 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 		return 0, nil
 	}
 
+	type delivery struct {
+		userID   string
+		dedupKey string
+		title    string
+		body     string
+		payload  map[string]string
+		billID   string
+		ok       bool // true if push delivered successfully
+	}
+	deliveries := make([]delivery, 0, len(recipients))
+
 	sent := 0
+	failed := 0
 	for _, rec := range recipients {
 		vars := map[string]string{
 			"bill_id":   rec.BillID,
@@ -1135,52 +1180,68 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 			Title:    t,
 			Body:     b,
 			BillID:   rec.BillID,
+			// Deep link uses the bill ID (the navigable entity), not the
+			// notification ID, which is only generated at log insert time.
 			DeepLink: vars["deep_link"],
 			SentAt:   now.UTC().Format(time.RFC3339Nano),
 		}
+		payloadMap := payload.ToMap()
 
 		dedupKey := fmt.Sprintf("schedule:%s:%s:%s", schedule.ID, execDate, rec.UserID)
-		payloadMap := payload.ToMap()
-		ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, rec.UserID, schedule.EventType, dedupKey, t, b, payloadMap)
-		if err != nil {
-			slog.Warn("schedule dedup check failed", "user_id", rec.UserID, "error", err)
-			continue
-		}
-		if !ok {
-			continue // deduplicated
-		}
 
-		if notifID := payloadMap["notification_id"]; notifID != "" {
-			payloadMap["deep_link"] = "/home/iuran/detail/" + notifID
-		}
-
+		// Empty token list => cannot deliver => failure, not success.
 		tokens, err := s.repo.GetTokensForUser(bgCtx, rec.UserID)
 		if err != nil {
 			slog.Error("failed to get tokens for reminder recipient", "user_id", rec.UserID, "error", err)
+			deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, false})
+			failed++
 			continue
 		}
-		if len(tokens) > 0 {
-			s.sendPushToTokens(bgCtx, tokens, t, b, payloadMap)
-			sent++
+		if len(tokens) == 0 {
+			deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, false})
+			failed++
+			continue
+		}
+
+		sentN, failedN := s.sendPushToTokens(bgCtx, tokens, t, b, payloadMap)
+		sent += sentN
+		failed += failedN
+		deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, sentN > 0})
+	}
+
+	// Record per-recipient delivery logs with ACTUAL status and update the
+	// schedule's last execution info. The network call is already finished;
+	// the advisory lock is still held. Each log insert is idempotent
+	// (UNIQUE dedup_key, ON CONFLICT DO NOTHING), so retries are safe.
+	for _, d := range deliveries {
+		status := "SENT"
+		if !d.ok {
+			status = "FAILED"
+		}
+		if _, err := s.repo.RecordScheduleDelivery(ctx, rtID, d.userID, schedule.EventType, d.dedupKey, d.title, d.body, d.payload, status); err != nil {
+			slog.Warn("failed to record schedule delivery log", "user_id", d.userID, "error", err)
 		}
 	}
 
-	// Update last executed status.
+	// Schedule-level status reflects real delivery outcomes.
 	status := "success"
-	if sent == 0 && len(recipients) > 0 {
+	total := len(recipients)
+	if sent == 0 && total > 0 {
 		status = "failed"
-	} else if sent > 0 && sent < len(recipients) {
+	} else if sent > 0 && sent < total {
 		status = "partial"
 	}
-	if err := s.repo.UpdateScheduleExecuted(bgCtx, schedule.ID, rtID, now, status); err != nil {
+	if err := s.repo.UpdateScheduleExecuted(ctx, schedule.ID, rtID, now, status); err != nil {
 		slog.Warn("failed to update schedule last executed", "schedule_id", schedule.ID, "error", err)
 	}
 
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return 0, fmt.Errorf("commit schedule execution: %w", err)
-		}
-	}
-
 	return sent, nil
+}
+
+func (s *service) ListSchedulerHistory(ctx context.Context, rtID string, page, pageSize int) ([]*NotificationSchedulerHistory, int, error) {
+	return s.repo.ListSchedulerHistory(ctx, rtID, page, pageSize)
+}
+
+func (s *service) GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string) ([]*NotificationSchedulerRecipientDetail, error) {
+	return s.repo.GetSchedulerRecipientDetail(ctx, rtID, scheduleID, execDate)
 }

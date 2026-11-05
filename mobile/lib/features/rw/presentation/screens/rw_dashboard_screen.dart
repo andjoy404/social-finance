@@ -264,7 +264,6 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
         : (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    super.build(context);
     final body = NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
           SliverToBoxAdapter(

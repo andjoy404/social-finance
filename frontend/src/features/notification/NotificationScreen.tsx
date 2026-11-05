@@ -14,6 +14,7 @@ import {
   ExperimentOutlined,
   PictureOutlined,
   EyeOutlined,
+  ScheduleOutlined,
 } from '@ant-design/icons'
 import { useAuth, isSuperAdminUser, canAccessNotificationAdmin } from '@/app/AuthContext'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
@@ -33,9 +34,16 @@ import {
   apiMarkNotificationAsRead,
   apiMarkAllNotificationsAsRead,
   apiGetNotificationUnreadCount,
+  apiGetNotificationSchedules,
+  apiCreateNotificationSchedule,
+  apiUpdateNotificationSchedule,
+  apiToggleNotificationScheduleActive,
+  apiDeleteNotificationSchedule,
   type ApiSystemNotificationType,
   type ApiNotificationTemplate,
   type ApiNotificationLog,
+  type ApiNotificationSchedule,
+  type ApiCreateNotificationScheduleBody,
 } from '@/app/api'
 
 export function NotificationScreen() {
@@ -43,7 +51,7 @@ export function NotificationScreen() {
   const isSuperAdmin = isSuperAdminUser(user)
   const isAdmin = canAccessNotificationAdmin(user)
 
-  const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs'>(isAdmin ? 'system' : 'logs')
+  const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs' | 'schedules'>(isAdmin ? 'system' : 'logs')
 
   // Keep activeTab synced if role resolves
   useEffect(() => {
@@ -62,6 +70,27 @@ export function NotificationScreen() {
   const [logsEventType, setLogsEventType] = useState('')
   const [logsStatusFilter, setLogsStatusFilter] = useState<'all' | 'unread' | 'read'>('all')
   const [unreadCount, setUnreadCount] = useState(0)
+
+  // Schedule states
+  const [schedules, setSchedules] = useState<ApiNotificationSchedule[]>([])
+  const [schedulesLoading, setSchedulesLoading] = useState(false)
+  const [schedulesError, setSchedulesError] = useState<string | null>(null)
+
+  // Schedule form states
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState<ApiNotificationSchedule | null>(null)
+  const [scheduleForm, setScheduleForm] = useState({
+    name: '',
+    event_type: '',
+    template_id: '',
+    send_days: [] as number[],
+    send_hour: 8,
+    send_minute: 0,
+    timezone: 'Asia/Jakarta',
+    is_active: true,
+  })
+  const [scheduleFormSubmitting, setScheduleFormSubmitting] = useState(false)
+  const [scheduleFormError, setScheduleFormError] = useState<string | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -107,6 +136,7 @@ export function NotificationScreen() {
 
   const knownEventNames: Record<string, string> = {
     iuran_bill_created: 'Tagihan Iuran Baru',
+    iuran_payment_reminder: 'Pengingat Pembayaran Iuran',
     payment_verified: 'Pembayaran Diverifikasi',
     payment_rejected: 'Pembayaran Ditolak',
     manual_push: 'Pengumuman Pengurus',
@@ -160,6 +190,126 @@ export function NotificationScreen() {
     }
   }, [isAdmin, logsPage, logsPageSize, logsEventType, logsStatusFilter])
 
+  // ── Schedules ───────────────────────────────────────────────────────────
+  const loadSchedules = useCallback(async () => {
+    setSchedulesLoading(true)
+    setSchedulesError(null)
+    const token = getSessionPair()?.accessToken
+    if (!token) {
+      setSchedulesLoading(false)
+      return
+    }
+    try {
+      const data = await apiGetNotificationSchedules(token).catch(() => ({ data: [], pagination: { page: 1, page_size: 15, total: 0, total_pages: 1 } }))
+      setSchedules(data.data || [])
+    } catch (err: any) {
+      setSchedulesError(err?.message || 'Gagal memuat jadwal notifikasi')
+    } finally {
+      setSchedulesLoading(false)
+    }
+  }, [])
+
+  const handleSaveSchedule = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setScheduleFormError(null)
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+
+    if (!scheduleForm.name.trim()) {
+      setScheduleFormError('Nama jadwal wajib diisi')
+      return
+    }
+    if (!scheduleForm.event_type) {
+      setScheduleFormError('Jenis notifikasi wajib dipilih')
+      return
+    }
+    if (!scheduleForm.template_id) {
+      setScheduleFormError('Template wajib dipilih')
+      return
+    }
+    if (scheduleForm.send_days.length === 0) {
+      setScheduleFormError('Pilih minimal satu tanggal pengiriman')
+      return
+    }
+
+    setScheduleFormSubmitting(true)
+    try {
+      const body: ApiCreateNotificationScheduleBody = {
+        event_type: scheduleForm.event_type,
+        template_id: scheduleForm.template_id,
+        name: scheduleForm.name.trim(),
+        send_days: scheduleForm.send_days,
+        send_hour: scheduleForm.send_hour,
+        send_minute: scheduleForm.send_minute,
+        timezone: scheduleForm.timezone || 'Asia/Jakarta',
+      }
+      if (editingSchedule) {
+        await apiUpdateNotificationSchedule(token, editingSchedule.id, {
+          name: scheduleForm.name.trim(),
+          is_active: scheduleForm.is_active,
+          send_days: scheduleForm.send_days,
+          send_hour: scheduleForm.send_hour,
+          send_minute: scheduleForm.send_minute,
+          timezone: scheduleForm.timezone || 'Asia/Jakarta',
+        })
+      } else {
+        await apiCreateNotificationSchedule(token, body)
+      }
+      setShowScheduleModal(false)
+      setEditingSchedule(null)
+      setScheduleForm({
+        name: '',
+        event_type: '',
+        template_id: '',
+        send_days: [],
+        send_hour: 8,
+        send_minute: 0,
+        timezone: 'Asia/Jakarta',
+        is_active: true,
+      })
+      await loadSchedules()
+      setSuccessMsg(`Jadwal ${editingSchedule ? 'diperbarui' : 'dibuat'} berhasil`)
+    } catch (err: any) {
+      setScheduleFormError(err?.message || 'Gagal menyimpan jadwal notifikasi')
+    } finally {
+      setScheduleFormSubmitting(false)
+    }
+  }
+
+  const handleToggleSchedule = async (s: ApiNotificationSchedule) => {
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    const confirm = window.confirm(
+      s.is_active
+        ? `Apakah Anda yakin ingin menonaktifkan jadwal "${s.name}"?`
+        : `Apakah Anda yakin ingin mengaktifkan jadwal "${s.name}"?`,
+    )
+    if (!confirm) return
+    try {
+      await apiToggleNotificationScheduleActive(token, s.id)
+      setSchedules((prev) =>
+        prev.map((x) => (x.id === s.id ? { ...x, is_active: !x.is_active } : x)),
+      )
+      setSuccessMsg(`Jadwal "${s.name}" ${s.is_active ? 'dinonaktifkan' : 'diaktifkan'}`)
+    } catch (err: any) {
+      setError(err?.message || 'Gagal mengubah status jadwal')
+    }
+  }
+
+  const handleDeleteSchedule = async (id: string) => {
+    const confirm = window.confirm('Apakah Anda yakin ingin menghapus jadwal ini?')
+    if (!confirm) return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    try {
+      await apiDeleteNotificationSchedule(token, id)
+      setSchedules((prev) => prev.filter((x) => x.id !== id))
+      setSuccessMsg('Jadwal berhasil dihapus')
+    } catch (err: any) {
+      setError(err?.message || 'Gagal menghapus jadwal')
+    }
+  }
+
   const handleMarkAsRead = async (log: ApiNotificationLog) => {
     if (log.is_read) return
     const token = getSessionPair()?.accessToken
@@ -206,7 +356,8 @@ export function NotificationScreen() {
 
   useEffect(() => {
     loadData()
-  }, [loadData])
+    if (isAdmin) loadSchedules()
+  }, [loadData, isAdmin, loadSchedules])
 
   // Clear toast after 4s
   useEffect(() => {
@@ -536,6 +687,25 @@ export function NotificationScreen() {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('schedules')}
+            style={{
+              padding: '10px 16px',
+              border: 'none',
+              background: 'none',
+              fontWeight: activeTab === 'schedules' ? 600 : 400,
+              fontSize: 14,
+              cursor: 'pointer',
+              borderBottom: activeTab === 'schedules' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+              color: activeTab === 'schedules' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <ScheduleOutlined /> Penjadwalan ({schedules.length})
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('logs')}
             style={{
               padding: '10px 16px',
@@ -807,6 +977,170 @@ export function NotificationScreen() {
             </div>
           )}
 
+          {/* TAB 4: PENJADWALAN NOTIFIKASI */}
+          {activeTab === 'schedules' && (
+            <div>
+              {schedulesLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--sf-text-muted)' }}>
+                  Memuat jadwal notifikasi...
+                </div>
+              ) : schedulesError ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--sf-danger)' }}>
+                  {schedulesError}
+                  <button
+                    type="button"
+                    onClick={loadSchedules}
+                    style={{ marginTop: 12, padding: '6px 12px', background: 'var(--sf-accent)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                  >
+                    Coba Lagi
+                  </button>
+                </div>
+              ) : schedules.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--sf-card-bg)', border: '1px dashed var(--sf-border)', borderRadius: 8 }}>
+                  <ScheduleOutlined style={{ fontSize: 36, color: 'var(--sf-text-muted)', marginBottom: 12 }} />
+                  <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-text)', marginBottom: 4 }}>
+                    Belum Ada Jadwal Notifikasi
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', marginBottom: 16, maxWidth: 440, margin: '0 auto 16px' }}>
+                    Buat jadwal untuk mengirim notifikasi otomatis (misal pengingat pembayaran iuran) sesuai tanggal dan jam yang ditentukan.
+                  </div>
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    onClick={() => {
+                      setEditingSchedule(null)
+                      setScheduleForm({
+                        name: '',
+                        event_type: '',
+                        template_id: '',
+                        send_days: [],
+                        send_hour: 8,
+                        send_minute: 0,
+                        timezone: 'Asia/Jakarta',
+                        is_active: true,
+                      })
+                      setShowScheduleModal(true)
+                    }}
+                  >
+                    <PlusOutlined style={{ marginRight: 6 }} /> Buat Jadwal Pertama
+                  </button>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto', background: 'var(--sf-card-bg)', border: '1px solid var(--sf-border)', borderRadius: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--sf-border)', background: 'rgba(0,0,0,0.02)' }}>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Nama Jadwal</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Jenis Notifikasi</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Template</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Tanggal Pengiriman</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Jam</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Timezone</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600, textAlign: 'right' }}>Terakhir Dieksekusi</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600, textAlign: 'right' }}>Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {schedules.map((s) => {
+                        const eventName =
+                          systemTypes.find((st) => st.event_type === s.event_type)?.name ||
+                          knownEventNames[s.event_type] ||
+                          s.event_type
+                        const templateName = templates.find((t) => t.id === s.template_id)?.name || s.template_id
+                        const days = s.send_days.join(', ')
+                        const timeStr = `${s.send_hour.toString().padStart(2, '0')}:${s.send_minute.toString().padStart(2, '0')}`
+                        return (
+                          <tr key={s.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
+                            <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text)' }}>{s.name}</td>
+                            <td style={{ padding: '12px 16px' }}><Badge variant="blue">{eventName}</Badge></td>
+                            <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--sf-text-muted)' }}>{templateName}</td>
+                            <td style={{ padding: '12px 16px', fontSize: 12 }}>{days}</td>
+                            <td style={{ padding: '12px 16px', fontSize: 12 }}>{timeStr}</td>
+                            <td style={{ padding: '12px 16px', fontSize: 12 }}>{s.timezone}</td>
+                            <td style={{ padding: '12px 16px' }}>
+                              {s.is_active ? <Badge variant="green">Aktif</Badge> : <Badge variant="gray">Nonaktif</Badge>}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                              {s.last_executed_at ? new Date(s.last_executed_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
+                              {s.last_executed_status && (
+                                <span style={{ fontSize: 11, marginLeft: 4, color: s.last_executed_status === 'success' ? 'var(--sf-success)' : 'var(--sf-danger)' }}>
+                                  ({s.last_executed_status})
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                                {s.template_id && (
+                                  <button
+                                    type="button"
+                                    className="sf-btn-outline"
+                                    style={{ padding: '4px 8px', fontSize: 12 }}
+                                    onClick={() => {
+                                      const template = templates.find((t) => t.id === s.template_id)
+                                      if (template) {
+                                        setPreviewItem({ title: template.title, body: template.body, eventName: s.name, imageUrl: template.image_url })
+                                      }
+                                    }}
+                                    title="Lihat Tampilan Banner"
+                                  >
+                                    <MobileOutlined />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  style={{ padding: '4px 8px', fontSize: 12 }}
+                                  onClick={() => {
+                                    setEditingSchedule(s)
+                                    setScheduleForm({
+                                      name: s.name,
+                                      event_type: s.event_type,
+                                      template_id: s.template_id ?? '',
+                                      send_days: s.send_days,
+                                      send_hour: s.send_hour,
+                                      send_minute: s.send_minute,
+                                      timezone: s.timezone,
+                                      is_active: s.is_active,
+                                    })
+                                    setShowScheduleModal(true)
+                                  }}
+                                  title="Edit jadwal"
+                                >
+                                  <EditOutlined />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  style={{ padding: '4px 8px', fontSize: 12 }}
+                                  onClick={() => handleToggleSchedule(s)}
+                                  title={s.is_active ? 'Nonaktifkan jadwal' : 'Aktifkan jadwal'}
+                                >
+                                  {s.is_active ? <StopOutlined style={{ color: 'var(--sf-warning)' }} /> : <CheckCircleOutlined style={{ color: 'var(--sf-success)' }} />}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-danger)' }}
+                                  onClick={() => handleDeleteSchedule(s.id)}
+                                  title="Hapus jadwal"
+                                >
+                                  <DeleteOutlined />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
           {/* TAB 3: RIWAYAT PENGIRIMAN */}
           {activeTab === 'logs' && (
             <div>
@@ -1020,8 +1354,6 @@ export function NotificationScreen() {
               )}
             </div>
           )}
-        </>
-      )}
 
       {/* MODAL: Tambah Template */}
       {showCreateModal && (
@@ -1517,6 +1849,204 @@ export function NotificationScreen() {
               Tutup Preview
             </button>
           </ModalFooter>
+        </Modal>
+      )}
+
+      {/* MODAL: Tambah/Edit Jadwal */}
+      {showScheduleModal && (
+        <Modal open={showScheduleModal} onClose={() => setShowScheduleModal(false)}>
+          <ModalHeader
+            title={editingSchedule ? `Edit Jadwal: ${editingSchedule.name}` : 'Buat Jadwal Baru'}
+            onClose={() => setShowScheduleModal(false)}
+          />
+          <form onSubmit={handleSaveSchedule}>
+            <ModalBody>
+              {scheduleFormError && (
+                <div style={{ padding: 10, background: 'rgba(242, 73, 92, 0.1)', color: 'var(--sf-danger)', borderRadius: 6, marginBottom: 14, fontSize: 13 }}>
+                  {scheduleFormError}
+                </div>
+              )}
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Nama Jadwal
+                </label>
+                <input
+                  type="text"
+                  value={scheduleForm.name}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, name: e.target.value })}
+                  placeholder="Misal: Pengingat Iuran Bulanan"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Jenis Notifikasi
+                </label>
+                <select
+                  value={scheduleForm.event_type}
+                  onChange={(e) => {
+                    const ev = e.target.value
+                    const found = systemTypes.find((t) => t.event_type === ev)
+                    setScheduleForm((prev) => ({
+                      ...prev,
+                      event_type: ev,
+                      template_id: (found ? templates.find((t) => t.event_type === ev && t.is_active)?.id : '') || '',
+                    }))
+                  }}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                >
+                  {systemTypes.map((st) => (
+                    <option key={st.event_type} value={st.event_type}>
+                      {st.name} ({st.event_type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Template Pesan
+                </label>
+                <select
+                  value={scheduleForm.template_id}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, template_id: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                >
+                  {templates
+                    .filter((t) => t.event_type === scheduleForm.event_type && t.is_active)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  {templates.filter((t) => t.event_type === scheduleForm.event_type && t.is_active).length === 0 && (
+                    <option value="" disabled>
+                      Tidak ada template aktif untuk jenis notifikasi ini
+                    </option>
+                  )}
+                </select>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Tanggal Pengiriman (1-31)
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[...Array(31)].map((_, i) => {
+                    const day = i + 1
+                    const selected = scheduleForm.send_days.includes(day)
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => {
+                          const next = selected
+                            ? scheduleForm.send_days.filter((d) => d !== day)
+                            : [...scheduleForm.send_days, day]
+                          setScheduleForm({ ...scheduleForm, send_days: next })
+                        }}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          border: selected ? '1px solid var(--sf-accent)' : '1px solid var(--sf-border)',
+                          background: selected ? 'var(--sf-accent)' : 'var(--sf-bg)',
+                          color: selected ? '#fff' : 'var(--sf-text)',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {day}
+                      </button>
+                    )
+                  })}
+                </div>
+                {scheduleForm.send_days.length === 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--sf-danger)', marginTop: 4 }}>
+                    Pilih minimal satu tanggal
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    Jam
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="23"
+                    value={scheduleForm.send_hour}
+                    onChange={(e) => {
+                      const v = Math.max(0, Math.min(23, parseInt(e.target.value) || 0))
+                      setScheduleForm({ ...scheduleForm, send_hour: v })
+                    }}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    Menit
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={scheduleForm.send_minute}
+                    onChange={(e) => {
+                      const v = Math.max(0, Math.min(59, parseInt(e.target.value) || 0))
+                      setScheduleForm({ ...scheduleForm, send_minute: v })
+                    }}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Timezone
+                </label>
+                <input
+                  type="text"
+                  value={scheduleForm.timezone}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, timezone: e.target.value })}
+                  placeholder="Asia/Jakarta"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  id="scheduleIsActive"
+                  checked={editingSchedule ? editingSchedule.is_active : scheduleForm.is_active}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, is_active: e.target.checked })}
+                />
+                <label htmlFor="scheduleIsActive" style={{ fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  Aktifkan jadwal ini
+                </label>
+              </div>
+            </ModalBody>
+            <ModalFooter>
+              <button
+                type="button"
+                className="sf-btn-outline"
+                onClick={() => setShowScheduleModal(false)}
+                disabled={scheduleFormSubmitting}
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="sf-btn-primary"
+                disabled={scheduleFormSubmitting}
+              >
+                {scheduleFormSubmitting ? 'Menyimpan...' : editingSchedule ? 'Simpan Perubahan' : 'Buat Jadwal'}
+              </button>
+            </ModalFooter>
+          </form>
         </Modal>
       )}
     </div>

@@ -52,6 +52,7 @@ class _NotificationManagementScreenState
   List<NotificationSchedule> _schedules = [];
   bool _isLoadingSchedules = false;
   String? _schedulesError;
+  bool _isSavingSchedule = false;
 
   @override
   void initState() {
@@ -1211,12 +1212,12 @@ class _NotificationManagementScreenState
               text: 'Template',
             ),
             Tab(
-              icon: Icon(Icons.history_rounded, size: 20),
-              text: 'Riwayat',
-            ),
-            Tab(
               icon: Icon(Icons.schedule_rounded, size: 20),
               text: 'Penjadwalan',
+            ),
+            Tab(
+              icon: Icon(Icons.history_rounded, size: 20),
+              text: 'Riwayat',
             ),
           ],
         ),
@@ -1658,7 +1659,7 @@ class _NotificationManagementScreenState
                                     ),
                                   ),
                                 IconButton(
-                                  icon: const Icon(Icons.preview_rounded, size: 20),
+                                  icon: const Icon(Icons.preview_rounded, size: 20, color: AppColors.info),
                                   tooltip: 'Preview Banner',
                                   onPressed: () => _showPreviewBanner(
                                     title: tmpl.title,
@@ -1668,7 +1669,7 @@ class _NotificationManagementScreenState
                                   ),
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.edit_outlined, size: 20),
+                                  icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.accent),
                                   tooltip: 'Ubah Template',
                                   onPressed: () => _showAddEditTemplateDialog(
                                     template: tmpl,
@@ -1696,15 +1697,7 @@ class _NotificationManagementScreenState
             ),
           ),
 
-          // TAB 3: RIWAYAT PENGIRIMAN
-          _buildLogsTab(
-            theme: theme,
-            isDark: isDark,
-            isAdmin: true,
-            systemTypes: systemTypesAsync.valueOrNull ?? [],
-          ),
-
-          // TAB 4: PENJADWALAN NOTIFIKASI
+          // TAB 3: PENJADWALAN NOTIFIKASI
           RefreshIndicator(
             onRefresh: () async {
               ref.invalidate(notificationSchedulesProvider);
@@ -1713,7 +1706,16 @@ class _NotificationManagementScreenState
             child: _buildSchedulesTab(
               theme: theme,
               isDark: isDark,
+              templatesAsync: templatesAsync,
             ),
+          ),
+
+          // TAB 4: RIWAYAT PENGIRIMAN
+          _buildLogsTab(
+            theme: theme,
+            isDark: isDark,
+            isAdmin: true,
+            systemTypes: systemTypesAsync.valueOrNull ?? [],
           ),
         ],
       ),
@@ -1727,6 +1729,7 @@ class _NotificationManagementScreenState
   Widget _buildSchedulesTab({
     required ThemeData theme,
     required bool isDark,
+    required AsyncValue<List<NotificationTemplate>> templatesAsync,
   }) {
     final textColor = isDark ? AppColors.darkText : AppColors.lightText;
     final muted = isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted;
@@ -1761,99 +1764,113 @@ class _NotificationManagementScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Top row: name + switch toggle
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              s.name,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: textColor,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            AppBadge(
-                              label: s.isActive ? 'Aktif' : 'Nonaktif',
-                              backgroundColor: s.isActive
-                                  ? AppColors.success
-                                  : AppColors.darkDangerSoft,
-                              textColor: s.isActive
-                                  ? Colors.white
-                                  : AppColors.danger,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          eventName,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: textColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Tanggal: $days | Jam: ${s.sendHour.toString().padLeft(2, '0')}:${s.sendMinute.toString().padLeft(2, '0')} WIB',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: muted,
-                          ),
-                        ),
-                        if (s.timezone.isNotEmpty && s.timezone != 'Asia/Jakarta')
-                          Text(
-                            'Timezone: ${s.timezone}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: muted,
-                              fontSize: 11,
-                            ),
-                          ),
-                        if (s.lastExecutedAt != null) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              const Icon(Icons.access_time, size: 14, color: AppColors.accent),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Terakhir dieksekusi: ${_formatDateTime(s.lastExecutedAt!)} (${s.lastExecutedStatus ?? '-'})',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: muted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
+                    child: Text(
+                      s.name,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
                     ),
                   ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      IconButton(
-                        icon: Icon(
-                          s.isActive ? Icons.toggle_on : Icons.toggle_off,
-                          color: s.isActive ? AppColors.success : AppColors.danger,
-                        ),
-                        tooltip: s.isActive ? 'Nonaktifkan' : 'Aktifkan',
-                        onPressed: () => _toggleSchedule(s),
+                  Switch(
+                    value: s.isActive,
+                    activeColor: AppColors.accent,
+                    onChanged: (val) async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        final repo = ref.read(notificationRepositoryProvider);
+                        await repo.toggleScheduleActive(s.id);
+                        if (!mounted) return;
+                        ref.invalidate(notificationSchedulesProvider);
+                      } catch (e) {
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(e.toString())),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Info section
+              Row(
+                children: [
+                  Text(
+                    eventName,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: textColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Tanggal: $days | Jam: ${s.sendHour.toString().padLeft(2, '0')}:${s.sendMinute.toString().padLeft(2, '0')} WIB',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: muted,
+                ),
+              ),
+              if (s.timezone.isNotEmpty && s.timezone != 'Asia/Jakarta') ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Timezone: ${s.timezone}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: muted,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+              if (s.lastExecutedAt != null) ...[
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    const Icon(Icons.access_time, size: 14, color: AppColors.accent),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Terakhir dieksekusi: ${_formatDateTime(s.lastExecutedAt!)} (${s.lastExecutedStatus ?? '-'})',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: muted,
                       ),
-                      const SizedBox(height: 8),
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.accent),
-                        tooltip: 'Ubah Jadwal',
-                        onPressed: () => _showAddEditScheduleDialog(schedule: s),
-                      ),
-                      const SizedBox(height: 8),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.danger),
-                        tooltip: 'Hapus Jadwal',
-                        onPressed: () => _confirmDeleteSchedule(s),
-                      ),
-                    ],
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 12),
+              // Action buttons - horizontal below info
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.preview_rounded, size: 20, color: AppColors.info),
+                    tooltip: 'Preview Notifikasi',
+                    onPressed: () {
+                      final tmpl = templatesAsync.value?.where(
+                        (t) => t.id == s.templateId,
+                      ).firstOrNull;
+                      _showPreviewBanner(
+                        title: tmpl?.title ?? '',
+                        body: tmpl?.body ?? '',
+                        eventName: eventName,
+                        imageUrl: tmpl?.imageUrl,
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.accent),
+                    tooltip: 'Ubah Jadwal',
+                    onPressed: () => _showAddEditScheduleDialog(schedule: s),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.danger),
+                    tooltip: 'Hapus Jadwal',
+                    onPressed: () => _confirmDeleteSchedule(s),
                   ),
                 ],
               ),
@@ -1865,24 +1882,47 @@ class _NotificationManagementScreenState
   }
 
   Future<void> _toggleSchedule(NotificationSchedule schedule) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(schedule.isActive ? 'Nonaktifkan Jadwal' : 'Aktifkan Jadwal'),
+        content: Text(
+          schedule.isActive
+              ? 'Apakah Anda yakin ingin menonaktifkan jadwal "${schedule.name}"? Notifikasi tidak akan dikirim sesuai jadwal.'
+              : 'Apakah Anda yakin ingin mengaktifkan jadwal "${schedule.name}"? Notifikasi akan dikirim sesuai jadwal yang ditetapkan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.accent),
+            child: Text(schedule.isActive ? 'Nonaktifkan' : 'Aktifkan'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
     try {
       final repo = ref.read(notificationRepositoryProvider);
       await repo.toggleScheduleActive(schedule.id);
-      if (mounted) {
-        setState(() {
-          _schedules = _schedules.map((s) {
-            if (s.id == schedule.id) {
-              return s.copyWith(isActive: !s.isActive);
-            }
-            return s;
-          }).toList();
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Jadwal ${schedule.isActive ? 'dinonaktifkan' : 'diaktifkan'}'),
-          ),
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        _schedules = _schedules.map((s) {
+          if (s.id == schedule.id) {
+            return s.copyWith(isActive: !s.isActive);
+          }
+          return s;
+        }).toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Jadwal ${schedule.isActive ? 'dinonaktifkan' : 'diaktifkan'}'),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1919,6 +1959,7 @@ class _NotificationManagementScreenState
           setState(() {
             _schedules.removeWhere((s) => s.id == schedule.id);
           });
+          ref.invalidate(notificationSchedulesProvider);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Jadwal dihapus')),
           );
@@ -1965,7 +2006,7 @@ class _NotificationManagementScreenState
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
-          builder: (dialogContext, setState) {
+          builder: (dialogContext, setSheetState) {
             final activeTemplates =
                 templates.where((t) => t.isActive).toList();
             if (selectedTemplateId == null && activeTemplates.isNotEmpty) {
@@ -2008,7 +2049,7 @@ class _NotificationManagementScreenState
                             labelText: 'Jenis Notifikasi *',
                           ),
                           onChanged: (v) {
-                            setState(() {
+                            setSheetState(() {
                               selectedEventType = v;
                               selectedTemplateId = null;
                             });
@@ -2054,15 +2095,15 @@ class _NotificationManagementScreenState
                           return ChoiceChip(
                             label: Text(day.toString()),
                             selected: selected,
-                            onSelected: (sel) {
-                              setState(() {
-                                if (sel) {
-                                  selectedDays.add(day);
-                                } else {
-                                  selectedDays.remove(day);
-                                }
-                              });
-                            },
+                              onSelected: (sel) {
+                                setSheetState(() {
+                                  if (sel) {
+                                    selectedDays.add(day);
+                                  } else {
+                                    selectedDays.remove(day);
+                                  }
+                                });
+                              },
                             selectedColor: AppColors.accent.withValues(alpha: 0.2),
                           );
                         }),
@@ -2119,7 +2160,7 @@ class _NotificationManagementScreenState
                         subtitle: const Text(
                             'Jadwal akan dijalankan sesuai tanggal dan jam yang ditetapkan.'),
                         value: isActive,
-                        onChanged: (v) => setState(() => isActive = v),
+                        onChanged: (v) => setSheetState(() => isActive = v),
                         activeColor: AppColors.accent,
                       ),
                     ],
@@ -2132,78 +2173,93 @@ class _NotificationManagementScreenState
                   child: const Text('Batal'),
                 ),
                 ElevatedButton(
-                  onPressed: () async {
-                    if (nameCtrl.text.trim().isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Nama jadwal wajib diisi')),
-                      );
-                      return;
-                    }
-                    if (selectedDays.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Pilih minimal satu tanggal pengiriman')),
-                      );
-                      return;
-                    }
-                    if (selectedEventType == null ||
-                        selectedTemplateId == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content:
-                                Text('Jenis notifikasi dan template wajib dipilih')),
-                      );
-                      return;
-                    }
-                    final tz = timezoneCtrl.text.trim().isNotEmpty
-                        ? timezoneCtrl.text.trim()
-                        : 'Asia/Jakarta';
-                    try {
-                      final input = CreateNotificationScheduleInput(
-                        eventType: selectedEventType!,
-                        templateId: selectedTemplateId!,
-                        name: nameCtrl.text.trim(),
-                        sendDays: selectedDays.toList()..sort(),
-                        sendHour: sendHour,
-                        sendMinute: sendMinute,
-                        timezone: tz,
-                      );
-                      if (isEdit) {
-                        await repo.updateSchedule(schedule!.id,
-                            UpdateNotificationScheduleInput(
-                          name: nameCtrl.text.trim(),
-                          isActive: isActive,
-                          sendDays: selectedDays.toList()..sort(),
-                          sendHour: sendHour,
-                          sendMinute: sendMinute,
-                          timezone: tz,
-                        ));
-                      } else {
-                        await repo.createSchedule(input);
-                      }
-                      if (mounted) {
-                        Navigator.of(dialogContext).pop(true);
-                        _loadSchedules();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                                'Jadwal ${isEdit ? 'diperbarui' : 'dibuat'}'),
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Gagal menyimpan jadwal: $e')),
-                        );
-                      }
-                    }
-                  },
+                  onPressed: _isSavingSchedule
+                      ? null
+                      : () async {
+                        if (nameCtrl.text.trim().isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Nama jadwal wajib diisi')),
+                          );
+                          return;
+                        }
+                        if (selectedDays.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Pilih minimal satu tanggal pengiriman')),
+                          );
+                          return;
+                        }
+                        if (selectedEventType == null ||
+                            selectedTemplateId == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content:
+                                    Text('Jenis notifikasi dan template wajib dipilih')),
+                          );
+                          return;
+                        }
+                        final tz = timezoneCtrl.text.trim().isNotEmpty
+                            ? timezoneCtrl.text.trim()
+                            : 'Asia/Jakarta';
+                        try {
+                          setSheetState(() => _isSavingSchedule = true);
+                          final input = CreateNotificationScheduleInput(
+                            eventType: selectedEventType!,
+                            templateId: selectedTemplateId!,
+                            name: nameCtrl.text.trim(),
+                            sendDays: selectedDays.toList()..sort(),
+                            sendHour: sendHour,
+                            sendMinute: sendMinute,
+                            timezone: tz,
+                          );
+                          if (isEdit) {
+                            await repo.updateSchedule(schedule!.id,
+                                UpdateNotificationScheduleInput(
+                              name: nameCtrl.text.trim(),
+                              isActive: isActive,
+                              sendDays: selectedDays.toList()..sort(),
+                              sendHour: sendHour,
+                              sendMinute: sendMinute,
+                              timezone: tz,
+                            ));
+                          } else {
+                            await repo.createSchedule(input);
+                          }
+                          if (mounted) {
+                            Navigator.of(dialogContext).pop(true);
+                            ref.invalidate(notificationSchedulesProvider);
+                            _loadSchedules();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                    'Jadwal ${isEdit ? 'diperbarui' : 'dibuat'}'),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Gagal menyimpan jadwal: $e')),
+                            );
+                          }
+                        } finally {
+                          if (mounted) setState(() => _isSavingSchedule = false);
+                        }
+                      },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.accent,
                     foregroundColor: Colors.white,
                   ),
-                  child: Text(isEdit ? 'Simpan Perubahan' : 'Buat Jadwal'),
+                  child: _isSavingSchedule
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : Text(isEdit ? 'Simpan Perubahan' : 'Buat Jadwal'),
                 ),
               ],
             );

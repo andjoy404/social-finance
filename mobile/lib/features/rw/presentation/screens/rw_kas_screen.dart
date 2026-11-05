@@ -131,7 +131,6 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
         : resolveRwNumber(widget.rwId, rwMemberships);
     final rwDisplayName = currentMembership?['rwName'] ?? (rwNumberText != null ? 'RW $rwNumberText' : 'RW');
 
-    super.build(context);
     final body = NestedScrollView(
         headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
           SliverToBoxAdapter(

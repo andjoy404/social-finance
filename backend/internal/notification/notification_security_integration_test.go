@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"social-finance/internal/auth"
 	httpx "social-finance/internal/http"
@@ -146,21 +148,18 @@ func TestRequireAllowedRT_ProductionMiddleware(t *testing.T) {
 }
 
 // setupTestRT inserts an RT with the given rt code if it doesn't exist,
-// ensures it's active, and returns its UUID.
+// returns its UUID. Does NOT modify existing shared RTs to avoid
+// uniq_rts_active partial-index violations.
 func setupTestRT(t *testing.T, pool *database.Pool, ctx context.Context, rtCode string) string {
 	t.Helper()
 
 	// Check if RT already exists.
 	var rtID string
+	var isActive bool
 	err := pool.Raw().QueryRowContext(ctx,
-		`SELECT id FROM rts WHERE rt = $1 LIMIT 1`, rtCode).Scan(&rtID)
+		`SELECT id, is_active FROM rts WHERE rt = $1 LIMIT 1`, rtCode).Scan(&rtID, &isActive)
 	if err == nil && rtID != "" {
-		// RT exists — ensure it's active.
-		_, err := pool.Raw().ExecContext(ctx,
-			`UPDATE rts SET is_active = true WHERE rt = $1`, rtCode)
-		if err != nil {
-			t.Fatalf("failed to activate RT %s: %v", rtCode, err)
-		}
+		// RT exists — return it as-is (do not mutate shared data)
 		return rtID
 	}
 
@@ -197,6 +196,63 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 	rt002ID := setupTestRT(t, pool, ctx, "002")
 	rt003ID := setupTestRT(t, pool, ctx, "003")
 
+	// Ensure notification.manage permission exists for jabatan "ketua".
+	// This is needed for Ketua RT test cases that go through RequireNotificationAdmin.
+	// Use the same RT ID (rt002ID) so validateMembershipJabatan finds the membership.
+
+	// Insert permission (idempotent)
+	_, err := pool.Raw().ExecContext(ctx,
+		`INSERT INTO permission_types (code, domain, operation)
+		VALUES ('notification.manage', 'notification', 'manage')
+		ON CONFLICT (code) DO NOTHING`,
+	)
+	if err != nil {
+		t.Fatalf("insert permission_types: %v", err)
+	}
+	var permissionID string
+	err = pool.Raw().QueryRowContext(ctx,
+		`SELECT id FROM permission_types WHERE code = 'notification.manage'`,
+	).Scan(&permissionID)
+	if err != nil {
+		t.Fatalf("get permission id: %v", err)
+	}
+	_, err = pool.Raw().ExecContext(ctx,
+		`INSERT INTO position_permissions (position, permission_id)
+		VALUES ($1, $2)
+		ON CONFLICT (position, permission_id) DO NOTHING`,
+		"ketua", permissionID,
+	)
+	if err != nil {
+		t.Fatalf("insert position_permissions: %v", err)
+	}
+
+	// Create ketua user + membership in the same RT that setupTestRT returned.
+	// This is the key fix: the membership rt_id must match rt002ID.
+	var ketuaUID string
+	ketuaUID = uuid.New().String()
+	_, err = pool.Raw().ExecContext(ctx,
+		`INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+		VALUES ($1, $2, '08123456789', 'dummyhash', 'Test Ketua RT', true)
+		ON CONFLICT (id) DO UPDATE SET is_active = true`,
+		ketuaUID, fmt.Sprintf("ketua-%d@test.com", time.Now().UnixNano()),
+	)
+	if err != nil {
+		t.Fatalf("create ketua user for integration test: %v", err)
+	}
+
+	// Insert membership with the correct rt002ID so validateMembershipJabatan finds it.
+	var ketuaMembershipID string
+	err = pool.Raw().QueryRowContext(ctx,
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, true)
+		ON CONFLICT DO NOTHING
+		RETURNING id`,
+		ketuaUID, rt002ID, "warga", "ketua",
+	).Scan(&ketuaMembershipID)
+	if err != nil {
+		t.Fatalf("create ketua membership for integration test: %v", err)
+	}
+
 	// Create a minimal mock repo for handler responses.
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
@@ -218,7 +274,7 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 			})
 		})
 		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireNotificationAdmin())
+		r.Use(auth.RequireNotificationAdmin(pool))
 
 		r.Get("/api/v1/notifications/system-types", handler.GetSystemTypes)
 		r.Get("/api/v1/notifications/templates", handler.ListTemplates)
@@ -354,11 +410,22 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			// For Ketua RT test case, use the ketua user created in fixture.
+			userID := "test-user-id"
+			membID := ""
+			jabatanVal := tc.jabatan
+			if tc.name == "ketua_with_whitelisted_rt" {
+				userID = ketuaUID
+				membID = ketuaMembershipID
+				jabatanVal = auth.JabatanKetua
+			}
+
 			ac := &auth.AuthContext{
-				UserID:     "test-user-id",
-				SystemRole: tc.systemRole,
-				RTID:       tc.rtID,
-				Jabatan:    tc.jabatan,
+				UserID:         userID,
+				MembershipID:   membID,
+				SystemRole:     tc.systemRole,
+				RTID:           tc.rtID,
+				Jabatan:        jabatanVal,
 			}
 
 			var req *http.Request
@@ -390,13 +457,43 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 }
 
 // TestRequireAllowedRT_ActiveRTFlag verifies that deactivated RTs are rejected.
+//
+// NOTE: This test intentionally does NOT use t.Parallel(). It must run
+// sequentially because it modifies the is_active flag on RT 002, a shared
+// fixture used by other tests. Running it in parallel would race with any
+// other test that reads the same RT row while is_active is temporarily false.
+//
+// The middleware production code is not modified; this test reuses the
+// existing whitelisted RT 002 because RequireAllowedRT checks BOTH the
+// whitelist (rt code in {"002","003"}) AND the is_active column. A
+// non-whitelisted RT code would fail the whitelist check before the
+// is_active check is reached, making it impossible to test deactivation
+// without temporarily altering AllowedRTCodes (which would be unsafe
+// without a mutex around that global map).
 func TestRequireAllowedRT_ActiveRTFlag(t *testing.T) {
-	t.Parallel()
 
 	pool := testutil.GetTestPool(t)
 	ctx := context.Background()
 
-	rt002ID := setupTestRT(t, pool, ctx, "002")
+	// Use an existing whitelisted RT so the whitelist check passes.
+	rtID := setupTestRT(t, pool, ctx, "002")
+
+	// Ensure the RT is restored to active even if this test panics.
+	var wasActive bool
+	err := pool.Raw().QueryRowContext(ctx,
+		`SELECT is_active FROM rts WHERE id = $1`, rtID).Scan(&wasActive)
+	if err != nil {
+		t.Fatalf("query RT 002 initial state: %v", err)
+	}
+	t.Cleanup(func() {
+		if wasActive {
+			_, restoreErr := pool.Raw().ExecContext(ctx,
+				`UPDATE rts SET is_active = true WHERE id = $1`, rtID)
+			if restoreErr != nil {
+				t.Logf("failed to restore RT 002 to active: %v", restoreErr)
+			}
+		}
+	})
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -405,11 +502,11 @@ func TestRequireAllowedRT_ActiveRTFlag(t *testing.T) {
 	middleware := auth.RequireAllowedRT(pool)
 	authorizedHandler := middleware(handler)
 
-	// First, verify RT 002 is active → passes
+	// First, verify RT is active → passes
 	ac := &auth.AuthContext{
 		UserID:     "test-user",
 		SystemRole: auth.SystemRoleSuperAdmin,
-		RTID:       rt002ID,
+		RTID:       rtID,
 	}
 	req := httptest.NewRequest("GET", "/test", nil)
 	ctx2 := context.WithValue(req.Context(), auth.AuthContextKey, ac)
@@ -421,10 +518,10 @@ func TestRequireAllowedRT_ActiveRTFlag(t *testing.T) {
 		t.Fatalf("expected 200 for active RT, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Deactivate RT 002 via SQL
-	_, err := pool.Raw().ExecContext(ctx, `UPDATE rts SET is_active = false WHERE id = $1`, rt002ID)
+	// Deactivate the RT via SQL
+	_, err = pool.Raw().ExecContext(ctx, `UPDATE rts SET is_active = false WHERE id = $1`, rtID)
 	if err != nil {
-		t.Fatalf("failed to deactivate RT: %v", err)
+		t.Fatalf("failed to deactivate test RT: %v", err)
 	}
 
 	// Now same request should be rejected
@@ -434,11 +531,7 @@ func TestRequireAllowedRT_ActiveRTFlag(t *testing.T) {
 		t.Fatalf("expected 403 for deactivated RT, got %d: %s", rec2.Code, rec2.Body.String())
 	}
 
-	// Restore RT 002 for other tests
-	_, err = pool.Raw().ExecContext(ctx, `UPDATE rts SET is_active = true WHERE id = $1`, rt002ID)
-	if err != nil {
-		t.Fatalf("failed to reactivate RT: %v", err)
-	}
+	// t.Cleanup will restore is_active after this test completes.
 }
 
 // TestRequireAllowedRT_NoDBPoolUsesAuthDBPool verifies behavior when pool is nil.
@@ -523,7 +616,8 @@ func TestRequireAllowedRT_IntegrationWithNotificationLogs(t *testing.T) {
 			})
 		})
 		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireNotificationAdmin())
+		r.Use(auth.RequireNotificationAdmin(pool))
+
 		r.Get("/api/v1/notifications/logs", handler.ListLogs)
 	})
 

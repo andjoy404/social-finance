@@ -52,15 +52,15 @@ class RwKeuanganScreen extends ConsumerStatefulWidget {
 
 class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+  TabController? _tabController;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(
-      length: 3,
+      length: 2,
       vsync: this,
-      initialIndex: widget.initialTab.clamp(0, 2),
+      initialIndex: 0,
     );
   }
 
@@ -68,13 +68,16 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
   void didUpdateWidget(covariant RwKeuanganScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.initialTab != widget.initialTab) {
-      _tabController.animateTo(widget.initialTab.clamp(0, 2));
+      final validIndex = widget.initialTab.clamp(0, _tabController!.length - 1);
+      if (_tabController!.index != validIndex) {
+        _tabController!.index = validIndex;
+      }
     }
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _tabController?.dispose();
     super.dispose();
   }
 
@@ -98,14 +101,22 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
     final showLokasiDana = hasWriteAccess;
     final tabCount = 2 + (showLokasiDana ? 1 : 0);
 
-    // Re-init TabController if tab count changed.
-    if (_tabController.length != tabCount) {
-      _tabController.dispose();
+    // Recreate controller if tab count changed (e.g. inferred → explicit or
+    // vice versa).  TabController.length has no setter, so we must dispose
+    // and allocate a new controller rather than mutating in place.
+    if (_tabController == null || _tabController!.length != tabCount) {
+      _tabController?.dispose();
       _tabController = TabController(
         length: tabCount,
         vsync: this,
         initialIndex: widget.initialTab.clamp(0, tabCount - 1),
       );
+    }
+
+    // Clamp index to valid range after length change.
+    final validIndex = widget.initialTab.clamp(0, tabCount - 1);
+    if (_tabController!.index != validIndex) {
+      _tabController!.index = validIndex;
     }
 
     return Scaffold(

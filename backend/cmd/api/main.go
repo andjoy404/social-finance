@@ -534,29 +534,22 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// ────────────────────────────────────────────────────────────────────
 
 	// RT management routes — system-level, SUPER_ADMIN only.
+	// (Handler is instantiated later, after notification service is available.)
 
-	rtSvc := rtpkg.NewService()
-	rtHandler := rtpkg.NewHandler(rtSvc, pool)
+	// Notification credentials must be loaded before RT handler so that
+	// default notification template/schedule can be seeded for new RTs.
+	fcmCreds := os.Getenv("FCM_CREDENTIALS_FILE")
+	if fcmCreds == "" {
+		fcmCreds = os.Getenv("FCM_CREDENTIALS")
+	}
+	fcmProject := os.Getenv("FCM_PROJECT_ID")
+	if fcmProject == "" {
+		fcmProject = "social-finance-andjoy"
+	}
 
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireSystemRole(auth.SystemRoleSuperAdmin))
-		r.Get("/api/v1/rws", rtHandler.ListAllRWs)
-		r.Post("/api/v1/rws", rtHandler.CreateRW)
-		r.Get("/api/v1/rws/{id}", rtHandler.GetRWByID)
-		r.Patch("/api/v1/rws/{id}", rtHandler.UpdateRW)
-		r.Patch("/api/v1/rws/{id}/deactivate", rtHandler.DeactivateRW)
-		r.Get("/api/v1/rws/{id}/memberships", rtHandler.ListRWMemberships)
-		r.Put("/api/v1/rws/{id}/memberships/{userId}/jabatan", rtHandler.SetRWJabatan)
-		r.Delete("/api/v1/rws/{id}/memberships/{userId}/jabatan", rtHandler.RemoveRWJabatan)
-		r.Get("/api/v1/rts", rtHandler.ListAll)
-		r.Post("/api/v1/rts", rtHandler.Create)
-		r.Get("/api/v1/rts/{id}", rtHandler.GetByID)
-		r.Patch("/api/v1/rts/{id}", rtHandler.Update)
-		r.Patch("/api/v1/rts/{id}/deactivate", rtHandler.Deactivate)
-		r.Get("/api/v1/rts/{id}/memberships", rtHandler.ListMemberships)
-		r.Put("/api/v1/rts/{id}/memberships/{userId}/jabatan", rtHandler.SetJabatan)
-		r.Delete("/api/v1/rts/{id}/memberships/{userId}/jabatan", rtHandler.RemoveJabatan)
 	})
 
 	// Household and resident routes (tenant-scoped, requires auth context).
@@ -654,6 +647,52 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		store = storage.NewMockStorage()
 	}
 	finSvc := finance.NewService(pool, store)
+
+	// Notification service must be initialised after finance service and before
+	// RT handler so that default notification template/schedule can be seeded
+	// for new RTs.
+	notifRepo := notification.NewRepository(pool)
+	notifProvider := notification.NewFCMProvider(fcmCreds, appEnv)
+	notifProvider.SetProjectID(fcmProject)
+	notifSvc := notification.NewService(notifRepo, notifProvider)
+	notifH := notification.NewHandler(notifSvc, pool, store, appEnv)
+
+	// Wire notification into finance service
+	finSvc.SetNotifier(notifSvc)
+
+	// Start the generic notification scheduler (auto reminder iuran, etc.).
+	// It runs catch-up on startup then ticks every minute. Disabled in the test
+	// environment so automated tests are not affected by background pushes.
+	if appEnv != "test" {
+		notifScheduler := notification.NewScheduler(pool, notifSvc, appEnv)
+		notifScheduler.Start(context.Background())
+	}
+
+	rtSvc := rtpkg.NewService()
+	rtHandler := rtpkg.NewHandler(rtSvc, pool, notifSvc)
+
+	// RT management routes — system-level, SUPER_ADMIN only.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireSystemRole(auth.SystemRoleSuperAdmin))
+		r.Get("/api/v1/rws", rtHandler.ListAllRWs)
+		r.Post("/api/v1/rws", rtHandler.CreateRW)
+		r.Get("/api/v1/rws/{id}", rtHandler.GetRWByID)
+		r.Patch("/api/v1/rws/{id}", rtHandler.UpdateRW)
+		r.Patch("/api/v1/rws/{id}/deactivate", rtHandler.DeactivateRW)
+		r.Get("/api/v1/rws/{id}/memberships", rtHandler.ListRWMemberships)
+		r.Put("/api/v1/rws/{id}/memberships/{userId}/jabatan", rtHandler.SetRWJabatan)
+		r.Delete("/api/v1/rws/{id}/memberships/{userId}/jabatan", rtHandler.RemoveRWJabatan)
+		r.Get("/api/v1/rts", rtHandler.ListAll)
+		r.Post("/api/v1/rts", rtHandler.Create)
+		r.Get("/api/v1/rts/{id}", rtHandler.GetByID)
+		r.Patch("/api/v1/rts/{id}", rtHandler.Update)
+		r.Patch("/api/v1/rts/{id}/deactivate", rtHandler.Deactivate)
+		r.Get("/api/v1/rts/{id}/memberships", rtHandler.ListMemberships)
+		r.Put("/api/v1/rts/{id}/memberships/{userId}/jabatan", rtHandler.SetJabatan)
+		r.Delete("/api/v1/rts/{id}/memberships/{userId}/jabatan", rtHandler.RemoveJabatan)
+	})
+
 	finH := finance.NewHandler(pool, finSvc, store)
 
 	// Wire household occupancy bill synchronization hook
@@ -792,33 +831,6 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/rw/{rwId}/locations/{id}/mutations", rwHandler.GetLocationMutations)
 	})
 
-	// Notification module
-	fcmCreds := os.Getenv("FCM_CREDENTIALS_FILE")
-	if fcmCreds == "" {
-		fcmCreds = os.Getenv("FCM_CREDENTIALS")
-	}
-	fcmProject := os.Getenv("FCM_PROJECT_ID")
-	if fcmProject == "" {
-		fcmProject = "social-finance-andjoy"
-	}
-
-	notifRepo := notification.NewRepository(pool)
-	notifProvider := notification.NewFCMProvider(fcmCreds, appEnv)
-	notifProvider.SetProjectID(fcmProject)
-	notifSvc := notification.NewService(notifRepo, notifProvider)
-	notifH := notification.NewHandler(notifSvc, pool, store, appEnv)
-
-	// Wire notification into finance service
-	finSvc.SetNotifier(notifSvc)
-
-	// Start the generic notification scheduler (auto reminder iuran, etc.).
-	// It runs catch-up on startup then ticks every minute. Disabled in the test
-	// environment so automated tests are not affected by background pushes.
-	if appEnv != "test" {
-		notifScheduler := notification.NewScheduler(pool, notifSvc, appEnv)
-		notifScheduler.Start(context.Background())
-	}
-
 	// Public notification image streaming
 	r.Get("/api/v1/notifications/images/*", notifH.GetImage)
 
@@ -860,7 +872,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireNotificationAdmin())
+		r.Use(auth.RequireNotificationAdmin(pool))
 		r.Get("/api/v1/notifications/system-types", notifH.GetSystemTypes)
 		r.Get("/api/v1/notifications/templates", notifH.ListTemplates)
 		r.Post("/api/v1/notifications/templates", notifH.CreateTemplate)
@@ -879,6 +891,11 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Put("/api/v1/notifications/schedules/{id}", notifH.UpdateSchedule)
 		r.Patch("/api/v1/notifications/schedules/{id}/toggle-active", notifH.ToggleScheduleActive)
 		r.Delete("/api/v1/notifications/schedules/{id}", notifH.DeleteSchedule)
+
+		// Scheduler execution history (aggregated per execution) —
+		// accessible to notification.manage users (Ketua RT / Super Admin).
+		r.Get("/api/v1/notifications/schedules/history", notifH.ListSchedulerHistory)
+		r.Get("/api/v1/notifications/schedules/{schedule_id}/recipients", notifH.GetSchedulerRecipientDetail)
 	})
 
 	return r

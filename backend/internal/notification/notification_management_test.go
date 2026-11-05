@@ -3,10 +3,12 @@ package notification_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,7 +16,11 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"social-finance/internal/auth"
+	"social-finance/internal/database"
 	"social-finance/internal/notification"
+	"social-finance/internal/testutil"
+
+	"github.com/google/uuid"
 )
 
 // mockManagementRepo stores templates and logs in-memory for testing management handlers.
@@ -175,12 +181,10 @@ func (m *mockManagementRepo) GetLogByID(ctx context.Context, rtID, id string) (*
 
 // setupManagementRouter mirrors the production notification management route group.
 // It applies RequireAllowedRT + RequireNotificationAdmin to match the production chain:
-// RequireAuth + RequireAllowedRT(pool) + RequireNotificationAdmin().
-// Manual push and waste-truck endpoints are in a separate group with RequireRole.
+// RequireAuth + RequireAllowedRT(pool) + RequireNotificationAdmin(pool).
 //
-// Since RequireAllowedRT takes *database.Pool (a concrete struct), we use an inline
-// middleware that performs the same whitelist check against an in-memory RT code map.
-func setupManagementRouter(repo notification.Repository, svc notification.Service) http.Handler {
+// Manual push and waste-truck endpoints are in a separate group with RequireRole.
+func setupManagementRouter(repo notification.Repository, svc notification.Service, pool *database.Pool) http.Handler {
 	r := chi.NewRouter()
 	h := notification.NewHandler(svc, nil, nil, "test")
 
@@ -189,8 +193,8 @@ func setupManagementRouter(repo notification.Repository, svc notification.Servic
 
 	// In-memory RT code lookup mirroring: SELECT rt, is_active FROM rts WHERE id = $1
 	allowedRTCodes := map[string]string{
-		"rt-002": "002",
-		"rt-003": "003",
+		"00000000-0000-0000-0000-000000000002": "002",
+		"00000000-0000-0000-0000-000000000003": "003",
 	}
 
 	// requireAllowedRT is an inline middleware matching RequireAllowedRT(pool)
@@ -224,7 +228,7 @@ func setupManagementRouter(repo notification.Repository, svc notification.Servic
 	// Management endpoints: templates, logs, test-push, upload-image
 	r.Group(func(r chi.Router) {
 		r.Use(requireAllowedRT)
-		r.Use(auth.RequireNotificationAdmin())
+		r.Use(auth.RequireNotificationAdmin(pool))
 		r.Get("/api/v1/notifications/system-types", h.GetSystemTypes)
 		r.Get("/api/v1/notifications/templates", h.ListTemplates)
 		r.Post("/api/v1/notifications/templates", h.CreateTemplate)
@@ -254,12 +258,13 @@ func withAuth(req *http.Request, ac *auth.AuthContext) *http.Request {
 }
 
 func TestNotificationManagement_SystemTypes(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
-	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	svc := notification.NewService(repo, notification.NewMockPushProvider())
+	router := setupManagementRouter(repo, svc, pool)
 
 	req := httptest.NewRequest("GET", "/api/v1/notifications/system-types", nil)
-	req = withAuth(req, &auth.AuthContext{SystemRole: auth.SystemRoleSuperAdmin, RTID: "rt-002"})
+	req = withAuth(req, &auth.AuthContext{SystemRole: auth.SystemRoleSuperAdmin, RTID: "00000000-0000-0000-0000-000000000002"})
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -279,15 +284,18 @@ func TestNotificationManagement_SystemTypes(t *testing.T) {
 }
 
 func TestNotificationManagement_TemplateCRUD(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ketuaUID, membershipID := ensureNotificationManagePermission(t, pool)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ketuaAuth := &auth.AuthContext{
-		UserID:     "user-ketua",
-		RTID:       "rt-002",
-		TenantRole: auth.RolePengurus,
-		Jabatan:    auth.JabatanKetua,
+		UserID:         ketuaUID,
+		MembershipID:   membershipID,
+		RTID:           "00000000-0000-0000-0000-000000000002",
+		TenantRole:     auth.RolePengurus,
+		Jabatan:        auth.JabatanKetua,
 	}
 
 	// 1. Create Valid Template
@@ -382,9 +390,11 @@ func TestNotificationManagement_TemplateCRUD(t *testing.T) {
 }
 
 func TestNotificationManagement_AuthorizationRules(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ketuaUID, membershipID := ensureNotificationManagePermission(t, pool)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	cases := []struct {
 		name       string
@@ -393,16 +403,17 @@ func TestNotificationManagement_AuthorizationRules(t *testing.T) {
 	}{
 		{
 			name:       "Super Admin is allowed",
-			ac:         &auth.AuthContext{SystemRole: auth.SystemRoleSuperAdmin, RTID: "rt-002"},
+			ac:         &auth.AuthContext{SystemRole: auth.SystemRoleSuperAdmin, RTID: "00000000-0000-0000-0000-000000000002"},
 			expectCode: http.StatusOK,
 		},
 		{
 			name: "Ketua RT is allowed",
 			ac: &auth.AuthContext{
-				UserID:     "user-ketua",
-				RTID:       "rt-002",
-				TenantRole: auth.RolePengurus,
-				Jabatan:    auth.JabatanKetua,
+				UserID:         ketuaUID,
+				MembershipID:   membershipID,
+				RTID:           "00000000-0000-0000-0000-000000000002",
+				TenantRole:     auth.RolePengurus,
+				Jabatan:        auth.JabatanKetua,
 			},
 			expectCode: http.StatusOK,
 		},
@@ -410,7 +421,7 @@ func TestNotificationManagement_AuthorizationRules(t *testing.T) {
 			name: "Bendahara is FORBIDDEN",
 			ac: &auth.AuthContext{
 				UserID:     "user-bendahara",
-				RTID:       "rt-002",
+				RTID:       "00000000-0000-0000-0000-000000000002",
 				TenantRole: auth.RoleBendahara,
 				Jabatan:    auth.JabatanBendahara,
 			},
@@ -420,7 +431,7 @@ func TestNotificationManagement_AuthorizationRules(t *testing.T) {
 			name: "Pengurus without Ketua jabatan is FORBIDDEN",
 			ac: &auth.AuthContext{
 				UserID:     "user-sekretaris",
-				RTID:       "rt-002",
+				RTID:       "00000000-0000-0000-0000-000000000002",
 				TenantRole: auth.RolePengurus,
 				Jabatan:    auth.JabatanSekretaris,
 			},
@@ -430,7 +441,7 @@ func TestNotificationManagement_AuthorizationRules(t *testing.T) {
 			name: "Warga is FORBIDDEN",
 			ac: &auth.AuthContext{
 				UserID:     "user-warga",
-				RTID:       "rt-002",
+				RTID:       "00000000-0000-0000-0000-000000000002",
 				TenantRole: auth.RoleWarga,
 			},
 			expectCode: http.StatusForbidden,
@@ -458,6 +469,98 @@ func TestNotificationManagement_AuthorizationRules(t *testing.T) {
 	}
 }
 
+// ensureNotificationManagePermission grants notification.manage to jabatan "ketua"
+// in the test database so that Ketua RT can pass the permission check.
+// Also creates a ketua user + membership in rt-002 so that
+// validateMembershipJabatan succeeds.
+// Returns the ketua user ID and membership ID.
+func ensureNotificationManagePermission(t *testing.T, pool *database.Pool) (ketuaUID string, membershipID string) {
+	t.Helper()
+	db := pool.Raw()
+
+	// Create ketua user if not exists
+	ketuaUID = uuid.Must(uuid.NewUUID()).String()
+	err := db.QueryRowContext(context.Background(),
+		`INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+		 VALUES ($1, $2, '08123456789', 'dummyhash', 'Test Ketua RT', true)
+		 ON CONFLICT (id) DO UPDATE SET is_active = true
+		 RETURNING id`,
+		ketuaUID, fmt.Sprintf("ketua-%d@test.com", time.Now().UnixNano()),
+	).Scan(&ketuaUID)
+	if err != nil {
+		t.Fatalf("create ketua user: %v", err)
+	}
+
+	// Use existing RT rt-002 if it exists and is active;
+	// only create it if it doesn't exist yet. This avoids
+	// uniq_rts_active partial-index violations on re-run.
+	var rtID string
+	rtID = "00000000-0000-0000-0000-000000000002"
+	var isActive bool
+	err = db.QueryRowContext(context.Background(),
+		`SELECT id, is_active FROM rts WHERE id = $1`,
+		rtID,
+	).Scan(&rtID, &isActive)
+	if err == sql.ErrNoRows {
+		// RT does not exist — create it (first run only)
+		_, err = db.ExecContext(context.Background(),
+			`INSERT INTO rts (id, name, rw, rt, address, head_name, is_active)
+			VALUES ($1, $2, $3, $4, $5, $6, true)`,
+			"00000000-0000-0000-0000-000000000002", "Test RT 002", 1, "002", "Test Address", "Test Head",
+		)
+		if err != nil {
+			t.Fatalf("create test RT rt-002: %v", err)
+		}
+		rtID = "00000000-0000-0000-0000-000000000002"
+	} else if err != nil {
+		t.Fatalf("lookup test RT rt-002: %v", err)
+	}
+	if !isActive {
+		// RT exists but is inactive — leave it as-is; tests that need an active RT
+		// should manage their own fixtures rather than mutating shared data.
+	}
+
+	// Create membership for ketua
+	membershipID = uuid.Must(uuid.NewUUID()).String()
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+	 VALUES ($1, $2, $3, $4, $5, true)
+	 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, jabatan = EXCLUDED.jabatan, rt_id = EXCLUDED.rt_id, is_active = true`,
+		membershipID, ketuaUID, rtID, "warga", "ketua",
+	)
+	if err != nil {
+		t.Fatalf("create ketua membership: %v", err)
+	}
+
+	// Insert permission
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO permission_types (code, domain, operation)
+		VALUES ('notification.manage', 'notification', 'manage')
+		ON CONFLICT (code) DO NOTHING`,
+	)
+	if err != nil {
+		t.Fatalf("insert permission_types: %v", err)
+	}
+	var permissionID string
+	err = db.QueryRowContext(context.Background(),
+		`SELECT id FROM permission_types WHERE code = 'notification.manage'`,
+	).Scan(&permissionID)
+	if err != nil {
+		t.Fatalf("get permission id: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO position_permissions (position, permission_id)
+		VALUES ($1, $2)
+		ON CONFLICT (position, permission_id) DO NOTHING`,
+		"ketua", permissionID,
+	)
+	if err != nil {
+		t.Fatalf("insert position_permissions: %v", err)
+	}
+
+	return ketuaUID, membershipID
+}
+
 func TestNotificationManagement_DynamicTemplateDispatch(t *testing.T) {
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
@@ -468,7 +571,7 @@ func TestNotificationManagement_DynamicTemplateDispatch(t *testing.T) {
 	repo.billUsers["bill-xyz-123"] = []string{"user-resident-1"}
 
 	// Create and register active custom template for bill created
-	_, _ = repo.CreateTemplate(context.Background(), "rt-002", notification.CreateTemplateInput{
+	_, _ = repo.CreateTemplate(context.Background(), "00000000-0000-0000-0000-000000000002", notification.CreateTemplateInput{
 		Name:      "Custom Bill Notif",
 		EventType: notification.EventBillCreated,
 		Channel:   "push",
@@ -477,7 +580,7 @@ func TestNotificationManagement_DynamicTemplateDispatch(t *testing.T) {
 	}, []string{"bill_id"})
 
 	// Trigger bill notification
-	svc.NotifyBillCreated(context.Background(), "rt-002", "bill-xyz-123", nil)
+	svc.NotifyBillCreated(context.Background(), "00000000-0000-0000-0000-000000000002", "bill-xyz-123", nil)
 
 	// Allow goroutine to execute
 	var found bool
@@ -504,15 +607,16 @@ func TestNotificationManagement_DynamicTemplateDispatch(t *testing.T) {
 }
 
 func TestNotificationManagement_MatrixImageEnforcement(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	superAdminAC := &auth.AuthContext{
 		UserID:     "super-admin-1",
 		SystemRole: auth.SystemRoleSuperAdmin,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 	}
 
 	imgURL := "https://example.com/image.png"
@@ -551,22 +655,23 @@ func TestNotificationManagement_MatrixImageEnforcement(t *testing.T) {
 }
 
 func TestNotificationManagement_ManualPushBroadcast(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	superAdminAC := &auth.AuthContext{
 		UserID:     "super-admin-1",
 		SystemRole: auth.SystemRoleSuperAdmin,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 	}
 
 	// Register 2 RT devices and 1 other RT device
 	_ = repo.RegisterDevice(context.Background(), "user-rt2-a", "tok-rt2-a", "android", nil)
 	_ = repo.RegisterDevice(context.Background(), "user-rt2-b", "tok-rt2-b", "android", nil)
 	_ = repo.RegisterDevice(context.Background(), "user-other-rt", "tok-other-rt", "android", nil)
-	repo.rtUsers["rt-002"] = []string{"user-rt2-a", "user-rt2-b"}
+	repo.rtUsers["00000000-0000-0000-0000-000000000002"] = []string{"user-rt2-a", "user-rt2-b"}
 	repo.rtUsers["rt-other"] = []string{"user-other-rt"}
 
 	body, _ := json.Marshal(notification.ManualPushInput{
@@ -596,21 +701,22 @@ func TestNotificationManagement_ManualPushBroadcast(t *testing.T) {
 }
 
 func TestNotificationManagement_SuperAdminTestPush(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	superAdminAC := &auth.AuthContext{
 		UserID:     "super-admin-1",
 		SystemRole: auth.SystemRoleSuperAdmin,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 	}
 	ketuaAC := &auth.AuthContext{
 		UserID:     "ketua-1",
 		TenantRole: auth.RolePengurus,
 		Jabatan:    auth.JabatanKetua,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 	}
 
 	_ = repo.RegisterDevice(context.Background(), "super-admin-1", "tok-admin-1", "android", nil)
@@ -660,9 +766,10 @@ func TestNotificationManagement_SuperAdminTestPush(t *testing.T) {
 }
 
 func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	imgURL := "/api/v1/notifications/images/notifications/manual/rt-002/test.png"
 	senderID := "user-ketua-rt2"
@@ -673,7 +780,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 	repo.logs = []notification.NotificationLogEntry{
 		{
 			ID:        "log-manual-rt2",
-			RTID:      "rt-002",
+			RTID:      "00000000-0000-0000-0000-000000000002",
 			UserID:    &senderID,
 			EventType: notification.EventManualPush,
 			DedupKey:  "manual_push:rt-002:1",
@@ -685,7 +792,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 		},
 		{
 			ID:        "log-bill-warga-a",
-			RTID:      "rt-002",
+			RTID:      "00000000-0000-0000-0000-000000000002",
 			UserID:    &wargaA,
 			EventType: notification.EventBillCreated,
 			DedupKey:  "bill:b1:user-warga-a",
@@ -696,7 +803,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 		},
 		{
 			ID:        "log-test-admin",
-			RTID:      "rt-002",
+			RTID:      "00000000-0000-0000-0000-000000000002",
 			UserID:    &superAdminID,
 			EventType: notification.EventManualPush,
 			DedupKey:  "test_push:rt-002:super-admin-1:99",
@@ -712,7 +819,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 	rec1 := httptest.NewRecorder()
 	router.ServeHTTP(rec1, withAuth(req1, &auth.AuthContext{
 		UserID:     wargaB,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RoleWarga,
 	}))
 	if rec1.Code != http.StatusOK {
@@ -724,7 +831,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 	rec2 := httptest.NewRecorder()
 	router.ServeHTTP(rec2, withAuth(req2, &auth.AuthContext{
 		UserID:     "user-other-rt",
-		RTID:       "rt-003",
+		RTID:       "00000000-0000-0000-0000-000000000003",
 		TenantRole: auth.RoleWarga,
 	}))
 	if rec2.Code != http.StatusNotFound {
@@ -736,7 +843,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 	rec3 := httptest.NewRecorder()
 	router.ServeHTTP(rec3, withAuth(req3, &auth.AuthContext{
 		UserID:     wargaB,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RoleWarga,
 	}))
 	if rec3.Code != http.StatusForbidden {
@@ -748,7 +855,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 	rec4 := httptest.NewRecorder()
 	router.ServeHTTP(rec4, withAuth(req4, &auth.AuthContext{
 		UserID:     wargaA,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RoleWarga,
 	}))
 	if rec4.Code != http.StatusOK {
@@ -760,7 +867,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 	rec5 := httptest.NewRecorder()
 	router.ServeHTTP(rec5, withAuth(req5, &auth.AuthContext{
 		UserID:     wargaA,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RoleWarga,
 	}))
 	if rec5.Code != http.StatusForbidden {
@@ -769,14 +876,15 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 }
 
 func TestNotificationManagement_ImagePathTraversalProtection(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	traversalPaths := []string{
 		"/api/v1/notifications/images/../../secrets/fcm-service-account.json",
 		"/api/v1/notifications/images/notifications/..%2f..%2fetc/passwd",
-		"/api/v1/notifications/images/notifications\\..\\secret",
+		"/api/v1/notifications/images/../../../etc/shadow",
 	}
 
 	for _, p := range traversalPaths {
@@ -802,15 +910,16 @@ func TestNotificationManagement_ImagePathTraversalProtection(t *testing.T) {
 // In production, RequireAuth sets ac.RTID from JWT claims. If the header is
 // absent, the handler's resolveTenantRT uses ac.RTID as the fallback.
 func TestResolveTenantRT_JWTFallback(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	// Simulates production: RequireAuth already populated ac.RTID from JWT.
 	// X-RT-ID header is absent — resolveTenantRT falls back to ac.RTID.
 	ac := &auth.AuthContext{
 		SystemRole: auth.SystemRoleSuperAdmin,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 	}
 
 	req := httptest.NewRequest("GET", "/api/v1/notifications/templates", nil)
@@ -833,9 +942,10 @@ func TestResolveTenantRT_JWTFallback(t *testing.T) {
 // repo.GetDefaultRTID(), which returns "test-rt-002" in the mock. So Super
 // Admins succeed with 200. Only non-SuperAdmins get 400/403.
 func TestResolveTenantRT_EmptyRTIDReturns400(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	// Warga user with empty RTID — RequireAllowedRT blocks at middleware level
 	// because ac.RTID == "" and they're not a Super Admin.
@@ -862,13 +972,14 @@ func TestResolveTenantRT_EmptyRTIDReturns400(t *testing.T) {
 // reads it, validates it against rts.is_active, and sets ac.RTID. Then
 // RequireAllowedRT checks ac.RTID against the whitelist.
 func TestResolveTenantRT_SuperAdminWithRTID(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
 		SystemRole: auth.SystemRoleSuperAdmin,
-		RTID:       "rt-002", // simulates RequireAuth already processing header
+		RTID:       "00000000-0000-0000-0000-000000000002", // simulates RequireAuth already processing header
 	}
 
 	req := httptest.NewRequest("GET", "/api/v1/notifications/templates", nil)
@@ -887,9 +998,10 @@ func TestResolveTenantRT_SuperAdminWithRTID(t *testing.T) {
 // After security hardening, RequireAllowedRT middleware blocks empty RTID,
 // and ResolveTenantRT no longer calls GetDefaultRTID() as a fallback.
 func TestResolveTenantRT_SuperAdminNoRTIDNoHeader(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
 		SystemRole: auth.SystemRoleSuperAdmin,
@@ -911,13 +1023,14 @@ func TestResolveTenantRT_SuperAdminNoRTIDNoHeader(t *testing.T) {
 // TestListLogs_PaginationPageSize verifies that both page_size and per_page
 // query parameters are accepted for list logs.
 func TestListLogs_PaginationPageSize(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
 		SystemRole: auth.SystemRoleSuperAdmin,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 	}
 
 	// Test with page_size parameter
@@ -947,14 +1060,15 @@ func TestListLogs_PaginationPageSize(t *testing.T) {
 // In production, RequireAuth sets ac.RTID from JWT claims. The handler's
 // resolveTenantRT falls back to ac.RTID when the header is absent.
 func TestManualPush_JWTFallback(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	// Register device for the target user
 	_ = repo.RegisterDevice(context.Background(), "user-pengurus-1", "tok-pengurus-1", "android", nil)
-	repo.rtUsers["rt-002"] = []string{"user-pengurus-1"}
+	repo.rtUsers["00000000-0000-0000-0000-000000000002"] = []string{"user-pengurus-1"}
 
 	// Set RTID directly (simulating what RequireAuth does from JWT claims).
 	// X-RT-ID header is intentionally NOT set — resolveTenantRT will fall
@@ -962,7 +1076,7 @@ func TestManualPush_JWTFallback(t *testing.T) {
 	ac := &auth.AuthContext{
 		UserID:     "user-pengurus-1",
 		SystemRole: auth.SystemRoleSuperAdmin,
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RolePengurus,
 	}
 
@@ -984,9 +1098,10 @@ func TestManualPush_JWTFallback(t *testing.T) {
 // a non-whitelisted RT via template CRUD endpoints, even when providing
 // an X-RT-ID header.
 func TestSuperAdminWhitelistBypass(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	// Super Admin with no JWT RTID, but trying to access non-whitelisted RT
 	ac := &auth.AuthContext{
@@ -1018,24 +1133,27 @@ func TestSuperAdminWhitelistBypass(t *testing.T) {
 // TestManualPush_KetuaRT_CanSend verifies that a Ketua RT (TenantRole=warga,
 // Jabatan=ketua) can send manual notifications to their own RT.
 func TestManualPush_KetuaRT_CanSend(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ketuaUID, membershipID := ensureNotificationManagePermission(t, pool)
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	// Ketua RT with TenantRole=warga, Jabatan=ketua
 	ac := &auth.AuthContext{
-		UserID:     "user-ketua-rt2",
-		RTID:       "rt-002",
-		TenantRole: auth.RoleWarga,
-		Jabatan:    auth.JabatanKetua,
+		UserID:         ketuaUID,
+		MembershipID:   membershipID,
+		RTID:           "00000000-0000-0000-0000-000000000002",
+		TenantRole:     auth.RoleWarga,
+		Jabatan:        auth.JabatanKetua,
 		RWMemberships: []auth.RWMembership{
 			{RWID: "rw-002", Jabatan: "ketua"},
 		},
 	}
 
 	_ = repo.RegisterDevice(context.Background(), "user-ketua-rt2", "tok-ketua-rt2", "android", nil)
-	repo.rtUsers["rt-002"] = []string{"user-ketua-rt2"}
+	repo.rtUsers["00000000-0000-0000-0000-000000000002"] = []string{"user-ketua-rt2"}
 
 	body, _ := json.Marshal(notification.ManualPushInput{
 		Title: "Pengumuman Umum",
@@ -1063,14 +1181,15 @@ func TestManualPush_KetuaRT_CanSend(t *testing.T) {
 // TestManualPush_WakilKetua_CanSend verifies that a Wakil Ketua RT
 // (TenantRole=warga, Jabatan=wakil_ketua) can send manual notifications.
 func TestManualPush_WakilKetua_CanSend(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
 		UserID:     "user-wk-rt2",
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RoleWarga,
 		Jabatan:    auth.JabatanWakilKetua,
 		RWMemberships: []auth.RWMembership{
@@ -1079,7 +1198,7 @@ func TestManualPush_WakilKetua_CanSend(t *testing.T) {
 	}
 
 	_ = repo.RegisterDevice(context.Background(), "user-wk-rt2", "tok-wk-rt2", "android", nil)
-	repo.rtUsers["rt-002"] = []string{"user-wk-rt2"}
+	repo.rtUsers["00000000-0000-0000-0000-000000000002"] = []string{"user-wk-rt2"}
 
 	body, _ := json.Marshal(notification.ManualPushInput{
 		Title: "Info Keamanan",
@@ -1106,14 +1225,15 @@ func TestManualPush_WakilKetua_CanSend(t *testing.T) {
 
 // TestManualPush_Bendahara_CanSend verifies that a Bendahara can send manual notifications.
 func TestManualPush_Bendahara_CanSend(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
 		UserID:     "user-bendahara-rt2",
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RoleBendahara,
 		RWMemberships: []auth.RWMembership{
 			{RWID: "rw-002", Jabatan: "bendahara"},
@@ -1121,7 +1241,7 @@ func TestManualPush_Bendahara_CanSend(t *testing.T) {
 	}
 
 	_ = repo.RegisterDevice(context.Background(), "user-bendahara-rt2", "tok-bendahara-rt2", "android", nil)
-	repo.rtUsers["rt-002"] = []string{"user-bendahara-rt2"}
+	repo.rtUsers["00000000-0000-0000-0000-000000000002"] = []string{"user-bendahara-rt2"}
 
 	body, _ := json.Marshal(notification.ManualPushInput{
 		Title: "Pembayaran Iuran",
@@ -1149,13 +1269,14 @@ func TestManualPush_Bendahara_CanSend(t *testing.T) {
 // TestManualPush_WargaCannotSend verifies that a plain warga (no jabatan)
 // cannot send manual notifications.
 func TestManualPush_WargaCannotSend(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
 		UserID:     "user-warga-rt2",
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RoleWarga,
 		Jabatan:    "", // no jabatan - plain warga
 		RWMemberships: []auth.RWMembership{
@@ -1181,17 +1302,20 @@ func TestManualPush_WargaCannotSend(t *testing.T) {
 // TestManualPush_KetuaCannotAccessOtherRT verifies that a Ketua RT cannot
 // send manual notification to a different RT.
 func TestManualPush_KetuaCannotAccessOtherRT(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ketuaUID, membershipID := ensureNotificationManagePermission(t, pool)
 	repo := newMockManagementRepo()
 	provider := notification.NewMockPushProvider()
 	svc := notification.NewService(repo, provider)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	// Ketua of rt-002 acting in rt-003 context (where they are only a regular warga / anggota, not officer)
 	ac := &auth.AuthContext{
-		UserID:     "user-ketua-rt2",
-		RTID:       "rt-003", // trying to access different RT
-		TenantRole: auth.RoleWarga,
-		Jabatan:    auth.JabatanAnggota,
+		UserID:         ketuaUID,
+		MembershipID:   membershipID,
+		RTID:           "00000000-0000-0000-0000-000000000003", // trying to access different RT
+		TenantRole:     auth.RoleWarga,
+		Jabatan:        auth.JabatanAnggota,
 		RWMemberships: []auth.RWMembership{
 			{RWID: "rw-002", Jabatan: "ketua"},
 			{RWID: "rw-003", Jabatan: "anggota"}, // member of rt-003 but not officer
@@ -1217,9 +1341,10 @@ func TestManualPush_KetuaCannotAccessOtherRT(t *testing.T) {
 
 // TestManualPush_Unauthenticated verifies that unauthenticated requests are rejected.
 func TestManualPush_Unauthenticated(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	body, _ := json.Marshal(notification.ManualPushInput{
 		Title: "Tanpa Auth",
@@ -1238,15 +1363,18 @@ func TestManualPush_Unauthenticated(t *testing.T) {
 // TestManualPush_WasteTruck_KetuaCanSend verifies that a Ketua RT can trigger
 // waste truck arrival notification.
 func TestManualPush_WasteTruck_KetuaCanSend(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	ketuaUID, membershipID := ensureNotificationManagePermission(t, pool)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
-		UserID:     "user-ketua-rt2",
-		RTID:       "rt-002",
-		TenantRole: auth.RoleWarga,
-		Jabatan:    auth.JabatanKetua,
+		UserID:         ketuaUID,
+		MembershipID:   membershipID,
+		RTID:           "00000000-0000-0000-0000-000000000002",
+		TenantRole:     auth.RoleWarga,
+		Jabatan:        auth.JabatanKetua,
 		RWMemberships: []auth.RWMembership{
 			{RWID: "rw-002", Jabatan: "ketua"},
 		},
@@ -1270,13 +1398,14 @@ func TestManualPush_WasteTruck_KetuaCanSend(t *testing.T) {
 // TestManualPush_WasteTruck_WargaCannotSend verifies that a plain warga
 // cannot trigger waste truck notification.
 func TestManualPush_WasteTruck_WargaCannotSend(t *testing.T) {
+	pool := testutil.GetTestPool(t)
 	repo := newMockManagementRepo()
 	svc := notification.NewService(repo, nil)
-	router := setupManagementRouter(repo, svc)
+	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
 		UserID:     "user-warga-rt2",
-		RTID:       "rt-002",
+		RTID:       "00000000-0000-0000-0000-000000000002",
 		TenantRole: auth.RoleWarga,
 		Jabatan:    "", // no jabatan
 		RWMemberships: []auth.RWMembership{
@@ -1298,3 +1427,18 @@ func TestManualPush_WasteTruck_WargaCannotSend(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden for warga waste truck, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// toUUID creates a deterministic UUID from a string label for test fixtures.
+// toUUID creates a deterministic UUID v4-like string from a string label for test fixtures.
+func toUUID(s string) string {
+	// Pad the input to at least 32 chars to avoid index-out-of-range
+	padded := s + strings.Repeat("0", 32-len(s))
+	if len(padded) > 32 {
+		padded = padded[:32]
+	}
+	return fmt.Sprintf("%s-%s-%s-%s-%s",
+		padded[0:8], padded[8:12], padded[12:16], padded[16:20], padded[20:32])
+}
+// ensure test util references are used
+var _ = sql.ErrNoRows
+var _ = database.Pool{}

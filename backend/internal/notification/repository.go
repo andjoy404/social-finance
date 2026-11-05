@@ -48,12 +48,31 @@ type Repository interface {
 	GetIuranReminderRecipients(ctx context.Context, rtID string, asOf time.Time) ([]*IuranReminderRecipient, error)
 	// UpdateScheduleExecuted records the last execution time/status of a schedule.
 	UpdateScheduleExecuted(ctx context.Context, scheduleID, rtID string, at time.Time, status string) error
+	// IsScheduleExecutedToday reports whether a schedule already has a completed
+	// (SENT/FAILED) delivery log for the given local execution date.
+	IsScheduleExecutedToday(ctx context.Context, scheduleID, execDate string) (bool, error)
+	// RecordScheduleDelivery inserts a per-recipient delivery log with the given
+	// status (SENT/FAILED), guarded by the UNIQUE dedup_key. Returns the log id.
+	RecordScheduleDelivery(ctx context.Context, rtID, userID, eventType, dedupKey, title, body string, payload map[string]string, status string) (string, error)
+
+	// ListSchedulerHistory returns aggregated scheduler execution history for
+	// the tenant RT. One row per (schedule, execution date), not per recipient.
+	// Only logs with dedup_key prefixed "schedule:" are included.
+	ListSchedulerHistory(ctx context.Context, rtID string, page, pageSize int) ([]*NotificationSchedulerHistory, int, error)
+
+	// GetSchedulerRecipientDetail returns individual recipient delivery results
+	// for a single scheduler execution identified by schedule ID and exec date.
+	GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string) ([]*NotificationSchedulerRecipientDetail, error)
 
 	// Transactional helpers used by the scheduler to guarantee at-most-once
-	// execution across multiple backend instances via Postgres advisory locks.
-	BeginTx(ctx context.Context) (*sql.Tx, error)
-	ClaimExecutionTx(tx *sql.Tx, scheduleID, execDate string) (bool, error)
-	IsScheduleExecutedTodayTx(tx *sql.Tx, scheduleID, execDate string) (bool, error)
+	// execution across multiple backend instances. A dedicated connection is
+	// acquired and a session-level Postgres advisory lock is held for the whole
+	// execution (including the FCM network call) so that only one instance
+	// delivers a given schedule on a given execution date. The database
+	// transaction itself is NOT held during the network call.
+	AcquireConn(ctx context.Context) (*sql.Conn, error)
+	TryAdvisoryLockConn(conn *sql.Conn, ctx context.Context, scheduleID, execDate string) (bool, error)
+	ReleaseAdvisoryLockConn(conn *sql.Conn, ctx context.Context, scheduleID, execDate string) error
 
 	// Logs listing & read receipts
 	ListLogs(ctx context.Context, rtID, userID, eventType, status string, isOfficer bool, offset, limit int) ([]NotificationLogEntry, int, error)
@@ -630,18 +649,28 @@ func (r *pgRepository) CreateSchedule(ctx context.Context, rtID, userID string, 
 
 	var s NotificationSchedule
 	var daysRaw []byte
+	var lastExecutedStatus *string
 	var createdBy, updatedBy *string
 	query := `
 		INSERT INTO notification_schedules
 			(rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, true, $5::jsonb, $6, $7, $8, $9, $9)
+		VALUES ($1, $2, $3, $4, true, $5::jsonb, $6, $7, $8, $9, $10)
 		RETURNING id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, created_at, updated_at, created_by, updated_by
 	`
 	err = r.pool.Raw().QueryRowContext(ctx, query, rtID, in.EventType, in.TemplateID, in.Name, daysJSON, in.SendHour, in.SendMinute, in.Timezone, userID, userID).Scan(
-		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &s.LastExecutedStatus, &s.CreatedAt, &s.UpdatedAt, createdBy, updatedBy,
+		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &lastExecutedStatus, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create schedule: %w", err)
+	}
+	if lastExecutedStatus != nil {
+		s.LastExecutedStatus = lastExecutedStatus
+	}
+	if createdBy != nil {
+		s.CreatedBy = *createdBy
+	}
+	if updatedBy != nil {
+		s.UpdatedBy = *updatedBy
 	}
 	s.SendDays = in.SendDays
 	return &s, nil
@@ -749,6 +778,7 @@ func (r *pgRepository) UpdateSchedule(ctx context.Context, rtID, id, userID stri
 
 	var s NotificationSchedule
 	var daysRaw []byte
+	var lastExecutedStatus *string
 	var createdBy, updatedBy *string
 	query := `
 		UPDATE notification_schedules
@@ -757,7 +787,7 @@ func (r *pgRepository) UpdateSchedule(ctx context.Context, rtID, id, userID stri
 		RETURNING id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, created_at, updated_at, created_by, updated_by
 	`
 	err = r.pool.Raw().QueryRowContext(ctx, query, name, isActive, daysJSON, sendHour, sendMinute, timezone, userID, id, rtID).Scan(
-		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &s.LastExecutedStatus, &s.CreatedAt, &s.UpdatedAt, createdBy, updatedBy,
+		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &lastExecutedStatus, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update schedule: %w", err)
@@ -767,6 +797,9 @@ func (r *pgRepository) UpdateSchedule(ctx context.Context, rtID, id, userID stri
 	}
 	if s.SendDays == nil {
 		s.SendDays = sendDays
+	}
+	if lastExecutedStatus != nil {
+		s.LastExecutedStatus = lastExecutedStatus
 	}
 	if createdBy != nil {
 		s.CreatedBy = *createdBy
@@ -802,9 +835,10 @@ func (r *pgRepository) ToggleScheduleActive(ctx context.Context, rtID, id, userI
 	`
 	var s NotificationSchedule
 	var daysRaw []byte
+	var lastExecutedStatus *string
 	var createdBy, updatedBy *string
 	err := r.pool.Raw().QueryRowContext(ctx, query, userID, id, rtID).Scan(
-		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &s.LastExecutedStatus, &s.CreatedAt, &s.UpdatedAt, createdBy, updatedBy,
+		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &lastExecutedStatus, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -817,6 +851,9 @@ func (r *pgRepository) ToggleScheduleActive(ctx context.Context, rtID, id, userI
 	}
 	if s.SendDays == nil {
 		s.SendDays = []int{}
+	}
+	if lastExecutedStatus != nil {
+		s.LastExecutedStatus = lastExecutedStatus
 	}
 	if createdBy != nil {
 		s.CreatedBy = *createdBy
@@ -868,7 +905,17 @@ func (r *pgRepository) shouldExecuteNow(s *NotificationSchedule, now time.Time) 
 	if !dayMatch {
 		return false
 	}
-	return local.Hour() == s.SendHour && local.Minute() == s.SendMinute
+
+	// The scheduled moment today in the schedule's own timezone. If that moment
+	// has already passed (or is now), the schedule is due for execution today.
+	// Backend restarts after the scheduled time (catch-up) are therefore covered:
+	// a 08:00 schedule will still fire when the backend comes back at 08:15.
+	// The schedule-level dedup key (schedule:<id>:<date>:<user>) and the
+	// advisory lock prevent re-execution later the same day.
+	scheduledToday := time.Date(local.Year(), local.Month(), local.Day(),
+		s.SendHour, s.SendMinute, 0, 0, loc)
+
+	return !local.Before(scheduledToday)
 }
 
 func (r *pgRepository) GetIuranReminderRecipients(ctx context.Context, rtID string, asOf time.Time) ([]*IuranReminderRecipient, error) {
@@ -936,28 +983,37 @@ func (r *pgRepository) UpdateScheduleExecuted(ctx context.Context, scheduleID, r
 	return nil
 }
 
-func (r *pgRepository) BeginTx(ctx context.Context) (*sql.Tx, error) {
-	return r.pool.BeginTx(ctx)
+func (r *pgRepository) AcquireConn(ctx context.Context) (*sql.Conn, error) {
+	return r.pool.Acquire(ctx)
 }
 
-func (r *pgRepository) ClaimExecutionTx(tx *sql.Tx, scheduleID, execDate string) (bool, error) {
+func (r *pgRepository) TryAdvisoryLockConn(conn *sql.Conn, ctx context.Context, scheduleID, execDate string) (bool, error) {
 	var ok bool
-	err := tx.QueryRowContext(
-		context.Background(),
-		`SELECT pg_try_advisory_xact_lock(hashtext($1), hashtext($2))`,
+	err := conn.QueryRowContext(ctx,
+		`SELECT pg_try_advisory_lock(hashtext($1), hashtext($2))`,
 		scheduleID, execDate,
 	).Scan(&ok)
 	if err != nil {
-		return false, fmt.Errorf("claim schedule execution lock: %w", err)
+		return false, fmt.Errorf("try advisory lock: %w", err)
 	}
 	return ok, nil
 }
 
-func (r *pgRepository) IsScheduleExecutedTodayTx(tx *sql.Tx, scheduleID, execDate string) (bool, error) {
+func (r *pgRepository) ReleaseAdvisoryLockConn(conn *sql.Conn, ctx context.Context, scheduleID, execDate string) error {
+	_, err := conn.ExecContext(ctx,
+		`SELECT pg_advisory_unlock(hashtext($1), hashtext($2))`,
+		scheduleID, execDate,
+	)
+	if err != nil {
+		return fmt.Errorf("release advisory lock: %w", err)
+	}
+	return nil
+}
+
+func (r *pgRepository) IsScheduleExecutedToday(ctx context.Context, scheduleID, execDate string) (bool, error) {
 	var exists bool
-	err := tx.QueryRowContext(
-		context.Background(),
-		`SELECT EXISTS (
+	err := r.pool.Raw().QueryRowContext(ctx, `
+		SELECT EXISTS (
 			SELECT 1 FROM notification_logs
 			WHERE dedup_key LIKE $1 LIMIT 1
 		)`,
@@ -969,14 +1025,189 @@ func (r *pgRepository) IsScheduleExecutedTodayTx(tx *sql.Tx, scheduleID, execDat
 	return exists, nil
 }
 
+func (r *pgRepository) RecordScheduleDelivery(ctx context.Context, rtID, userID, eventType, dedupKey, title, body string, payload map[string]string, status string) (string, error) {
+	payloadJSON, _ := json.Marshal(payload)
+	var uidParam *string
+	if strings.TrimSpace(userID) != "" {
+		trimmed := strings.TrimSpace(userID)
+		uidParam = &trimmed
+	}
+	var imageURL *string
+	if u, ok := payload["image_url"]; ok && strings.TrimSpace(u) != "" {
+		trimmed := strings.TrimSpace(u)
+		imageURL = &trimmed
+	}
+	query := `
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, payload, status, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (dedup_key) DO NOTHING
+		RETURNING id;
+	`
+	var id string
+	err := r.pool.Raw().QueryRowContext(ctx, query, rtID, uidParam, eventType, dedupKey, title, body, payloadJSON, status, imageURL).Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Row already exists -> deduplicated, no id to return.
+			return "", nil
+		}
+		if isTableMissingErr(err) {
+			return "", fmt.Errorf("notification_logs table does not exist (migration pending): %w", err)
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+// ListSchedulerHistory returns aggregated scheduler execution history for the
+// tenant RT. One row per (schedule, execution date), not per recipient.
+// Only logs with dedup_key prefixed "schedule:" are included.
+// Dedup key format: schedule:<schedule_id>:<exec_date>:<user_id>
+func (r *pgRepository) ListSchedulerHistory(ctx context.Context, rtID string, page, pageSize int) ([]*NotificationSchedulerHistory, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	offset := (page - 1) * pageSize
+
+	countQuery := `
+		SELECT COUNT(*) FROM (
+			SELECT 1
+			FROM notification_logs
+			WHERE rt_id = $1
+			  AND dedup_key LIKE 'schedule:%'
+			GROUP BY split_part(dedup_key, ':', 2), split_part(dedup_key, ':', 3)
+		) sub
+	`
+	var total int
+	err := r.pool.Raw().QueryRowContext(ctx, countQuery, rtID).Scan(&total)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return []*NotificationSchedulerHistory{}, 0, nil
+		}
+		return nil, 0, err
+	}
+
+	query := `
+		WITH parsed AS (
+			SELECT
+				user_id,
+				status,
+				created_at,
+				event_type,
+				split_part(dedup_key, ':', 2) AS schedule_id,
+				split_part(dedup_key, ':', 3) AS exec_date
+			FROM notification_logs
+			WHERE rt_id = $1
+			  AND dedup_key LIKE 'schedule:%'
+		),
+		grouped AS (
+			SELECT
+				schedule_id,
+				exec_date,
+				COUNT(DISTINCT user_id) AS total_recipients,
+				COUNT(*) FILTER (WHERE status = 'SENT') AS sent_count,
+				COUNT(*) FILTER (WHERE status = 'FAILED') AS failed_count,
+				MIN(created_at) AS execution_time,
+				MAX(event_type) AS event_type
+			FROM parsed
+			GROUP BY schedule_id, exec_date
+		)
+		SELECT
+			g.schedule_id,
+			g.exec_date,
+			g.total_recipients,
+			g.sent_count,
+			g.failed_count,
+			g.execution_time,
+			COALESCE(s.name, '') AS schedule_name,
+			COALESCE(s.event_type, g.event_type) AS event_type
+		FROM grouped g
+		LEFT JOIN notification_schedules s
+			ON s.id = g.schedule_id::uuid AND s.rt_id = $1
+		ORDER BY g.execution_time DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rtID, pageSize, offset)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return []*NotificationSchedulerHistory{}, 0, nil
+		}
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var list []*NotificationSchedulerHistory
+	for rows.Next() {
+		var h NotificationSchedulerHistory
+		if err := rows.Scan(
+			&h.ScheduleID,
+			&h.ExecDate,
+			&h.TotalRecipients,
+			&h.SentCount,
+			&h.FailedCount,
+			&h.ExecutionTime,
+			&h.ScheduleName,
+			&h.EventType,
+		); err != nil {
+			return nil, 0, err
+		}
+		list = append(list, &h)
+	}
+	if list == nil {
+		list = []*NotificationSchedulerHistory{}
+	}
+	return list, total, rows.Err()
+}
+
+// GetSchedulerRecipientDetail returns individual recipient delivery results
+// for a single scheduler execution identified by schedule ID and exec date.
+// Dedup key format: schedule:<schedule_id>:<exec_date>:<user_id>
+func (r *pgRepository) GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string) ([]*NotificationSchedulerRecipientDetail, error) {
+	prefix := "schedule:" + scheduleID + ":" + execDate + ":"
+	query := `
+		SELECT user_id, status, title, created_at
+		FROM notification_logs
+		WHERE rt_id = $1
+		  AND dedup_key LIKE $2
+		ORDER BY created_at ASC
+	`
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rtID, prefix+"%")
+	if err != nil {
+		if isTableMissingErr(err) {
+			return []*NotificationSchedulerRecipientDetail{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*NotificationSchedulerRecipientDetail
+	for rows.Next() {
+		var d NotificationSchedulerRecipientDetail
+		if err := rows.Scan(&d.UserID, &d.Status, &d.Title, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, &d)
+	}
+	if list == nil {
+		list = []*NotificationSchedulerRecipientDetail{}
+	}
+	return list, rows.Err()
+}
+
 func (r *pgRepository) scanSchedule(ctx context.Context, row scannable) (*NotificationSchedule, error) {
 	var s NotificationSchedule
 	var daysRaw []byte
+	var lastExecutedStatus *string
 	var createdBy, updatedBy *string
 	err := row.Scan(
 		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive,
 		&daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone,
-		&s.LastExecutedAt, &s.LastExecutedStatus,
+		&s.LastExecutedAt, &lastExecutedStatus,
 		&s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {
@@ -987,6 +1218,9 @@ func (r *pgRepository) scanSchedule(ctx context.Context, row scannable) (*Notifi
 	}
 	if s.SendDays == nil {
 		s.SendDays = []int{}
+	}
+	if lastExecutedStatus != nil {
+		s.LastExecutedStatus = lastExecutedStatus
 	}
 	if createdBy != nil {
 		s.CreatedBy = *createdBy
