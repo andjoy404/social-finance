@@ -119,16 +119,7 @@ class _FundLocationScreenState extends ConsumerState<FundLocationScreen>
         automaticallyImplyLeading: false,
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Lokasi Dana'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              ref.invalidate(fundLocationsProvider);
-              ref.invalidate(fundTransfersProvider);
-              ref.invalidate(fundReconciliationProvider);
-            },
-          ),
-        ],
+
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

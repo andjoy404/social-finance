@@ -1161,11 +1161,6 @@ class _NotificationManagementScreenState
               tooltip: 'Tandai Semua Dibaca',
               onPressed: _markAllAsRead,
             ),
-            IconButton(
-              icon: const Icon(Icons.refresh_rounded),
-              tooltip: 'Segarkan',
-              onPressed: _loadLogs,
-            ),
           ],
         ),
         body: _buildLogsTab(
@@ -1185,17 +1180,7 @@ class _NotificationManagementScreenState
         automaticallyImplyLeading: Navigator.of(context).canPop(),
         centerTitle: false,
         title: const MenuAppBarTitle(title: 'Kelola Notifikasi'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Segarkan',
-            onPressed: () {
-              ref.invalidate(notificationSystemTypesProvider);
-              ref.invalidate(notificationTemplatesProvider);
-              _loadLogs();
-            },
-          ),
-        ],
+        actions: [],
         bottom: TabBar(
           controller: _tabController,
           labelColor: AppColors.accent,
