@@ -442,7 +442,7 @@ export function RwDashboard({
           <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>
             Total Saldo ({metricScopeLabel})
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--sf-accent)' }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#3b82f6' }}>
             {loading && !dashboardData && !kasReport ? '...' : formatRupiahShort(totalSaldoNum)}
           </div>
         </div>
