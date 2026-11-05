@@ -123,7 +123,7 @@ type Resident struct {
 
 // CreateResidentInput holds the fields for creating a new resident.
 // HouseholdID is required for normal residents; nil/empty for special residents
-// (keamanan, kebersihan_pembangunan) who have no household chain.
+// (keamanan, operasional, kebersihan) who have no household chain.
 type CreateResidentInput struct {
 	HouseholdID *string `json:"household_id"`
 	FullName    string  `json:"full_name"`

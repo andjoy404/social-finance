@@ -402,11 +402,15 @@ class _SpecialResidentEditScreenState
                       items: const [
                         DropdownMenuItem(
                           value: 'keamanan',
-                          child: Text('Seksi Keamanan'),
+                          child: Text('Keamanan'),
                         ),
                         DropdownMenuItem(
-                          value: 'kebersihan_pembangunan',
+                          value: 'operasional',
                           child: Text('Operasional'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'kebersihan',
+                          child: Text('Kebersihan'),
                         ),
                       ],
                       hint: const Text('Pilih jabatan'),

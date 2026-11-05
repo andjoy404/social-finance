@@ -389,7 +389,7 @@ export function ResidentDetail() {
                   nik: editForm.nik.trim() || undefined,
                   phone: editForm.phone.trim() || undefined,
                   email: editForm.email.trim() || undefined,
-                  jabatan: resident.jabatan as 'keamanan' | 'kebersihan_pembangunan',
+                  jabatan: resident.jabatan as 'keamanan' | 'operasional' | 'kebersihan',
                   is_active: editForm.isActive,
                 })
               } else {

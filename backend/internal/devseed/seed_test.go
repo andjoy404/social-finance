@@ -2,6 +2,7 @@ package devseed_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"social-finance/internal/devseed"
@@ -43,17 +44,17 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 		t.Errorf("expected 8 memberships, got %d", summary1.MembershipsCount)
 	}
 
-	if summary1.PositionUsersCount != 16 {
-		t.Errorf("expected 16 position users, got %d", summary1.PositionUsersCount)
+	if summary1.PositionUsersCount != 18 {
+		t.Errorf("expected 18 position users, got %d", summary1.PositionUsersCount)
 	}
-	if summary1.PositionMembershipsCount != 16 {
-		t.Errorf("expected 16 position memberships, got %d", summary1.PositionMembershipsCount)
+	if summary1.PositionMembershipsCount != 18 {
+		t.Errorf("expected 18 position memberships, got %d", summary1.PositionMembershipsCount)
 	}
 	if summary1.PermissionTypesCount != 12 {
 		t.Errorf("expected 12 permission types, got %d", summary1.PermissionTypesCount)
 	}
-	if summary1.PositionPermissionsCount != 43 {
-		t.Errorf("expected 43 position permissions, got %d", summary1.PositionPermissionsCount)
+	if summary1.PositionPermissionsCount != 45 {
+		t.Errorf("expected 45 position permissions, got %d", summary1.PositionPermissionsCount)
 	}
 	if summary1.BillsCount != 0 {
 		t.Errorf("expected 0 bills, got %d", summary1.BillsCount)
@@ -478,5 +479,143 @@ func TestDevSeed_HouseholdIsolation(t *testing.T) {
 	}
 	if hnAzis2 == hnNamah2 {
 		t.Errorf("After reseed: Azis and Namah share house number")
+	}
+}
+
+func TestDevSeed_PositionUsersDeterministicUUIDsAndDualMatch(t *testing.T) {
+	// 1. Verify deterministic UUIDs in CanonicalPositionUsers preserve historical UUIDs
+	byEmail := make(map[string]devseed.PositionSeed, len(devseed.CanonicalPositionUsers))
+	byID := make(map[string]devseed.PositionSeed, len(devseed.CanonicalPositionUsers))
+	for _, p := range devseed.CanonicalPositionUsers {
+		if existing, dup := byEmail[p.Email]; dup {
+			t.Fatalf("duplicate email in CanonicalPositionUsers: %s (%s vs %s)", p.Email, existing.ID, p.ID)
+		}
+		if existing, dup := byID[p.ID]; dup {
+			t.Fatalf("duplicate ID in CanonicalPositionUsers: %s (%s vs %s)", p.ID, existing.Email, p.Email)
+		}
+		byEmail[p.Email] = p
+		byID[p.ID] = p
+	}
+
+	// Historical UUIDs for anggota RT 001 and RT 002 must remain at posIdx=7
+	if got := byEmail["anggota-001@local.com"].ID; got != "0fa01f47-0000-4000-8000-000000000001" {
+		t.Fatalf("expected anggota-001@local.com UUID to be 0fa01f47-0000-4000-8000-000000000001, got %s", got)
+	}
+	if got := byEmail["anggota-002@local.com"].ID; got != "0fa41f47-0000-4000-8000-000000000001" {
+		t.Fatalf("expected anggota-002@local.com UUID to be 0fa41f47-0000-4000-8000-000000000001, got %s", got)
+	}
+
+	// Kebersihan uses new index posIdx=8 after anggota
+	if got := byEmail["kebersihan-001@local.com"].ID; got != "0fa01f48-0000-4000-8000-000000000001" {
+		t.Fatalf("expected kebersihan-001@local.com UUID to be 0fa01f48-0000-4000-8000-000000000001, got %s", got)
+	}
+	if got := byEmail["kebersihan-002@local.com"].ID; got != "0fa41f48-0000-4000-8000-000000000001" {
+		t.Fatalf("expected kebersihan-002@local.com UUID to be 0fa41f48-0000-4000-8000-000000000001, got %s", got)
+	}
+
+	pool := testutil.GetTestPool(t)
+	db := pool.Raw()
+	ctx := context.Background()
+
+	// Ensure clean baseline seed on test DB
+	if _, err := devseed.Run(ctx, pool, "test"); err != nil {
+		t.Fatalf("initial seed failed: %v", err)
+	}
+
+	// 2. Verify email-match resolution when ID differs (existing account with custom UUID)
+	customKebersihanID := "99990008-0000-4000-8000-000000000099"
+	kebersihan001CanonicalID := "0fa01f48-0000-4000-8000-000000000001"
+
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM residents WHERE user_id = $1`, customKebersihanID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, customKebersihanID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, customKebersihanID)
+		_, _ = devseed.Run(ctx, pool, "test")
+	})
+
+	// Remove canonical kebersihan-001 user and replace with an existing account having custom ID and uppercase/whitespace email
+	_, _ = db.ExecContext(ctx, `DELETE FROM residents WHERE user_id = $1`, kebersihan001CanonicalID)
+	_, _ = db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, kebersihan001CanonicalID)
+	_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, kebersihan001CanonicalID)
+
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+		VALUES ($1, '  KEBERSIHAN-001@LOCAL.COM  ', '', 'dummyhash', 'Existing Custom Kebersihan', true)
+	`, customKebersihanID)
+	if err != nil {
+		t.Fatalf("insert custom kebersihan user: %v", err)
+	}
+
+	// Running seed should reuse customKebersihanID and link membership + resident to customKebersihanID
+	if _, err := devseed.Run(ctx, pool, "test"); err != nil {
+		t.Fatalf("seed with existing email on custom ID failed: %v", err)
+	}
+
+	var countCanonical int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE id = $1`, kebersihan001CanonicalID).Scan(&countCanonical); err != nil {
+		t.Fatalf("query canonical ID count: %v", err)
+	}
+	if countCanonical != 0 {
+		t.Errorf("expected 0 duplicate user created at canonical ID %s when email already existed on %s, got %d", kebersihan001CanonicalID, customKebersihanID, countCanonical)
+	}
+
+	var memJabatan string
+	if err := db.QueryRowContext(ctx, `SELECT jabatan FROM user_rt_memberships WHERE user_id = $1 AND is_active = true`, customKebersihanID).Scan(&memJabatan); err != nil {
+		t.Fatalf("expected active membership for resolvedUserID %s: %v", customKebersihanID, err)
+	}
+	if memJabatan != "kebersihan" {
+		t.Errorf("expected membership jabatan 'kebersihan' on resolvedUserID, got %q", memJabatan)
+	}
+
+	var resCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM residents WHERE user_id = $1`, customKebersihanID).Scan(&resCount); err != nil {
+		t.Fatalf("query resident for resolvedUserID: %v", err)
+	}
+	if resCount != 1 {
+		t.Errorf("expected 1 special resident linked to resolvedUserID %s, got %d", customKebersihanID, resCount)
+	}
+
+	// 3. Verify ambiguous identity (ID matches one account, normalized email matches a different account) fails safely
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+		VALUES ($1, 'other-collision-account@local.com', '', 'dummyhash', 'Collision Account', true)
+	`, kebersihan001CanonicalID)
+	if err != nil {
+		t.Fatalf("insert collision user at canonical ID: %v", err)
+	}
+
+	_, err = devseed.Run(ctx, pool, "test")
+	if err == nil || !strings.Contains(err.Error(), "ambiguous identity") {
+		t.Fatalf("expected seed to abort with 'ambiguous identity' error when ID and email match different accounts, got: %v", err)
+	}
+
+	// Clean up collision and verify Rule 3: if account at p.ID holds another canonical seed user's email, abort safely
+	_, _ = db.ExecContext(ctx, `DELETE FROM residents WHERE user_id = $1`, customKebersihanID)
+	_, _ = db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, customKebersihanID)
+	_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id IN ($1, $2)`, customKebersihanID, kebersihan001CanonicalID)
+
+	// Simulate historical index shift where canonical ID of kebersihan-001 holds 'anggota-001@local.com'
+	anggota001CanonicalID := "0fa01f47-0000-4000-8000-000000000001"
+	_, _ = db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, anggota001CanonicalID)
+	_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, anggota001CanonicalID)
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO users (id, email, phone, password_hash, full_name, is_active)
+		VALUES ($1, 'anggota-001@local.com', '', 'dummyhash', 'Wrongly Placed Anggota', true)
+	`, kebersihan001CanonicalID)
+	if err != nil {
+		t.Fatalf("insert shifted anggota user at kebersihan canonical ID: %v", err)
+	}
+
+	_, err = devseed.Run(ctx, pool, "test")
+	if err == nil || !strings.Contains(err.Error(), "belonging to seed user") {
+		t.Fatalf("expected seed to abort when account at canonical ID holds another seed user's email, got: %v", err)
+	}
+
+	// Clean up and verify idempotency on repeated runs
+	_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, kebersihan001CanonicalID)
+	for i := 1; i <= 2; i++ {
+		if _, err := devseed.Run(ctx, pool, "test"); err != nil {
+			t.Fatalf("idempotent seed run #%d failed: %v", i, err)
+		}
 	}
 }

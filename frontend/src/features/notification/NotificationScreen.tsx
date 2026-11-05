@@ -1557,7 +1557,7 @@ export function NotificationScreen() {
       {/* MODAL: Edit Template */}
       {editingTemplate && (
         <Modal open={!!editingTemplate} onClose={() => setEditingTemplate(null)}>
-          <ModalHeader title={`Edit Template: ${editingTemplate.name}`} onClose={() => setEditingTemplate(null)} />
+          <ModalHeader title={`Ubah Template: ${editingTemplate.name}`} onClose={() => setEditingTemplate(null)} />
           <form onSubmit={handleEditSubmit}>
             <ModalBody>
               {formError && (
@@ -1690,7 +1690,8 @@ export function NotificationScreen() {
             <ModalFooter>
               <button
                 type="button"
-                className="sf-btn-outline"
+                className="sf-btn-primary"
+                style={{ background: '#ef4444', borderColor: '#ef4444' }}
                 onClick={() => setEditingTemplate(null)}
                 disabled={formSubmitting}
               >

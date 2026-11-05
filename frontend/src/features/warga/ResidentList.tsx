@@ -104,8 +104,10 @@ function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPu
       return 'gray'
     case 'keamanan':
       return 'red'
-    case 'kebersihan_pembangunan':
+    case 'operasional':
       return 'blue'
+    case 'kebersihan':
+      return 'green'
     default:
       return 'default'
   }
@@ -126,8 +128,10 @@ function getJabatanLabel(jabatan: string | null | undefined): string {
       return 'Seksi Sosial'
     case 'keamanan':
       return 'Seksi Keamanan'
-    case 'kebersihan_pembangunan':
+    case 'operasional':
       return 'Operasional'
+    case 'kebersihan':
+      return 'Kebersihan'
     default:
       return jabatan
   }

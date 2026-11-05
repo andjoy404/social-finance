@@ -31,7 +31,8 @@ class WargaScreen extends ConsumerStatefulWidget {
 /// Jabatan yang hanya muncul dengan tombol edit petugas, bukan edit warga biasa.
 const Set<String> kPetugasKhususJabatan = {
   'keamanan',
-  'kebersihan_pembangunan',
+  'operasional',
+  'kebersihan',
 };
 
 /// Jabatan pengurus RT yang memiliki akses tulis warga (position_permissions).
@@ -531,7 +532,7 @@ class _ResidentCard extends ConsumerWidget {
     final occupancyColor = isOwner ? AppColors.accent : AppColors.info;
 
     // Determine if this resident qualifies as Petugas Khusus for edit routing.
-    // Only 'keamanan' and 'kebersihan_pembangunan' get the edit-petugas button;
+    // Only 'keamanan', 'operasional', and 'kebersihan' get the edit-petugas button;
     // Pengurus RT and warga biasa get edit-warga (household) instead.
     final isPetugasKhusus =
         resident.jabatan != null &&

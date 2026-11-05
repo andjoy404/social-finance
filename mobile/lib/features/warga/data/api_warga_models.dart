@@ -427,8 +427,10 @@ class MappedResident {
         return 'Seksi Keamanan';
       case 'sosial':
         return 'Seksi Sosial';
-      case 'kebersihan_pembangunan':
+      case 'operasional':
         return 'Operasional';
+      case 'kebersihan':
+        return 'Kebersihan';
       default:
         return jabatan;
     }
@@ -448,8 +450,10 @@ class MappedResident {
         return AppColors.warning;
       case 'keamanan':
         return AppColors.danger;
-      case 'kebersihan_pembangunan':
+      case 'operasional':
         return AppColors.info;
+      case 'kebersihan':
+        return AppColors.success;
       case 'sosial':
         return AppColors.warning;
       default:

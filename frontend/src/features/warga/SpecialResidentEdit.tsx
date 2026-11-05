@@ -14,14 +14,16 @@ import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 
 const validJabatans: Record<string, boolean> = {
   keamanan: true,
-  kebersihan_pembangunan: true,
+  operasional: true,
+  kebersihan: true,
 }
 
-type JabatanValue = 'keamanan' | 'kebersihan_pembangunan'
+type JabatanValue = 'keamanan' | 'operasional' | 'kebersihan'
 
 const jabatanOptions: { value: JabatanValue; label: string }[] = [
   { value: 'keamanan', label: 'Keamanan' },
-  { value: 'kebersihan_pembangunan', label: 'Operasional' },
+  { value: 'operasional', label: 'Operasional' },
+  { value: 'kebersihan', label: 'Kebersihan' },
 ]
 
 interface SpecialResidentFormState {

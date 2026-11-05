@@ -413,25 +413,105 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 
 	// 8. Position Users (jabatan)
 	// All position users get system_role=NULL and role="pengurus" with jabatan assigned.
-	// Idempotent via email conflict.
-	// Uses the same pre-hashed password as section 7.
+	// Dual-match resolution by deterministic ID and normalized email:
+	//   - If both ID and email match different accounts, abort with a diagnostic error.
+	//   - If ID matches, verify the existing email on that account does not belong to another seed user, then update.
+	//   - If ID does not match but normalized email exists, reuse the existing account ID without creating duplicates.
+	//   - If neither matches, insert a new user.
+	//   - Track resolvedPositionUserID so Sections 8b and 8c use the resolved userID consistently.
+	canonicalEmailOwner := make(map[string]string, len(CanonicalUsers)+len(CanonicalPositionUsers))
+	for _, u := range CanonicalUsers {
+		canonicalEmailOwner[strings.ToLower(strings.TrimSpace(u.Email))] = u.ID
+	}
 	for _, p := range CanonicalPositionUsers {
-		userQ := `
-			INSERT INTO users (id, email, phone, password_hash, full_name, is_active, system_role)
-			VALUES ($1, $2, $3, $4, $5, true, NULL)
-			ON CONFLICT (id) DO UPDATE SET
-				phone = EXCLUDED.phone,
-				password_hash = EXCLUDED.password_hash,
-				full_name = EXCLUDED.full_name,
-				is_active = EXCLUDED.is_active,
-				updated_at = now()
-			RETURNING id
+		canonicalEmailOwner[strings.ToLower(strings.TrimSpace(p.Email))] = p.ID
+	}
+
+	resolvedPositionUserID := make(map[string]string, len(CanonicalPositionUsers))
+
+	for _, p := range CanonicalPositionUsers {
+		resolvePosQ := `
+			SELECT
+				id_by_id::text,
+				email_by_id,
+				id_by_email::text
+			FROM (
+				SELECT
+					(SELECT id FROM users WHERE id = $1) AS id_by_id,
+					(SELECT email FROM users WHERE id = $1) AS email_by_id,
+					(SELECT id FROM users
+					 WHERE lower(TRIM(BOTH FROM email)) = lower(TRIM(BOTH FROM $2))) AS id_by_email
+			) sub
 		`
-		var userID string
-		err := tx.QueryRowContext(ctx, userQ, p.ID, p.Email, p.Phone, passwordHash, p.FullName).Scan(&userID)
-		if err != nil {
-			return nil, fmt.Errorf("upsert position user %s: %w", p.Email, err)
+		var idByID, emailByID, idByEmail *string
+		if err := tx.QueryRowContext(ctx, resolvePosQ, p.ID, p.Email).Scan(&idByID, &emailByID, &idByEmail); err != nil {
+			return nil, fmt.Errorf("resolve position user %s (%s): %w", p.Email, p.ID, err)
 		}
+
+		var userID string
+
+		switch {
+		case idByID != nil && idByEmail != nil && *idByID != *idByEmail:
+			return nil, fmt.Errorf(
+				"seed position user %s (%s): ID matched account %s but email matched account %s — ambiguous identity, aborting to prevent silent update of the wrong user",
+				p.Email, p.ID, *idByID, *idByEmail,
+			)
+
+		case idByID != nil:
+			if emailByID != nil {
+				normExisting := strings.ToLower(strings.TrimSpace(*emailByID))
+				normTarget := strings.ToLower(strings.TrimSpace(p.Email))
+				if normExisting != normTarget {
+					if ownerID, ok := canonicalEmailOwner[normExisting]; ok && ownerID != p.ID {
+						return nil, fmt.Errorf(
+							"seed position user %s (%s): account %s currently holds email %s belonging to seed user %s — aborting to prevent overwriting another account",
+							p.Email, p.ID, *idByID, *emailByID, ownerID,
+						)
+					}
+				}
+			}
+			updatePosQ := `
+				UPDATE users SET
+					email = $2,
+					phone = $3,
+					password_hash = $4,
+					full_name = $5,
+					is_active = true,
+					updated_at = now()
+				WHERE id = $1
+				RETURNING id
+			`
+			if err := tx.QueryRowContext(ctx, updatePosQ, p.ID, p.Email, p.Phone, passwordHash, p.FullName).Scan(&userID); err != nil {
+				return nil, fmt.Errorf("update position user %s (%s): %w", p.Email, p.ID, err)
+			}
+
+		case idByEmail != nil:
+			updatePosByEmailQ := `
+				UPDATE users SET
+					phone = $2,
+					password_hash = $3,
+					full_name = $4,
+					is_active = true,
+					updated_at = now()
+				WHERE id = $1
+				RETURNING id
+			`
+			if err := tx.QueryRowContext(ctx, updatePosByEmailQ, *idByEmail, p.Phone, passwordHash, p.FullName).Scan(&userID); err != nil {
+				return nil, fmt.Errorf("update position user by email %s: %w", p.Email, err)
+			}
+
+		default:
+			insertPosQ := `
+				INSERT INTO users (id, email, phone, password_hash, full_name, is_active, system_role)
+				VALUES ($1, $2, $3, $4, $5, true, NULL)
+				RETURNING id
+			`
+			if err := tx.QueryRowContext(ctx, insertPosQ, p.ID, p.Email, p.Phone, passwordHash, p.FullName).Scan(&userID); err != nil {
+				return nil, fmt.Errorf("insert position user %s (%s): %w", p.Email, p.ID, err)
+			}
+		}
+
+		resolvedPositionUserID[p.ID] = userID
 		summary.PositionUsersCount++
 
 		// Upsert active RT membership with jabatan
@@ -451,9 +531,14 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 
 	// 8b. Position Residents — link eligible position users to resident records.
 	// Only certain jabatan are eligible: ketua, wakil_ketua, sekretaris, bendahara, sosial.
-	// Excluded: keamanan, kebersihan_pembangunan (no resident record at all).
+	// Excluded: keamanan, operasional, kebersihan (no household chain).
 	// Each eligible position gets its own household chain: physical_house → household → occupancy → residency_period.
 	for _, prs := range positionResidentData {
+		resolvedUserID := resolvedPositionUserID[prs.UserID]
+		if resolvedUserID == "" {
+			resolvedUserID = prs.UserID
+		}
+
 		// 1. Create physical house (idempotent via ON CONFLICT)
 		houseQ := `
 			INSERT INTO physical_houses (id, rt_id, house_number, address, is_active)
@@ -505,7 +590,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			ON CONFLICT DO NOTHING
 			RETURNING id
 		`
-		err := tx.QueryRowContext(ctx, residentQ, prs.RTID, prs.UserID, prs.FullName, prs.Phone, prs.NIK, prs.Email).Scan(&residentID)
+		err := tx.QueryRowContext(ctx, residentQ, prs.RTID, resolvedUserID, prs.FullName, prs.Phone, prs.NIK, prs.Email).Scan(&residentID)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, fmt.Errorf("create position resident: %w", err)
 		}
@@ -515,14 +600,14 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			var existingID string
 			err = tx.QueryRowContext(ctx,
 				`SELECT id FROM residents WHERE user_id = $1 OR (rt_id = $2 AND nik = $3) LIMIT 1`,
-				prs.UserID, prs.RTID, prs.NIK).Scan(&existingID)
+				resolvedUserID, prs.RTID, prs.NIK).Scan(&existingID)
 			if err != nil && err != sql.ErrNoRows {
 				return nil, fmt.Errorf("check existing position resident: %w", err)
 			}
 			residentID = existingID
 			if residentID != "" {
 				// Ensure user_id and active status are linked
-				_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1, is_active = true WHERE id = $2`, prs.UserID, residentID)
+				_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1, is_active = true WHERE id = $2`, resolvedUserID, residentID)
 			}
 		}
 
@@ -542,9 +627,14 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 	}
 
 	// 8c. Special Position Residents — create resident records for non-eligible
-	// position users (keamanan, kebersihan_pembangunan). These residents have no
+	// position users (keamanan, operasional, kebersihan). These residents have no
 	// household chain, but do have a user_id link and are active.
 	for _, sprs := range specialPositionResidentData {
+		resolvedUserID := resolvedPositionUserID[sprs.UserID]
+		if resolvedUserID == "" {
+			resolvedUserID = sprs.UserID
+		}
+
 		residentID := ""
 		residentQ := `
 			INSERT INTO residents (id, rt_id, user_id, full_name, is_active, nik, email)
@@ -552,7 +642,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			ON CONFLICT DO NOTHING
 			RETURNING id
 		`
-		err := tx.QueryRowContext(ctx, residentQ, sprs.RTID, sprs.UserID, sprs.FullName, sprs.NIK, sprs.Email).Scan(&residentID)
+		err := tx.QueryRowContext(ctx, residentQ, sprs.RTID, resolvedUserID, sprs.FullName, sprs.NIK, sprs.Email).Scan(&residentID)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, fmt.Errorf("create special position resident %s: %w", sprs.FullName, err)
 		}
@@ -560,7 +650,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		if residentID == "" {
 			var existingID string
 			err = tx.QueryRowContext(ctx,
-				`SELECT id FROM residents WHERE user_id = $1 LIMIT 1`, sprs.UserID).Scan(&existingID)
+				`SELECT id FROM residents WHERE user_id = $1 LIMIT 1`, resolvedUserID).Scan(&existingID)
 			if err != nil && err != sql.ErrNoRows {
 				return nil, fmt.Errorf("check existing special position resident: %w", err)
 			}
@@ -607,14 +697,15 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 
 	// 10. Position Permissions — resolve permission_id by code, then insert
 	positionPermissions := map[string][]string{
-		"ketua":                  {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read", "rt.settings.read", "rt.settings.manage"},
-		"wakil_ketua":            {"warga.read", "warga.create", "warga.update", "finance.read", "reports.read", "rt.settings.read"},
-		"sekretaris":             {"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "reports.read", "rt.settings.read"},
-		"bendahara":              {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read"},
-		"keamanan":               {"warga.read", "reports.read"},
-		"sosial":                 {"warga.read", "reports.read"},
-		"kebersihan_pembangunan": {"warga.read", "reports.read"},
-		"anggota":                {"warga.read", "reports.read"},
+		"ketua":       {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read", "rt.settings.read", "rt.settings.manage"},
+		"wakil_ketua": {"warga.read", "warga.create", "warga.update", "finance.read", "reports.read", "rt.settings.read"},
+		"sekretaris":  {"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "reports.read", "rt.settings.read"},
+		"bendahara":   {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read"},
+		"keamanan":    {"warga.read", "reports.read"},
+		"sosial":      {"warga.read", "reports.read"},
+		"operasional": {"warga.read", "reports.read"},
+		"kebersihan":  {"warga.read", "reports.read"},
+		"anggota":     {"warga.read", "reports.read"},
 	}
 
 	for position, codes := range positionPermissions {

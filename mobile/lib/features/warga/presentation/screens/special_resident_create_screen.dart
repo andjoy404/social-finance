@@ -352,8 +352,12 @@ class _SpecialResidentCreateScreenState
                         child: Text('Keamanan'),
                       ),
                       DropdownMenuItem(
-                        value: 'kebersihan_pembangunan',
+                        value: 'operasional',
                         child: Text('Operasional'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'kebersihan',
+                        child: Text('Kebersihan'),
                       ),
                     ],
                     onChanged: widget.isSuperAdmin

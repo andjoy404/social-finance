@@ -284,6 +284,7 @@ export function RwDetailModal({
         {activeTab === 'ubah' ? (
           <form onSubmit={handleUpdateRw}>
             <div id="rw-panel-ubah" role="tabpanel" aria-labelledby="rw-tab-ubah" tabIndex={0}>
+              <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
               <ModalBody>
                 {editError && <div className="sf-error" role="alert">{editError}</div>}
                 {editSuccess && (
@@ -349,6 +350,7 @@ export function RwDetailModal({
                   </div>
                 </div>
               </ModalBody>
+              </div>
             </div>
             <ModalFooter>
               <button type="button" className="sf-btn sf-btn-ghost" onClick={onClose}>Tutup</button>
@@ -360,6 +362,7 @@ export function RwDetailModal({
         ) : (
           <>
         <div id="rw-panel-jabatan" role="tabpanel" aria-labelledby="rw-tab-jabatan" tabIndex={0}>
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
         <ModalBody>
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
@@ -504,6 +507,7 @@ export function RwDetailModal({
             </div>
           )}
         </ModalBody>
+        </div>
         </div>
         <ModalFooter>
           <button className="sf-btn sf-btn-ghost" onClick={onClose}>Tutup</button>

@@ -1309,14 +1309,15 @@ func (h *Handler) DeactivateResident(w http.ResponseWriter, r *http.Request) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Special Resident (keamanan, kebersihan_pembangunan)
+// Special Resident (keamanan, operasional, kebersihan)
 // No household chain — user account + membership + household-less resident.
 // ────────────────────────────────────────────────────────────────────────
 
 // validSpecialJabatans is the allowed set of jabatan for special residents.
 var validSpecialJabatans = map[string]bool{
-	"keamanan":                    true,
-	"kebersihan_pembangunan": true,
+	"keamanan":    true,
+	"operasional": true,
+	"kebersihan":  true,
 }
 
 // SpecialResidentCreateRequest is the body for POST /api/v1/residents/special.
@@ -1343,7 +1344,7 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !validSpecialJabatans[req.Jabatan] {
-		httpx.WriteValidationError(w, "jabatan must be 'keamanan' or 'kebersihan_pembangunan'", nil)
+		httpx.WriteValidationError(w, "jabatan must be 'keamanan', 'operasional', or 'kebersihan'", nil)
 		return
 	}
 	if req.FullName == "" {
@@ -1525,7 +1526,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	// Validate jabatan if provided
 	if req.Jabatan != nil {
 		if !validSpecialJabatans[*req.Jabatan] {
-			httpx.WriteValidationError(w, "jabatan must be 'keamanan' or 'kebersihan_pembangunan'", nil)
+			httpx.WriteValidationError(w, "jabatan must be 'keamanan', 'operasional', or 'kebersihan'", nil)
 			return
 		}
 	}

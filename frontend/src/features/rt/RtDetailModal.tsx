@@ -20,7 +20,7 @@ import { RtFormFields, type RtFormState } from './RtCreate'
 
 const positions = [
   ['ketua', 'Ketua'], ['wakil_ketua', 'Wakil Ketua'], ['sekretaris', 'Sekretaris'], ['bendahara', 'Bendahara'],
-  ['keamanan', 'Keamanan'], ['sosial', 'Sosial'], ['kebersihan_pembangunan', 'Operasional'],
+  ['keamanan', 'Keamanan'], ['sosial', 'Sosial'], ['operasional', 'Operasional'], ['kebersihan', 'Kebersihan'],
 ]
 const label = rtPositionLabel
 const emptyRtForm: RtFormState = { name: '', rw_id: '', rw: '', rt: '', address: '', head_name: '' }
@@ -336,7 +336,7 @@ export function RtDetailModal({
         </div>
         {activeTab === 'ubah' ? (
           <form onSubmit={handleUpdateRt}>
-            <div id="rt-panel-ubah" role="tabpanel" aria-labelledby="rt-tab-ubah" tabIndex={0}>
+            <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
             <ModalBody>
               {editLoading && <div className="sf-loading" role="status">Memuat pilihan RW...</div>}
               {editError && (
@@ -388,7 +388,7 @@ export function RtDetailModal({
           </form>
         ) : (
           <>
-        <div id="rt-panel-jabatan" role="tabpanel" aria-labelledby="rt-tab-jabatan" tabIndex={0}>
+            <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
         <ModalBody>
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>

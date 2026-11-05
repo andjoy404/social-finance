@@ -90,6 +90,7 @@ Indexes:
 | `user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE CASCADE | |
 | `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | Tenant scope |
 | `role` | `text` | NOT NULL, CHECK IN (`pengurus`, `bendahara`, `warga`) | Tenant role |
+| `jabatan` | `text` | NULL, CHECK IN (`ketua`, `wakil_ketua`, `sekretaris`, `bendahara`, `keamanan`, `sosial`, `operasional`, `kebersihan`, `anggota`) | RT organizational position |
 | `is_active` | `boolean` | NOT NULL, default `true` | |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |

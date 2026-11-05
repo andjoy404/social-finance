@@ -85,7 +85,7 @@ export function KasList() {
   const [reportModalOpen, setReportModalOpen] = useState(false)
 
   const canViewKasReport = user?.systemRole === 'super_admin'
-    || (user?.jabatan !== 'keamanan' && user?.jabatan !== 'kebersihan_pembangunan')
+    || (user?.jabatan !== 'keamanan' && user?.jabatan !== 'operasional')
 
   // Month filter state — default to current month
   const [selectedMonth, setSelectedMonth] = useState<{ year: number; month: number }>(() => {

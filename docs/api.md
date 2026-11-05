@@ -960,6 +960,11 @@ Role: **Pengurus** only
 - Target resident must belong to requesting RT and currently be active.
 - No response body (204 No Content).
 
+### 6.11 Special Resident (Petugas Khusus)
+
+- `POST /api/v1/residents/special` — Creates a special resident without a household chain (`jabatan` must be one of `'keamanan'`, `'operasional'`, or `'kebersihan'`).
+- `PATCH /api/v1/residents/special/{id}` — Updates a special resident and/or their `jabatan` (`'keamanan'`, `'operasional'`, or `'kebersihan'`).
+
 ---
 
 ## 7. Internal Endpoints

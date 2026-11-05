@@ -19,11 +19,12 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 
-type JabatanValue = 'keamanan' | 'kebersihan_pembangunan'
+type JabatanValue = 'keamanan' | 'operasional' | 'kebersihan'
 
 const jabatanOptions: { value: JabatanValue; label: string }[] = [
   { value: 'keamanan', label: 'Keamanan' },
-  { value: 'kebersihan_pembangunan', label: 'Operasional' },
+  { value: 'operasional', label: 'Operasional' },
+  { value: 'kebersihan', label: 'Kebersihan' },
 ]
 
 interface SpecialResidentFormState {
@@ -191,7 +192,7 @@ export function SpecialResidentCreate() {
     <Modal open onClose={handleClose} width={560}>
       <ModalHeader
         title="Tambah Petugas Khusus"
-        subtitle="Data petugas keamanan / operasional"
+        subtitle="Data petugas keamanan / operasional / kebersihan"
         onClose={handleClose}
       />
       <form onSubmit={handleSubmit}>

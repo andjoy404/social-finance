@@ -124,7 +124,7 @@ type SpecialPositionResidentSeed struct {
 var positionResidentData []PositionResidentSeed
 
 // specialPositionResidentData contains the derived resident records for
-// non-eligible position users (keamanan, kebersihan_pembangunan).
+// non-eligible position users (keamanan, operasional, kebersihan).
 // These are special residents: linked to their user account, assigned to their RT,
 // but WITHOUT household/occupancy/residency chain.
 var specialPositionResidentData []SpecialPositionResidentSeed
@@ -298,7 +298,17 @@ var eligiblePositionIdx = map[string]int{
 var CanonicalPositionUsers []PositionSeed
 
 func init() {
-	positions := []string{"ketua", "wakil_ketua", "sekretaris", "bendahara", "keamanan", "sosial", "kebersihan_pembangunan", "anggota"}
+	positions := []string{
+		"ketua",
+		"wakil_ketua",
+		"sekretaris",
+		"bendahara",
+		"keamanan",
+		"sosial",
+		"operasional",
+		"anggota",
+		"kebersihan",
+	}
 	posNames := map[string]string{
 		"ketua":       "Ketua",
 		"wakil_ketua": "Wakil Ketua",
@@ -306,6 +316,8 @@ func init() {
 		"bendahara":   "Bendahara",
 		"keamanan":    "Keamanan",
 		"sosial":      "Sosial",
+		"operasional": "Operasional",
+		"kebersihan":  "Kebersihan",
 		"anggota":     "Anggota",
 	}
 	// RT labels match the simplified email pattern used in database
@@ -320,14 +332,15 @@ func init() {
 
 	// Positions eligible for resident records
 	eligiblePositions := map[string]bool{
-		"ketua":                  true,
-		"wakil_ketua":            true,
-		"sekretaris":             true,
-		"bendahara":              true,
-		"sosial":                 true,
-		"keamanan":               false,
-		"kebersihan_pembangunan": false,
-		"anggota":                false,
+		"ketua":       true,
+		"wakil_ketua": true,
+		"sekretaris":  true,
+		"bendahara":   true,
+		"sosial":      true,
+		"keamanan":    false,
+		"operasional": false,
+		"kebersihan":  false,
+		"anggota":     false,
 	}
 
 	seedIdx := 0
@@ -365,7 +378,7 @@ func init() {
 
 			// Normalize jabatan to simplified email form
 			var email string
-			if pos == "kebersihan_pembangunan" {
+			if pos == "operasional" {
 				// Special format: operasional.rt{RT}@local.com
 				email = fmt.Sprintf("operasional.rt%s@local.com", rtLabels[rtIdx])
 			} else if pos == "wakil_ketua" {
@@ -434,7 +447,7 @@ func init() {
 	}
 
 	// Build special position resident data for non-eligible positions
-	// (keamanan, kebersihan_pembangunan). These get a resident record but NO
+	// (keamanan, operasional, kebersihan). These get a resident record but NO
 	// household chain.
 	for _, ps := range CanonicalPositionUsers {
 		if eligiblePositions[ps.Jabatan] {
