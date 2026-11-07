@@ -69,6 +69,8 @@ export function HouseholdDetail() {
   }
 
   const canWrite = hasWargaWriteAccess(user)
+  const isPengurus = user.role === 'pengurus'
+  const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<ApiError | null>(null)
@@ -77,6 +79,17 @@ export function HouseholdDetail() {
   const [confirmDeactivate, setConfirmDeactivate] = useState(false)
   const [deactivating, setDeactivating] = useState(false)
   const navigate = useNavigate()
+
+  // Warga can see phone only from residents whose jabatan is 'keamanan'.
+  // Pengurus/Bendahara/Super Admin can see all phones.
+  const canSeePhone = (() => {
+    if (isPengurus || isSuperAdmin) return true
+    if (!household?.head_resident?.jabatan) return false
+    return household.head_resident.jabatan.trim().toLowerCase() === 'keamanan'
+  })()
+
+  // Warga can NEVER see email — only pengurus/bendahara/super_admin.
+  const canSeeEmail = isPengurus || isSuperAdmin
 
   const fetchHousehold = useCallback(async () => {
     const pair = getSessionPair()
@@ -432,7 +445,7 @@ export function HouseholdDetail() {
                 fontSize: '13px',
                 color: 'var(--text-primary)',
               }}>
-                {formatPhoneDisplay(household.phone ?? household.head_resident?.phone ?? null)}
+                {canSeePhone ? formatPhoneDisplay(household.phone ?? household.head_resident?.phone ?? null) : '\u2014'}
               </div>
             </div>
             <div>
@@ -450,7 +463,7 @@ export function HouseholdDetail() {
                 fontSize: '13px',
                 color: 'var(--text-primary)',
               }}>
-                {formatNull(household.email ?? household.head_resident?.email ?? null)}
+                {canSeeEmail ? formatNull(household.email ?? household.head_resident?.email ?? null) : '\u2014'}
               </div>
             </div>
             <div>

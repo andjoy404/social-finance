@@ -33,9 +33,13 @@ const readOnlyStyle: React.CSSProperties = {
 export function ResidentDetailFields({
   resident,
   showNik,
+  showPhone,
+  showEmail,
 }: {
   resident: ApiResident
   showNik: boolean
+  showPhone: boolean
+  showEmail: boolean
 }) {
   return (
     <>
@@ -86,7 +90,7 @@ export function ResidentDetailFields({
             id="rd-phone"
             className="sf-form-input"
             type="text"
-            value={resident.phone ? formatPhoneDisplay(resident.phone) : ''}
+            value={showPhone && resident.phone ? formatPhoneDisplay(resident.phone) : ''}
             readOnly
             disabled
             aria-readonly
@@ -105,7 +109,7 @@ export function ResidentDetailFields({
           id="rd-email"
           className="sf-form-input"
           type="text"
-          value={resident.email ?? ''}
+          value={showEmail && resident.email ? resident.email : ''}
           readOnly
           disabled
           aria-readonly

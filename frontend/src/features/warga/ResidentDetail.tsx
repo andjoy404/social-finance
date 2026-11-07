@@ -55,6 +55,17 @@ export function ResidentDetail() {
   const [resident, setResident] = useState<ApiResident | null>(null)
   const [notFound, setNotFound] = useState(false)
 
+  // Warga can see phone only from residents whose jabatan is 'keamanan'.
+  // Pengurus/Bendahara/Super Admin can see all phones.
+  const showPhone = (() => {
+    if (isPengurus || isSuperAdmin) return true
+    if (!resident?.jabatan) return false
+    return resident.jabatan.trim().toLowerCase() === 'keamanan'
+  })()
+
+  // Warga can NEVER see email — only pengurus/bendahara/super_admin.
+  const showEmail = isPengurus || isSuperAdmin
+
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -308,7 +319,7 @@ export function ResidentDetail() {
                 {resetCodeError}
               </div>
             )}
-            <ResidentDetailFields resident={resident} showNik={showNik} />
+            <ResidentDetailFields resident={resident} showNik={showNik} showPhone={showPhone} showEmail={showEmail} />
           </ModalBody>
           <ModalFooter>
             <button type="button" className="sf-btn-ghost" onClick={handleClose}>

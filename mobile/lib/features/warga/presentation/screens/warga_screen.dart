@@ -525,6 +525,29 @@ class _ResidentCard extends ConsumerWidget {
     final phoneIconColor = isDark ? AppColors.success : const Color(0xFF16A34A);
     final emailIconColor = isDark ? AppColors.info : const Color(0xFF2563EB);
 
+    // Warga can see phone only from residents whose jabatan is 'keamanan'.
+    // Warga can NEVER see email — only pengurus/bendahara/super_admin.
+    final authData = ref.read(authRepositoryProvider);
+    final user = authData?.valueOrNull;
+    final showPhone = (() {
+      if (user == null) return false;
+      final role = user['role'] as AppRole?;
+      if (role == AppRole.pengurus || role == AppRole.bendahara) return true;
+      final systemRole = user['system_role'] as String?;
+      if (systemRole == 'super_admin') return true;
+      final jabatan = resident.jabatan ?? '';
+      return jabatan.trim().toLowerCase() == 'keamanan';
+    })();
+    // Warga can NEVER see email — only pengurus/bendahara/super_admin.
+    final showEmail = (() {
+      if (user == null) return false;
+      final role = user['role'] as AppRole?;
+      if (role == AppRole.pengurus || role == AppRole.bendahara) return true;
+      final systemRole = user['system_role'] as String?;
+      if (systemRole == 'super_admin') return true;
+      return false;
+    })();
+
     // Occupancy styling matching web Badge variants:
     // OWNER ('Pemilik'): violet accent
     // TENANT ('Penyewa'): blue info
@@ -669,8 +692,7 @@ class _ResidentCard extends ConsumerWidget {
                 (resident.email != null && resident.email!.isNotEmpty))
               const SizedBox(height: 6),
           ],
-          if (resident.phoneNumber != null &&
-              resident.phoneNumber!.isNotEmpty) ...[
+          if (showPhone && resident.phoneNumber != null && resident.phoneNumber!.isNotEmpty) ...[
             Row(
               children: [
                 Icon(Icons.phone_outlined, size: 16, color: phoneIconColor),
@@ -686,7 +708,7 @@ class _ResidentCard extends ConsumerWidget {
             if (resident.email != null && resident.email!.isNotEmpty)
               const SizedBox(height: 6),
           ],
-          if (resident.email != null && resident.email!.isNotEmpty) ...[
+          if (showEmail && resident.email != null && resident.email!.isNotEmpty) ...[
             Row(
               children: [
                 Icon(Icons.email_outlined, size: 16, color: emailIconColor),

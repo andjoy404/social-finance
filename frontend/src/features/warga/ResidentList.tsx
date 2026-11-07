@@ -167,6 +167,15 @@ export function ResidentList() {
   const canExport = hasWargaExportAccess(user)
   const showNik = (isPengurus || isSuperAdmin) && !isSecurity
 
+  // Warga can see phone only from residents whose jabatan is 'keamanan'.
+  // Warga can NEVER see email — only pengurus/bendahara/super_admin.
+  // Pengurus/Bendahara/Super Admin can see all phones and emails.
+  const canSeeSecurityPhone = (res: ApiResident): boolean => {
+    if (isPengurus || isSuperAdmin) return true
+    return (res.jabatan ?? '').trim().toLowerCase() === 'keamanan'
+  }
+  const canSeeEmail = isPengurus || isSuperAdmin
+
   const [choiceOpen, setChoiceOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -772,6 +781,8 @@ export function ResidentList() {
                     onDetail={handleDetail}
                     onEdit={handleEdit}
                     onEditSpecial={handleEditSpecial}
+                    canSeeSecurityPhone={canSeeSecurityPhone}
+                    canSeeEmail={canSeeEmail}
                   />
                 ))}
               </tbody>
@@ -803,9 +814,11 @@ interface ResidentRowProps {
   onDetail: (id: string) => void
   onEdit: (id: string) => void
   onEditSpecial: (id: string) => void
+  canSeeSecurityPhone: (res: ApiResident) => boolean
+  canSeeEmail: boolean
 }
 
-function ResidentRow({ resident, showNik, onDetail }: ResidentRowProps) {
+function ResidentRow({ resident, showNik, onDetail, canSeeSecurityPhone, canSeeEmail }: ResidentRowProps) {
   const startDate = formatStrictDate(resident.start_date)
   const endDate = formatStrictDate(resident.end_date)
 
@@ -866,12 +879,12 @@ function ResidentRow({ resident, showNik, onDetail }: ResidentRowProps) {
 
       {/* 6. TELEPON */}
       <td className="col-phone" style={colStyles.phone}>
-        {formatPhoneDisplay(resident.phone)}
+        {canSeeSecurityPhone(resident) ? formatPhoneDisplay(resident.phone) : '\u2014'}
       </td>
 
       {/* 7. EMAIL */}
       <td className="col-email" style={colStyles.email}>
-        {formatNull(resident.email ?? null)}
+        {canSeeEmail ? formatNull(resident.email ?? null) : '\u2014'}
       </td>
 
       {/* 8. STATUS HUNIAN */}
