@@ -36,7 +36,7 @@ func TestGetMonitoringHouseholdsUsesEligibleOverdueBills(t *testing.T) {
 	defer cleanupMonitoringTestRT(t, pool, otherRTID)
 
 	evalDate := time.Date(2026, 11, 6, 12, 0, 0, 0, finance.JakartaLocation())
-	threshold := finance.AddCalendarMonths(evalDate, -3).Format("2006-01-02")
+	threshold := finance.AddCalendarMonths(evalDate, -3).AddDate(0, 0, -1).Format("2006-01-02")
 
 	createDue := func(tenantID, name string, voluntary bool) string {
 		t.Helper()

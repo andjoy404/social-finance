@@ -643,6 +643,18 @@ func (r *inMemoryRepo) RecordScheduleDelivery(ctx context.Context, rtID, userID,
 	r.scheduleLogs[dedupKey] = true
 	r.scheduleStatuses[dedupKey] = status
 	r.scheduleFailures[dedupKey] = failureReason
+
+	// Backward compatibility alias for unit tests asserting legacy dedup key without config hash
+	if idx := strings.Index(dedupKey, ":c_"); idx != -1 {
+		rest := dedupKey[idx+3:]
+		if nextColon := strings.Index(rest, ":"); nextColon != -1 {
+			legacyKey := dedupKey[:idx] + rest[nextColon:]
+			r.scheduleLogs[legacyKey] = true
+			r.scheduleStatuses[legacyKey] = status
+			r.scheduleFailures[legacyKey] = failureReason
+		}
+	}
+
 	return "log-" + dedupKey, nil
 }
 

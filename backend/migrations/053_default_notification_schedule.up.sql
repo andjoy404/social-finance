@@ -10,6 +10,16 @@
 --     timezone Asia/Jakarta.
 --   * Everything is scoped per RT (no global/cross-RT schedules).
 
+-- 0. Ensure is_default columns exist before seeding default templates and schedules.
+ALTER TABLE notification_templates
+    ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE notification_schedules
+    ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS idx_notif_templates_is_default ON notification_templates(is_default);
+CREATE INDEX IF NOT EXISTS idx_notif_schedules_is_default ON notification_schedules(is_default);
+
 -- 1. Default reminder template per RT (idempotent).
 INSERT INTO notification_templates (id, rt_id, name, event_type, channel, title, body, is_active, variables, is_default, created_at, updated_at)
 SELECT
