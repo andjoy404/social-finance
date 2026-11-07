@@ -1779,6 +1779,24 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(resident)
 }
 
+// isResetPasswordOfficer checks whether the auth context corresponds to an authorized officer or Super Admin.
+func isResetPasswordOfficer(ac *auth.AuthContext) bool {
+	if ac == nil {
+		return false
+	}
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return true
+	}
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	isJabatanOfficer := j == string(auth.JabatanKetua) ||
+		j == "ketua_rt" || j == "ketua rt" ||
+		j == string(auth.JabatanWakilKetua) ||
+		j == string(auth.JabatanSekretaris) ||
+		j == string(auth.JabatanBendahara)
+	isRoleOfficer := ac.TenantRole == auth.RolePengurus || ac.TenantRole == auth.RoleBendahara
+	return isRoleOfficer || isJabatanOfficer
+}
+
 // GenerateResetPasswordCode handles POST /api/v1/residents/{id}/reset-password-code
 // Authorized for Pengurus RT and Super Admin. Generates a 4-digit numeric code valid for 24h.
 func (h *Handler) GenerateResetPasswordCode(w http.ResponseWriter, r *http.Request) {
@@ -1788,12 +1806,12 @@ func (h *Handler) GenerateResetPasswordCode(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	isSuperAdmin := ac.SystemRole == auth.SystemRoleSuperAdmin
-	isOfficer := ac.TenantRole == auth.RolePengurus || ac.TenantRole == auth.RoleBendahara
-	if !isSuperAdmin && !isOfficer {
+	if !isResetPasswordOfficer(ac) {
 		httpx.WriteError(w, http.StatusForbidden, "forbidden", "only pengurus or super admin can generate reset codes")
 		return
 	}
+
+	isSuperAdmin := ac.SystemRole == auth.SystemRoleSuperAdmin
 
 	residentID := chi.URLParam(r, "id")
 	if residentID == "" {
