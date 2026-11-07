@@ -883,7 +883,11 @@ func (r *pgRepository) CreateSchedule(ctx context.Context, rtID, userID string, 
 		VALUES ($1, $2, $3, $4, true, $5::jsonb, $6, $7, $8, $9, $10)
 		RETURNING id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
 	`
-	err = r.pool.Raw().QueryRowContext(ctx, query, rtID, in.EventType, in.TemplateID, in.Name, daysJSON, in.SendHour, in.SendMinute, in.Timezone, userID, userID).Scan(
+	var userParam any
+	if strings.TrimSpace(userID) != "" {
+		userParam = strings.TrimSpace(userID)
+	}
+	err = r.pool.Raw().QueryRowContext(ctx, query, rtID, in.EventType, in.TemplateID, in.Name, daysJSON, in.SendHour, in.SendMinute, in.Timezone, userParam, userParam).Scan(
 		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &lastExecutedStatus, &lastExecutedError, &summaryRaw, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {
@@ -1023,7 +1027,11 @@ func (r *pgRepository) UpdateSchedule(ctx context.Context, rtID, id, userID stri
 		WHERE id = $8 AND rt_id = $9
 		RETURNING id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
 	`
-	err = r.pool.Raw().QueryRowContext(ctx, query, name, isActive, daysJSON, sendHour, sendMinute, timezone, userID, id, rtID).Scan(
+	var userParam any
+	if strings.TrimSpace(userID) != "" {
+		userParam = strings.TrimSpace(userID)
+	}
+	err = r.pool.Raw().QueryRowContext(ctx, query, name, isActive, daysJSON, sendHour, sendMinute, timezone, userParam, id, rtID).Scan(
 		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &lastExecutedStatus, &lastExecutedError, &summaryRaw, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {
@@ -1085,7 +1093,11 @@ func (r *pgRepository) ToggleScheduleActive(ctx context.Context, rtID, id, userI
 	var lastExecutedError *string
 	var summaryRaw []byte
 	var createdBy, updatedBy *string
-	err := r.pool.Raw().QueryRowContext(ctx, query, userID, id, rtID).Scan(
+	var userParam any
+	if strings.TrimSpace(userID) != "" {
+		userParam = strings.TrimSpace(userID)
+	}
+	err := r.pool.Raw().QueryRowContext(ctx, query, userParam, id, rtID).Scan(
 		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &lastExecutedStatus, &lastExecutedError, &summaryRaw, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {

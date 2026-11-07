@@ -2,10 +2,10 @@ package rt
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -421,17 +421,21 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Seed default iuran payment reminder template + schedule for the new RT.
-	if h.notifSvc != nil {
-		if err := seedDefaultNotificationForRT(ctx, tx, h.notifSvc, result.ID); err != nil {
-			httpx.WriteInternalServerError(w, "failed to seed default notification for RT")
-			return
-		}
-	}
-
 	if err := tx.Commit(); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create RT")
 		return
+	}
+
+	// Seed default notification templates and schedules for the new RT.
+	// Executed AFTER commit so the RT is guaranteed to exist across connections.
+	if h.notifSvc != nil {
+		if err := seedDefaultNotificationForRT(ctx, h.notifSvc, result.ID); err != nil {
+			slog.Error("failed to seed default notification for newly created RT",
+				"rt_id", result.ID,
+				"error", err,
+			)
+			// Non-fatal: RT and audit log are already committed; return 201 Created to prevent client retry storms.
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -936,7 +940,7 @@ func (h *Handler) DeactivateRW(w http.ResponseWriter, r *http.Request) {
 // template and schedule for a newly created RT. It is idempotent: existing
 // templates or schedules for the same event type are left untouched so a
 // Ketua RT's customisation is never overwritten.
-func seedDefaultNotificationForRT(ctx context.Context, tx *sql.Tx, notifSvc notification.Service, rtID string) error {
+func seedDefaultNotificationForRT(ctx context.Context, notifSvc notification.Service, rtID string) error {
 	// 1. Create default template if none exists for this event type.
 	existingTemplates, err := notifSvc.ListTemplates(ctx, rtID, "iuran_payment_reminder", nil)
 	if err != nil {
