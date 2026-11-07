@@ -90,7 +90,9 @@ void main() {
         const MethodChannel('com.example.social_finance/notifications'),
         (call) async {
           calls.add(call);
-          if (call.method == 'showHeadsUpNotification') return true;
+          if (call.method == 'showHeadsUpNotification') {
+            return {'status': 'ANDROID_DISPLAY_REQUESTED', 'id': call.arguments['id']};
+          }
           return null;
         },
       );
@@ -102,7 +104,7 @@ void main() {
         );
       });
 
-      await service.showHeadsUpNotification(
+      final result = await service.showHeadsUpNotification(
         title: 'Tagihan Baru',
         body: 'Tagihan iuran telah dibuat',
         deepLink: '/home/iuran/detail/bill-123',
@@ -115,6 +117,88 @@ void main() {
       expect(calls.first.arguments['body'], equals('Tagihan iuran telah dibuat'));
       expect(calls.first.arguments['deep_link'], equals('/home/iuran/detail/bill-123'));
       expect(calls.first.arguments['id'], equals(42));
+      expect(result['status'], equals('ANDROID_DISPLAY_REQUESTED'));
+      expect(result['id'], equals(42));
+    });
+
+    test('showHeadsUpNotification returns DISPLAY_FAILED on native exception', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.example.social_finance/notifications'),
+        (call) async {
+          if (call.method == 'showHeadsUpNotification') {
+            throw PlatformException(code: 'ERR', message: 'Channel blocked');
+          }
+          return null;
+        },
+      );
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.example.social_finance/notifications'),
+          null,
+        );
+      });
+
+      final result = await service.showHeadsUpNotification(
+        title: 'Test',
+        body: 'Test body',
+        deepLink: '/test',
+      );
+
+      expect(result['status'], equals('DISPLAY_FAILED'));
+      expect(result['reason'], contains('Channel blocked'));
+    });
+
+    test('areNotificationsEnabled queries native channel correctly', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.example.social_finance/notifications'),
+        (call) async {
+          if (call.method == 'areNotificationsEnabled') return true;
+          return null;
+        },
+      );
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.example.social_finance/notifications'),
+          null,
+        );
+      });
+
+      final enabled = await service.areNotificationsEnabled();
+      expect(enabled, isTrue);
+    });
+
+    test('checkNotificationPermissionStatus queries native channel correctly', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('com.example.social_finance/notifications'),
+        (call) async {
+          if (call.method == 'getNotificationPermissionStatus') return 'granted';
+          return null;
+        },
+      );
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+          const MethodChannel('com.example.social_finance/notifications'),
+          null,
+        );
+      });
+
+      final status = await service.checkNotificationPermissionStatus();
+      expect(status, equals('granted'));
     });
 
     test('getInitialNativeDeepLink retrieves deep link from native launch intent', () async {

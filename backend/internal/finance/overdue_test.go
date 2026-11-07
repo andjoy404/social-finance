@@ -93,14 +93,49 @@ func TestUpcomingAndOverdueDateEvaluation(t *testing.T) {
 	dueJul15 := mustDateWIB(t, "2026-07-15")
 	require.False(t, IsOverdue3Months(dueJul15, mustDateWIB(t, "2026-10-13")), "90 days (Oct 13) is still < 3 calendar months")
 	require.False(t, IsOverdue3Months(dueJul15, mustDateWIB(t, "2026-10-14")), "1 day before 3 calendar months should be false")
-	require.True(t, IsOverdue3Months(dueJul15, mustDateWIB(t, "2026-10-15")), "exact 3 calendar months should be true")
+	require.False(t, IsOverdue3Months(dueJul15, mustDateWIB(t, "2026-10-15")), "exact 3 calendar months MUST be false (strictly > 3m)")
+	require.True(t, IsOverdue3Months(dueJul15, mustDateWIB(t, "2026-10-16")), "3 calendar months + 1 day should be true")
 	require.True(t, IsOverdue3Months(dueJul15, mustDateWIB(t, "2026-11-15")), "> 3 calendar months should be true")
+
+	// Month-end clamping edge cases:
+	// Due date 2026-01-31 -> 3 months is 2026-04-30 (April has 30 days)
+	dueJan31 := mustDateWIB(t, "2026-01-31")
+	require.False(t, IsOverdue3Months(dueJan31, mustDateWIB(t, "2026-04-29")), "before 3 calendar months should be false")
+	require.False(t, IsOverdue3Months(dueJan31, mustDateWIB(t, "2026-04-30")), "exact month-end threshold (Apr 30) MUST be false")
+	require.True(t, IsOverdue3Months(dueJan31, mustDateWIB(t, "2026-05-01")), "1 day after clamped month-end (May 1) should be true")
+
+	// Leap year case:
+	// Due date 2023-11-30 -> 3 months in leap year 2024 is 2024-02-29
+	dueNov30Leap := mustDateWIB(t, "2023-11-30")
+	require.False(t, IsOverdue3Months(dueNov30Leap, mustDateWIB(t, "2024-02-28")), "before 3 calendar months should be false")
+	require.False(t, IsOverdue3Months(dueNov30Leap, mustDateWIB(t, "2024-02-29")), "exact leap year threshold (Feb 29) MUST be false")
+	require.True(t, IsOverdue3Months(dueNov30Leap, mustDateWIB(t, "2024-03-01")), "1 day after leap year threshold (Mar 1) should be true")
+
+	// Non-leap year case:
+	// Due date 2025-11-30 -> 3 months in non-leap year 2026 is 2026-02-28
+	dueNov30NonLeap := mustDateWIB(t, "2025-11-30")
+	require.False(t, IsOverdue3Months(dueNov30NonLeap, mustDateWIB(t, "2026-02-27")), "before 3 calendar months should be false")
+	require.False(t, IsOverdue3Months(dueNov30NonLeap, mustDateWIB(t, "2026-02-28")), "exact non-leap year threshold (Feb 28) MUST be false")
+	require.True(t, IsOverdue3Months(dueNov30NonLeap, mustDateWIB(t, "2026-03-01")), "1 day after non-leap year threshold (Mar 1) should be true")
+
+	// Year boundary transition case:
+	dueNov15 := mustDateWIB(t, "2025-11-15")
+	require.False(t, IsOverdue3Months(dueNov15, mustDateWIB(t, "2026-02-15")), "exact 3 calendar months across year boundary MUST be false")
+	require.True(t, IsOverdue3Months(dueNov15, mustDateWIB(t, "2026-02-16")), "3 calendar months + 1 day across year boundary should be true")
+
+	// Timezone boundary case (Asia/Jakarta):
+	// Due date 2026-07-15 -> threshold 2026-10-15
+	// 2026-10-15 16:59:00 UTC = 2026-10-15 23:59:00 WIB (same day in WIB -> exact 3m) -> false
+	require.False(t, IsOverdue3Months(dueJul15, time.Date(2026, 10, 15, 16, 59, 0, 0, time.UTC)))
+	// 2026-10-15 17:01:00 UTC = 2026-10-16 00:01:00 WIB (next day in WIB -> 3m + 1 day) -> true
+	require.True(t, IsOverdue3Months(dueJul15, time.Date(2026, 10, 15, 17, 1, 0, 0, time.UTC)))
 }
 
 // 8, 9, 10, 11, 12, 13, 14. Bill eligibility, payment statuses (APPROVED/PENDING/REJECTED/partial), is_obligatory, move_in_date, and Asia/Jakarta timezone
 func TestBillEligibilityAndPaymentFormula(t *testing.T) {
 	dueJul15 := mustDateWIB(t, "2026-07-15")
-	evalOct15 := mustDateWIB(t, "2026-10-15")
+	evalOct15 := mustDateWIB(t, "2026-10-15") // Exact 3 calendar months
+	evalOct16 := mustDateWIB(t, "2026-10-16") // Strictly > 3 calendar months (3m + 1 day)
 
 	baseBill := BillEvaluationInput{
 		BillID:               "bill-1",
@@ -124,25 +159,31 @@ func TestBillEligibilityAndPaymentFormula(t *testing.T) {
 		return ok
 	}
 
-	// 8. Full APPROVED payment -> not eligible
+	// Boundary check: On exact 3 calendar months (evalOct15), even unpaid bill MUST be false
+	require.False(t, evalOverdue(baseBill, evalOct15), "exact 3 calendar months MUST be false")
+	// On 3 calendar months + 1 day (evalOct16), unpaid bill is true
+	require.True(t, evalOverdue(baseBill, evalOct16), "3 calendar months + 1 day MUST be true")
+
+	// 8. Full APPROVED payment -> not eligible on evalOct16
 	paidBill := baseBill
 	paidBill.ApprovedPaidCents = 15000000
 	paidBill.Status = "paid"
 	require.Equal(t, int64(0), CalculateOutstandingCents(paidBill))
-	require.False(t, evalOverdue(paidBill, evalOct15))
+	require.False(t, evalOverdue(paidBill, evalOct16))
 
 	// Even if status wasn't flipped yet, 0 outstanding means not eligible
 	zeroOutBill := baseBill
 	zeroOutBill.ApprovedPaidCents = 15000000
 	require.Equal(t, int64(0), CalculateOutstandingCents(zeroOutBill))
-	require.False(t, evalOverdue(zeroOutBill, evalOct15))
+	require.False(t, evalOverdue(zeroOutBill, evalOct16))
 
 	// 9. Partial APPROVED payment -> eligible with reduced outstanding
 	partialBill := baseBill
 	partialBill.ApprovedPaidCents = 5000000 // Rp 50.000,00 paid
 	partialBill.Status = "partial"
 	require.Equal(t, int64(10000000), CalculateOutstandingCents(partialBill))
-	require.True(t, evalOverdue(partialBill, evalOct15))
+	require.False(t, evalOverdue(partialBill, evalOct15), "exact 3m partial bill is false")
+	require.True(t, evalOverdue(partialBill, evalOct16), "> 3m partial bill is true")
 
 	// 10 & 11. PENDING and REJECTED payments do not increase ApprovedPaidCents -> full balance remains
 	unverifiedBill := baseBill
@@ -150,33 +191,38 @@ func TestBillEligibilityAndPaymentFormula(t *testing.T) {
 	unverifiedBill.PendingPaidCents = 5000000
 	unverifiedBill.RejectedPaidCents = 5000000
 	require.Equal(t, int64(15000000), CalculateOutstandingCents(unverifiedBill))
-	require.True(t, evalOverdue(unverifiedBill, evalOct15))
+	require.True(t, evalOverdue(unverifiedBill, evalOct16))
 
 	// 12. Non-obligatory or voluntary bill -> excluded
 	nonObligBill := baseBill
 	nonObligBill.IsObligatory = false
-	require.False(t, evalOverdue(nonObligBill, evalOct15))
+	require.False(t, evalOverdue(nonObligBill, evalOct16))
 
 	voluntaryBill := baseBill
 	voluntaryBill.IsVoluntary = true
-	require.False(t, evalOverdue(voluntaryBill, evalOct15))
+	require.False(t, evalOverdue(voluntaryBill, evalOct16))
 
 	// 13. Bill before move_in_date -> excluded
 	moveInAug := mustDateWIB(t, "2026-08-01")
 	beforeMoveInBill := baseBill
 	beforeMoveInBill.MoveInDate = &moveInAug // period is 2026-07, due is 2026-07-15, move-in is 2026-08-01
-	require.False(t, evalOverdue(beforeMoveInBill, evalOct15))
+	require.False(t, evalOverdue(beforeMoveInBill, evalOct16))
 
-	// Bill on/after move_in_date -> included
+	// Bill on/after move_in_date -> included on evalOct16
 	moveInJul1 := mustDateWIB(t, "2026-07-01")
 	afterMoveInBill := baseBill
 	afterMoveInBill.MoveInDate = &moveInJul1
-	require.True(t, evalOverdue(afterMoveInBill, evalOct15))
+	require.True(t, evalOverdue(afterMoveInBill, evalOct16))
 
-	// 14. Asia/Jakarta timezone boundary: 2026-10-14 17:30 UTC is 2026-10-15 00:30 WIB
-	utcLateOct14 := time.Date(2026, 10, 14, 17, 30, 0, 0, time.UTC)
-	normalizedWIB := NormalizeDateJakarta(utcLateOct14)
-	require.Equal(t, "2026-10-15", normalizedWIB.Format("2006-01-02"))
+	// 14. Asia/Jakarta timezone boundary:
+	// Due date 2026-07-15 -> threshold date is 2026-10-15.
+	// 2026-10-15 16:59:00 UTC = 2026-10-15 23:59:00 WIB (exact 3m in WIB) -> false
+	utcLateOct15Exact := time.Date(2026, 10, 15, 16, 59, 0, 0, time.UTC)
+	require.False(t, evalOverdue(baseBill, NormalizeDateJakarta(utcLateOct15Exact)))
+	// 2026-10-15 17:30:00 UTC = 2026-10-16 00:30:00 WIB (3m + 1 day in WIB) -> true
+	utcLateOct15Over := time.Date(2026, 10, 15, 17, 30, 0, 0, time.UTC)
+	normalizedWIB := NormalizeDateJakarta(utcLateOct15Over)
+	require.Equal(t, "2026-10-16", normalizedWIB.Format("2006-01-02"))
 	require.True(t, evalOverdue(baseBill, normalizedWIB))
 }
 
@@ -269,7 +315,8 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	// Today in Asia/Jakarta
 	today := NormalizeDateJakarta(time.Now())
 	due4MonthsAgo := AddCalendarMonths(today, -4).Format("2006-01-02")
-	due3MonthsAgo := AddCalendarMonths(today, -3).Format("2006-01-02")
+	due3MonthsPlus1DayAgo := AddCalendarMonths(today, -3).AddDate(0, 0, -1).Format("2006-01-02")
+	dueExact3MonthsAgo := AddCalendarMonths(today, -3).Format("2006-01-02")
 	due2MonthsAgo := AddCalendarMonths(today, -2).Format("2006-01-02")
 
 	// Bill 1 for Warga 1: overdue 4 months, Rp 150.000, partial APPROVED Rp 50.000 + PENDING Rp 25.000 + REJECTED Rp 25.000 -> remaining Rp 100.000
@@ -323,18 +370,26 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Bill 2 for Warga 1: overdue exact 3 months, Rp 200.000 unpaid -> remaining Rp 200.000
+	// Bill 2 for Warga 1: overdue strictly > 3 months (3 months + 1 day), Rp 200.000 unpaid -> remaining Rp 200.000 (ELIGIBLE)
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
 		 VALUES ($1, $2, $3, '2025-06', 200000.00, 'unpaid', $4::date, true, true)`,
-		rtA, warga1OccID, dueID, due3MonthsAgo,
+		rtA, warga1OccID, dueID, due3MonthsPlus1DayAgo,
+	)
+	require.NoError(t, err)
+
+	// Bill 2B for Warga 1: overdue EXACT 3 calendar months, Rp 180.000 unpaid -> must NOT be counted in 3m overdue summary
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
+		 VALUES ($1, $2, $3, '2025-07', 180000.00, 'unpaid', $4::date, true, true)`,
+		rtA, warga1OccID, dueID, dueExact3MonthsAgo,
 	)
 	require.NoError(t, err)
 
 	// Bill 3 for Warga 1: overdue 2 months (< 3 months), Rp 100.000 -> must NOT be counted in 3m overdue summary
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
-		 VALUES ($1, $2, $3, '2025-07', 100000.00, 'unpaid', $4::date, true, true)`,
+		 VALUES ($1, $2, $3, '2025-08', 100000.00, 'unpaid', $4::date, true, true)`,
 		rtA, warga1OccID, dueID, due2MonthsAgo,
 	)
 	require.NoError(t, err)

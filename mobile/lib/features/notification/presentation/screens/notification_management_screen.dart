@@ -8,6 +8,7 @@ import 'package:social_finance/app/app.dart';
 import 'package:social_finance/core/api/config.dart';
 import 'package:social_finance/core/notification/notification_url_helper.dart';
 import 'package:social_finance/core/notification/push_notification_service.dart';
+import 'package:social_finance/core/utils/jakarta_time_utils.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
@@ -31,26 +32,31 @@ class NotificationManagementScreen extends ConsumerStatefulWidget {
 
 class _NotificationManagementScreenState
     extends ConsumerState<NotificationManagementScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final TabController _tabController;
+  late final TabController _historyTabController;
+  late final TabController _configTabController;
 
   static const Map<String, String> _knownEventNames = {
     'manual_push': 'Pengumuman Pengurus',
     'waste_truck_arrival': 'Kedatangan Mobil Sampah',
     'iuran_bill_created': 'Penerbitan Tagihan Iuran',
     'iuran_payment_reminder': 'Pengingat Pembayaran Iuran',
-    'iuran_upcoming_due_3_months': 'Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)',
+    'iuran_upcoming_due_3_months':
+        'Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)',
     'iuran_overdue_3_months': 'Pengingat Tunggakan Iuran (3 Bulan+)',
     'payment_verified': 'Pembayaran Diverifikasi',
     'payment_rejected': 'Pembayaran Ditolak',
   };
 
   // Logs state
+  String? _currentUserId;
   List<NotificationLogEntry> _logs = [];
   bool _isLoadingLogs = false;
   String? _logsError;
   String _selectedLogEventType = '';
   String _selectedLogStatus = 'all';
+  String? _historyCategory;
 
   // Schedules state
   List<NotificationSchedule> _schedules = [];
@@ -58,41 +64,167 @@ class _NotificationManagementScreenState
   String? _schedulesError;
   bool _isSavingSchedule = false;
 
+  /// Tracks whether the current data corresponds to the given user.
+  bool _dataBelongsTo(String? userId) {
+    return _currentUserId == userId;
+  }
+
+  /// Clears all cached data and resets filter state.
+  void _clearState() {
+    _logs = [];
+    _isLoadingLogs = false;
+    _logsError = null;
+    _selectedLogEventType = '';
+    _selectedLogStatus = 'all';
+    _historyCategory = null;
+    _schedules = [];
+    _isLoadingSchedules = false;
+    _schedulesError = null;
+    _isSavingSchedule = false;
+  }
+
+  /// Loads data for the given user, clearing stale data if the user changed.
+  void _loadInitialData({required bool isAdmin, String? userId}) {
+    if (!_dataBelongsTo(userId)) {
+      _clearState();
+      _currentUserId = userId;
+    }
+    if (isAdmin) {
+      _loadHistoryForTab(_historyTabController.index);
+      _loadSchedules();
+    } else {
+      _loadLogs();
+    }
+  }
+
+  late final _authSubscription =
+      ref.listenManual<AsyncValue<Map<String, dynamic>?>?>(
+    authRepositoryProvider,
+    (previous, next) {
+      final user = next?.valueOrNull;
+      if (user == null) {
+        // Logged out – clear everything.
+        if (mounted) {
+          setState(() {
+            _currentUserId = null;
+            _logs = [];
+            _schedules = [];
+            _isLoadingLogs = false;
+            _isLoadingSchedules = false;
+            _logsError = null;
+            _schedulesError = null;
+          });
+        }
+        return;
+      }
+      final userId = user['id'] as String?;
+      // Only load data when the user identity actually changes.
+      if (_dataBelongsTo(userId)) {
+        return;
+      }
+      final newAdmin = canUserAccessNotificationAdmin(user);
+      if (mounted) {
+        setState(() {
+          _clearState();
+          _currentUserId = userId;
+        });
+        if (newAdmin) {
+          _loadHistoryForTab(_historyTabController.index);
+          _loadSchedules();
+        } else {
+          _loadLogs();
+        }
+      }
+    },
+  );
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _loadLogs();
-    _loadSchedules();
+    _tabController = TabController(length: 2, vsync: this);
+    _historyTabController = TabController(length: 2, vsync: this);
+    _configTabController = TabController(length: 3, vsync: this);
+    _historyTabController.addListener(_handleHistoryTabChange);
+
+    // Read initial auth state and load data for the current user.
+    final authState = ref.read(authRepositoryProvider);
+    final user = authState?.valueOrNull;
+    final isAdmin = canUserAccessNotificationAdmin(user);
+    _loadInitialData(isAdmin: isAdmin, userId: user?['id'] as String?);
   }
 
   @override
   void dispose() {
+    // ProviderSubscription from ref.listenManual doesn't have a public dispose.
+    // The subscription is automatically cleaned up when the ConsumerState is disposed.
+    _historyTabController.removeListener(_handleHistoryTabChange);
     _tabController.dispose();
+    _historyTabController.dispose();
+    _configTabController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadLogs() async {
+  void _handleHistoryTabChange() {
+    _loadHistoryForTab(_historyTabController.index);
+  }
+
+  void _loadHistoryForTab(int index) {
+    final category = switch (index) {
+      0 => 'system',
+      1 => 'mine',
+      _ => null,
+    };
+    if (category != null && category != _historyCategory) {
+      _historyCategory = category;
+      _loadLogs(category: category);
+    }
+  }
+
+  Future<void> _loadLogs({String? category}) async {
     setState(() {
       _isLoadingLogs = true;
       _logsError = null;
     });
+    // Capture current user ID so stale responses can be discarded.
+    final snapshotUserId = _currentUserId;
     try {
       final repo = ref.read(notificationRepositoryProvider);
-      final resp = await repo.fetchLogs(
-        page: 1,
-        perPage: 50,
-        eventType: _selectedLogEventType.isNotEmpty ? _selectedLogEventType : null,
-        status: _selectedLogStatus != 'all' ? _selectedLogStatus : null,
-      );
-      if (mounted) {
+      final resp = category == null
+          ? await repo.fetchLogs(
+              page: 1,
+              perPage: 50,
+              eventType: _selectedLogEventType.isNotEmpty
+                  ? _selectedLogEventType
+                  : null,
+              status: _selectedLogStatus != 'all' ? _selectedLogStatus : null,
+            )
+          : await repo.fetchManagementHistory(
+              category: category,
+              page: 1,
+              perPage: 50,
+            );
+      // Only apply the result if the user hasn't changed.
+      if (mounted && _currentUserId == snapshotUserId) {
+        // Client-side security filter (defense-in-depth):
+        // - For admin categories ('system'/'mine'): no additional filtering.
+        //   The server already scopes by role and category.
+        // - For non-admin users (raw logs, category == null): ONLY show logs
+        //   where user_id matches the current user. No null, no broadcast,
+        //   no dispatch records leak through.
+        final isAdminViewing = category != null;
+        final filtered = isAdminViewing
+            ? resp.data
+            : resp.data.where(
+                (log) => log.userId == snapshotUserId,
+              ).toList();
         setState(() {
-          _logs = resp.data;
+          _logs = filtered;
           _isLoadingLogs = false;
         });
       }
     } catch (e) {
-      if (mounted) {
+      // Only show the error if the user hasn't changed.
+      if (mounted && _currentUserId == snapshotUserId) {
         setState(() {
           _logsError = e.toString();
           _isLoadingLogs = false;
@@ -106,17 +238,18 @@ class _NotificationManagementScreenState
       _isLoadingSchedules = true;
       _schedulesError = null;
     });
+    final snapshotUserId = _currentUserId;
     try {
       final repo = ref.read(notificationRepositoryProvider);
       final list = await repo.fetchSchedules();
-      if (mounted) {
+      if (mounted && _currentUserId == snapshotUserId) {
         setState(() {
           _schedules = list;
           _isLoadingSchedules = false;
         });
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && _currentUserId == snapshotUserId) {
         setState(() {
           _schedulesError = e.toString();
           _isLoadingSchedules = false;
@@ -131,10 +264,19 @@ class _NotificationManagementScreenState
       await repo.markAllAsRead();
       if (mounted) {
         setState(() {
-          _logs = _logs.map((l) => l.copyWith(isRead: true, readAt: l.readAt ?? DateTime.now())).toList();
+          _logs = _logs
+              .map(
+                (l) => l.copyWith(
+                  isRead: true,
+                  readAt: l.readAt ?? DateTime.now(),
+                ),
+              )
+              .toList();
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Semua notifikasi ditandai sebagai sudah dibaca')),
+          const SnackBar(
+            content: Text('Semua notifikasi ditandai sebagai sudah dibaca'),
+          ),
         );
       }
     } catch (e) {
@@ -147,14 +289,24 @@ class _NotificationManagementScreenState
   }
 
   void _openLogDetail(NotificationLogEntry log) {
-    if (!log.isRead) {
-      ref.read(notificationRepositoryProvider).markAsRead(log.id).then((_) {
-        if (mounted) {
-          setState(() {
-            _logs = _logs.map((l) => l.id == log.id ? l.copyWith(isRead: true, readAt: DateTime.now()) : l).toList();
-          });
-        }
-      }).catchError((_) {});
+    if (_historyCategory == null && !log.isRead) {
+      ref
+          .read(notificationRepositoryProvider)
+          .markAsRead(log.id)
+          .then((_) {
+            if (mounted) {
+              setState(() {
+                _logs = _logs
+                    .map(
+                      (l) => l.id == log.id
+                          ? l.copyWith(isRead: true, readAt: DateTime.now())
+                          : l,
+                    )
+                    .toList();
+              });
+            }
+          })
+          .catchError((_) {});
     }
 
     final combinedPayload = <String, dynamic>{
@@ -169,7 +321,10 @@ class _NotificationManagementScreenState
     };
 
     final deepLink = log.payload?['deep_link'] as String?;
-    var target = normalizeNotificationTarget(deepLink, payload: combinedPayload);
+    var target = normalizeNotificationTarget(
+      deepLink,
+      payload: combinedPayload,
+    );
     if (target.contains('/notifikasi/detail') && !target.contains('from=')) {
       final sep = target.contains('?') ? '&' : '?';
       target = '$target${sep}from=notifikasi';
@@ -213,7 +368,11 @@ class _NotificationManagementScreenState
               backgroundColor: const Color(0xFF0F172A),
               elevation: 0,
               leading: IconButton(
-                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: Colors.white,
+                  size: 20,
+                ),
                 onPressed: () => Navigator.of(ctx).pop(),
               ),
               title: Text(
@@ -324,7 +483,8 @@ class _NotificationManagementScreenState
                                 ApiConfig.resolveImageUrl(imageUrl) ?? imageUrl,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                                errorBuilder: (_, _, _) =>
+                                    const SizedBox.shrink(),
                               ),
                             ),
                           ],
@@ -334,7 +494,10 @@ class _NotificationManagementScreenState
                     const SizedBox(height: 24),
                     // Label info
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.accent.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(8),
@@ -342,7 +505,11 @@ class _NotificationManagementScreenState
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.info_outline, size: 16, color: AppColors.accent),
+                          Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: AppColors.accent,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             eventName,
@@ -394,9 +561,13 @@ class _NotificationManagementScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(body, style: const TextStyle(fontSize: 12)),
                   ],
@@ -427,8 +598,10 @@ class _NotificationManagementScreenState
                   );
                   messenger.showSnackBar(
                     const SnackBar(
-                        content: Text(
-                            'Notifikasi berhasil disiarkan ke seluruh warga RT!')),
+                      content: Text(
+                        'Notifikasi berhasil disiarkan ke seluruh warga RT!',
+                      ),
+                    ),
                   );
                 } catch (e) {
                   messenger.showSnackBar(
@@ -465,8 +638,10 @@ class _NotificationManagementScreenState
       );
       messenger.showSnackBar(
         SnackBar(
-            content: Text(
-                'Uji notifikasi berhasil dikirim ($count perangkat aktif Anda).')),
+          content: Text(
+            'Uji notifikasi berhasil dikirim ($count perangkat aktif Anda).',
+          ),
+        ),
       );
     } catch (e) {
       messenger.showSnackBar(
@@ -484,15 +659,20 @@ class _NotificationManagementScreenState
     final nameController = TextEditingController(text: template?.name ?? '');
     final titleController = TextEditingController(text: template?.title ?? '');
     final bodyController = TextEditingController(text: template?.body ?? '');
-    final imageController = TextEditingController(text: template?.imageUrl ?? '');
+    final imageController = TextEditingController(
+      text: template?.imageUrl ?? '',
+    );
 
     Uint8List? pickedImageBytes;
     bool isUploadingImage = false;
     String? imageUploadError;
 
-    String selectedEvent = template?.eventType ??
+    String selectedEvent =
+        template?.eventType ??
         defaultEventType ??
-        (systemTypes?.isNotEmpty == true ? systemTypes!.first.eventType : 'iuran_bill_created');
+        (systemTypes?.isNotEmpty == true
+            ? systemTypes!.first.eventType
+            : 'iuran_bill_created');
 
     if (!isEditing && (template?.title == null || template!.title.isEmpty)) {
       final match = systemTypes?.firstWhere(
@@ -548,7 +728,9 @@ class _NotificationManagementScreenState
                   maxHeight: MediaQuery.of(ctx).size.height * 0.85,
                 ),
                 decoration: BoxDecoration(
-                  color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                  color: isDark
+                      ? AppColors.darkSurface
+                      : AppColors.lightSurface,
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(20),
                   ),
@@ -578,7 +760,9 @@ class _NotificationManagementScreenState
                       const SizedBox(height: 12),
 
                       // Event type selector (only if creating)
-                      if (!isEditing && systemTypes != null && systemTypes.isNotEmpty) ...[
+                      if (!isEditing &&
+                          systemTypes != null &&
+                          systemTypes.isNotEmpty) ...[
                         Text(
                           'Jenis Notifikasi Sistem',
                           style: theme.textTheme.labelMedium?.copyWith(
@@ -590,7 +774,9 @@ class _NotificationManagementScreenState
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           decoration: BoxDecoration(
                             border: Border.all(
-                              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                              color: isDark
+                                  ? AppColors.darkBorder
+                                  : AppColors.lightBorder,
                             ),
                             borderRadius: BorderRadius.circular(AppRadius.base),
                           ),
@@ -601,15 +787,21 @@ class _NotificationManagementScreenState
                               items: systemTypes.map((st) {
                                 return DropdownMenuItem<String>(
                                   value: st.eventType,
-                                  child: Text(st.name, style: theme.textTheme.bodyMedium),
+                                  child: Text(
+                                    st.name,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
                                 );
                               }).toList(),
                               onChanged: (val) {
                                 if (val != null) {
                                   setSheetState(() {
                                     selectedEvent = val;
-                                    final match = systemTypes.firstWhere((s) => s.eventType == val);
-                                    nameController.text = 'Template ${match.name}';
+                                    final match = systemTypes.firstWhere(
+                                      (s) => s.eventType == val,
+                                    );
+                                    nameController.text =
+                                        'Template ${match.name}';
                                     titleController.text = match.defaultTitle;
                                     bodyController.text = match.defaultBody;
                                   });
@@ -699,7 +891,8 @@ class _NotificationManagementScreenState
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            if (pickedImageBytes != null || imageController.text.isNotEmpty)
+                            if (pickedImageBytes != null ||
+                                imageController.text.isNotEmpty)
                               TextButton(
                                 onPressed: () {
                                   setSheetState(() {
@@ -712,7 +905,10 @@ class _NotificationManagementScreenState
                                   visualDensity: VisualDensity.compact,
                                   foregroundColor: AppColors.danger,
                                 ),
-                                child: const Text('Hapus Gambar', style: TextStyle(fontSize: 12)),
+                                child: const Text(
+                                  'Hapus Gambar',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                               ),
                           ],
                         ),
@@ -727,7 +923,10 @@ class _NotificationManagementScreenState
                             ),
                             child: Text(
                               imageUploadError!,
-                              style: const TextStyle(color: AppColors.danger, fontSize: 12),
+                              style: const TextStyle(
+                                color: AppColors.danger,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         if (isUploadingImage)
@@ -738,7 +937,10 @@ class _NotificationManagementScreenState
                               children: [
                                 CircularProgressIndicator(),
                                 SizedBox(height: 8),
-                                Text('Mengunggah gambar ke server...', style: TextStyle(fontSize: 12)),
+                                Text(
+                                  'Mengunggah gambar ke server...',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                               ],
                             ),
                           )
@@ -771,11 +973,15 @@ class _NotificationManagementScreenState
                                       imageQuality: 85,
                                     );
                                     if (picked == null) {
-                                      setSheetState(() => isUploadingImage = false);
+                                      setSheetState(
+                                        () => isUploadingImage = false,
+                                      );
                                       return;
                                     }
                                     final bytes = await picked.readAsBytes();
-                                    final repo = ref.read(notificationRepositoryProvider);
+                                    final repo = ref.read(
+                                      notificationRepositoryProvider,
+                                    );
                                     final url = await repo.uploadImage(
                                       eventType: selectedEvent,
                                       bytes: bytes,
@@ -790,12 +996,16 @@ class _NotificationManagementScreenState
                                   } catch (e) {
                                     setSheetState(() {
                                       isUploadingImage = false;
-                                      imageUploadError = 'Gagal mengunggah gambar: $e';
+                                      imageUploadError =
+                                          'Gagal mengunggah gambar: $e';
                                     });
                                   }
                                 },
                                 icon: const Icon(Icons.refresh, size: 16),
-                                label: const Text('Ganti Gambar', style: TextStyle(fontSize: 12)),
+                                label: const Text(
+                                  'Ganti Gambar',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                               ),
                             ],
                           ),
@@ -806,12 +1016,18 @@ class _NotificationManagementScreenState
                             child: AspectRatio(
                               aspectRatio: 16 / 9,
                               child: Image.network(
-                                ApiConfig.resolveImageUrl(imageController.text) ?? imageController.text,
+                                ApiConfig.resolveImageUrl(
+                                      imageController.text,
+                                    ) ??
+                                    imageController.text,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, _, _) => Container(
                                   color: Colors.grey.withValues(alpha: 0.1),
                                   alignment: Alignment.center,
-                                  child: const Text('Gagal menampilkan gambar pratinjau', style: TextStyle(fontSize: 12)),
+                                  child: const Text(
+                                    'Gagal menampilkan gambar pratinjau',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
                                 ),
                               ),
                             ),
@@ -834,11 +1050,15 @@ class _NotificationManagementScreenState
                                       imageQuality: 85,
                                     );
                                     if (picked == null) {
-                                      setSheetState(() => isUploadingImage = false);
+                                      setSheetState(
+                                        () => isUploadingImage = false,
+                                      );
                                       return;
                                     }
                                     final bytes = await picked.readAsBytes();
-                                    final repo = ref.read(notificationRepositoryProvider);
+                                    final repo = ref.read(
+                                      notificationRepositoryProvider,
+                                    );
                                     final url = await repo.uploadImage(
                                       eventType: selectedEvent,
                                       bytes: bytes,
@@ -853,12 +1073,16 @@ class _NotificationManagementScreenState
                                   } catch (e) {
                                     setSheetState(() {
                                       isUploadingImage = false;
-                                      imageUploadError = 'Gagal mengunggah gambar: $e';
+                                      imageUploadError =
+                                          'Gagal mengunggah gambar: $e';
                                     });
                                   }
                                 },
                                 icon: const Icon(Icons.refresh, size: 16),
-                                label: const Text('Ganti Gambar', style: TextStyle(fontSize: 12)),
+                                label: const Text(
+                                  'Ganti Gambar',
+                                  style: TextStyle(fontSize: 12),
+                                ),
                               ),
                             ],
                           ),
@@ -882,11 +1106,15 @@ class _NotificationManagementScreenState
                                         imageQuality: 85,
                                       );
                                       if (picked == null) {
-                                        setSheetState(() => isUploadingImage = false);
+                                        setSheetState(
+                                          () => isUploadingImage = false,
+                                        );
                                         return;
                                       }
                                       final bytes = await picked.readAsBytes();
-                                      final repo = ref.read(notificationRepositoryProvider);
+                                      final repo = ref.read(
+                                        notificationRepositoryProvider,
+                                      );
                                       final url = await repo.uploadImage(
                                         eventType: selectedEvent,
                                         bytes: bytes,
@@ -901,12 +1129,16 @@ class _NotificationManagementScreenState
                                     } catch (e) {
                                       setSheetState(() {
                                         isUploadingImage = false;
-                                        imageUploadError = 'Gagal mengunggah gambar: $e';
+                                        imageUploadError =
+                                            'Gagal mengunggah gambar: $e';
                                       });
                                     }
                                   },
                                   icon: const Icon(Icons.camera_alt, size: 16),
-                                  label: const Text('Kamera', style: TextStyle(fontSize: 12)),
+                                  label: const Text(
+                                    'Kamera',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -926,11 +1158,15 @@ class _NotificationManagementScreenState
                                         imageQuality: 85,
                                       );
                                       if (picked == null) {
-                                        setSheetState(() => isUploadingImage = false);
+                                        setSheetState(
+                                          () => isUploadingImage = false,
+                                        );
                                         return;
                                       }
                                       final bytes = await picked.readAsBytes();
-                                      final repo = ref.read(notificationRepositoryProvider);
+                                      final repo = ref.read(
+                                        notificationRepositoryProvider,
+                                      );
                                       final url = await repo.uploadImage(
                                         eventType: selectedEvent,
                                         bytes: bytes,
@@ -945,12 +1181,19 @@ class _NotificationManagementScreenState
                                     } catch (e) {
                                       setSheetState(() {
                                         isUploadingImage = false;
-                                        imageUploadError = 'Gagal mengunggah gambar: $e';
+                                        imageUploadError =
+                                            'Gagal mengunggah gambar: $e';
                                       });
                                     }
                                   },
-                                  icon: const Icon(Icons.photo_library, size: 16),
-                                  label: const Text('Galeri', style: TextStyle(fontSize: 12)),
+                                  icon: const Icon(
+                                    Icons.photo_library,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    'Galeri',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
                                 ),
                               ),
                             ],
@@ -968,9 +1211,12 @@ class _NotificationManagementScreenState
                         TextField(
                           controller: imageController,
                           decoration: InputDecoration(
-                            hintText: 'https://... atau /api/v1/notifications/images/...',
+                            hintText:
+                                'https://... atau /api/v1/notifications/images/...',
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(AppRadius.base),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.base,
+                              ),
                             ),
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 12,
@@ -997,8 +1243,13 @@ class _NotificationManagementScreenState
                           children: currentSystemType.allowedVariables.map((v) {
                             final tag = '{{$v}}';
                             return ActionChip(
-                              label: Text(tag, style: const TextStyle(fontSize: 12)),
-                              backgroundColor: AppColors.accent.withValues(alpha: 0.12),
+                              label: Text(
+                                tag,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              backgroundColor: AppColors.accent.withValues(
+                                alpha: 0.12,
+                              ),
                               side: BorderSide.none,
                               onPressed: () {
                                 final current = bodyController.text;
@@ -1030,7 +1281,9 @@ class _NotificationManagementScreenState
                                 final name = nameController.text.trim();
                                 final title = titleController.text.trim();
                                 final body = bodyController.text.trim();
-                                if (name.isEmpty || title.isEmpty || body.isEmpty) {
+                                if (name.isEmpty ||
+                                    title.isEmpty ||
+                                    body.isEmpty) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('Semua kolom wajib diisi'),
@@ -1040,12 +1293,19 @@ class _NotificationManagementScreenState
                                 }
 
                                 final rawImg = imageController.text.trim();
-                                final supportsImg = selectedEvent == 'waste_truck_arrival' || selectedEvent == 'manual_push';
-                                final imgUrl = (supportsImg && rawImg.isNotEmpty) ? rawImg : null;
+                                final supportsImg =
+                                    selectedEvent == 'waste_truck_arrival' ||
+                                    selectedEvent == 'manual_push';
+                                final imgUrl =
+                                    (supportsImg && rawImg.isNotEmpty)
+                                    ? rawImg
+                                    : null;
 
                                 final messenger = ScaffoldMessenger.of(context);
                                 try {
-                                  final repo = ref.read(notificationRepositoryProvider);
+                                  final repo = ref.read(
+                                    notificationRepositoryProvider,
+                                  );
                                   if (isEditing) {
                                     await repo.updateTemplate(
                                       id: template.id,
@@ -1133,9 +1393,7 @@ class _NotificationManagementScreenState
                   );
                 } catch (e) {
                   if (!mounted) return;
-                  messenger.showSnackBar(
-                    SnackBar(content: Text(e.toString())),
-                  );
+                  messenger.showSnackBar(SnackBar(content: Text(e.toString())));
                 }
               },
               style: TextButton.styleFrom(foregroundColor: AppColors.danger),
@@ -1191,537 +1449,714 @@ class _NotificationManagementScreenState
         actions: [],
         bottom: TabBar(
           controller: _tabController,
+          tabAlignment: TabAlignment.fill,
+          labelPadding: EdgeInsets.zero,
+          labelStyle: const TextStyle(fontSize: 12),
           labelColor: AppColors.accent,
-          unselectedLabelColor: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+          unselectedLabelColor: isDark
+              ? AppColors.darkTextMuted
+              : AppColors.lightTextMuted,
           indicatorColor: AppColors.accent,
           indicatorWeight: 3,
           tabs: const [
-            Tab(
-              icon: Icon(Icons.apps_rounded, size: 20),
-              text: 'Sistem',
-            ),
-            Tab(
-              icon: Icon(Icons.bookmark_border_rounded, size: 20),
-              text: 'Template',
-            ),
-            Tab(
-              icon: Icon(Icons.schedule_rounded, size: 20),
-              text: 'Penjadwalan',
-            ),
-            Tab(
-              icon: Icon(Icons.history_rounded, size: 20),
-              text: 'Riwayat',
-            ),
+            Tab(icon: Icon(Icons.notifications_outlined, size: 20), text: 'NOTIFIKASI'),
+            Tab(icon: Icon(Icons.bookmark_border_rounded, size: 20), text: 'TEMPLATE'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
-          // TAB 1: NOTIFIKASI SISTEM
-          RefreshIndicator(
-            onRefresh: () async {
-              ref.invalidate(notificationSystemTypesProvider);
-              await ref.read(notificationSystemTypesProvider.future);
-            },
-            child: systemTypesAsync.when(
-              loading: () => const Center(child: LoadingIndicator()),
-              error: (err, _) => ErrorState(
-                message: err.toString(),
-                onRetry: () => ref.invalidate(notificationSystemTypesProvider),
+          Column(
+            children: [
+              TabBar(
+                controller: _historyTabController,
+                onTap: _loadHistoryForTab,
+                tabAlignment: TabAlignment.fill,
+                labelPadding: EdgeInsets.zero,
+                labelStyle: const TextStyle(fontSize: 11),
+                labelColor: AppColors.accent,
+                unselectedLabelColor: isDark
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted,
+                indicatorColor: AppColors.accent,
+                tabs: const [
+                  Tab(text: 'SISTEM'),
+                  Tab(text: 'RIWAYAT SAYA'),
+                ],
               ),
-              data: (types) {
-                if (types.isEmpty) {
-                  return const EmptyState(
-                    icon: Icons.notifications_off_outlined,
-                    title: 'Tidak Ada Jenis Notifikasi',
-                    description: 'Belum ada notifikasi sistem yang terdaftar.',
-                  );
-                }
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: types.length,
-                  itemBuilder: (context, index) {
-                    final st = types[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: AppCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    st.name,
-                                    style: theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                const AppBadge(
-                                  label: 'FCM PUSH',
-                                  backgroundColor: AppColors.accent,
-                                  textColor: Colors.white,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              st.trigger,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? Colors.white.withValues(alpha: 0.04)
-                                      : Colors.black.withValues(alpha: 0.03),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    Text(
-                                      'Penerima:',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: isDark
-                                            ? AppColors.darkTextMuted
-                                            : AppColors.lightTextMuted,
+              Expanded(
+                child: TabBarView(
+                  controller: _historyTabController,
+                  children: [
+                    _buildLogsTab(
+                      theme: theme,
+                      isDark: isDark,
+                      isAdmin: true,
+                      systemTypes: systemTypesAsync.valueOrNull ?? [],
+                      category: 'system',
+                    ),
+                    _buildLogsTab(
+                      theme: theme,
+                      isDark: isDark,
+                      isAdmin: true,
+                      systemTypes: systemTypesAsync.valueOrNull ?? [],
+                      category: 'mine',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Column(
+            children: [
+              TabBar(
+                controller: _configTabController,
+                tabAlignment: TabAlignment.fill,
+                labelPadding: EdgeInsets.zero,
+                labelStyle: const TextStyle(fontSize: 9),
+                labelColor: AppColors.accent,
+                unselectedLabelColor: isDark
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted,
+                indicatorColor: AppColors.accent,
+                tabs: const [
+                  Tab(icon: Icon(Icons.apps_rounded, size: 14), text: 'SISTEM'),
+                  Tab(
+                    icon: Icon(Icons.bookmark_border_rounded, size: 14),
+                    text: 'KUSTOM',
+                  ),
+                  Tab(
+                    icon: Icon(Icons.schedule_rounded, size: 14),
+                    text: 'PENJADWALAN',
+                  ),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  controller: _configTabController,
+                  children: [
+                    // TAB 1: NOTIFIKASI SISTEM
+                    RefreshIndicator(
+                      onRefresh: () async {
+                        ref.invalidate(notificationSystemTypesProvider);
+                        await ref.read(notificationSystemTypesProvider.future);
+                      },
+                      child: systemTypesAsync.when(
+                        loading: () => const Center(child: LoadingIndicator()),
+                        error: (err, _) => ErrorState(
+                          message: err.toString(),
+                          onRetry: () =>
+                              ref.invalidate(notificationSystemTypesProvider),
+                        ),
+                        data: (types) {
+                          if (types.isEmpty) {
+                            return const EmptyState(
+                              icon: Icons.notifications_off_outlined,
+                              title: 'Tidak Ada Jenis Notifikasi',
+                              description:
+                                  'Belum ada notifikasi sistem yang terdaftar.',
+                            );
+                          }
+                          return ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: types.length,
+                            itemBuilder: (context, index) {
+                              final st = types[index];
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: AppCard(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              st.name,
+                                              style: theme.textTheme.titleMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                            ),
+                                          ),
+                                          const AppBadge(
+                                            label: 'FCM PUSH',
+                                            backgroundColor: AppColors.accent,
+                                            textColor: Colors.white,
+                                          ),
+                                        ],
                                       ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      st.recipientsRule,
-                                      style: theme.textTheme.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.only(left: 10),
-                              decoration: const BoxDecoration(
-                                border: Border(
-                                  left: BorderSide(
-                                    color: AppColors.accent,
-                                    width: 3,
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        st.trigger,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: isDark
+                                                  ? AppColors.darkTextMuted
+                                                  : AppColors.lightTextMuted,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: isDark
+                                                ? Colors.white.withValues(
+                                                    alpha: 0.04,
+                                                  )
+                                                : Colors.black.withValues(
+                                                    alpha: 0.03,
+                                                  ),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
+                                              Text(
+                                                'Penerima:',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isDark
+                                                      ? AppColors.darkTextMuted
+                                                      : AppColors
+                                                            .lightTextMuted,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                st.recipientsRule,
+                                                style:
+                                                    theme.textTheme.bodySmall,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Container(
+                                        padding: const EdgeInsets.only(
+                                          left: 10,
+                                        ),
+                                        decoration: const BoxDecoration(
+                                          border: Border(
+                                            left: BorderSide(
+                                              color: AppColors.accent,
+                                              width: 3,
+                                            ),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              st.defaultTitle,
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              st.defaultBody,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color: isDark
+                                                        ? AppColors
+                                                              .darkTextMuted
+                                                        : AppColors
+                                                              .lightTextMuted,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (st.allowedVariables.isNotEmpty) ...[
+                                        const SizedBox(height: 10),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 4,
+                                          children: st.allowedVariables.map((
+                                            v,
+                                          ) {
+                                            return Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: isDark
+                                                    ? Colors.white.withValues(
+                                                        alpha: 0.08,
+                                                      )
+                                                    : Colors.black.withValues(
+                                                        alpha: 0.06,
+                                                      ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                '{{$v}}',
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  fontFamily: 'monospace',
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ],
+                                      const SizedBox(height: 12),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          SizedBox(
+                                            width: 135,
+                                            child: ElevatedButton(
+                                              onPressed: () =>
+                                                  _showPreviewBanner(
+                                                    title: st.defaultTitle,
+                                                    body: st.defaultBody,
+                                                    eventName: st.name,
+                                                  ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: AppColors.info,
+                                                foregroundColor: Colors.white,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 10,
+                                                    ),
+                                              ),
+                                              child: const Text(
+                                                'Preview Banner',
+                                              ),
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: 135,
+                                            child: ElevatedButton(
+                                              onPressed: () =>
+                                                  _showAddEditTemplateDialog(
+                                                    defaultEventType:
+                                                        st.eventType,
+                                                    systemTypes: types,
+                                                  ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    AppColors.accent,
+                                                foregroundColor: Colors.white,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 10,
+                                                    ),
+                                              ),
+                                              child: const Text(
+                                                'Kustomisasi',
+                                                softWrap: true,
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (st.eventType == 'manual_push' ||
+                                          (isSuperAdmin &&
+                                              st.supportsTest)) ...[
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            if (isSuperAdmin && st.supportsTest)
+                                              SizedBox(
+                                                width: 135,
+                                                child: OutlinedButton.icon(
+                                                  onPressed: () =>
+                                                      _handleTestPush(
+                                                        eventType: st.eventType,
+                                                        title: st.defaultTitle,
+                                                        body: st.defaultBody,
+                                                      ),
+                                                  icon: const Icon(
+                                                    Icons.send_outlined,
+                                                    size: 16,
+                                                  ),
+                                                  label: const Text(
+                                                    'Test Notifikasi',
+                                                  ),
+                                                  style:
+                                                      OutlinedButton.styleFrom(
+                                                        foregroundColor:
+                                                            AppColors.info,
+                                                        side: const BorderSide(
+                                                          color: AppColors.info,
+                                                        ),
+                                                      ),
+                                                ),
+                                              ),
+                                            if (st.eventType == 'manual_push')
+                                              SizedBox(
+                                                width: 135,
+                                                child: ElevatedButton.icon(
+                                                  onPressed: () =>
+                                                      _confirmSendBroadcastDialog(
+                                                        eventType: st.eventType,
+                                                        title: st.defaultTitle,
+                                                        body: st.defaultBody,
+                                                      ),
+                                                  icon: const Icon(
+                                                    Icons.campaign_outlined,
+                                                    size: 16,
+                                                  ),
+                                                  label: const Text(
+                                                    'Kirim Notifikasi',
+                                                    softWrap: true,
+                                                    textAlign: TextAlign.center,
+                                                  ),
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                        backgroundColor:
+                                                            AppColors.success,
+                                                        foregroundColor:
+                                                            Colors.white,
+                                                      ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    st.defaultTitle,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    st.defaultBody,
-                                    style: theme.textTheme.bodySmall?.copyWith(
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+
+                    // TAB 2: TEMPLATE KUSTOM
+                    RefreshIndicator(
+                      onRefresh: () async {
+                        ref.invalidate(notificationTemplatesProvider);
+                        await ref.read(notificationTemplatesProvider.future);
+                      },
+                      child: templatesAsync.when(
+                        loading: () => const Center(child: LoadingIndicator()),
+                        error: (err, _) => ErrorState(
+                          message: err.toString(),
+                          onRetry: () =>
+                              ref.invalidate(notificationTemplatesProvider),
+                        ),
+                        data: (templates) {
+                          final systemTypes =
+                              systemTypesAsync.valueOrNull ?? [];
+                          if (templates.isEmpty) {
+                            return Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24.0),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.bookmark_border_rounded,
+                                      size: 48,
                                       color: isDark
                                           ? AppColors.darkTextMuted
                                           : AppColors.lightTextMuted,
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (st.allowedVariables.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 4,
-                                children: st.allowedVariables.map((v) {
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Belum Ada Template Kustom',
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? Colors.white.withValues(alpha: 0.08)
-                                          : Colors.black.withValues(alpha: 0.06),
-                                      borderRadius: BorderRadius.circular(4),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Sistem menggunakan pesan default standar Urena. Anda dapat menambahkan template kustom untuk mengubah format pesan.',
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: isDark
+                                                ? AppColors.darkTextMuted
+                                                : AppColors.lightTextMuted,
+                                          ),
                                     ),
-                                    child: Text(
-                                      '{{$v}}',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontFamily: 'monospace',
+                                    const SizedBox(height: 16),
+                                    ElevatedButton.icon(
+                                      onPressed: () =>
+                                          _showAddEditTemplateDialog(
+                                            systemTypes: systemTypes,
+                                          ),
+                                      icon: const Icon(Icons.add),
+                                      label: const Text(
+                                        'Buat Template Pertama',
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.accent,
+                                        foregroundColor: Colors.white,
                                       ),
                                     ),
-                                  );
-                                }).toList(),
-                              ),
-                            ],
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ElevatedButton(
-                                    onPressed: () => _showPreviewBanner(
-                                      title: st.defaultTitle,
-                                      body: st.defaultBody,
-                                      eventName: st.name,
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.info,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                    ),
-                                    child: const Text('Preview Banner'),
-                                  ),
+                                  ],
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: ElevatedButton(
-                                    onPressed: () => _showAddEditTemplateDialog(
-                                      defaultEventType: st.eventType,
-                                      systemTypes: types,
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.accent,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                    ),
-                                    child: const Text('Kustomisasi'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (st.eventType == 'manual_push' || (isSuperAdmin && st.supportsTest)) ...[
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  if (isSuperAdmin && st.supportsTest)
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: () => _handleTestPush(
-                                          eventType: st.eventType,
-                                          title: st.defaultTitle,
-                                          body: st.defaultBody,
-                                        ),
-                                        icon: const Icon(Icons.send_outlined, size: 16),
-                                        label: const Text('Test Notifikasi'),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: AppColors.info,
-                                          side: const BorderSide(color: AppColors.info),
-                                        ),
-                                      ),
-                                    ),
-                                  if (isSuperAdmin && st.supportsTest && st.eventType == 'manual_push')
-                                    const SizedBox(width: 8),
-                                  if (st.eventType == 'manual_push')
-                                    Expanded(
-                                      child: ElevatedButton.icon(
-                                        onPressed: () => _confirmSendBroadcastDialog(
-                                          eventType: st.eventType,
-                                          title: st.defaultTitle,
-                                          body: st.defaultBody,
-                                        ),
-                                        icon: const Icon(Icons.campaign_outlined, size: 16),
-                                        label: const Text('Kirim Notifikasi'),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: AppColors.success,
-                                          foregroundColor: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                ],
                               ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
+                            );
+                          }
 
-          // TAB 2: TEMPLATE KUSTOM
-          RefreshIndicator(
-            onRefresh: () async {
-              ref.invalidate(notificationTemplatesProvider);
-              await ref.read(notificationTemplatesProvider.future);
-            },
-            child: templatesAsync.when(
-              loading: () => const Center(child: LoadingIndicator()),
-              error: (err, _) => ErrorState(
-                message: err.toString(),
-                onRetry: () => ref.invalidate(notificationTemplatesProvider),
-              ),
-              data: (templates) {
-                final systemTypes = systemTypesAsync.valueOrNull ?? [];
-                if (templates.isEmpty) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.bookmark_border_rounded,
-                            size: 48,
-                            color: isDark
-                                ? AppColors.darkTextMuted
-                                : AppColors.lightTextMuted,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Belum Ada Template Kustom',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Sistem menggunakan pesan default standar Urena. Anda dapat menambahkan template kustom untuk mengubah format pesan.',
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: isDark
-                                  ? AppColors.darkTextMuted
-                                  : AppColors.lightTextMuted,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            onPressed: () => _showAddEditTemplateDialog(
-                              systemTypes: systemTypes,
-                            ),
-                            icon: const Icon(Icons.add),
-                            label: const Text('Buat Template Pertama'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.accent,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        ],
+                          return ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: templates.length + 1,
+                            itemBuilder: (context, index) {
+                              if (index == templates.length) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _showAddEditTemplateDialog(
+                                      systemTypes: systemTypes,
+                                    ),
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('Tambah Template Baru'),
+                                  ),
+                                );
+                              }
+
+                              final tmpl = templates[index];
+                              final stName = systemTypes
+                                  .firstWhere(
+                                    (s) => s.eventType == tmpl.eventType,
+                                    orElse: () => SystemNotificationType(
+                                      eventType: tmpl.eventType,
+                                      name: tmpl.eventType,
+                                      trigger: '',
+                                      recipientsRule: '',
+                                      defaultTitle: '',
+                                      defaultBody: '',
+                                      allowedVariables: const [],
+                                    ),
+                                  )
+                                  .name;
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: AppCard(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              tmpl.name,
+                                              style: theme.textTheme.titleMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                            ),
+                                          ),
+                                          Switch(
+                                            value: tmpl.isActive,
+                                            activeColor: AppColors.accent,
+                                            onChanged: (val) async {
+                                              final messenger =
+                                                  ScaffoldMessenger.of(context);
+                                              try {
+                                                final repo = ref.read(
+                                                  notificationRepositoryProvider,
+                                                );
+                                                await repo.toggleTemplateActive(
+                                                  tmpl.id,
+                                                );
+                                                if (!mounted) return;
+                                                ref.invalidate(
+                                                  notificationTemplatesProvider,
+                                                );
+                                              } catch (e) {
+                                                if (!mounted) return;
+                                                messenger.showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(e.toString()),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                      Wrap(
+                                        spacing: 6,
+                                        children: [
+                                          AppBadge(
+                                            label: stName,
+                                            backgroundColor: AppColors.accent
+                                                .withValues(alpha: 0.15),
+                                            textColor: AppColors.accent,
+                                          ),
+                                          if (tmpl.imageUrl != null &&
+                                              tmpl.imageUrl!.isNotEmpty)
+                                            AppBadge(
+                                              label: 'Gambar Terlampir',
+                                              backgroundColor: AppColors.info
+                                                  .withValues(alpha: 0.15),
+                                              textColor: AppColors.info,
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        tmpl.title,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      NotificationBodyText(
+                                        text: tmpl.body,
+                                        eventType: tmpl.eventType,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: isDark
+                                                  ? AppColors.darkTextMuted
+                                                  : AppColors.lightTextMuted,
+                                            ),
+                                        onOpenUrl: (url) {
+                                          ref
+                                              .read(
+                                                pushNotificationServiceProvider,
+                                              )
+                                              .openExternalUrl(url);
+                                        },
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          if (isSuperAdmin &&
+                                              (tmpl.eventType ==
+                                                      'manual_push' ||
+                                                  tmpl.eventType ==
+                                                      'waste_truck_arrival'))
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.send_outlined,
+                                                size: 20,
+                                                color: AppColors.info,
+                                              ),
+                                              tooltip:
+                                                  'Test Notifikasi (Super Admin)',
+                                              onPressed: () => _handleTestPush(
+                                                eventType: tmpl.eventType,
+                                                title: tmpl.title,
+                                                body: tmpl.body,
+                                                imageUrl: tmpl.imageUrl,
+                                              ),
+                                            ),
+                                          if (tmpl.eventType == 'manual_push')
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.campaign_outlined,
+                                                size: 20,
+                                                color: AppColors.accent,
+                                              ),
+                                              tooltip:
+                                                  'Kirim Notifikasi Siaran',
+                                              onPressed: () =>
+                                                  _confirmSendBroadcastDialog(
+                                                    eventType: tmpl.eventType,
+                                                    title: tmpl.title,
+                                                    body: tmpl.body,
+                                                    imageUrl: tmpl.imageUrl,
+                                                  ),
+                                            ),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.preview_rounded,
+                                              size: 20,
+                                              color: AppColors.info,
+                                            ),
+                                            tooltip: 'Preview Banner',
+                                            onPressed: () => _showPreviewBanner(
+                                              title: tmpl.title,
+                                              body: tmpl.body,
+                                              eventName: tmpl.name,
+                                              imageUrl: tmpl.imageUrl,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.edit_outlined,
+                                              size: 20,
+                                              color: AppColors.accent,
+                                            ),
+                                            tooltip: 'Ubah Template',
+                                            onPressed: () =>
+                                                _showAddEditTemplateDialog(
+                                                  template: tmpl,
+                                                  systemTypes: systemTypes,
+                                                ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                              size: 20,
+                                              color: AppColors.danger,
+                                            ),
+                                            tooltip: 'Hapus Template',
+                                            onPressed: () =>
+                                                _confirmDeleteTemplate(tmpl),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
                       ),
                     ),
-                  );
-                }
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: templates.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == templates.length) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: OutlinedButton.icon(
-                          onPressed: () => _showAddEditTemplateDialog(
-                            systemTypes: systemTypes,
-                          ),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Tambah Template Baru'),
-                        ),
-                      );
-                    }
-
-                    final tmpl = templates[index];
-                    final stName = systemTypes
-                            .firstWhere(
-                              (s) => s.eventType == tmpl.eventType,
-                              orElse: () => SystemNotificationType(
-                                eventType: tmpl.eventType,
-                                name: tmpl.eventType,
-                                trigger: '',
-                                recipientsRule: '',
-                                defaultTitle: '',
-                                defaultBody: '',
-                                allowedVariables: const [],
-                              ),
-                            )
-                            .name;
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: AppCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    tmpl.name,
-                                    style: theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                Switch(
-                                  value: tmpl.isActive,
-                                  activeColor: AppColors.accent,
-                                  onChanged: (val) async {
-                                    final messenger = ScaffoldMessenger.of(context);
-                                    try {
-                                      final repo = ref.read(
-                                        notificationRepositoryProvider,
-                                      );
-                                      await repo.toggleTemplateActive(tmpl.id);
-                                      if (!mounted) return;
-                                      ref.invalidate(
-                                        notificationTemplatesProvider,
-                                      );
-                                    } catch (e) {
-                                      if (!mounted) return;
-                                      messenger.showSnackBar(
-                                        SnackBar(content: Text(e.toString())),
-                                      );
-                                    }
-                                  },
-                                ),
-                              ],
-                            ),
-                            Wrap(
-                              spacing: 6,
-                              children: [
-                                AppBadge(
-                                  label: stName,
-                                  backgroundColor:
-                                      AppColors.accent.withValues(alpha: 0.15),
-                                  textColor: AppColors.accent,
-                                ),
-                                if (tmpl.imageUrl != null &&
-                                    tmpl.imageUrl!.isNotEmpty)
-                                  AppBadge(
-                                    label: 'Gambar Terlampir',
-                                    backgroundColor:
-                                        AppColors.info.withValues(alpha: 0.15),
-                                    textColor: AppColors.info,
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              tmpl.title,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            NotificationBodyText(
-                              text: tmpl.body,
-                              eventType: tmpl.eventType,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: isDark
-                                    ? AppColors.darkTextMuted
-                                    : AppColors.lightTextMuted,
-                              ),
-                              onOpenUrl: (url) {
-                                ref
-                                    .read(pushNotificationServiceProvider)
-                                    .openExternalUrl(url);
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                if (isSuperAdmin &&
-                                    (tmpl.eventType == 'manual_push' ||
-                                        tmpl.eventType == 'waste_truck_arrival'))
-                                  IconButton(
-                                    icon: const Icon(Icons.send_outlined,
-                                        size: 20, color: AppColors.info),
-                                    tooltip: 'Test Notifikasi (Super Admin)',
-                                    onPressed: () => _handleTestPush(
-                                      eventType: tmpl.eventType,
-                                      title: tmpl.title,
-                                      body: tmpl.body,
-                                      imageUrl: tmpl.imageUrl,
-                                    ),
-                                  ),
-                                if (tmpl.eventType == 'manual_push')
-                                  IconButton(
-                                    icon: const Icon(Icons.campaign_outlined,
-                                        size: 20, color: AppColors.accent),
-                                    tooltip: 'Kirim Notifikasi Siaran',
-                                    onPressed: () => _confirmSendBroadcastDialog(
-                                      eventType: tmpl.eventType,
-                                      title: tmpl.title,
-                                      body: tmpl.body,
-                                      imageUrl: tmpl.imageUrl,
-                                    ),
-                                  ),
-                                IconButton(
-                                  icon: const Icon(Icons.preview_rounded, size: 20, color: AppColors.info),
-                                  tooltip: 'Preview Banner',
-                                  onPressed: () => _showPreviewBanner(
-                                    title: tmpl.title,
-                                    body: tmpl.body,
-                                    eventName: tmpl.name,
-                                    imageUrl: tmpl.imageUrl,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.accent),
-                                  tooltip: 'Ubah Template',
-                                  onPressed: () => _showAddEditTemplateDialog(
-                                    template: tmpl,
-                                    systemTypes: systemTypes,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete_outline,
-                                    size: 20,
-                                    color: AppColors.danger,
-                                  ),
-                                  tooltip: 'Hapus Template',
-                                  onPressed: () => _confirmDeleteTemplate(tmpl),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                    // TAB 3: PENJADWALAN NOTIFIKASI
+                    RefreshIndicator(
+                      onRefresh: () async {
+                        ref.invalidate(notificationSchedulesProvider);
+                        _loadSchedules();
+                      },
+                      child: _buildSchedulesTab(
+                        theme: theme,
+                        isDark: isDark,
+                        templatesAsync: templatesAsync,
                       ),
-                    );
-                  },
-                );
-              },
-            ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
 
-          // TAB 3: PENJADWALAN NOTIFIKASI
-          RefreshIndicator(
-            onRefresh: () async {
-              ref.invalidate(notificationSchedulesProvider);
-              _loadSchedules();
-            },
-            child: _buildSchedulesTab(
-              theme: theme,
-              isDark: isDark,
-              templatesAsync: templatesAsync,
-            ),
-          ),
-
-          // TAB 4: RIWAYAT PENGIRIMAN
-          _buildLogsTab(
-            theme: theme,
-            isDark: isDark,
-            isAdmin: true,
-            systemTypes: systemTypesAsync.valueOrNull ?? [],
-          ),
         ],
       ),
     );
@@ -1762,9 +2197,7 @@ class _NotificationManagementScreenState
       itemBuilder: (context, index) {
         final s = _schedules[index];
         final eventName = _knownEventNames[s.eventType] ?? s.eventType;
-        final days = s.sendDays.isNotEmpty
-            ? s.sendDays.join(', ')
-            : '-';
+        final days = s.sendDays.isNotEmpty ? s.sendDays.join(', ') : '-';
         return AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1818,9 +2251,7 @@ class _NotificationManagementScreenState
               const SizedBox(height: 4),
               Text(
                 'Tanggal: $days | Jam: ${s.sendHour.toString().padLeft(2, '0')}:${s.sendMinute.toString().padLeft(2, '0')} WIB',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: muted,
-                ),
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
               ),
               if (s.timezone.isNotEmpty && s.timezone != 'Asia/Jakarta') ...[
                 const SizedBox(height: 2),
@@ -1833,15 +2264,102 @@ class _NotificationManagementScreenState
                 ),
               ],
               if (s.lastExecutedAt != null) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.access_time, size: 14, color: AppColors.accent),
+                    const Icon(
+                      Icons.access_time,
+                      size: 14,
+                      color: AppColors.accent,
+                    ),
                     const SizedBox(width: 6),
-                    Text(
-                      'Terakhir dieksekusi: ${_formatDateTime(s.lastExecutedAt!)} (${s.lastExecutedStatus ?? '-'})',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: muted,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'Terakhir: ${_formatDateTime(s.lastExecutedAt!)}',
+                                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                              ),
+                              if (s.lastExecutedStatus != null) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: s.lastExecutedStatus == 'success'
+                                        ? AppColors.success.withValues(alpha: 0.12)
+                                        : s.lastExecutedStatus == 'partial'
+                                        ? AppColors.warning.withValues(alpha: 0.15)
+                                        : s.lastExecutedStatus == 'no_device'
+                                        ? Colors.blue.withValues(alpha: 0.12)
+                                        : s.lastExecutedStatus == 'no_recipients'
+                                        ? Colors.grey.withValues(alpha: 0.12)
+                                        : AppColors.danger.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: s.lastExecutedStatus == 'success'
+                                          ? AppColors.success.withValues(alpha: 0.3)
+                                          : s.lastExecutedStatus == 'partial'
+                                          ? AppColors.warning.withValues(alpha: 0.3)
+                                          : s.lastExecutedStatus == 'no_device'
+                                          ? Colors.blue.withValues(alpha: 0.3)
+                                          : s.lastExecutedStatus == 'no_recipients'
+                                          ? Colors.grey.withValues(alpha: 0.3)
+                                          : AppColors.danger.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    s.lastExecutedStatus == 'success'
+                                        ? 'BERHASIL'
+                                        : s.lastExecutedStatus == 'partial'
+                                        ? 'SEBAGIAN'
+                                        : s.lastExecutedStatus == 'no_device'
+                                        ? 'IN-APP'
+                                        : s.lastExecutedStatus == 'no_recipients'
+                                        ? 'NIHIL'
+                                        : 'GAGAL',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: s.lastExecutedStatus == 'success'
+                                          ? AppColors.success
+                                          : s.lastExecutedStatus == 'partial'
+                                          ? AppColors.warning
+                                          : s.lastExecutedStatus == 'no_device'
+                                          ? Colors.blue.shade700
+                                          : s.lastExecutedStatus == 'no_recipients'
+                                          ? Colors.grey.shade700
+                                          : AppColors.danger,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (s.lastExecutedSummary != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              s.lastExecutedStatus == 'no_recipients'
+                                  ? 'Tidak ada penerima yang memenuhi kriteria'
+                                  : s.lastExecutedStatus == 'no_device'
+                                  ? '${s.lastExecutedSummary!.noDeviceCount} warga (tanpa perangkat)'
+                                  : '${s.lastExecutedSummary!.sentCount} terkirim'
+                                      '${s.lastExecutedSummary!.failedCount > 0 ? ', ${s.lastExecutedSummary!.failedCount} gagal' : ''}'
+                                      '${s.lastExecutedSummary!.noDeviceCount > 0 ? ', ${s.lastExecutedSummary!.noDeviceCount} tanpa perangkat' : ''}',
+                              style: theme.textTheme.bodySmall?.copyWith(color: muted, fontSize: 11),
+                            ),
+                          ],
+                          if (s.lastExecutedError != null && s.lastExecutedError!.isNotEmpty && s.lastExecutedSummary == null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              s.lastExecutedError!,
+                              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.danger, fontSize: 11),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ],
@@ -1853,12 +2371,16 @@ class _NotificationManagementScreenState
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.preview_rounded, size: 20, color: AppColors.info),
+                    icon: const Icon(
+                      Icons.preview_rounded,
+                      size: 20,
+                      color: AppColors.info,
+                    ),
                     tooltip: 'Preview Notifikasi',
                     onPressed: () {
-                      final tmpl = templatesAsync.value?.where(
-                        (t) => t.id == s.templateId,
-                      ).firstOrNull;
+                      final tmpl = templatesAsync.value
+                          ?.where((t) => t.id == s.templateId)
+                          .firstOrNull;
                       _showPreviewBanner(
                         title: tmpl?.title ?? '',
                         body: tmpl?.body ?? '',
@@ -1868,12 +2390,20 @@ class _NotificationManagementScreenState
                     },
                   ),
                   IconButton(
-                    icon: const Icon(Icons.edit_outlined, size: 20, color: AppColors.accent),
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      size: 20,
+                      color: AppColors.accent,
+                    ),
                     tooltip: 'Ubah Jadwal',
                     onPressed: () => _showAddEditScheduleDialog(schedule: s),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 20, color: AppColors.danger),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 20,
+                      color: AppColors.danger,
+                    ),
                     tooltip: 'Hapus Jadwal',
                     onPressed: () => _confirmDeleteSchedule(s),
                   ),
@@ -1882,7 +2412,7 @@ class _NotificationManagementScreenState
             ],
           ),
         );
-      }
+      },
     );
   }
 
@@ -1890,7 +2420,9 @@ class _NotificationManagementScreenState
     final confirm = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(schedule.isActive ? 'Nonaktifkan Jadwal' : 'Aktifkan Jadwal'),
+        title: Text(
+          schedule.isActive ? 'Nonaktifkan Jadwal' : 'Aktifkan Jadwal',
+        ),
         content: Text(
           schedule.isActive
               ? 'Apakah Anda yakin ingin menonaktifkan jadwal "${schedule.name}"? Notifikasi tidak akan dikirim sesuai jadwal.'
@@ -1925,7 +2457,9 @@ class _NotificationManagementScreenState
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Jadwal ${schedule.isActive ? 'dinonaktifkan' : 'diaktifkan'}'),
+          content: Text(
+            'Jadwal ${schedule.isActive ? 'dinonaktifkan' : 'diaktifkan'}',
+          ),
         ),
       );
     } catch (e) {
@@ -1942,7 +2476,9 @@ class _NotificationManagementScreenState
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Hapus Jadwal'),
-        content: Text('Hapus jadwal "${schedule.name}"? Tindakan tidak dapat dibatalkan.'),
+        content: Text(
+          'Hapus jadwal "${schedule.name}"? Tindakan tidak dapat dibatalkan.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -1965,26 +2501,30 @@ class _NotificationManagementScreenState
             _schedules.removeWhere((s) => s.id == schedule.id);
           });
           ref.invalidate(notificationSchedulesProvider);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Jadwal dihapus')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Jadwal dihapus')));
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Gagal menghapus jadwal: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Gagal menghapus jadwal: $e')));
         }
       }
     }
   }
 
-  Future<void> _showAddEditScheduleDialog({NotificationSchedule? schedule}) async {
+  Future<void> _showAddEditScheduleDialog({
+    NotificationSchedule? schedule,
+  }) async {
     final isEdit = schedule != null;
     final repo = ref.read(notificationRepositoryProvider);
 
     final nameCtrl = TextEditingController(text: schedule?.name ?? '');
-    final timezoneCtrl = TextEditingController(text: schedule?.timezone ?? 'Asia/Jakarta');
+    final timezoneCtrl = TextEditingController(
+      text: schedule?.timezone ?? 'Asia/Jakarta',
+    );
     final selectedDays = <int>{}..addAll(schedule?.sendDays ?? []);
     var sendHour = schedule?.sendHour ?? 8;
     var sendMinute = schedule?.sendMinute ?? 0;
@@ -2007,19 +2547,21 @@ class _NotificationManagementScreenState
       selectedTemplateId = templates.first.id;
     }
 
+    if (!mounted) return;
+
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setSheetState) {
-            final activeTemplates =
-                templates.where((t) => t.isActive).toList();
+            final activeTemplates = templates.where((t) => t.isActive).toList();
             if (selectedTemplateId == null && activeTemplates.isNotEmpty) {
               selectedTemplateId = activeTemplates.first.id;
             } else if (selectedTemplateId != null &&
                 !activeTemplates.any((t) => t.id == selectedTemplateId)) {
-              selectedTemplateId =
-                  activeTemplates.isNotEmpty ? activeTemplates.first.id : null;
+              selectedTemplateId = activeTemplates.isNotEmpty
+                  ? activeTemplates.first.id
+                  : null;
             }
 
             return AlertDialog(
@@ -2045,10 +2587,12 @@ class _NotificationManagementScreenState
                         DropdownButtonFormField<String>(
                           value: selectedEventType,
                           items: systemTypes
-                              .map((t) => DropdownMenuItem(
-                                    value: t.eventType,
-                                    child: Text(t.name),
-                                  ))
+                              .map(
+                                (t) => DropdownMenuItem(
+                                  value: t.eventType,
+                                  child: Text(t.name),
+                                ),
+                              )
                               .toList(),
                           decoration: const InputDecoration(
                             labelText: 'Jenis Notifikasi *',
@@ -2061,18 +2605,22 @@ class _NotificationManagementScreenState
                           },
                         ),
                       if (systemTypes.isEmpty)
-                        const Text('Tidak ada jenis notifikasi tersedia.',
-                            style: TextStyle(color: AppColors.danger)),
+                        const Text(
+                          'Tidak ada jenis notifikasi tersedia.',
+                          style: TextStyle(color: AppColors.danger),
+                        ),
                       const SizedBox(height: 12),
                       // Template
                       if (activeTemplates.isNotEmpty)
                         DropdownButtonFormField<String>(
                           value: selectedTemplateId,
                           items: activeTemplates
-                              .map((t) => DropdownMenuItem(
-                                    value: t.id,
-                                    child: Text('${t.name} (${t.eventType})'),
-                                  ))
+                              .map(
+                                (t) => DropdownMenuItem(
+                                  value: t.id,
+                                  child: Text('${t.name} (${t.eventType})'),
+                                ),
+                              )
                               .toList(),
                           decoration: const InputDecoration(
                             labelText: 'Template Pesan *',
@@ -2088,7 +2636,10 @@ class _NotificationManagementScreenState
                       // Send days
                       const Text(
                         'Tanggal Pengiriman (1-31)',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
                       ),
                       const SizedBox(height: 6),
                       Wrap(
@@ -2100,16 +2651,18 @@ class _NotificationManagementScreenState
                           return ChoiceChip(
                             label: Text(day.toString()),
                             selected: selected,
-                              onSelected: (sel) {
-                                setSheetState(() {
-                                  if (sel) {
-                                    selectedDays.add(day);
-                                  } else {
-                                    selectedDays.remove(day);
-                                  }
-                                });
-                              },
-                            selectedColor: AppColors.accent.withValues(alpha: 0.2),
+                            onSelected: (sel) {
+                              setSheetState(() {
+                                if (sel) {
+                                  selectedDays.add(day);
+                                } else {
+                                  selectedDays.remove(day);
+                                }
+                              });
+                            },
+                            selectedColor: AppColors.accent.withValues(
+                              alpha: 0.2,
+                            ),
                           );
                         }),
                       ),
@@ -2121,10 +2674,14 @@ class _NotificationManagementScreenState
                             child: DropdownButtonFormField<int>(
                               value: sendHour,
                               items: List.generate(24, (h) => h)
-                                  .map((h) => DropdownMenuItem(
-                                        value: h,
-                                        child: Text('${h.toString().padLeft(2, '0')}:00'),
-                                      ))
+                                  .map(
+                                    (h) => DropdownMenuItem(
+                                      value: h,
+                                      child: Text(
+                                        '${h.toString().padLeft(2, '0')}:00',
+                                      ),
+                                    ),
+                                  )
                                   .toList(),
                               decoration: const InputDecoration(
                                 labelText: 'Jam',
@@ -2137,10 +2694,14 @@ class _NotificationManagementScreenState
                             child: DropdownButtonFormField<int>(
                               value: sendMinute,
                               items: List.generate(60, (m) => m)
-                                  .map((m) => DropdownMenuItem(
-                                        value: m,
-                                        child: Text(':${m.toString().padLeft(2, '0')}'),
-                                      ))
+                                  .map(
+                                    (m) => DropdownMenuItem(
+                                      value: m,
+                                      child: Text(
+                                        ':${m.toString().padLeft(2, '0')}',
+                                      ),
+                                    ),
+                                  )
                                   .toList(),
                               decoration: const InputDecoration(
                                 labelText: 'Menit',
@@ -2163,7 +2724,8 @@ class _NotificationManagementScreenState
                       SwitchListTile(
                         title: const Text('Aktif'),
                         subtitle: const Text(
-                            'Jadwal akan dijalankan sesuai tanggal dan jam yang ditetapkan.'),
+                          'Jadwal akan dijalankan sesuai tanggal dan jam yang ditetapkan.',
+                        ),
                         value: isActive,
                         onChanged: (v) => setSheetState(() => isActive = v),
                         activeColor: AppColors.accent,
@@ -2185,76 +2747,94 @@ class _NotificationManagementScreenState
                   onPressed: _isSavingSchedule
                       ? null
                       : () async {
-                        if (nameCtrl.text.trim().isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Nama jadwal wajib diisi')),
-                          );
-                          return;
-                        }
-                        if (selectedDays.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('Pilih minimal satu tanggal pengiriman')),
-                          );
-                          return;
-                        }
-                        if (selectedEventType == null ||
-                            selectedTemplateId == null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content:
-                                    Text('Jenis notifikasi dan template wajib dipilih')),
-                          );
-                          return;
-                        }
-                        final tz = timezoneCtrl.text.trim().isNotEmpty
-                            ? timezoneCtrl.text.trim()
-                            : 'Asia/Jakarta';
-                        try {
-                          setSheetState(() => _isSavingSchedule = true);
-                          final input = CreateNotificationScheduleInput(
-                            eventType: selectedEventType!,
-                            templateId: selectedTemplateId!,
-                            name: nameCtrl.text.trim(),
-                            sendDays: selectedDays.toList()..sort(),
-                            sendHour: sendHour,
-                            sendMinute: sendMinute,
-                            timezone: tz,
-                          );
-                          if (isEdit) {
-                            await repo.updateSchedule(schedule!.id,
-                                UpdateNotificationScheduleInput(
+                          if (nameCtrl.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Nama jadwal wajib diisi'),
+                              ),
+                            );
+                            return;
+                          }
+                          if (selectedDays.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Pilih minimal satu tanggal pengiriman',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                          if (selectedEventType == null ||
+                              selectedTemplateId == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Jenis notifikasi dan template wajib dipilih',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                          final tz = timezoneCtrl.text.trim().isNotEmpty
+                              ? timezoneCtrl.text.trim()
+                              : 'Asia/Jakarta';
+                          try {
+                            setSheetState(() => _isSavingSchedule = true);
+                            final input = CreateNotificationScheduleInput(
+                              eventType: selectedEventType!,
+                              templateId: selectedTemplateId!,
                               name: nameCtrl.text.trim(),
-                              isActive: isActive,
                               sendDays: selectedDays.toList()..sort(),
                               sendHour: sendHour,
                               sendMinute: sendMinute,
                               timezone: tz,
-                            ));
-                          } else {
-                            await repo.createSchedule(input);
-                          }
-                          if (mounted) {
-                            Navigator.of(dialogContext).pop(true);
-                            ref.invalidate(notificationSchedulesProvider);
-                            _loadSchedules();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                    'Jadwal ${isEdit ? 'diperbarui' : 'dibuat'}'),
-                              ),
                             );
+                            if (isEdit) {
+                              await repo.updateSchedule(
+                                schedule.id,
+                                UpdateNotificationScheduleInput(
+                                  name: nameCtrl.text.trim(),
+                                  isActive: isActive,
+                                  sendDays: selectedDays.toList()..sort(),
+                                  sendHour: sendHour,
+                                  sendMinute: sendMinute,
+                                  timezone: tz,
+                                ),
+                              );
+                            } else {
+                              await repo.createSchedule(input);
+                            }
+                            if (dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop(true);
+                            }
+                            if (mounted) {
+                              ref.invalidate(notificationSchedulesProvider);
+                              _loadSchedules();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Jadwal ${isEdit ? 'diperbarui' : 'dibuat'}',
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Gagal menyimpan jadwal: $e'),
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() => _isSavingSchedule = false);
+                            }
                           }
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Gagal menyimpan jadwal: $e')),
-                            );
-                          }
-                        } finally {
-                          if (mounted) setState(() => _isSavingSchedule = false);
-                        }
-                      },
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.accent,
                     foregroundColor: Colors.white,
@@ -2265,7 +2845,9 @@ class _NotificationManagementScreenState
                           height: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : Text(isEdit ? 'Simpan Perubahan' : 'Buat Jadwal'),
@@ -2282,7 +2864,7 @@ class _NotificationManagementScreenState
   }
 
   String _formatDateTime(DateTime dt) {
-    return '${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    return formatJakartaIsoDateHour(dt);
   }
 
   Widget _buildLogsTab({
@@ -2290,95 +2872,92 @@ class _NotificationManagementScreenState
     required bool isDark,
     required bool isAdmin,
     required List<SystemNotificationType> systemTypes,
+    String? category,
   }) {
     return RefreshIndicator(
-      onRefresh: _loadLogs,
+      onRefresh: () => _loadLogs(category: category),
       child: Column(
         children: [
-          // Filter bar
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: _selectedLogEventType,
-                      items: [
-                        const DropdownMenuItem(
-                          value: '',
-                          child: Text('Semua Jenis'),
-                        ),
-                        if (systemTypes.isNotEmpty)
-                          ...systemTypes.map((st) {
-                            return DropdownMenuItem(
-                              value: st.eventType,
-                              child: Text(st.name),
-                            );
-                          })
-                        else
-                          ..._knownEventNames.entries.map((e) {
-                            return DropdownMenuItem(
-                              value: e.key,
-                              child: Text(e.value),
-                            );
-                          }),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() {
-                            _selectedLogEventType = val;
-                          });
-                          _loadLogs();
-                        }
-                      },
+          if (!isAdmin)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: _selectedLogEventType,
+                        items: [
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('Semua Jenis'),
+                          ),
+                          if (systemTypes.isNotEmpty)
+                            ...systemTypes.map((st) {
+                              return DropdownMenuItem(
+                                value: st.eventType,
+                                child: Text(st.name),
+                              );
+                            })
+                          else
+                            ..._knownEventNames.entries.map((e) {
+                              return DropdownMenuItem(
+                                value: e.key,
+                                child: Text(e.value),
+                              );
+                            }),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _selectedLogEventType = val;
+                            });
+                            _loadLogs();
+                          }
+                        },
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: _selectedLogStatus,
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'all',
-                          child: Text('Semua'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'unread',
-                          child: Text('Belum Dibaca'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'read',
-                          child: Text('Sudah Dibaca'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() {
-                            _selectedLogStatus = val;
-                          });
-                          _loadLogs();
-                        }
-                      },
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: _selectedLogStatus,
+                        items: const [
+                          DropdownMenuItem(value: 'all', child: Text('Semua')),
+                          DropdownMenuItem(
+                            value: 'unread',
+                            child: Text('Belum Dibaca'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'read',
+                            child: Text('Sudah Dibaca'),
+                          ),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _selectedLogStatus = val;
+                            });
+                            _loadLogs();
+                          }
+                        },
+                      ),
                     ),
                   ),
-                ),
-                if (isAdmin) ...[
-                  IconButton(
-                    icon: const Icon(Icons.done_all_rounded, size: 20),
-                    tooltip: 'Tandai Semua Dibaca',
-                    onPressed: _markAllAsRead,
-                  ),
+                  if (!isAdmin)
+                    IconButton(
+                      icon: const Icon(Icons.done_all_rounded, size: 20),
+                      tooltip: 'Tandai Semua Dibaca',
+                      onPressed: _markAllAsRead,
+                    ),
                 ],
-              ],
+              ),
             ),
-          ),
           const Divider(height: 1),
 
           // List
@@ -2386,157 +2965,218 @@ class _NotificationManagementScreenState
             child: _isLoadingLogs
                 ? const Center(child: LoadingIndicator())
                 : _logsError != null
-                    ? ErrorState(
-                        message: _logsError!,
-                        onRetry: _loadLogs,
-                      )
-                    : _logs.isEmpty
-                        ? const EmptyState(
-                            icon: Icons.history_toggle_off_rounded,
-                            title: 'Belum Ada Riwayat Notifikasi',
-                            description:
-                                'Riwayat tercatat secara otomatis setiap kali notifikasi push dikirimkan ke warga.',
-                          )
-                        : ListView.builder(
-                            key: const PageStorageKey<String>(
-                              'notification_logs_list',
-                            ),
-                            padding: const EdgeInsets.all(16),
-                            itemCount: _logs.length,
-                            itemBuilder: (context, index) {
-                              final log = _logs[index];
-                              final dateStr = log.createdAt != null
-                                  ? '${log.createdAt!.day.toString().padLeft(2, '0')}/${log.createdAt!.month.toString().padLeft(2, '0')}/${log.createdAt!.year} ${log.createdAt!.hour.toString().padLeft(2, '0')}:${log.createdAt!.minute.toString().padLeft(2, '0')}'
-                                  : '-';
+                ? ErrorState(message: _logsError!, onRetry: _loadLogs)
+                : _logs.isEmpty
+                ? EmptyState(
+                    icon: Icons.history_toggle_off_rounded,
+                    title: category == null
+                        ? 'Belum Ada Riwayat Notifikasi'
+                        : category == 'mine'
+                        ? 'Belum Ada Riwayat Saya'
+                        : 'Belum Ada Riwayat Sistem',
+                    description: category == null
+                        ? 'Riwayat tercatat secara otomatis setiap kali notifikasi push dikirimkan ke warga.'
+                        : category == 'mine'
+                        ? 'Aktivitas notifikasi yang Anda lakukan akan tercatat di sini.'
+                        : 'Notifikasi terjadwal yang dikirim sistem akan tercatat di sini.',
+                  )
+                : ListView.builder(
+                    key: PageStorageKey<String>(
+                      'notification_logs_${category ?? 'personal'}',
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _logs.length,
+                    itemBuilder: (context, index) {
+                      final log = _logs[index];
+                      // Warga (non-admin): always hide internal delivery status, show TERKIRIM for everything.
+                      // Admin/Ketua RT: show detailed status from the ledger.
+                      final deliveryStatus = log.status.toUpperCase();
+                      String deliveryStatusLabel;
+                      Color deliveryStatusColor;
+                      if (!isAdmin) {
+                        deliveryStatusLabel = 'TERKIRIM';
+                        deliveryStatusColor = AppColors.success;
+                      } else {
+                        deliveryStatusLabel = switch (deliveryStatus) {
+                          'SENT' => 'TERKIRIM',
+                          'FAILED' => 'GAGAL',
+                          'PARTIAL' => 'SEBAGIAN GAGAL',
+                          'UNKNOWN' => 'TIDAK DIKETAHUI',
+                          'NO_DEVICE' => 'PERANGKAT TIDAK TERSEDIA',
+                          'APPROVED' => 'DISETUJUI',
+                          'REJECTED' => 'DITOLAK',
+                          'RECORDED' => 'TERCATAT',
+                          _ => deliveryStatus,
+                        };
+                        deliveryStatusColor = switch (deliveryStatus) {
+                          'SENT' || 'APPROVED' || 'RECORDED' => AppColors.success,
+                          'FAILED' || 'REJECTED' => AppColors.danger,
+                          'PARTIAL' => AppColors.warning,
+                          'NO_DEVICE' => AppColors.warning,
+                          _ => AppColors.lightTextMuted,
+                        };
+                      }
+                      final showReadState = category == null;
+                      final dateStr = formatJakartaDateTime(log.createdAt);
+                      final activityRelationLabel =
+                          switch (log.activityRelation) {
+                            'sent_by_me' => 'Dikirim oleh Saya',
+                            'received_by_me' => 'Diterima oleh Saya',
+                            'performed_by_me' => 'Tindakan Saya',
+                            _ => null,
+                          };
 
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: InkWell(
-                                  key: Key(
-                                    'notification_log_item_${log.id}',
-                                  ),
-                                  borderRadius: BorderRadius.circular(
-                                    AppRadius.base,
-                                  ),
-                                  onTap: () => _openLogDetail(log),
-                                  child: AppCard(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              dateStr,
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                color: isDark
-                                                    ? AppColors.darkTextMuted
-                                                    : AppColors.lightTextMuted,
-                                              ),
-                                            ),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                if (!log.isRead) ...[
-                                                  const Padding(
-                                                    padding: EdgeInsets.only(right: 6),
-                                                    child: AppBadge(
-                                                      label: 'BARU',
-                                                      backgroundColor: AppColors.accent,
-                                                      textColor: Colors.white,
-                                                    ),
-                                                  ),
-                                                ],
-                                                const AppBadge(
-                                                  label: 'TERKIRIM',
-                                                  backgroundColor: AppColors.success,
-                                                  textColor: Colors.white,
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Row(
-                                          children: [
-                                            if (!log.isRead)
-                                              Container(
-                                                width: 8,
-                                                height: 8,
-                                                margin: const EdgeInsets.only(right: 6),
-                                                decoration: const BoxDecoration(
-                                                  color: AppColors.accent,
-                                                  shape: BoxShape.circle,
-                                                ),
-                                              ),
-                                            Expanded(
-                                              child: Text(
-                                                log.title,
-                                                style: theme.textTheme.bodyMedium
-                                                    ?.copyWith(
-                                                  fontWeight: log.isRead
-                                                      ? FontWeight.w600
-                                                      : FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 2),
-                                        NotificationBodyText(
-                                          text: log.body,
-                                          eventType: log.eventType,
-                                          dedupKey: log.dedupKey,
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: InkWell(
+                          key: Key('notification_log_item_${log.id}'),
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                          onTap: () => _openLogDetail(log),
+                          child: AppCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Wrap(
+                                  alignment: WrapAlignment.spaceBetween,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 8,
+                                  runSpacing: 4,
+                                  children: [
+                                    Text(
+                                      dateStr,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
                                             color: isDark
                                                 ? AppColors.darkTextMuted
                                                 : AppColors.lightTextMuted,
                                           ),
-                                          onOpenUrl: (url) {
-                                            ref
-                                                .read(
-                                                  pushNotificationServiceProvider,
-                                                )
-                                                .openExternalUrl(url);
-                                          },
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              _knownEventNames[log.eventType] ?? log.eventType,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: isDark
-                                                    ? AppColors.darkTextMuted
-                                                    : AppColors.lightTextMuted,
-                                              ),
+                                    ),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (showReadState && !log.isRead) ...[
+                                          const Padding(
+                                            padding: EdgeInsets.only(right: 6),
+                                            child: AppBadge(
+                                              label: 'BARU',
+                                              backgroundColor: AppColors.accent,
+                                              textColor: Colors.white,
                                             ),
-                                            if (isAdmin)
-                                              Text(
-                                                'Penerima: ${log.recipientsCount} perangkat',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: isDark
-                                                      ? AppColors.darkTextMuted
-                                                      : AppColors.lightTextMuted,
-                                                ),
-                                              ),
-                                          ],
+                                          ),
+                                        ],
+                                        AppBadge(
+                                          label: deliveryStatusLabel,
+                                          backgroundColor: deliveryStatusColor,
+                                          textColor: Colors.white,
                                         ),
                                       ],
                                     ),
-                                  ),
+                                  ],
                                 ),
-                              );
-                            },
+                                const SizedBox(height: 6),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        if (showReadState && !log.isRead)
+                                          Container(
+                                            width: 8,
+                                            height: 8,
+                                            margin: const EdgeInsets.only(right: 6),
+                                            decoration: const BoxDecoration(
+                                              color: AppColors.accent,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                        Expanded(
+                                          child: Text(
+                                            log.title,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: theme.textTheme.bodyMedium
+                                                ?.copyWith(
+                                                  fontWeight:
+                                                      !showReadState || log.isRead
+                                                      ? FontWeight.w600
+                                                      : FontWeight.bold,
+                                                ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (activityRelationLabel != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: Text(
+                                          activityRelationLabel,
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                                color: AppColors.accent,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                NotificationBodyText(
+                                  text: log.body,
+                                  eventType: log.eventType,
+                                  dedupKey: log.dedupKey,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: isDark
+                                        ? AppColors.darkTextMuted
+                                        : AppColors.lightTextMuted,
+                                  ),
+                                  onOpenUrl: (url) {
+                                    ref
+                                        .read(pushNotificationServiceProvider)
+                                        .openExternalUrl(url);
+                                  },
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      _knownEventNames[log.eventType] ??
+                                          log.eventType,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? AppColors.darkTextMuted
+                                            : AppColors.lightTextMuted,
+                                      ),
+                                    ),
+                                    if (isAdmin)
+                                      Flexible(
+                                        child: Text(
+                                          log.deliveryCountsAvailable
+                                              ? 'Terkirim: ${log.sentCount} / ${log.recipientsCount} penerima'
+                                                    '${log.failedCount > 0 ? ' - Gagal: ${log.failedCount}' : ''}'
+                                              : 'Hasil pengiriman tidak dicatat',
+                                          textAlign: TextAlign.end,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: isDark
+                                                ? AppColors.darkTextMuted
+                                                : AppColors.lightTextMuted,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

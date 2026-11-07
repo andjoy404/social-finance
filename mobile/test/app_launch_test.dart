@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' as rp;
 import 'package:social_finance/app/app.dart';
+import 'package:social_finance/app/navigation_shell.dart';
 import 'package:social_finance/features/auth/presentation/screens/login_screen.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/cash/presentation/screens/cash_screen.dart';
@@ -96,6 +97,39 @@ Widget _profileViaMaterialApp() {
 }
 
 void main() {
+  test(
+    'security notification route is a shell root but detail routes are not',
+    () {
+      const shellTabs = ['/home/warga', '/home/notifikasi', '/home/profile'];
+      expect(
+        isDirectlyOnTopLevelTab('/home/notifikasi/waste-truck', shellTabs),
+        isTrue,
+      );
+      expect(
+        isDirectlyOnTopLevelTab('/home/notifikasi/detail', shellTabs),
+        isFalse,
+      );
+      expect(isDirectlyOnTopLevelTab('/home/kas', shellTabs), isFalse);
+      expect(isDirectlyOnTopLevelTab('/home/warga', shellTabs), isTrue);
+    },
+  );
+
+  test('security officer default home is the Warga tab only', () {
+    expect(securityOfficerHomeRedirect('keamanan', '/login'), '/home/warga');
+    expect(securityOfficerHomeRedirect('keamanan', '/home'), '/home/warga');
+    expect(
+      cleaningOfficerHomeRedirect('kebersihan', '/login'),
+      '/home/monitoring',
+    );
+    expect(
+      cleaningOfficerHomeRedirect('kebersihan', '/home'),
+      '/home/monitoring',
+    );
+    expect(cleaningOfficerHomeRedirect('keamanan', '/home'), isNull);
+    expect(securityOfficerHomeRedirect('kebersihan', '/login'), isNull);
+    expect(securityOfficerHomeRedirect('warga', '/home'), isNull);
+  });
+
   // ── App Lifecycle ──
 
   testWidgets('App launches without error', (tester) async {
@@ -363,7 +397,9 @@ void main() {
     notifier.dispose();
   });
 
-  testWidgets('Profile AppBar no longer has theme palette icon (Item G)', (tester) async {
+  testWidgets('Profile AppBar no longer has theme palette icon (Item G)', (
+    tester,
+  ) async {
     await tester.pumpWidget(_profileViaMaterialApp());
     await tester.pumpAndSettle();
     // Theme palette icon in profile AppBar is removed
@@ -384,9 +420,27 @@ void main() {
     await tester.tap(themeTile);
     await tester.pumpAndSettle();
     expect(find.text('Pilih Tema'), findsOneWidget);
-    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Ikuti Sistem')), findsOneWidget);
-    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Terang')), findsOneWidget);
-    expect(find.descendant(of: find.byType(SimpleDialog), matching: find.text('Gelap')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Ikuti Sistem'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Terang'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(SimpleDialog),
+        matching: find.text('Gelap'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Dashboard no longer has theme palette icon', (tester) async {
@@ -733,38 +787,44 @@ void main() {
 
   // ── P0/P1/P3 Master Task Verification Tests ──
 
-  test('AuthUser.fromJson parses rw_id, rw_name, and rt_rw into rwCode and rwName', () {
-    final user = AuthUser.fromJson({
-      'id': 'u-1',
-      'email': 'bendahara@local.com',
-      'full_name': 'Heri Prastyo',
-      'role': 'bendahara',
-      'rt_id': 'rt-002',
-      'rt_name': 'RT 002',
-      'rt_rw': '016',
-      'rw_id': 'rw-016',
-      'rw_name': 'RW 016',
-      'is_active': true,
-    });
-    expect(user.rtCode, equals('002'));
-    expect(user.rwId, equals('rw-016'));
-    expect(user.rwCode, equals('016'));
-    expect(user.rwName, equals('RW 016'));
-  });
+  test(
+    'AuthUser.fromJson parses rw_id, rw_name, and rt_rw into rwCode and rwName',
+    () {
+      final user = AuthUser.fromJson({
+        'id': 'u-1',
+        'email': 'bendahara@local.com',
+        'full_name': 'Heri Prastyo',
+        'role': 'bendahara',
+        'rt_id': 'rt-002',
+        'rt_name': 'RT 002',
+        'rt_rw': '016',
+        'rw_id': 'rw-016',
+        'rw_name': 'RW 016',
+        'is_active': true,
+      });
+      expect(user.rtCode, equals('002'));
+      expect(user.rwId, equals('rw-016'));
+      expect(user.rwCode, equals('016'));
+      expect(user.rwName, equals('RW 016'));
+    },
+  );
 
-  test('BackendTransaction.fromJson falls back to reference_no for manual KAS transactions', () {
-    final tx = BackendTransaction.fromJson({
-      'id': 'tx-manual-1',
-      'rt_id': 'rt-002',
-      'category_id': 'cat-1',
-      'amount': '150000',
-      'type': 'expense',
-      'status': 'posted',
-      'reference_no': 'KAS-20260417-ABC12',
-      'description': 'Beli lampu jalan',
-    });
-    expect(tx.paymentNo, equals('KAS-20260417-ABC12'));
-  });
+  test(
+    'BackendTransaction.fromJson falls back to reference_no for manual KAS transactions',
+    () {
+      final tx = BackendTransaction.fromJson({
+        'id': 'tx-manual-1',
+        'rt_id': 'rt-002',
+        'category_id': 'cat-1',
+        'amount': '150000',
+        'type': 'expense',
+        'status': 'posted',
+        'reference_no': 'KAS-20260417-ABC12',
+        'description': 'Beli lampu jalan',
+      });
+      expect(tx.paymentNo, equals('KAS-20260417-ABC12'));
+    },
+  );
 
   testWidgets(
     'Dashboard renders Metode Pembayaran Donut Chart panel (Transfer vs Tunai) and handles empty data without NaN%',
@@ -820,4 +880,3 @@ void main() {
     },
   );
 }
-

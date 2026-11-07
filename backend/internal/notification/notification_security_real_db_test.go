@@ -360,6 +360,17 @@ func buildNotificationTestRouter(pool *database.Pool) http.Handler {
 		r.Patch("/api/v1/notifications/read-all", notifH.MarkAllAsRead)
 	})
 
+	// Waste truck arrival and manual push: pengurus or security
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
+		r.Get("/api/v1/notifications/waste-truck/template", notifH.GetWasteTruckTemplate)
+		r.Get("/api/v1/notifications/waste-truck/history", notifH.ListWasteTruckHistory)
+		r.Post("/api/v1/notifications/waste-truck/upload-image", notifH.UploadImage)
+		r.Post("/api/v1/notifications/waste-truck", notifH.TriggerWasteTruckArrival)
+		r.Post("/api/v1/notifications/manual", notifH.TriggerManualPush)
+	})
+
 	// Notification Management — RequireAuth + RequireAllowedRT + RequireNotificationAdmin
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
@@ -369,6 +380,14 @@ func buildNotificationTestRouter(pool *database.Pool) http.Handler {
 		r.Get("/api/v1/notifications/system-types", notifH.GetSystemTypes)
 		r.Get("/api/v1/notifications/templates", notifH.ListTemplates)
 		r.Post("/api/v1/notifications/templates", notifH.CreateTemplate)
+	})
+
+	// Notification Management History — RequireAuth + RequireAllowedRT (officer-level, not admin-only)
+	// This endpoint is used by ListManagementHistory which checks isOfficerUser() at the service layer.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
+		r.Get("/api/v1/notifications/management-history", notifH.ListManagementHistory)
 	})
 
 	return r
@@ -783,7 +802,7 @@ func TestMarkAllAsRead_OnlyOwnNotifications(t *testing.T) {
 	}
 }
 
-func TestMarkAllAsRead_KetuaCanReadAllInRT(t *testing.T) {
+func TestMarkAllAsRead_KetuaScopedToOwnNotifications(t *testing.T) {
 	pool := setupNotificationTestPool(t)
 	router := buildNotificationTestRouter(pool)
 
@@ -812,7 +831,8 @@ func TestMarkAllAsRead_KetuaCanReadAllInRT(t *testing.T) {
 
 	beforeBIsRead := getNotifLogIsRead(t, pool, logIDB, userBID)
 
-	// Ketua calls mark all as read — as an officer, should mark all unread in RT
+	// Ketua calls mark all as read — read-all is personal, it only marks the
+	// caller's own notifications regardless of officer jabatan.
 	req := httptest.NewRequest("POST", "/api/v1/notifications/read-all", nil)
 	req = withBearerToken(req, tokenKetua)
 	rec := doRequest(router, req)
@@ -821,11 +841,12 @@ func TestMarkAllAsRead_KetuaCanReadAllInRT(t *testing.T) {
 		t.Fatalf("expected 200 for ketua mark all as read, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Ketua (as officer) marks ALL notifications in RT as read FOR KETUA
-	if !getNotifLogIsRead(t, pool, logIDB, ketuaID) {
-		t.Error("expected ketua to mark all notifications in RT as read for ketua")
+	// User B's notification is not addressed to the ketua, so ketua must not
+	// gain a read receipt for it...
+	if getNotifLogIsRead(t, pool, logIDB, ketuaID) {
+		t.Error("expected ketua NOT to have a read receipt for another member's notification")
 	}
-	// User B's personal notification must NOT be marked read for user B by ketua's action
+	// ...and user B's read state must be unchanged by ketua's action
 	if getNotifLogIsRead(t, pool, logIDB, userBID) {
 		t.Error("expected user-b personal notification to remain unread for user-b")
 	}
@@ -840,7 +861,9 @@ func TestMarkAllAsRead_KetuaCanReadAllInRT(t *testing.T) {
 // 5. Zero read receipts initially.
 // 6. Ketua executes MarkAllAsRead.
 // 7. notification_reads verified per user.
-// 8. Result: Ketua has read receipts for RT notifications; Warga 1, 2, 3 have NO read receipts.
+// 8. Result: read-all is strictly personal — Ketua gains NO read receipts for
+// the broadcast parent record or another member's personal notification, and
+// Warga 1, 2, 3 have NO read receipts.
 func TestMarkAllAsRead_BroadcastAndPersonal_PerUserReadIsolation(t *testing.T) {
 	pool := setupNotificationTestPool(t)
 	router := buildNotificationTestRouter(pool)
@@ -904,12 +927,13 @@ func TestMarkAllAsRead_BroadcastAndPersonal_PerUserReadIsolation(t *testing.T) {
 	}
 
 	// 7. Check database state in notification_reads
-	// Ketua should have read receipts for both broadcast and personal log in RT
-	if !getNotifLogIsRead(t, pool, broadcastLogID, ketuaID) {
-		t.Errorf("expected ketua to have read receipt for broadcast notification")
+	// The broadcast parent record (user_id IS NULL) and warga 1's personal log
+	// are not addressed to the ketua, so ketua must NOT gain read receipts.
+	if getNotifLogIsRead(t, pool, broadcastLogID, ketuaID) {
+		t.Errorf("ketua must NOT have a read receipt for the broadcast parent record")
 	}
-	if !getNotifLogIsRead(t, pool, personalLogID, ketuaID) {
-		t.Errorf("expected ketua to have read receipt for personal log in RT feed")
+	if getNotifLogIsRead(t, pool, personalLogID, ketuaID) {
+		t.Errorf("ketua must NOT have a read receipt for another member's personal log")
 	}
 
 	// 8. Crucial isolation verification:
@@ -1306,7 +1330,7 @@ func TestUserCantSpoofRTViaHeader(t *testing.T) {
 // G. Officer access rules — Real PostgreSQL integration tests
 // ============================================================================
 
-func TestOfficerCanReadAllLogsInSameRT(t *testing.T) {
+func TestOfficerLogsListedOnlyOwnNotifications(t *testing.T) {
 	pool := setupNotificationTestPool(t)
 	router := buildNotificationTestRouter(pool)
 
@@ -1326,6 +1350,10 @@ func TestOfficerCanReadAllLogsInSameRT(t *testing.T) {
 			fmt.Sprintf("officer:dedup-%d", i), fmt.Sprintf("Log %d", i), "Isi")
 	}
 
+	// The officer's own notification: the only record addressed to him
+	notifTestLogInPool(t, pool, rtID, bendaharaID, notification.EventBillCreated,
+		"officer:dedup-own", "Log Own", "Isi")
+
 	req := httptest.NewRequest("GET", "/api/v1/notifications/logs?page=1&per_page=20", nil)
 	req = withBearerToken(req, tokenBendahara)
 	rec := doRequest(router, req)
@@ -1341,8 +1369,13 @@ func TestOfficerCanReadAllLogsInSameRT(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Data) != 3 {
-		t.Errorf("expected 3 log entries for officer, got %d: %v", len(resp.Data), resp.Data)
+	if len(resp.Data) != 1 {
+		t.Errorf("expected only the officer's own log entry (1), got %d: %v", len(resp.Data), resp.Data)
+	}
+	for _, entry := range resp.Data {
+		if id, ok := entry["user_id"].(string); ok && id != bendaharaID {
+			t.Errorf("expected log addressed only to the caller %s, got user_id %s", bendaharaID, id)
+		}
 	}
 }
 
@@ -1580,7 +1613,7 @@ func TestRequireNotificationAdmin_SuperAdminAllowed(t *testing.T) {
 // J. Additional security scenarios from requirements
 // ============================================================================
 
-func TestGetUnreadCount_KetuaCanSeeAllInRT(t *testing.T) {
+func TestGetUnreadCount_KetuaSeesOnlyOwnUnread(t *testing.T) {
 	pool := setupNotificationTestPool(t)
 	router := buildNotificationTestRouter(pool)
 
@@ -1602,7 +1635,11 @@ func TestGetUnreadCount_KetuaCanSeeAllInRT(t *testing.T) {
 			fmt.Sprintf("unreadcount:ketua:b-%d", i), fmt.Sprintf("Tagihan B-%d", i), "Isi")
 	}
 
-	// Ketua requests unread count — should see ALL unread in RT as officer
+	// Ketua has exactly one unread notification addressed to himself
+	notifTestLogInPool(t, pool, rtID, ketuaID, notification.EventBillCreated,
+		"unreadcount:ketua:own", "Tagihan Ketua", "Isi")
+
+	// Ketua requests unread count — per-recipient scope: only his own unread
 	req := httptest.NewRequest("GET", "/api/v1/notifications/unread-count", nil)
 	req = withBearerToken(req, tokenKetua)
 	rec := doRequest(router, req)
@@ -1619,12 +1656,12 @@ func TestGetUnreadCount_KetuaCanSeeAllInRT(t *testing.T) {
 	if !ok {
 		t.Fatal("unread_count not a number")
 	}
-	if int(count) != 4 {
-		t.Errorf("expected unread_count=4 (all in RT) for ketua, got %f", count)
+	if int(count) != 1 {
+		t.Errorf("expected unread_count=1 (own only) for ketua, got %f", count)
 	}
 }
 
-func TestListLogs_KetuaCanSeeAllInRT(t *testing.T) {
+func TestListLogs_KetuaSeesOnlyOwnLogs(t *testing.T) {
 	pool := setupNotificationTestPool(t)
 	router := buildNotificationTestRouter(pool)
 
@@ -1644,7 +1681,11 @@ func TestListLogs_KetuaCanSeeAllInRT(t *testing.T) {
 			fmt.Sprintf("listlogs:ketua:dedup-%d", i), fmt.Sprintf("Log Ket %d", i), "Isi")
 	}
 
-	// Ketua lists logs — should see ALL logs in RT
+	// One notification addressed to the ketua himself
+	notifTestLogInPool(t, pool, rtID, ketuaID, notification.EventBillCreated,
+		"listlogs:ketua:own", "Log Ketua", "Isi")
+
+	// Ketua lists logs — per-recipient scope: only his own notification
 	req := httptest.NewRequest("GET", "/api/v1/notifications/logs?page=1&per_page=20", nil)
 	req = withBearerToken(req, tokenKetua)
 	rec := doRequest(router, req)
@@ -1660,12 +1701,17 @@ func TestListLogs_KetuaCanSeeAllInRT(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Data) != 5 {
-		t.Errorf("expected 5 log entries for ketua, got %d: %v", len(resp.Data), resp.Data)
+	if len(resp.Data) != 1 {
+		t.Errorf("expected only the ketua's own log entry (1), got %d: %v", len(resp.Data), resp.Data)
+	}
+	for _, entry := range resp.Data {
+		if id, ok := entry["user_id"].(string); ok && id != ketuaID {
+			t.Errorf("expected log addressed only to the caller %s, got user_id %s", ketuaID, id)
+		}
 	}
 }
 
-func TestMarkAsRead_OfficersCanMarkOthersRead(t *testing.T) {
+func TestMarkAsRead_OfficerCannotMarkOthersRead(t *testing.T) {
 	pool := setupNotificationTestPool(t)
 	router := buildNotificationTestRouter(pool)
 
@@ -1694,17 +1740,22 @@ func TestMarkAsRead_OfficersCanMarkOthersRead(t *testing.T) {
 
 	beforeIsRead := getNotifLogIsRead(t, pool, logIDB, userBID)
 
-	// Ketua marks user-b's notification as read
+	// Ketua marks user-b's notification as read — read receipts are personal:
+	// only the actual recipient can mark a notification as read.
 	req := httptest.NewRequest("POST", "/api/v1/notifications/read/"+logIDB, nil)
 	req = withBearerToken(req, tokenKetua)
 	rec := doRequest(router, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 for ketua marking others notification as read, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for officer marking another member's notification as read, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	if !getNotifLogIsRead(t, pool, logIDB, userBID) {
-		t.Error("expected ketua to mark all notification as read")
+	// user-b read state must be unchanged by the officer's attempt
+	if getNotifLogIsRead(t, pool, logIDB, userBID) {
+		t.Error("expected user-b notification to remain unread after officer's rejected attempt")
+	}
+	if getNotifLogIsRead(t, pool, logIDB, ketuaID) {
+		t.Error("expected officer NOT to gain a read receipt for another member's notification")
 	}
 	_ = beforeIsRead
 }
@@ -1944,5 +1995,236 @@ func TestGetUnreadCount_NonOfficerCannotSeeOthers(t *testing.T) {
 	}
 	if int(count) != 0 {
 		t.Errorf("expected unread_count=0 for warga with no own notifications, got %f", count)
+	}
+}
+
+// ============================================================================
+// L. Keamanan Officer (Security Officer) access restrictions
+// ============================================================================
+
+// TestSecurityOfficer_ListLogs_SeesOnlyOwnLogs verifies that a security officer
+// can only see notification logs addressed to themselves, not other residents.
+func TestSecurityOfficer_ListLogs_SeesOnlyOwnLogs(t *testing.T) {
+	pool := setupNotificationTestPool(t)
+	router := buildNotificationTestRouter(pool)
+
+	rtID := notifTestRTInPool(t, pool, "securityofficer-listlogs")
+
+	// Security Officer (keamanan)
+	securityID := notifTestUserInPool(t, pool, "securityofficer@local.com", true)
+	securityMID := notifTestMembershipInPool(t, pool, securityID, rtID, auth.RoleWarga, "keamanan", true)
+	notifTestDeviceInPool(t, pool, securityID, "tok-securityofficer", true)
+	tokenSecurity := makeNotificationToken(t, securityID, securityMID, rtID, auth.RoleWarga, "keamanan")
+
+	// Create notifications for multiple residents in the same RT
+	for i := 0; i < 8; i++ {
+		residentID := notifTestUserInPool(t, pool, fmt.Sprintf("securityofficer-resident%d@local.com", i), true)
+		notifTestMembershipInPool(t, pool, residentID, rtID, auth.RoleWarga, "", true)
+		notifTestLogInPool(t, pool, rtID, residentID, notification.EventBillCreated,
+			fmt.Sprintf("securityofficer:resident:%d", i), fmt.Sprintf("Notifikasi Warga %d", i), "Isi")
+	}
+
+	// One notification addressed to the security officer themselves
+	notifTestLogInPool(t, pool, rtID, securityID, notification.EventBillCreated,
+		"securityofficer:own", "Notifikasi Keamanan", "Isi")
+
+	// Security officer lists logs — should ONLY see their own (1 entry)
+	req := httptest.NewRequest("GET", "/api/v1/notifications/logs?page=1&per_page=20", nil)
+	req = withBearerToken(req, tokenSecurity)
+	rec := doRequest(router, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for security officer list logs, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Data       []map[string]any `json:"data"`
+		Pagination map[string]any   `json:"pagination"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Errorf("expected only the security officer's own log entry (1), got %d: %v", len(resp.Data), resp.Data)
+	}
+	for _, entry := range resp.Data {
+		if uid, ok := entry["user_id"].(string); ok && uid != securityID {
+			t.Errorf("expected log addressed only to the caller %s, got user_id %s", securityID, uid)
+		}
+	}
+}
+
+// TestSecurityOfficer_ListManagementHistory_Denied verifies that a security officer
+// cannot access ListManagementHistory (system or mine category) — they must receive 403.
+func TestSecurityOfficer_ListManagementHistory_Denied(t *testing.T) {
+	pool := setupNotificationTestPool(t)
+	router := buildNotificationTestRouter(pool)
+
+	rtID := notifTestRTInPool(t, pool, "securityofficer-mgmt")
+
+	// Security Officer (keamanan)
+	securityID := notifTestUserInPool(t, pool, "securityofficer-mgmt@local.com", true)
+	securityMID := notifTestMembershipInPool(t, pool, securityID, rtID, auth.RoleWarga, "keamanan", true)
+	notifTestDeviceInPool(t, pool, securityID, "tok-securityofficer-mgmt", true)
+	tokenSecurity := makeNotificationToken(t, securityID, securityMID, rtID, auth.RoleWarga, "keamanan")
+
+	// Test with "mine" category
+	req := httptest.NewRequest("GET", "/api/v1/notifications/management-history?category=mine", nil)
+	req = withBearerToken(req, tokenSecurity)
+	rec := doRequest(router, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for security officer accessing management-history(mine), got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Test with "system" category
+	req2 := httptest.NewRequest("GET", "/api/v1/notifications/management-history?category=system", nil)
+	req2 = withBearerToken(req2, tokenSecurity)
+	rec2 := doRequest(router, req2)
+
+	if rec2.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for security officer accessing management-history(system), got %d: %s", rec2.Code, rec2.Body.String())
+	}
+}
+
+// TestSecurityOfficer_GetUnreadCount_SeesOnlyOwn verifies that a security officer
+// only sees unread count for their own notifications.
+func TestSecurityOfficer_GetUnreadCount_SeesOnlyOwn(t *testing.T) {
+	pool := setupNotificationTestPool(t)
+	router := buildNotificationTestRouter(pool)
+
+	rtID := notifTestRTInPool(t, pool, "securityofficer-unread")
+
+	// Security Officer (keamanan)
+	securityID := notifTestUserInPool(t, pool, "securityofficer-unread@local.com", true)
+	securityMID := notifTestMembershipInPool(t, pool, securityID, rtID, auth.RoleWarga, "keamanan", true)
+	notifTestDeviceInPool(t, pool, securityID, "tok-securityofficer-unread", true)
+	tokenSecurity := makeNotificationToken(t, securityID, securityMID, rtID, auth.RoleWarga, "keamanan")
+
+	// Create unread notifications for other residents
+	for i := 0; i < 5; i++ {
+		residentID := notifTestUserInPool(t, pool, fmt.Sprintf("securityofficer-unread-resident%d@local.com", i), true)
+		notifTestMembershipInPool(t, pool, residentID, rtID, auth.RoleWarga, "", true)
+		notifTestLogInPool(t, pool, rtID, residentID, notification.EventBillCreated,
+			fmt.Sprintf("securityofficer-unread:resident:%d", i), fmt.Sprintf("Notifikasi Warga %d", i), "Isi")
+	}
+
+	// One unread notification for the security officer
+	notifTestLogInPool(t, pool, rtID, securityID, notification.EventBillCreated,
+		"securityofficer-unread:own", "Notifikasi Keamanan", "Isi")
+
+	// Security officer requests unread count — should only see their own (1)
+	req := httptest.NewRequest("GET", "/api/v1/notifications/unread-count", nil)
+	req = withBearerToken(req, tokenSecurity)
+	rec := doRequest(router, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for security officer unread count, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode unread count: %v", err)
+	}
+	count, ok := resp["unread_count"].(float64)
+	if !ok {
+		t.Fatal("unread_count not a number")
+	}
+	if int(count) != 1 {
+		t.Errorf("expected unread_count=1 (own only) for security officer, got %f", count)
+	}
+}
+
+// TestSecurityOfficer_WasteTruckDispatch_NoDuplicates verifies that when a security officer
+// dispatches a waste truck arrival (which records 1 dispatch record and N recipient records):
+// 1. /api/v1/notifications/waste-truck/history returns EXACTLY 1 dispatch entry, not 1+N duplicate entries.
+// 2. /api/v1/notifications/logs for the security officer does NOT include the dispatch record.
+func TestSecurityOfficer_WasteTruckDispatch_NoDuplicates(t *testing.T) {
+	pool := setupNotificationTestPool(t)
+	router := buildNotificationTestRouter(pool)
+
+	rtID := notifTestRTInPool(t, pool, "securityofficer-dispatch-nodupl")
+
+	// Security Officer (keamanan)
+	securityID := notifTestUserInPool(t, pool, "securityofficer-dispatch@local.com", true)
+	securityMID := notifTestMembershipInPool(t, pool, securityID, rtID, auth.RoleWarga, "keamanan", true)
+	tokenSecurity := makeNotificationToken(t, securityID, securityMID, rtID, auth.RoleWarga, "keamanan")
+
+	// Create 5 residents
+	residentIDs := make([]string, 5)
+	for i := 0; i < 5; i++ {
+		residentIDs[i] = notifTestUserInPool(t, pool, fmt.Sprintf("resident-wt-%d@local.com", i), true)
+		notifTestMembershipInPool(t, pool, residentIDs[i], rtID, auth.RoleWarga, "", true)
+	}
+
+	// 1. Insert 1 waste truck dispatch record (sender_user_id = securityID, user_id = NULL)
+	var dispatchID string
+	err := pool.Raw().QueryRowContext(context.Background(), `
+		INSERT INTO notification_logs
+			(rt_id, sender_user_id, event_type, dedup_key, title, body, payload, status)
+		VALUES ($1, $2, $3, $4, $5, $6, '{}'::jsonb, 'SENT')
+		RETURNING id::text
+	`, rtID, securityID, notification.EventWasteTruckArrival, "waste_truck:test-dispatch-1", "Truk Sampah Tiba", "Pesan truk sampah").Scan(&dispatchID)
+	if err != nil {
+		t.Fatalf("failed to insert dispatch record: %v", err)
+	}
+
+	// 2. Insert 5 recipient delivery records (sender_user_id = securityID, user_id = residentIDs[i])
+	for i, resID := range residentIDs {
+		_, err := pool.Raw().ExecContext(context.Background(), `
+			INSERT INTO notification_logs
+				(rt_id, user_id, sender_user_id, event_type, dedup_key, title, body, payload, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::jsonb, 'SENT')
+		`, rtID, resID, securityID, notification.EventWasteTruckArrival,
+			fmt.Sprintf("recipient:waste_truck_arrival:%s:%s", dispatchID, resID),
+			"Truk Sampah Tiba", fmt.Sprintf("Pesan truk sampah untuk warga %d", i))
+		if err != nil {
+			t.Fatalf("failed to insert recipient delivery %d: %v", i, err)
+		}
+	}
+
+	// Verify /api/v1/notifications/waste-truck/history returns EXACTLY 1 dispatch entry
+	req := httptest.NewRequest("GET", "/api/v1/notifications/waste-truck/history?page=1&per_page=20", nil)
+	req = withBearerToken(req, tokenSecurity)
+	rec := doRequest(router, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for waste truck history, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var histResp struct {
+		Data       []map[string]any `json:"data"`
+		Pagination map[string]any   `json:"pagination"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&histResp); err != nil {
+		t.Fatalf("decode waste truck history response: %v", err)
+	}
+
+	if len(histResp.Data) != 1 {
+		t.Fatalf("expected exactly 1 dispatch entry, got %d (duplicate recipient leak!): %v", len(histResp.Data), histResp.Data)
+	}
+	if histResp.Data[0]["id"] != dispatchID {
+		t.Errorf("expected dispatch id %s, got %v", dispatchID, histResp.Data[0]["id"])
+	}
+
+	// Verify /api/v1/notifications/logs for the security officer does NOT contain the dispatch record
+	reqLogs := httptest.NewRequest("GET", "/api/v1/notifications/logs?page=1&per_page=20", nil)
+	reqLogs = withBearerToken(reqLogs, tokenSecurity)
+	recLogs := doRequest(router, reqLogs)
+
+	if recLogs.Code != http.StatusOK {
+		t.Fatalf("expected 200 for logs, got %d: %s", recLogs.Code, recLogs.Body.String())
+	}
+
+	var logsResp struct {
+		Data       []map[string]any `json:"data"`
+		Pagination map[string]any   `json:"pagination"`
+	}
+	if err := json.NewDecoder(recLogs.Body).Decode(&logsResp); err != nil {
+		t.Fatalf("decode logs response: %v", err)
+	}
+
+	if len(logsResp.Data) != 0 {
+		t.Fatalf("expected 0 personal logs for security officer who was not a recipient, got %d: %v", len(logsResp.Data), logsResp.Data)
 	}
 }

@@ -13,7 +13,9 @@ class NotificationApiClient {
     if (data is Map && data['data'] is List) {
       final list = data['data'] as List;
       return list
-          .map((e) => SystemNotificationType.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => SystemNotificationType.fromJson(e as Map<String, dynamic>),
+          )
           .toList();
     }
     return [];
@@ -52,7 +54,8 @@ class NotificationApiClient {
     );
     final data = response.data;
     if (data is Map) {
-      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      final payload =
+          (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
       return NotificationTemplate.fromJson(payload);
     }
     throw const FormatException('Unexpected response creating template');
@@ -77,7 +80,8 @@ class NotificationApiClient {
     );
     final data = response.data;
     if (data is Map) {
-      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      final payload =
+          (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
       return NotificationTemplate.fromJson(payload);
     }
     throw const FormatException('Unexpected response updating template');
@@ -131,7 +135,8 @@ class NotificationApiClient {
     );
     final data = response.data;
     if (data is Map) {
-      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      final payload =
+          (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
       return NotificationTemplate.fromJson(payload);
     }
     throw const FormatException('Unexpected response toggling template active');
@@ -170,10 +175,7 @@ class NotificationApiClient {
     String? eventType,
     String? status,
   }) async {
-    final queryParams = <String, dynamic>{
-      'page': page,
-      'per_page': perPage,
-    };
+    final queryParams = <String, dynamic>{'page': page, 'per_page': perPage};
     if (eventType != null && eventType.isNotEmpty) {
       queryParams['event_type'] = eventType;
     }
@@ -195,6 +197,32 @@ class NotificationApiClient {
       perPage: 20,
       total: 0,
       totalPages: 1,
+    );
+  }
+
+  /// GET /api/v1/notifications/management-history
+  Future<NotificationLogsResponse> getManagementHistory({
+    required String category,
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    if (category != 'system' && category != 'mine') {
+      throw ArgumentError.value(category, 'category', 'must be system or mine');
+    }
+    final response = await dio.get(
+      '/api/v1/notifications/management-history',
+      queryParameters: {
+        'category': category,
+        'page': page,
+        'page_size': perPage,
+      },
+    );
+    final data = response.data;
+    if (data is Map) {
+      return NotificationLogsResponse.fromJson(data as Map<String, dynamic>);
+    }
+    throw const FormatException(
+      'Unexpected response loading management history',
     );
   }
 
@@ -232,7 +260,9 @@ class NotificationApiClient {
           (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
       return NotificationLogEntry.fromJson(payload);
     }
-    throw const FormatException('Unexpected response fetching notification detail');
+    throw const FormatException(
+      'Unexpected response fetching notification detail',
+    );
   }
 
   /// GET /api/v1/notifications/schedules
@@ -266,35 +296,43 @@ class NotificationApiClient {
     final response = await dio.get('/api/v1/notifications/schedules/$id');
     final data = response.data;
     if (data is Map) {
-      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      final payload =
+          (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
       return NotificationSchedule.fromJson(payload);
     }
     throw const FormatException('Unexpected response fetching schedule');
   }
 
   /// POST /api/v1/notifications/schedules
-  Future<NotificationSchedule> createSchedule(CreateNotificationScheduleInput input) async {
+  Future<NotificationSchedule> createSchedule(
+    CreateNotificationScheduleInput input,
+  ) async {
     final response = await dio.post(
       '/api/v1/notifications/schedules',
       data: input.toJson(),
     );
     final data = response.data;
     if (data is Map) {
-      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      final payload =
+          (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
       return NotificationSchedule.fromJson(payload);
     }
     throw const FormatException('Unexpected response creating schedule');
   }
 
   /// PUT /api/v1/notifications/schedules/{id}
-  Future<NotificationSchedule> updateSchedule(String id, UpdateNotificationScheduleInput input) async {
+  Future<NotificationSchedule> updateSchedule(
+    String id,
+    UpdateNotificationScheduleInput input,
+  ) async {
     final response = await dio.put(
       '/api/v1/notifications/schedules/$id',
       data: input.toJson(),
     );
     final data = response.data;
     if (data is Map) {
-      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      final payload =
+          (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
       return NotificationSchedule.fromJson(payload);
     }
     throw const FormatException('Unexpected response updating schedule');
@@ -307,10 +345,82 @@ class NotificationApiClient {
     );
     final data = response.data;
     if (data is Map) {
-      final payload = (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
+      final payload =
+          (data['data'] is Map ? data['data'] : data) as Map<String, dynamic>;
       return NotificationSchedule.fromJson(payload);
     }
     throw const FormatException('Unexpected response toggling schedule active');
+  }
+
+  /// GET /api/v1/notifications/waste-truck/template
+  Future<WasteTruckTemplate> getWasteTruckTemplate() async {
+    final response = await dio.get(
+      '/api/v1/notifications/waste-truck/template',
+    );
+    final data = response.data;
+    if (data is Map && data['data'] is Map) {
+      return WasteTruckTemplate.fromJson(data['data'] as Map<String, dynamic>);
+    }
+    throw const FormatException(
+      'Unexpected response fetching waste truck template',
+    );
+  }
+
+  /// GET /api/v1/notifications/waste-truck/history
+  Future<WasteTruckDispatchHistoryResponse> getWasteTruckHistory({
+    int page = 1,
+    int perPage = 20,
+  }) async {
+    final response = await dio.get(
+      '/api/v1/notifications/waste-truck/history',
+      queryParameters: {'page': page, 'per_page': perPage},
+    );
+    final data = response.data;
+    if (data is Map) {
+      return WasteTruckDispatchHistoryResponse.fromJson(
+        data.cast<String, dynamic>(),
+      );
+    }
+    throw const FormatException(
+      'Unexpected response fetching waste truck history',
+    );
+  }
+
+  /// POST /api/v1/notifications/waste-truck
+  Future<void> sendWasteTruck({
+    required String message,
+    String? imageUrl,
+  }) async {
+    await dio.post(
+      '/api/v1/notifications/waste-truck',
+      data: {
+        'message': message,
+        if (imageUrl != null && imageUrl.isNotEmpty) 'image_url': imageUrl,
+      },
+    );
+  }
+
+  /// POST /api/v1/notifications/waste-truck/upload-image
+  Future<String> uploadWasteTruckImage({
+    required List<int> bytes,
+    required String filename,
+    required String eventType,
+  }) async {
+    final formData = FormData.fromMap({
+      'event_type': eventType,
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final response = await dio.post(
+      '/api/v1/notifications/waste-truck/upload-image',
+      data: formData,
+    );
+    final data = response.data;
+    if (data is Map && data['image_url'] != null) {
+      return data['image_url'] as String;
+    }
+    throw const FormatException(
+      'Unexpected response uploading waste truck image',
+    );
   }
 
   /// DELETE /api/v1/notifications/schedules/{id}
@@ -318,4 +428,3 @@ class NotificationApiClient {
     await dio.delete('/api/v1/notifications/schedules/$id');
   }
 }
-

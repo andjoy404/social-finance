@@ -2,10 +2,11 @@
 // of the Push Notification module.
 //
 // Test scenarios:
-//   A. Super Admin must have a valid, whitelisted RT — no silent bypass.
-//   B. JWT-derived RT is authoritative; X-RT-ID header cannot change tenant for non-SuperAdmin.
-//   C. Sensitive operations require an explicit, validated RT — no silent fallback to a default RT.
-//   D. Per-user endpoints are scoped to the authenticated user.
+//
+//	A. Super Admin must have a valid, whitelisted RT — no silent bypass.
+//	B. JWT-derived RT is authoritative; X-RT-ID header cannot change tenant for non-SuperAdmin.
+//	C. Sensitive operations require an explicit, validated RT — no silent fallback to a default RT.
+//	D. Per-user endpoints are scoped to the authenticated user.
 package notification_test
 
 import (
@@ -339,7 +340,7 @@ func TestSecurity_D_GetNotificationDetail_UserIsolation(t *testing.T) {
 		RTID:       "rt-002",
 	}
 
-	entry, err := svc.GetNotificationDetail(ctx, otherUser, "rt-002", "nonexistent-id")
+	entry, err := svc.GetNotificationDetail(ctx, otherUser, "rt-002", "nonexistent-id", false)
 	if err != nil {
 		_ = err
 	}
@@ -401,7 +402,7 @@ func TestSecurity_D_BroadcastNotificationsAccessible(t *testing.T) {
 		TenantRole: auth.RoleWarga,
 	}
 
-	_, err := svc.GetNotificationDetail(ctx, user, "rt-002", "nonexistent")
+	_, err := svc.GetNotificationDetail(ctx, user, "rt-002", "nonexistent", false)
 	if err != nil {
 		// Expected — notification not found
 	}

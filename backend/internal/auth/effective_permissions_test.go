@@ -44,7 +44,7 @@ func TestMeReturnsEffectiveFinancePermissions(t *testing.T) {
 			email:       "ketua-001@local.com",
 			wantRole:    "pengurus",
 			wantJabatan: "ketua",
-			want:        []string{"finance.read", "finance.create", "finance.update", "finance.approve"},
+			want:        []string{"finance.read", "finance.create", "finance.update", "finance.approve", "notification.manage"},
 		},
 		{
 			email:       "wakil-ketua-001@local.com",
@@ -221,7 +221,7 @@ func TestMeSystemSuperAdminUsesExistingPermissionBypass(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &profile); err != nil {
 		t.Fatalf("decode /auth/me response: %v", err)
 	}
-	want := []string{"finance.read", "finance.create", "finance.update", "finance.approve"}
+	want := []string{"finance.read", "finance.create", "finance.update", "finance.approve", "notification.manage"}
 	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
 		t.Fatalf("super admin effective_permissions = %v, want %v", profile.EffectivePermissions, want)
 	}
@@ -279,7 +279,7 @@ func TestMeKetuaWithWargaRoleGetsEffectiveFinancePermissions(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &profile); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	want := []string{"finance.read", "finance.create", "finance.update", "finance.approve"}
+	want := []string{"finance.read", "finance.create", "finance.update", "finance.approve", "notification.manage"}
 	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
 		t.Fatalf("effective_permissions = %v, want %v", profile.EffectivePermissions, want)
 	}

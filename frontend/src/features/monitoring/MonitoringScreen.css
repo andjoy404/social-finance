@@ -1,0 +1,139 @@
+.monitoring-page {
+  padding: 24px;
+}
+
+.monitoring-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.monitoring-print-report {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #root {
+    display: none !important;
+  }
+
+  .monitoring-print-report,
+  .monitoring-print-report * {
+    visibility: visible !important;
+  }
+
+  .monitoring-page {
+    padding: 0;
+  }
+
+  .monitoring-screen-content,
+  .ant-modal-root,
+  .sf-sidebar-slot,
+  .sf-header,
+  .monitoring-actions {
+    display: none !important;
+  }
+
+  .monitoring-print-report {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 0;
+    color: #111;
+    background: #fff;
+    font: 10pt/1.4 Arial, Helvetica, sans-serif;
+  }
+
+  .monitoring-report-header {
+    padding-bottom: 8mm;
+    border-bottom: 1.5pt solid #222;
+    text-align: center;
+  }
+
+  .monitoring-report-header h1 {
+    margin: 0 0 3mm;
+    font-size: 16pt;
+    letter-spacing: 0.3pt;
+  }
+
+  .monitoring-report-header p {
+    margin: 1mm 0;
+  }
+
+  .monitoring-report-date {
+    font-size: 9pt;
+  }
+
+  .monitoring-report-summary {
+    margin: 7mm 0 4mm;
+    font-size: 11pt;
+  }
+
+  .monitoring-report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  .monitoring-report-table th,
+  .monitoring-report-table td {
+    padding: 2.5mm 3mm;
+    border: 0.6pt solid #555;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .monitoring-report-table th {
+    color: #111;
+    background: #e8e8e8 !important;
+    font-weight: 700;
+    print-color-adjust: exact;
+  }
+
+  .monitoring-report-number {
+    width: 12mm;
+    text-align: center !important;
+  }
+
+  .monitoring-report-table thead {
+    display: table-header-group;
+  }
+
+  .monitoring-report-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .monitoring-report-empty {
+    text-align: center !important;
+  }
+
+  .monitoring-report-footer {
+    margin-top: 8mm;
+    padding-top: 2mm;
+    border-top: 0.5pt solid #888;
+    color: #444;
+    font-size: 8pt;
+    text-align: center;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 15mm 14mm 18mm;
+
+    @bottom-right {
+      color: #444;
+      font: 8pt Arial, Helvetica, sans-serif;
+      content: "Halaman " counter(page) " dari " counter(pages);
+    }
+  }
+}

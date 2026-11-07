@@ -209,7 +209,6 @@ export function RtDetailModal({
   }
 
   const filteredMembers = members.filter((m) => {
-    if (m.jabatan) return false
     if (!selectorSearch.trim()) return true
     const q = selectorSearch.toLowerCase()
     return (
@@ -513,6 +512,7 @@ export function RtDetailModal({
               <input
                 type="text"
                 className="sf-form-input"
+                role="button"
                 readOnly
                 value={selectedMember ? selectedMember.full_name || selectedMember.user_id : 'Pilih Warga...'}
                 onClick={() => {

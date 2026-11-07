@@ -13,6 +13,7 @@ import {
   BankOutlined,
   BellOutlined,
   AreaChartOutlined,
+  ScheduleOutlined,
 } from '@ant-design/icons'
 
 function isActive(route: string, pathname: string, itemId?: string): boolean {
@@ -54,12 +55,27 @@ export function Sidebar() {
 
   const isSuperAdmin = isSuperAdminUser(user)
   const allowedRT = isAllowedRT(user)
+  const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  const isSecurityOfficer = jabatan === 'keamanan'
+  const isCleaningOfficer = jabatan === 'kebersihan'
+  const isResident =
+    user?.role.trim().toLowerCase() === 'warga' && !jabatan && allowedRT
+  const isPengurus = user?.role.trim().toLowerCase() === 'pengurus' && allowedRT
 
-  const items: NavItem[] = [
-    { to: '/', label: 'Beranda', icon: <DashboardOutlined />, id: 'dashboard' },
-  ]
+  const items: NavItem[] = isSecurityOfficer || isCleaningOfficer
+    ? []
+    : [{ to: '/', label: 'Beranda', icon: <DashboardOutlined />, id: 'dashboard' }]
 
-    if (allowedRT) {
+  if (isSecurityOfficer) {
+    items.push({ to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' })
+  } else if (isCleaningOfficer) {
+    items.push({
+      to: '/monitoring',
+      label: 'Monitoring',
+      icon: <ScheduleOutlined />,
+      id: 'monitoring',
+    })
+  } else if (allowedRT) {
     const canAccessLokasiDana =
         user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== ''
     items.push(
@@ -79,7 +95,9 @@ export function Sidebar() {
     )
 }
 
-  const canAccessNotifikasi = canAccessNotificationAdmin(user)
+  const canAccessNotifikasi =
+    !isCleaningOfficer &&
+    (isSecurityOfficer || isResident || isPengurus || canAccessNotificationAdmin(user))
   if (canAccessNotifikasi) {
     items.push({
       to: '/notifikasi',
@@ -95,7 +113,7 @@ export function Sidebar() {
   )
 
   // Add RW data view link(s)
-  if (rwMemberships.length > 0) {
+  if (!isSecurityOfficer && !isCleaningOfficer && rwMemberships.length > 0) {
     const rwIdForData = rwMemberships[0].rw_id
     // Build a label showing RW count if multiple
     const rwLabel = rwMemberships.length === 1
@@ -111,7 +129,7 @@ export function Sidebar() {
     })
   }
 
-  if (isSuperAdmin) {
+  if (isSuperAdmin && !isSecurityOfficer && !isCleaningOfficer) {
     items.push(
       { to: '/rt', label: 'Kelola RT', icon: <ApartmentOutlined />, id: 'rt' },
       { to: '/rw', label: 'Kelola RW', icon: <ApartmentOutlined />, id: 'rw' },

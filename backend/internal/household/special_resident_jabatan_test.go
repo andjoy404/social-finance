@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	chi "github.com/go-chi/chi/v5"
 	"social-finance/internal/auth"
@@ -257,8 +258,9 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 	pengurusToken := makeTenantToken(t, "test-pengurus-mig056", "test-pengurus-mem-mig056", rtID, auth.RolePengurus)
 
 	var createdID string
+	runID := time.Now().UnixNano()
 	for idx, jab := range []string{"keamanan", "operasional", "kebersihan"} {
-		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"317300000000005%d","phone":"0812999900%d","email":"petugas.%s.056@test.com","jabatan":"%s"}`, jab, idx, idx, jab, jab)
+		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"317300000000005%d","phone":"0812999900%d","email":"petugas.%s.056.%d@test.com","jabatan":"%s"}`, jab, idx, idx, jab, runID, jab)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+pengurusToken)

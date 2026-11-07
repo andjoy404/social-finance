@@ -161,10 +161,11 @@ export function ResidentList() {
 
   const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
   const isPengurus = user.role === 'pengurus'
+  const isSecurity = (user.jabatan ?? '').trim().toLowerCase() === 'keamanan'
   const canWrite = hasWargaWriteAccess(user)
   const canImport = hasWargaImportAccess(user)
   const canExport = hasWargaExportAccess(user)
-  const showNik = isPengurus || isSuperAdmin
+  const showNik = (isPengurus || isSuperAdmin) && !isSecurity
 
   const [choiceOpen, setChoiceOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -492,7 +493,7 @@ export function ResidentList() {
               value={search}
               onChange={(v) => setSearch(v)}
               onSearch={handleSearch}
-              placeholder="Cari nama warga/NIK..."
+              placeholder={showNik ? "Cari nama warga/NIK..." : "Cari nama warga..."}
               statusControl={
                 filterType === 'status' ? (
                   <div className="sf-status-selector">

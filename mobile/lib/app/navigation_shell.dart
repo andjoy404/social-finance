@@ -12,6 +12,18 @@ import 'package:social_finance/core/widgets/overdue_warning_card.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/notification/data/models/notification_models.dart';
 
+bool isDirectlyOnTopLevelTab(
+  String currentLocation,
+  Iterable<String> tabPaths,
+) {
+  if (currentLocation == '/home/notifikasi/waste-truck' &&
+      tabPaths.contains('/home/notifikasi')) {
+    return true;
+  }
+  if (currentLocation.startsWith('/rw/')) return true;
+  return tabPaths.contains(currentLocation);
+}
+
 class MainNavigationShell extends ConsumerStatefulWidget {
   final Widget child;
 
@@ -75,6 +87,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.notifications_outlined,
     activeIcon: Icons.notifications,
   );
+  static const _monitoringTab = _NavRoute(
+    path: '/home/monitoring',
+    label: 'Monitoring',
+    icon: Icons.checklist_outlined,
+    activeIcon: Icons.checklist,
+  );
 
   bool _canAccessLokasiDana(Map<String, dynamic>? user) {
     if (user == null) return false;
@@ -98,26 +116,47 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     if (user == null) return [];
     final systemRole = (user['system_role'] ?? '').toString().toLowerCase();
     final role = (user['role'] ?? '').toString().toLowerCase();
-    final isSuperAdmin = systemRole == 'super_admin' ||
+    final isSuperAdmin =
+        systemRole == 'super_admin' ||
         role == 'super_admin' ||
         role.contains('superadmin');
-    final rawList = (user['rw_memberships'] as List?)
+    final rawList =
+        (user['rw_memberships'] as List?)
             ?.whereType<Map<String, dynamic>>()
             .map((e) => RWMembership.fromJson(e.cast<String, dynamic>()))
             .toList() ??
         <RWMembership>[];
     return rawList
-        .where((m) =>
-            isSuperAdmin ||
-            (m.jabatan != null &&
-                ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara']
-                    .contains(m.jabatan!.toLowerCase())))
+        .where(
+          (m) =>
+              isSuperAdmin ||
+              (m.jabatan != null &&
+                  [
+                    'ketua',
+                    'wakil_ketua',
+                    'sekretaris',
+                    'bendahara',
+                  ].contains(m.jabatan!.toLowerCase())),
+        )
         .toList();
   }
 
   List<_NavRoute> _getActiveTabs() {
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+
+    // Security officers retain their read-only Warga and dispatch menus,
+    // with Profile always available for account and logout actions.
+    if (jabatan == 'keamanan') {
+      return [_wargaTab, _notifikasiTab, _profileTab];
+    }
+
+    // Kebersihan keeps Monitoring and also has Profile/logout access.
+    if (jabatan == 'kebersihan') {
+      return [_monitoringTab, _profileTab];
+    }
+
     final canNotifikasi = _canAccessNotifikasi(user);
     final rwMemberships = _getValidRWMemberships(user);
     if (isAllowedRT(user)) {
@@ -160,8 +199,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         // Prefer RW data tab when on an RW route, but only if not already
         // on a more specific tab (e.g. /home, /home/kas, etc.).
         final rwDataPreferred = tabs[rwDataIndex].path;
-        final isRWScope = location.startsWith('/rw/') ||
-            (location == rwDataPreferred || location.startsWith('/home/rw-data/'));
+        final isRWScope =
+            location.startsWith('/rw/') ||
+            (location == rwDataPreferred ||
+                location.startsWith('/home/rw-data/'));
         // Only pick RW data if we're not already on a /home/* tab.
         if (isRWScope && !location.startsWith('/home')) {
           return rwDataIndex;
@@ -178,9 +219,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   /// Used by DoubleBackExitScope to determine whether system back should
   /// exit the app or navigate to the parent route.
   bool _isDirectlyOnTopLevelTab(String currentLocation, List<_NavRoute> tabs) {
-    // Consider RW routes (/rw/:rwId/*) as top-level too.
-    if (currentLocation.startsWith('/rw/')) return true;
-    return tabs.any((t) => t.path == currentLocation);
+    return isDirectlyOnTopLevelTab(
+      currentLocation,
+      tabs.map((tab) => tab.path),
+    );
   }
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -241,10 +283,11 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                             profileStatus == 'stale'
                                 ? 'Menampilkan profil tersimpan (koneksi belum stabil).'
                                 : 'Sinkronisasi profil tertunda. Periksa koneksi Anda.',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                ),
                           ),
                         ),
                         TextButton(
@@ -303,7 +346,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                     scrollDirection: Axis.horizontal,
                     physics: const BouncingScrollPhysics(),
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                      constraints: BoxConstraints(
+                        minWidth: constraints.maxWidth,
+                      ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: List.generate(
@@ -311,7 +356,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                           (index) => Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             child: _NavRailItem(
-                              key: Key('nav-item-${tabs[index].label.toLowerCase()}'),
+                              key: Key(
+                                'nav-item-${tabs[index].label.toLowerCase()}',
+                              ),
                               tab: tabs[index],
                               isSelected: index == _currentMatch,
                               onTap: () => _onTabTapped(tabs, index, context),
@@ -357,7 +404,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                 mainAxisSize: MainAxisSize.min,
                 children: rwMemberships.map((m) {
                   return ListTile(
-                    title: Text(((m.rwName ?? '').isNotEmpty) ? m.rwName! : m.displayName),
+                    title: Text(
+                      ((m.rwName ?? '').isNotEmpty) ? m.rwName! : m.displayName,
+                    ),
                     subtitle: ((m.jabatan ?? '').isNotEmpty)
                         ? Text('Jabatan: ${m.jabatan}')
                         : null,
@@ -369,7 +418,11 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
               ),
             ),
           );
-          if (selectedRwId == null || selectedRwId.isEmpty || !tapContext.mounted) return;
+          if (selectedRwId == null ||
+              selectedRwId.isEmpty ||
+              !tapContext.mounted) {
+            return;
+          }
           final destination = '/rw/$selectedRwId/dashboard';
           await _confirmAndGo(tapContext, currentLocation, destination);
         }
@@ -435,7 +488,6 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     }
     if (mounted) setState(() => _currentMatch = index);
   }
-
 }
 
 class _NavRoute {
@@ -575,7 +627,9 @@ class _AppDrawer extends StatelessWidget {
           children: [
             DrawerHeader(
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                color: theme.colorScheme.primaryContainer.withValues(
+                  alpha: 0.3,
+                ),
               ),
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -609,13 +663,18 @@ class _AppDrawer extends StatelessWidget {
                       if (jabatan.isNotEmpty || role.isNotEmpty)
                         Flexible(
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.accent.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              jabatan.isNotEmpty ? jabatan.toUpperCase() : role.toUpperCase(),
+                              jabatan.isNotEmpty
+                                  ? jabatan.toUpperCase()
+                                  : role.toUpperCase(),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall?.copyWith(
@@ -626,7 +685,8 @@ class _AppDrawer extends StatelessWidget {
                             ),
                           ),
                         ),
-                      if ((jabatan.isNotEmpty || role.isNotEmpty) && rtRwText.isNotEmpty)
+                      if ((jabatan.isNotEmpty || role.isNotEmpty) &&
+                          rtRwText.isNotEmpty)
                         const SizedBox(width: 6),
                       if (rtRwText.isNotEmpty)
                         Expanded(
@@ -656,12 +716,16 @@ class _AppDrawer extends StatelessWidget {
                       isSelected ? tab.activeIcon : tab.icon,
                       color: isSelected
                           ? AppColors.seed
-                          : (tab.isProminent ? AppColors.accent : theme.colorScheme.onSurfaceVariant),
+                          : (tab.isProminent
+                                ? AppColors.accent
+                                : theme.colorScheme.onSurfaceVariant),
                     ),
                     title: Text(
                       tab.label,
                       style: TextStyle(
-                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         color: isSelected
                             ? AppColors.seed
                             : (tab.isProminent ? AppColors.accent : null),
@@ -672,7 +736,10 @@ class _AppDrawer extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 0,
+                    ),
                     dense: true,
                     onTap: () => onSelectTab(index),
                   );

@@ -4,17 +4,21 @@ import { RwFundLocationList } from './RwFundLocationList'
 import * as rwApi from './rw-api'
 import * as AuthContext from '@/app/AuthContext'
 
-vi.mock('@/app/AuthContext', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'user-1',
-      name: 'Bendahara RW',
-      role: 'bendahara',
-      jabatan: 'bendahara',
-      rwMemberships: [{ rw_id: 'rw-123', jabatan: 'bendahara', source: 'explicit' }],
-    },
-  }),
-}))
+vi.mock('@/app/AuthContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/app/AuthContext')>()
+  return {
+    ...actual,
+    useAuth: () => ({
+      user: {
+        id: 'user-1',
+        name: 'Bendahara RW',
+        role: 'bendahara',
+        jabatan: 'bendahara',
+        rwMemberships: [{ rw_id: 'rw-123', jabatan: 'bendahara', source: 'explicit' }],
+      },
+    }),
+  }
+})
 
 vi.mock('@/app/api', () => ({
   getSessionPair: () => ({ accessToken: 'test-token' }),
@@ -230,11 +234,11 @@ describe('RwFundLocationList', () => {
     render(<RwFundLocationList rwId="rw-016" />)
 
     await waitFor(() => {
-      expect(screen.getByText('Lokasi Dana RW — rw-016')).toBeInTheDocument()
+      expect(screen.getByText(/Lokasi Dana RW — (rw-016|RW 016)/i)).toBeInTheDocument()
     })
 
     // Read-only notice should appear
-    expect(screen.getByText(/Mode Read-Only/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Mode Read-Only/i).length).toBeGreaterThanOrEqual(1)
 
     // Action buttons must NOT appear for inferred user
     expect(screen.queryByText('Tambah Lokasi')).not.toBeInTheDocument()
@@ -279,11 +283,11 @@ describe('RwFundLocationList', () => {
     render(<RwFundLocationList rwId="rw-016" />)
 
     await waitFor(() => {
-      expect(screen.getByText('Lokasi Dana RW — rw-016')).toBeInTheDocument()
+      expect(screen.getByText(/Lokasi Dana RW — (rw-016|RW 016)/i)).toBeInTheDocument()
     })
 
     // Even though user has explicit RW-017, viewing inferred RW-016 → read-only
-    expect(screen.getByText(/Mode Read-Only/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Mode Read-Only/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText('Tambah Lokasi')).not.toBeInTheDocument()
     expect(screen.queryByText('Transfer Antar-Lokasi')).not.toBeInTheDocument()
   })
@@ -326,7 +330,7 @@ describe('RwFundLocationList', () => {
     render(<RwFundLocationList rwId="rw-017" />)
 
     await waitFor(() => {
-      expect(screen.getByText('Lokasi Dana RW — rw-017')).toBeInTheDocument()
+      expect(screen.getByText(/Lokasi Dana RW — (rw-017|RW 017)/i)).toBeInTheDocument()
     })
 
     // Explicit RW → full controls despite inferred RW also existing

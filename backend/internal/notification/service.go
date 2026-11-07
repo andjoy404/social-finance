@@ -23,7 +23,8 @@ type Service interface {
 	NotifyBillCreated(ctx context.Context, rtID, billID string, recipientUserIDs []string)
 	NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paymentID string)
 	NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string)
-	NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserID, message string, imageURL ...*string)
+	NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserID, message string, imageURL *string, idempotencyKey ...string)
+	ListWasteTruckHistory(ctx context.Context, ac *auth.AuthContext, rtID string, page, pageSize int) ([]WasteTruckDispatchEntry, int, error)
 	SendManualPush(ctx context.Context, rtID, senderUserID string, in ManualPushInput) error
 	SendTestPush(ctx context.Context, rtID, superAdminUserID string, in TestPushInput) (int, error)
 	SendSelfTest(ctx context.Context, userID string) (int, error)
@@ -37,7 +38,8 @@ type Service interface {
 	ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error)
 	DeleteTemplate(ctx context.Context, rtID, id string) error
 	ListLogs(ctx context.Context, ac *auth.AuthContext, rtID, eventType, status string, page, pageSize int) ([]NotificationLogEntry, int, error)
-	GetNotificationDetail(ctx context.Context, ac *auth.AuthContext, rtID, id string) (*NotificationLogEntry, error)
+	ListManagementHistory(ctx context.Context, ac *auth.AuthContext, rtID, category string, page, pageSize int) ([]NotificationLogEntry, int, error)
+	GetNotificationDetail(ctx context.Context, ac *auth.AuthContext, rtID, id string, canManage bool) (*NotificationLogEntry, error)
 	MarkAsRead(ctx context.Context, ac *auth.AuthContext, rtID, id string) error
 	MarkAllAsRead(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error)
 	GetUnreadCount(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error)
@@ -58,7 +60,7 @@ type Service interface {
 
 	// Scheduler history (aggregated per execution, for pengurus/Super Admin)
 	ListSchedulerHistory(ctx context.Context, rtID string, page, pageSize int) ([]*NotificationSchedulerHistory, int, error)
-	GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string) ([]*NotificationSchedulerRecipientDetail, error)
+	GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string, configHash ...string) ([]*NotificationSchedulerRecipientDetail, error)
 }
 
 var ErrForbidden = errors.New("forbidden: akses detail notifikasi ditolak")
@@ -225,111 +227,111 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 // NotifyPaymentVerified notifies the payment submitter and, if required by business rules, also notifies authorized verifiers.
 // When submitterUserID is empty, only the verifier group is notified (no submitter path).
 func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string) {
-    go func() {
-        bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-        defer cancel()
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
 
-        var title, body string
-        if status == "APPROVED" {
-            title = "Pembayaran Iuran Diverifikasi"
-            body = "Pembayaran iuran Anda telah disetujui dan dicatat dalam pembukuan."
-        } else {
-            title = "Pembayaran Iuran Ditolak"
-            if strings.TrimSpace(rejectionReason) != "" {
-                body = fmt.Sprintf("Pembayaran iuran Anda ditolak: %s", rejectionReason)
-            } else {
-                body = "Pembayaran iuran Anda ditolak oleh bendahara. Silakan periksa kembali bukti transfer Anda."
-            }
-        }
+		var title, body string
+		if status == "APPROVED" {
+			title = "Pembayaran Iuran Diverifikasi"
+			body = "Pembayaran iuran Anda telah disetujui dan dicatat dalam pembukuan."
+		} else {
+			title = "Pembayaran Iuran Ditolak"
+			if strings.TrimSpace(rejectionReason) != "" {
+				body = fmt.Sprintf("Pembayaran iuran Anda ditolak: %s", rejectionReason)
+			} else {
+				body = "Pembayaran iuran Anda ditolak oleh bendahara. Silakan periksa kembali bukti transfer Anda."
+			}
+		}
 
-        if tmpl, err := s.repo.GetActiveTemplateForEvent(bgCtx, rtID, EventPaymentVerified); err == nil && tmpl != nil && tmpl.IsActive {
-            vars := map[string]string{
-                "bill_id":          billID,
-                "payment_id":       paymentID,
-                "status":           status,
-                "rejection_reason": rejectionReason,
-            }
-            title = interpolate(tmpl.Title, vars)
-            body = interpolate(tmpl.Body, vars)
-        }
+		if tmpl, err := s.repo.GetActiveTemplateForEvent(bgCtx, rtID, EventPaymentVerified); err == nil && tmpl != nil && tmpl.IsActive {
+			vars := map[string]string{
+				"bill_id":          billID,
+				"payment_id":       paymentID,
+				"status":           status,
+				"rejection_reason": rejectionReason,
+			}
+			title = interpolate(tmpl.Title, vars)
+			body = interpolate(tmpl.Body, vars)
+		}
 
-        payload := NotificationPayload{
-            Type:      EventPaymentVerified,
-            RTID:      rtID,
-            BillID:    billID,
-            PaymentID: paymentID,
-            Status:    status,
-            DeepLink:  fmt.Sprintf("/home/iuran/detail/%s?payment_id=%s", billID, paymentID),
-        }
+		payload := NotificationPayload{
+			Type:      EventPaymentVerified,
+			RTID:      rtID,
+			BillID:    billID,
+			PaymentID: paymentID,
+			Status:    status,
+			DeepLink:  fmt.Sprintf("/home/iuran/detail/%s?payment_id=%s", billID, paymentID),
+		}
 
-        // Submitter path: only when submitterUserID is non-empty
-        if submitterUserID != "" {
-            // Deduplication for the submitter
-            submitterDedupKey := fmt.Sprintf("payment_verified:%s:%s", paymentID, status)
-            okSubmitter, dedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, submitterUserID, EventPaymentVerified, submitterDedupKey, title, body, payload.ToMap())
-            if dedupErr != nil {
-                slog.Warn("payment verified dedup check failed for submitter", "payment_id", paymentID, "user_id", submitterUserID, "error", dedupErr)
-            }
+		// Submitter path: only when submitterUserID is non-empty
+		if submitterUserID != "" {
+			// Deduplication for the submitter
+			submitterDedupKey := fmt.Sprintf("payment_verified:%s:%s", paymentID, status)
+			okSubmitter, dedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, submitterUserID, EventPaymentVerified, submitterDedupKey, title, body, payload.ToMap())
+			if dedupErr != nil {
+				slog.Warn("payment verified dedup check failed for submitter", "payment_id", paymentID, "user_id", submitterUserID, "error", dedupErr)
+			}
 
-            var submitterTokens []string
-            if dedupErr == nil && okSubmitter {
-                var err error
-                submitterTokens, err = s.repo.GetTokensForUser(bgCtx, submitterUserID)
-                if err != nil {
-                    slog.Error("failed to get tokens for payment submitter", "user_id", submitterUserID, "error", err)
-                } else if len(submitterTokens) > 0 {
-                    s.sendPushToTokens(bgCtx, submitterTokens, title, body, payload.ToMap())
-                }
-            }
+			var submitterTokens []string
+			if dedupErr == nil && okSubmitter {
+				var err error
+				submitterTokens, err = s.repo.GetTokensForUser(bgCtx, submitterUserID)
+				if err != nil {
+					slog.Error("failed to get tokens for payment submitter", "user_id", submitterUserID, "error", err)
+				} else if len(submitterTokens) > 0 {
+					s.sendPushToTokens(bgCtx, submitterTokens, title, body, payload.ToMap())
+				}
+			}
 
-            // Notify other authorized verifiers
-            verifierTokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
-            if err != nil {
-                slog.Error("failed to get verifier tokens for payment verified", "rt_id", rtID, "error", err)
-            } else if len(verifierTokens) > 0 {
-                verifierDedupKey := fmt.Sprintf("payment_verified_verifier:%s:%s", paymentID, status)
-                okVerifier, verifierDedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentVerified, verifierDedupKey, title, body, payload.ToMap())
-                if verifierDedupErr != nil {
-                    slog.Warn("verifier payment verified dedup check failed", "payment_id", paymentID, "error", verifierDedupErr)
-                }
-                if verifierDedupErr == nil && okVerifier {
-                    // Remove any tokens already sent to submitter to avoid duplicate pushes
-                    sent := make(map[string]struct{}, len(submitterTokens))
-                    for _, t := range submitterTokens {
-                        sent[t] = struct{}{}
-                    }
-                    var filtered []string
-                    for _, vt := range verifierTokens {
-                        if _, exists := sent[vt]; !exists {
-                            filtered = append(filtered, vt)
-                        }
-                    }
-                    if len(filtered) > 0 {
-                        s.sendPushToTokens(bgCtx, filtered, title, body, payload.ToMap())
-                    }
-                }
-            }
-        } else {
-            // No submitter — still notify authorized verifiers if they exist
-            verifierTokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
-            if err != nil {
-                slog.Error("failed to get verifier tokens for payment verified", "rt_id", rtID, "error", err)
-            } else if len(verifierTokens) > 0 {
-                verifierDedupKey := fmt.Sprintf("payment_verified_verifier:%s:%s", paymentID, status)
-                okVerifier, verifierDedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentVerified, verifierDedupKey, title, body, payload.ToMap())
-                if verifierDedupErr != nil {
-                    slog.Warn("verifier payment verified dedup check failed", "payment_id", paymentID, "error", verifierDedupErr)
-                }
-                if verifierDedupErr == nil && okVerifier {
-                    s.sendPushToTokens(bgCtx, verifierTokens, title, body, payload.ToMap())
-                }
-            }
-        }
-    }()
+			// Notify other authorized verifiers
+			verifierTokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
+			if err != nil {
+				slog.Error("failed to get verifier tokens for payment verified", "rt_id", rtID, "error", err)
+			} else if len(verifierTokens) > 0 {
+				verifierDedupKey := fmt.Sprintf("payment_verified_verifier:%s:%s", paymentID, status)
+				okVerifier, verifierDedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentVerified, verifierDedupKey, title, body, payload.ToMap())
+				if verifierDedupErr != nil {
+					slog.Warn("verifier payment verified dedup check failed", "payment_id", paymentID, "error", verifierDedupErr)
+				}
+				if verifierDedupErr == nil && okVerifier {
+					// Remove any tokens already sent to submitter to avoid duplicate pushes
+					sent := make(map[string]struct{}, len(submitterTokens))
+					for _, t := range submitterTokens {
+						sent[t] = struct{}{}
+					}
+					var filtered []string
+					for _, vt := range verifierTokens {
+						if _, exists := sent[vt]; !exists {
+							filtered = append(filtered, vt)
+						}
+					}
+					if len(filtered) > 0 {
+						s.sendPushToTokens(bgCtx, filtered, title, body, payload.ToMap())
+					}
+				}
+			}
+		} else {
+			// No submitter — still notify authorized verifiers if they exist
+			verifierTokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
+			if err != nil {
+				slog.Error("failed to get verifier tokens for payment verified", "rt_id", rtID, "error", err)
+			} else if len(verifierTokens) > 0 {
+				verifierDedupKey := fmt.Sprintf("payment_verified_verifier:%s:%s", paymentID, status)
+				okVerifier, verifierDedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentVerified, verifierDedupKey, title, body, payload.ToMap())
+				if verifierDedupErr != nil {
+					slog.Warn("verifier payment verified dedup check failed", "payment_id", paymentID, "error", verifierDedupErr)
+				}
+				if verifierDedupErr == nil && okVerifier {
+					s.sendPushToTokens(bgCtx, verifierTokens, title, body, payload.ToMap())
+				}
+			}
+		}
+	}()
 }
 
 // NotifyWasteTruckArrival dispatches manual notification to all warga in the sender's RT.
-func (s *service) NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserID, customMessage string, imageURL ...*string) {
+func (s *service) NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserID, customMessage string, imageURL *string, idempotencyKey ...string) {
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -347,8 +349,9 @@ func (s *service) NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserI
 		}
 
 		var finalImg *string
-		if len(imageURL) > 0 && imageURL[0] != nil && strings.TrimSpace(*imageURL[0]) != "" {
-			finalImg = imageURL[0]
+		if imageURL != nil && strings.TrimSpace(*imageURL) != "" {
+			trimmed := strings.TrimSpace(*imageURL)
+			finalImg = &trimmed
 		} else if tmplImg != nil && strings.TrimSpace(*tmplImg) != "" {
 			finalImg = tmplImg
 		}
@@ -363,36 +366,100 @@ func (s *service) NotifyWasteTruckArrival(ctx context.Context, rtID, senderUserI
 			SentAt:   time.Now().UTC().Format(time.RFC3339Nano),
 		}
 
-		// Cooldown deduplication: one notification per 30 minutes window per RT
-		timeSlot := time.Now().Format("2006-01-02-15")
-		if time.Now().Minute() >= 30 {
-			timeSlot += "-30"
-		} else {
-			timeSlot += "-00"
+		var idemKey string
+		if len(idempotencyKey) > 0 && strings.TrimSpace(idempotencyKey[0]) != "" {
+			idemKey = strings.TrimSpace(idempotencyKey[0])
 		}
-		dedupKey := fmt.Sprintf("waste_truck:%s:%s", rtID, timeSlot)
+
+		var dedupKey string
+		if idemKey != "" {
+			dedupKey = fmt.Sprintf("waste_truck:%s:idemp:%s", rtID, idemKey)
+		} else {
+			dedupKey = fmt.Sprintf("waste_truck:%s:%d:%s", rtID, time.Now().UnixNano(), senderUserID)
+		}
 
 		payloadMap := payload.ToMap()
-		ok, err := s.repo.CheckAndRecordDedup(bgCtx, rtID, senderUserID, EventWasteTruckArrival, dedupKey, title, body, payloadMap)
+		notifID, ok, err := s.repo.RecordWasteTruckDispatch(bgCtx, rtID, senderUserID, dedupKey, title, body, payloadMap)
 		if err != nil {
 			slog.Warn("waste truck arrival dedup check failed", "error", err)
 		}
 		if !ok {
-			slog.Info("waste truck notification skipped due to cooldown dedup", "rt_id", rtID)
+			slog.Info("waste truck notification skipped due to idempotency dedup", "rt_id", rtID, "dedup_key", dedupKey)
 			return
+		}
+		if notifID == "" {
+			slog.Error("waste truck dispatch log was created without an identifier", "rt_id", rtID)
+			return
+		}
+		updateDispatchStatus := func(status, reason string) {
+			updateCtx, updateCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer updateCancel()
+			if updateErr := s.repo.UpdateWasteTruckDispatch(updateCtx, rtID, senderUserID, notifID, status, reason); updateErr != nil {
+				slog.Error("failed to record waste truck dispatch result", "rt_id", rtID, "error", updateErr)
+			}
 		}
 		if notifID := payloadMap["notification_id"]; notifID != "" {
 			payloadMap["deep_link"] = "/home/notifikasi/detail/" + notifID
 		}
 
-		tokens, err := s.repo.GetTokensForRT(bgCtx, rtID)
+		recipients, err := s.repo.GetWasteTruckArrivalRecipients(bgCtx, rtID)
 		if err != nil {
-			slog.Error("failed to get RT tokens for waste truck arrival", "rt_id", rtID, "error", err)
+			slog.Error("failed to get RT recipients for waste truck arrival", "rt_id", rtID, "error", err)
+			updateDispatchStatus("UNKNOWN", "Recipient delivery results could not be loaded")
 			return
 		}
 
-		s.sendPushToTokens(bgCtx, tokens, title, body, payloadMap)
+		recipientStatuses := make([]string, 0, len(recipients))
+		for _, recipient := range recipients {
+			recipientSent, recipientFailed := s.sendPushToTokens(
+				bgCtx, recipient.Tokens, title, body, payloadMap,
+			)
+			status := recipientDeliveryStatus(recipientSent, recipientFailed, len(recipient.Tokens))
+			recipientStatuses = append(recipientStatuses, status)
+			if err := s.repo.RecordBroadcastRecipientDelivery(
+				bgCtx, rtID, senderUserID, recipient.UserID, EventWasteTruckArrival, notifID,
+				title, body, payloadMap, status,
+			); err != nil {
+				slog.Warn("failed to record waste truck recipient history",
+					"rt_id", rtID, "error", err)
+			}
+		}
+		status := aggregateDeliveryStatus(recipientStatuses)
+		failureReason := ""
+		switch status {
+		case "PARTIAL":
+			failureReason = "Some recipient deliveries failed or could not be confirmed"
+		case "FAILED":
+			failureReason = "Provider reported failure for all recipient deliveries"
+		case "UNKNOWN":
+			failureReason = "Recipient delivery results could not be confirmed"
+		}
+		updateDispatchStatus(status, failureReason)
 	}()
+}
+
+func (s *service) ListWasteTruckHistory(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	rtID string,
+	page, pageSize int,
+) ([]WasteTruckDispatchEntry, int, error) {
+	if ac == nil || ac.UserID == "" ||
+		!strings.EqualFold(strings.TrimSpace(string(ac.Jabatan)), string(auth.JabatanKeamanan)) ||
+		ac.RTID == "" || ac.RTID != rtID {
+		return nil, 0, ErrForbidden
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	offset := (page - 1) * pageSize
+	return s.repo.ListWasteTruckDispatches(ctx, rtID, ac.UserID, offset, pageSize)
 }
 
 // SendManualPush dispatches manual broadcast notification to all active residents in the RT.
@@ -454,12 +521,23 @@ func (s *service) SendManualPush(ctx context.Context, rtID, senderUserID string,
 		payloadMap["deep_link"] = "/home/notifikasi/detail/" + notifID
 	}
 
-	tokens, err := s.repo.GetTokensForRT(ctx, rtID)
+	recipients, err := s.repo.GetRTBroadcastRecipients(ctx, rtID)
 	if err != nil {
 		return fmt.Errorf("gagal mendapatkan target perangkat RT: %w", err)
 	}
 
-	s.sendPushToTokens(ctx, tokens, title, body, payloadMap)
+	broadcastID := payloadMap["notification_id"]
+	for _, recipient := range recipients {
+		sent, failed := s.sendPushToTokens(ctx, recipient.Tokens, title, body, payloadMap)
+		status := recipientDeliveryStatus(sent, failed, len(recipient.Tokens))
+		if err := s.repo.RecordBroadcastRecipientDelivery(
+			ctx, rtID, senderUserID, recipient.UserID, EventManualPush,
+			broadcastID, title, body, payloadMap, status,
+		); err != nil {
+			slog.Warn("failed to record manual push recipient history",
+				"rt_id", rtID, "error", err)
+		}
+	}
 	return nil
 }
 
@@ -603,6 +681,74 @@ func (s *service) sendPushToTokens(ctx context.Context, tokens []string, title, 
 	}
 	wg.Wait()
 	return sent, failed
+}
+
+func deliveryStatus(sent, failed int) string {
+	switch {
+	case sent > 0 && failed > 0:
+		return "PARTIAL"
+	case sent > 0:
+		return "SENT"
+	case failed > 0:
+		return "FAILED"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// recipientDeliveryStatus distinguishes known lack of a delivery endpoint from
+// provider failure or an unavailable result. SENT means accepted by FCM, not
+// confirmed displayed on a device.
+func recipientDeliveryStatus(sent, failed, activeTokenCount int) string {
+	if activeTokenCount == 0 {
+		return "NO_DEVICE"
+	}
+	return deliveryStatus(sent, failed)
+}
+
+func deliveryFailureReason(status string) string {
+	switch status {
+	case "FAILED":
+		return "Provider reported failure for all recipient devices"
+	case "PARTIAL":
+		return "Provider reported failure for one or more recipient devices"
+	default:
+		return ""
+	}
+}
+
+func aggregateDeliveryStatus(statuses []string) string {
+	sent, failed, noDevice, unknown := false, false, false, false
+	for _, status := range statuses {
+		switch status {
+		case "SENT":
+			sent = true
+		case "FAILED":
+			failed = true
+		case "PARTIAL":
+			sent, failed = true, true
+		case "NO_DEVICE":
+			noDevice = true
+		default:
+			unknown = true
+		}
+	}
+	if sent && failed {
+		return "PARTIAL"
+	}
+	if sent {
+		return "SENT"
+	}
+	if failed {
+		return "FAILED"
+	}
+	if unknown {
+		return "UNKNOWN"
+	}
+	if noDevice {
+		return "NO_DEVICE"
+	}
+	return "UNKNOWN"
 }
 
 func isInvalidTokenError(err error) bool {
@@ -910,36 +1056,67 @@ func (s *service) ListLogs(ctx context.Context, ac *auth.AuthContext, rtID, even
 	}
 	offset := (page - 1) * pageSize
 	userID := ""
-	isOfficer := false
 	if ac != nil {
 		userID = ac.UserID
-		isOfficer = isOfficerUser(ac)
 	}
-	return s.repo.ListLogs(ctx, rtID, userID, eventType, status, isOfficer, offset, pageSize)
+	return s.repo.ListLogs(ctx, rtID, userID, eventType, status, false, offset, pageSize)
+}
+
+func (s *service) ListManagementHistory(
+	ctx context.Context,
+	ac *auth.AuthContext,
+	rtID, category string,
+	page, pageSize int,
+) ([]NotificationLogEntry, int, error) {
+	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
+		return nil, 0, errors.New("unauthorized: missing auth context")
+	}
+	if !isOfficerUser(ac) {
+		return nil, 0, ErrForbidden
+	}
+	// Security officers (keamanan) do NOT have notification.manage permission
+	// and must NOT see system/management aggregated logs or other residents' data.
+	if isSecurityOfficer(ac) {
+		return nil, 0, ErrForbidden
+	}
+	if category != HistoryCategorySystem && category != HistoryCategoryMine {
+		return nil, 0, errors.New("invalid notification history category")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	offset := (page - 1) * pageSize
+	return s.repo.ListManagementHistory(ctx, rtID, ac.UserID, category, offset, pageSize)
 }
 
 func (s *service) MarkAsRead(ctx context.Context, ac *auth.AuthContext, rtID, id string) error {
 	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
 		return errors.New("unauthorized: missing auth context")
 	}
-	return s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficerUser(ac))
+	return s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, false)
 }
 
 func (s *service) MarkAllAsRead(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error) {
 	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
 		return 0, errors.New("unauthorized: missing auth context")
 	}
-	return s.repo.MarkAllAsRead(ctx, rtID, ac.UserID, isOfficerUser(ac))
+	return s.repo.MarkAllAsRead(ctx, rtID, ac.UserID, false)
 }
 
 func (s *service) GetUnreadCount(ctx context.Context, ac *auth.AuthContext, rtID string) (int, error) {
 	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
 		return 0, errors.New("unauthorized: missing auth context")
 	}
-	return s.repo.GetUnreadCount(ctx, rtID, ac.UserID, isOfficerUser(ac))
+	return s.repo.GetUnreadCount(ctx, rtID, ac.UserID, false)
 }
 
-func (s *service) GetNotificationDetail(ctx context.Context, ac *auth.AuthContext, rtID, id string) (*NotificationLogEntry, error) {
+func (s *service) GetNotificationDetail(ctx context.Context, ac *auth.AuthContext, rtID, id string, canManage bool) (*NotificationLogEntry, error) {
 	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
 		return nil, errors.New("unauthorized: missing auth context")
 	}
@@ -957,44 +1134,54 @@ func (s *service) GetNotificationDetail(ctx context.Context, ac *auth.AuthContex
 		return nil, nil
 	}
 
-	isOfficer := isOfficerUser(ac)
-
 	// Test push notifications are strictly isolated to the Super Admin who triggered them.
 	if strings.HasPrefix(entry.DedupKey, "test_push:") {
 		if entry.UserID == nil || *entry.UserID != ac.UserID {
 			return nil, ErrForbidden
 		}
-		_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficer)
+		_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, false)
 		entry.IsRead = true
 		now := time.Now()
 		entry.ReadAt = &now
 		return entry, nil
 	}
 
-	// Broadcast RT notifications (manual_push, waste_truck_arrival) are readable by any authenticated member in the same RT.
+	isOwner := entry.UserID != nil && *entry.UserID == ac.UserID
+	isSender := entry.SenderUserID != nil && *entry.SenderUserID == ac.UserID
+
+	// Dispatch records remain readable by their sender or notification managers.
 	if entry.EventType == EventManualPush || entry.EventType == EventWasteTruckArrival {
-		_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficer)
-		entry.IsRead = true
-		now := time.Now()
-		entry.ReadAt = &now
-		return entry, nil
+		if !isOwner && !isSender && !canManage {
+			recipientEntry, recipientErr := s.repo.GetBroadcastRecipientLog(ctx, rtID, ac.UserID, entry.EventType, entry.ID)
+			if recipientErr != nil {
+				return nil, recipientErr
+			}
+			if recipientEntry == nil {
+				return nil, ErrForbidden
+			}
+			entry = recipientEntry
+			isOwner = entry.UserID != nil && *entry.UserID == ac.UserID
+			isSender = entry.SenderUserID != nil && *entry.SenderUserID == ac.UserID
+		}
 	}
 
-	// User-targeted or financial notifications require matching user_id or RT officer/admin role.
-	if entry.UserID != nil && *entry.UserID != "" {
-		if *entry.UserID != ac.UserID && !isOfficer {
-			return nil, ErrForbidden
-		}
-		_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficer)
-		entry.IsRead = true
-		now := time.Now()
-		entry.ReadAt = &now
-		return entry, nil
-	}
-	if !isOfficer {
+	if !isOwner && !isSender && !canManage {
 		return nil, ErrForbidden
 	}
-	_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, id, isOfficer)
+	if entry.UserID != nil && *entry.UserID != "" {
+		if *entry.UserID != ac.UserID && !canManage {
+			return nil, ErrForbidden
+		}
+		_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, entry.ID, false)
+		entry.IsRead = true
+		now := time.Now()
+		entry.ReadAt = &now
+		return entry, nil
+	}
+	if !canManage {
+		return nil, ErrForbidden
+	}
+	_ = s.repo.MarkAsRead(ctx, rtID, ac.UserID, entry.ID, false)
 	entry.IsRead = true
 	now := time.Now()
 	entry.ReadAt = &now
@@ -1074,14 +1261,18 @@ func (s *service) GetDueSchedules(ctx context.Context, now time.Time) ([]*Notifi
 }
 
 // BuildScheduleDedupKey constructs a deterministic deduplication key for a scheduled notification delivery.
-// It preserves the prefix format `schedule:<schedule_id>:<exec_date>:<user_id>...` required by
-// ListSchedulerHistory and GetSchedulerRecipientDetail while incorporating eventType, periodKey,
+// It preserves the prefix format `schedule:<schedule_id>:<exec_date>:<user_id>...` (or with `:c_<config_hash>`)
+// required by ListSchedulerHistory and GetSchedulerRecipientDetail while incorporating eventType, periodKey,
 // and billGroupKey when provided.
-func BuildScheduleDedupKey(scheduleID, execDate, userID, eventType, periodKey, billGroupKey string) string {
-	if eventType == "" && periodKey == "" && billGroupKey == "" {
-		return fmt.Sprintf("schedule:%s:%s:%s", scheduleID, execDate, userID)
+func BuildScheduleDedupKey(scheduleID, execDate, userID, eventType, periodKey, billGroupKey string, configHash ...string) string {
+	cfg := ""
+	if len(configHash) > 0 && configHash[0] != "" {
+		cfg = ":c_" + configHash[0]
 	}
-	return fmt.Sprintf("schedule:%s:%s:%s:%s:%s:%s", scheduleID, execDate, userID, eventType, periodKey, billGroupKey)
+	if eventType == "" && periodKey == "" && billGroupKey == "" {
+		return fmt.Sprintf("schedule:%s:%s%s:%s", scheduleID, execDate, cfg, userID)
+	}
+	return fmt.Sprintf("schedule:%s:%s%s:%s:%s:%s:%s", scheduleID, execDate, cfg, userID, eventType, periodKey, billGroupKey)
 }
 
 type scheduledRecipientGroup struct {
@@ -1105,6 +1296,7 @@ func (s *service) resolveOverdueOrUpcomingRecipientGroups(
 	schedule *NotificationSchedule,
 	localNow time.Time,
 	execDate string,
+	configHash string,
 ) ([]scheduledRecipientGroup, error) {
 	extRepo, ok := s.repo.(OverdueReminderRepository)
 	if !ok {
@@ -1214,7 +1406,7 @@ func (s *service) resolveOverdueOrUpcomingRecipientGroups(
 			deepLink = "/home/iuran"
 		}
 
-		dedupKey := BuildScheduleDedupKey(schedule.ID, execDate, uid, schedule.EventType, periodKey, billGroupKey)
+		dedupKey := BuildScheduleDedupKey(schedule.ID, execDate, uid, schedule.EventType, periodKey, billGroupKey, configHash)
 
 		groups = append(groups, scheduledRecipientGroup{
 			userID:                uid,
@@ -1235,6 +1427,7 @@ func (s *service) resolveOverdueOrUpcomingRecipientGroups(
 
 	return groups, nil
 }
+
 // type, renders title/body from the linked template, sends pushes with
 // per-recipient idempotency, and updates the schedule's last execution info.
 //
@@ -1257,10 +1450,9 @@ func (s *service) resolveOverdueOrUpcomingRecipientGroups(
 //     instances somehow both send, only one log row sticks per recipient per
 //     date, and the log status reflects the actual delivery result.
 //
-// Logs are written with the ACTUAL delivery status (SENT/FAILED), never
-// "SENT" before a successful push. An empty FCM token list is treated as a
-// delivery failure (not success). Partial failures are recorded per recipient
-// and aggregated into the schedule-level status.
+// Logs distinguish provider outcomes from unknown/no-attempt outcomes. A
+// missing token is UNKNOWN, not FAILED; only provider-reported failures are
+// FAILED. Partial provider results are recorded per recipient and aggregated.
 func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSchedule, now time.Time) (int, error) {
 	if schedule == nil {
 		return 0, errors.New("schedule is required")
@@ -1274,6 +1466,7 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 		loc = time.FixedZone(schedule.Timezone, 7*3600) // default WIB
 	}
 	execDate := now.In(loc).Format("2006-01-02")
+	configHash := ComputeScheduleConfigHashFromSchedule(schedule)
 
 	// Acquire a dedicated connection and hold a session-level advisory lock for
 	// the whole execution (network call included). This guarantees at-most-once
@@ -1287,67 +1480,98 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 	}
 	if conn != nil {
 		defer conn.Close()
-		claimed, err := s.repo.TryAdvisoryLockConn(conn, ctx, schedule.ID, execDate)
+		lockKey := fmt.Sprintf("%s:c_%s", execDate, configHash)
+		claimed, err := s.repo.TryAdvisoryLockConn(conn, ctx, schedule.ID, lockKey)
 		if err != nil {
 			return 0, fmt.Errorf("try advisory lock: %w", err)
 		}
 		if !claimed {
-			slog.Info("schedule execution claimed by another instance", "schedule_id", schedule.ID, "exec_date", execDate)
+			slog.Info("schedule execution claimed by another instance", "schedule_id", schedule.ID, "exec_date", execDate, "config_hash", configHash)
 			return 0, nil
 		}
-		defer s.repo.ReleaseAdvisoryLockConn(conn, ctx, schedule.ID, execDate)
+		defer s.repo.ReleaseAdvisoryLockConn(conn, ctx, schedule.ID, lockKey)
 	}
 
-	// Defensive schedule-level dedup: already completed today (SENT/FAILED)?
-	already, err := s.repo.IsScheduleExecutedToday(ctx, schedule.ID, execDate)
+	// Defensive schedule-level dedup: already completed today (SENT/FAILED) for this configuration version?
+	already, err := s.repo.IsScheduleExecutedToday(ctx, schedule.ID, execDate, configHash)
 	if err != nil {
 		return 0, fmt.Errorf("check executed today: %w", err)
 	}
 	if already {
-		slog.Info("schedule already executed today", "schedule_id", schedule.ID, "exec_date", execDate)
+		slog.Info("schedule already executed today for this config version", "schedule_id", schedule.ID, "exec_date", execDate, "config_hash", configHash)
 		return 0, nil
 	}
 
 	bgCtx := ctx
 
-	// Resolve the active template for this event type + RT (read-only).
-	tmpl, err := s.repo.GetActiveTemplateForEvent(bgCtx, rtID, schedule.EventType)
-	if err != nil {
-		slog.Warn("no active template for reminder schedule", "rt_id", rtID, "event_type", schedule.EventType, "error", err)
-		return 0, nil
+	// Resolve the active template: prefer the schedule's assigned template if valid and active,
+	// otherwise fallback to the active template for this event type + RT.
+	var tmpl *NotificationTemplate
+	if schedule.TemplateID != "" {
+		t, err := s.repo.GetTemplateByID(bgCtx, rtID, schedule.TemplateID)
+		if err == nil && t != nil && t.IsActive {
+			tmpl = t
+		}
 	}
-	if tmpl == nil || !tmpl.IsActive {
-		return 0, nil
+	if tmpl == nil {
+		t, err := s.repo.GetActiveTemplateForEvent(bgCtx, rtID, schedule.EventType)
+		if err == nil && t != nil && t.IsActive {
+			tmpl = t
+		}
+	}
+	if tmpl == nil {
+		errMsg := "Template not found or inactive"
+		_ = s.repo.UpdateScheduleExecutedDetailed(ctx, schedule.ID, rtID, now, "failed", &errMsg, &ScheduleExecutionSummary{
+			TotalRecipients: 0,
+			SentCount:       0,
+			FailedCount:     0,
+			NoDeviceCount:   0,
+			FailureReason:   errMsg,
+		}, configHash)
+		slog.Warn("no active template for reminder schedule", "rt_id", rtID, "schedule_id", schedule.ID, "event_type", schedule.EventType)
+		return 0, fmt.Errorf("active template not found or inactive for schedule %s (event_type: %s)", schedule.ID, schedule.EventType)
 	}
 
 	title := tmpl.Title
 	body := tmpl.Body
 
 	type delivery struct {
-		userID   string
-		dedupKey string
-		title    string
-		body     string
-		payload  map[string]string
-		billID   string
-		ok       bool // true if push delivered successfully
+		userID        string
+		dedupKey      string
+		title         string
+		body          string
+		payload       map[string]string
+		billID        string
+		status        string
+		failureReason string
 	}
 	var deliveries []delivery
+	recipientStatuses := make([]string, 0)
 	sent := 0
-	failed := 0
-	totalRecipients := 0
-
 	switch schedule.EventType {
 	case EventPaymentReminder:
 		recipients, err := s.repo.GetIuranReminderRecipients(bgCtx, rtID, now)
 		if err != nil {
+			errMsg := fmt.Sprintf("failed to resolve iuran reminder recipients: %v", err)
+			_ = s.repo.UpdateScheduleExecutedDetailed(ctx, schedule.ID, rtID, now, "failed", &errMsg, &ScheduleExecutionSummary{
+				FailureReason: errMsg,
+			}, configHash)
 			slog.Error("failed to resolve iuran reminder recipients", "rt_id", rtID, "error", err)
 			return 0, err
 		}
 		if len(recipients) == 0 {
+			status := "no_recipients"
+			reason := "Tidak ada tagihan yang memenuhi kriteria penerima"
+			_ = s.repo.UpdateScheduleExecutedDetailed(ctx, schedule.ID, rtID, now, status, &reason, &ScheduleExecutionSummary{
+				TotalRecipients: 0,
+				SentCount:       0,
+				FailedCount:     0,
+				NoDeviceCount:   0,
+				FailureReason:   reason,
+			}, configHash)
+			slog.Info("payment reminder schedule executed with zero recipients", "schedule_id", schedule.ID)
 			return 0, nil
 		}
-		totalRecipients = len(recipients)
 		deliveries = make([]delivery, 0, len(recipients))
 
 		for _, rec := range recipients {
@@ -1376,37 +1600,72 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 				SentAt:   now.UTC().Format(time.RFC3339Nano),
 			}
 			payloadMap := payload.ToMap()
-			dedupKey := fmt.Sprintf("schedule:%s:%s:%s", schedule.ID, execDate, rec.UserID)
+			dedupKey := BuildScheduleDedupKey(schedule.ID, execDate, rec.UserID, "", "", "", configHash)
+
+			alreadySent, _ := s.repo.IsRecipientAlreadySentToday(bgCtx, dedupKey)
+			if alreadySent {
+				deliveries = append(deliveries, delivery{
+					userID: rec.UserID, dedupKey: dedupKey, title: t, body: b,
+					payload: payloadMap, billID: rec.BillID, status: "SENT",
+				})
+				recipientStatuses = append(recipientStatuses, "SENT")
+				sent++
+				continue
+			}
 
 			tokens, err := s.repo.GetTokensForUser(bgCtx, rec.UserID)
 			if err != nil {
 				slog.Error("failed to get tokens for reminder recipient", "user_id", rec.UserID, "error", err)
-				deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, false})
-				failed++
+				deliveries = append(deliveries, delivery{
+					userID: rec.UserID, dedupKey: dedupKey, title: t, body: b,
+					payload: payloadMap, billID: rec.BillID, status: "UNKNOWN",
+				})
+				recipientStatuses = append(recipientStatuses, "UNKNOWN")
 				continue
 			}
 			if len(tokens) == 0 {
-				deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, false})
-				failed++
+				deliveries = append(deliveries, delivery{
+					userID: rec.UserID, dedupKey: dedupKey, title: t, body: b,
+					payload: payloadMap, billID: rec.BillID, status: "NO_DEVICE",
+				})
+				recipientStatuses = append(recipientStatuses, "NO_DEVICE")
 				continue
 			}
 
 			sentN, failedN := s.sendPushToTokens(bgCtx, tokens, t, b, payloadMap)
 			sent += sentN
-			failed += failedN
-			deliveries = append(deliveries, delivery{rec.UserID, dedupKey, t, b, payloadMap, rec.BillID, sentN > 0})
+			status := recipientDeliveryStatus(sentN, failedN, len(tokens))
+			deliveries = append(deliveries, delivery{
+				userID: rec.UserID, dedupKey: dedupKey, title: t, body: b,
+				payload: payloadMap, billID: rec.BillID, status: status,
+				failureReason: deliveryFailureReason(status),
+			})
+			recipientStatuses = append(recipientStatuses, status)
 		}
 
 	case EventUpcomingDue3Months, EventOverdue3Months:
-		groups, err := s.resolveOverdueOrUpcomingRecipientGroups(bgCtx, schedule, now.In(loc), execDate)
+		groups, err := s.resolveOverdueOrUpcomingRecipientGroups(bgCtx, schedule, now.In(loc), execDate, configHash)
 		if err != nil {
+			errMsg := fmt.Sprintf("failed to resolve upcoming/overdue iuran recipients: %v", err)
+			_ = s.repo.UpdateScheduleExecutedDetailed(ctx, schedule.ID, rtID, now, "failed", &errMsg, &ScheduleExecutionSummary{
+				FailureReason: errMsg,
+			}, configHash)
 			slog.Error("failed to resolve upcoming/overdue iuran recipients", "rt_id", rtID, "event_type", schedule.EventType, "error", err)
 			return 0, err
 		}
 		if len(groups) == 0 {
+			status := "no_recipients"
+			reason := "Tidak ada tagihan yang memenuhi kriteria penerima"
+			_ = s.repo.UpdateScheduleExecutedDetailed(ctx, schedule.ID, rtID, now, status, &reason, &ScheduleExecutionSummary{
+				TotalRecipients: 0,
+				SentCount:       0,
+				FailedCount:     0,
+				NoDeviceCount:   0,
+				FailureReason:   reason,
+			}, configHash)
+			slog.Info("overdue/upcoming schedule executed with zero recipient groups", "schedule_id", schedule.ID)
 			return 0, nil
 		}
-		totalRecipients = len(groups)
 		deliveries = make([]delivery, 0, len(groups))
 
 		for _, grp := range groups {
@@ -1438,27 +1697,53 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 			payloadMap["bill_count"] = strconv.Itoa(grp.billCount)
 			payloadMap["total_outstanding"] = strconv.FormatInt(grp.totalOutstandingCents/100, 10)
 
+			alreadySent, _ := s.repo.IsRecipientAlreadySentToday(bgCtx, grp.dedupKey)
+			if alreadySent {
+				deliveries = append(deliveries, delivery{
+					userID: grp.userID, dedupKey: grp.dedupKey, title: t, body: b,
+					payload: payloadMap, billID: grp.primaryBillID, status: "SENT",
+				})
+				recipientStatuses = append(recipientStatuses, "SENT")
+				sent++
+				continue
+			}
+
 			tokens, err := s.repo.GetTokensForUser(bgCtx, grp.userID)
 			if err != nil {
 				slog.Error("failed to get tokens for upcoming/overdue recipient", "user_id", grp.userID, "error", err)
-				deliveries = append(deliveries, delivery{grp.userID, grp.dedupKey, t, b, payloadMap, grp.primaryBillID, false})
-				failed++
+				deliveries = append(deliveries, delivery{
+					userID: grp.userID, dedupKey: grp.dedupKey, title: t, body: b,
+					payload: payloadMap, billID: grp.primaryBillID, status: "UNKNOWN",
+				})
+				recipientStatuses = append(recipientStatuses, "UNKNOWN")
 				continue
 			}
 			if len(tokens) == 0 {
-				deliveries = append(deliveries, delivery{grp.userID, grp.dedupKey, t, b, payloadMap, grp.primaryBillID, false})
-				failed++
+				deliveries = append(deliveries, delivery{
+					userID: grp.userID, dedupKey: grp.dedupKey, title: t, body: b,
+					payload: payloadMap, billID: grp.primaryBillID, status: "NO_DEVICE",
+				})
+				recipientStatuses = append(recipientStatuses, "NO_DEVICE")
 				continue
 			}
 
 			sentN, failedN := s.sendPushToTokens(bgCtx, tokens, t, b, payloadMap)
 			sent += sentN
-			failed += failedN
-			deliveries = append(deliveries, delivery{grp.userID, grp.dedupKey, t, b, payloadMap, grp.primaryBillID, sentN > 0})
+			status := recipientDeliveryStatus(sentN, failedN, len(tokens))
+			deliveries = append(deliveries, delivery{
+				userID: grp.userID, dedupKey: grp.dedupKey, title: t, body: b,
+				payload: payloadMap, billID: grp.primaryBillID, status: status,
+				failureReason: deliveryFailureReason(status),
+			})
+			recipientStatuses = append(recipientStatuses, status)
 		}
 
 	default:
-		return 0, fmt.Errorf("unsupported event type for scheduled execution: %s", schedule.EventType)
+		errMsg := fmt.Sprintf("unsupported event type for scheduled execution: %s", schedule.EventType)
+		_ = s.repo.UpdateScheduleExecutedDetailed(ctx, schedule.ID, rtID, now, "failed", &errMsg, &ScheduleExecutionSummary{
+			FailureReason: errMsg,
+		}, configHash)
+		return 0, fmt.Errorf("%s", errMsg)
 	}
 
 	// Record per-recipient delivery logs with ACTUAL status and update the
@@ -1466,25 +1751,58 @@ func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSch
 	// the advisory lock is still held. Each log insert is idempotent
 	// (UNIQUE dedup_key, ON CONFLICT DO NOTHING), so retries are safe.
 	for _, d := range deliveries {
-		status := "SENT"
-		if !d.ok {
-			status = "FAILED"
-		}
-		if _, err := s.repo.RecordScheduleDelivery(ctx, rtID, d.userID, schedule.EventType, d.dedupKey, d.title, d.body, d.payload, status); err != nil {
+		if _, err := s.repo.RecordScheduleDelivery(
+			ctx, rtID, d.userID, schedule.EventType, d.dedupKey,
+			d.title, d.body, d.payload, d.status, d.failureReason,
+		); err != nil {
 			slog.Warn("failed to record schedule delivery log", "user_id", d.userID, "error", err)
 		}
 	}
 
-	// Schedule-level status reflects real delivery outcomes.
-	status := "success"
-	total := totalRecipients
-	if sent == 0 && total > 0 {
-		status = "failed"
-	} else if sent > 0 && sent < total {
-		status = "partial"
+	summary := ScheduleExecutionSummary{
+		TotalRecipients: len(deliveries),
 	}
-	if err := s.repo.UpdateScheduleExecuted(ctx, schedule.ID, rtID, now, status); err != nil {
-		slog.Warn("failed to update schedule last executed", "schedule_id", schedule.ID, "error", err)
+	for _, d := range deliveries {
+		switch d.status {
+		case "SENT":
+			summary.SentCount++
+		case "PARTIAL":
+			summary.SentCount++
+			summary.FailedCount++
+		case "FAILED":
+			summary.FailedCount++
+		case "NO_DEVICE":
+			summary.NoDeviceCount++
+		}
+	}
+
+	var (
+		finalStatus   string
+		execErrDetail *string
+	)
+	if summary.SentCount > 0 && summary.FailedCount == 0 {
+		finalStatus = "success"
+	} else if summary.SentCount > 0 && summary.FailedCount > 0 {
+		finalStatus = "partial"
+		msg := "Sebagian perangkat gagal menerima push notifikasi"
+		execErrDetail = &msg
+		summary.FailureReason = msg
+	} else if summary.SentCount == 0 && summary.FailedCount > 0 {
+		finalStatus = "failed"
+		msg := "Pengiriman push ke perangkat gagal untuk seluruh penerima"
+		execErrDetail = &msg
+		summary.FailureReason = msg
+	} else if summary.SentCount == 0 && summary.FailedCount == 0 && summary.NoDeviceCount > 0 {
+		finalStatus = "no_device"
+		msg := "Seluruh penerima tidak memiliki perangkat terdaftar (notifikasi in-app tetap tersimpan)"
+		execErrDetail = &msg
+		summary.FailureReason = msg
+	} else {
+		finalStatus = "success"
+	}
+
+	if err := s.repo.UpdateScheduleExecutedDetailed(ctx, schedule.ID, rtID, now, finalStatus, execErrDetail, &summary, configHash); err != nil {
+		slog.Warn("failed to update schedule last executed detailed", "schedule_id", schedule.ID, "error", err)
 	}
 
 	return sent, nil
@@ -1494,6 +1812,6 @@ func (s *service) ListSchedulerHistory(ctx context.Context, rtID string, page, p
 	return s.repo.ListSchedulerHistory(ctx, rtID, page, pageSize)
 }
 
-func (s *service) GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string) ([]*NotificationSchedulerRecipientDetail, error) {
-	return s.repo.GetSchedulerRecipientDetail(ctx, rtID, scheduleID, execDate)
+func (s *service) GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string, configHash ...string) ([]*NotificationSchedulerRecipientDetail, error) {
+	return s.repo.GetSchedulerRecipientDetail(ctx, rtID, scheduleID, execDate, configHash...)
 }

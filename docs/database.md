@@ -802,6 +802,7 @@ Unique: `uq_user_devices_user_token (user_id, fcm_token)`.
 | `id` | `uuid` | PK, default `gen_random_uuid()` | Log identifier |
 | `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | Tenant scope |
 | `user_id` | `uuid` | NULL, FK → `users.id` ON DELETE CASCADE | Targeted user (or NULL for RT-wide) |
+| `sender_user_id` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Authenticated sender for audited waste-truck dispatches |
 | `event_type` | `text` | NOT NULL | Event type identifier |
 | `dedup_key` | `text` | NOT NULL, UNIQUE | Deduplication idempotency key |
 | `title` | `text` | NOT NULL | Notification title sent |
@@ -809,7 +810,14 @@ Unique: `uq_user_devices_user_token (user_id, fcm_token)`.
 | `image_url` | `text` | NULL | Public relative or absolute URL of attached image |
 | `payload` | `jsonb` | NOT NULL, default `'{}'` | Non-sensitive data payload |
 | `status` | `text` | NOT NULL, default `'SENT'` | Delivery status |
-| `created_at` | `timestamptz` | NOT NULL, default `now()` | Timestamp of dispatch |
+| `failure_reason` | `text` | NULL | Safe summary when waste-truck dispatch delivery fails or is partial |
+| `created_at` | `timestamptz` | NOT NULL, default `NOW()` | Timestamp of dispatch |
+
+Waste-truck dispatches use `sender_user_id` from the authenticated backend
+context, begin with `PENDING`, then record `SENT`, `PARTIAL`, or `FAILED` after
+the push provider returns. `failure_reason` contains only a safe summary, not
+provider tokens or raw error details. Migration 058 backfills the sender from
+legacy waste-truck `user_id` values and indexes sender-scoped history.
 
 ### 12.3 `notification_templates` — Configurable Notification Templates
 
@@ -845,6 +853,53 @@ Primary Key: `(notification_id, user_id)`.
 Indexes:
 - `idx_notification_reads_user_id (user_id)`
 - `idx_notification_reads_notif_id (notification_id)`
+
+### 12.5 `notification_schedules` — Scheduled Notification Triggers (Migration 052, 054, 059)
+
+Stores recurring notification schedules for automated reminder dispatches (such as monthly iuran payment reminders, 3-month upcoming due reminders, and 3+ month overdue reminders).
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Schedule identifier |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | RT organization scope |
+| `event_type` | `varchar(64)` | NOT NULL | Notification event type |
+| `template_id` | `uuid` | NOT NULL, FK → `notification_templates.id` ON DELETE RESTRICT | Linked template |
+| `name` | `varchar(128)` | NOT NULL | Friendly schedule name |
+| `is_active` | `boolean` | NOT NULL, default `true` | Active status |
+| `send_days` | `jsonb` | NOT NULL, default `'[]'` | Days of month (1–31) |
+| `send_hour` | `integer` | NOT NULL, CHECK (0–23) | Send hour in schedule timezone |
+| `send_minute` | `integer` | NOT NULL, CHECK (0–59) | Send minute in schedule timezone |
+| `timezone` | `varchar(64)` | NOT NULL, default `'Asia/Jakarta'` | Timezone of execution |
+| `last_executed_at` | `timestamptz` | NULL | Timestamp of last execution |
+| `last_executed_status` | `varchar(16)` | NULL | Aggregated outcome (`success`, `partial`, `failed`, `no_device`, `no_recipients`) |
+| `last_executed_error` | `text` | NULL | Safe error/failure explanation for UI display |
+| `last_executed_summary` | `jsonb` | NULL | Detailed recipient delivery metrics (`total_recipients`, `sent_count`, `failed_count`, `no_device_count`, `failure_reason`) |
+| `is_default` | `boolean` | NOT NULL, default `false` | System default schedule flag |
+| `created_by` | `uuid` | NULL, FK → `users.id` | Creator user |
+| `updated_by` | `uuid` | NULL, FK → `users.id` | Updater user |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | Audit timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | Audit timestamp |
+
+### 12.6 `notification_schedule_executions` — Schedule Configuration Versioning & Execution Records (Migration 060)
+
+Tracks execution instances of notification schedules per schedule, local execution date, and canonical configuration version hash (`config_hash`). Enforces at most one delivery per configuration version per date while allowing same-day schedule updates to re-execute safely at their new scheduled times.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Execution identifier |
+| `schedule_id` | `uuid` | NOT NULL, FK → `notification_schedules.id` ON DELETE CASCADE | Target schedule |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE CASCADE | RT organization scope |
+| `exec_date` | `date` | NOT NULL | Local execution calendar date (YYYY-MM-DD) |
+| `config_hash` | `varchar(64)` | NOT NULL | Canonical SHA-256 hash of delivery configuration |
+| `status` | `varchar(32)` | NOT NULL, default `'success'` | Outcome (`success`, `partial`, `failed`, `no_device`, `no_recipients`) |
+| `error_detail` | `text` | NULL | Safe error description |
+| `summary` | `jsonb` | NOT NULL, default `'{}'` | Delivery metrics (`total_recipients`, `sent_count`, etc.) |
+| `executed_at` | `timestamptz` | NOT NULL, default `now()` | Wall-clock execution timestamp |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | Record creation timestamp |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | Record update timestamp |
+
+Constraints:
+- `uq_schedule_execution UNIQUE (schedule_id, exec_date, config_hash)`
 
 ---
 
@@ -960,5 +1015,4 @@ Indexes:
 - `idx_reset_codes_resident_id (resident_id)`
 - `idx_reset_codes_rt_id (rt_id)`
 - `idx_reset_codes_active (user_id, expires_at) WHERE used_at IS NULL`
-
 

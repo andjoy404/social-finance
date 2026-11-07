@@ -95,10 +95,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
             (_currentUser!['effective_permissions'] as List?)?.cast<String>() ??
             <String>[];
 
-        _currentUser = {
-          ..._currentUser!,
-          'access_token': response.accessToken,
-        };
+        _currentUser = {..._currentUser!, 'access_token': response.accessToken};
         state = AsyncData(_currentUser);
         try {
           final freshUser = await authService.getMe();
@@ -272,8 +269,9 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
               await secureAuthStorage.saveSession(
                 accessToken: activeAccessToken,
                 refreshToken: activeRefreshToken,
-                serverUrl:
-                    currentUrl.isNotEmpty ? currentUrl : stored.serverUrl,
+                serverUrl: currentUrl.isNotEmpty
+                    ? currentUrl
+                    : stored.serverUrl,
                 userData: user.toJson(),
               );
               return true;
@@ -498,7 +496,8 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       'jabatan': user.jabatan,
       'house_number': user.houseNumber,
       'effective_permissions': user.effectivePermissions,
-      'profile_status': profileStatusOverride ??
+      'profile_status':
+          profileStatusOverride ??
           (user.effectivePermissionsAvailable
               ? _profileReady
               : _profilePermissionsUnavailable),
@@ -509,13 +508,17 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       'rw': user.rwCode,
       'rw_id': user.rwId,
       'rw_name': user.rwName,
-      'rw_memberships': user.rwMemberships.map((m) => {
-        'rw_id': m.rwId,
-        'rw_name': m.rwName,
-        'rw_number': m.rwNumber,
-        'jabatan': m.jabatan,
-        if (m.source != null) 'source': m.source,
-      }).toList(),
+      'rw_memberships': user.rwMemberships
+          .map(
+            (m) => {
+              'rw_id': m.rwId,
+              'rw_name': m.rwName,
+              'rw_number': m.rwNumber,
+              'jabatan': m.jabatan,
+              if (m.source != null) 'source': m.source,
+            },
+          )
+          .toList(),
       'access_token': accessToken,
     };
     state = AsyncData(_currentUser);
@@ -606,20 +609,53 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
   }
 
   Future<void> logout() async {
+    final remoteTasks = <Future<void>>[];
     try {
-      await onBeforeLogout?.call();
+      final beforeLogout = onBeforeLogout?.call();
+      if (beforeLogout != null) {
+        remoteTasks.add(beforeLogout);
+      }
     } catch (e) {
       developer.log('onBeforeLogout hook failed: $e', name: 'AuthRepository');
     }
     try {
-      await authService.logout();
-    } catch (_) {
-      // Ignored: local session must always be cleared even if remote logout fails.
-    } finally {
-      apiClient.clearAllTokens();
-      await secureAuthStorage.clearSession();
-      _currentUser = null;
-      state = null;
+      remoteTasks.add(authService.logout());
+    } catch (e) {
+      developer.log(
+        'Remote logout could not be started.',
+        name: 'AuthRepository',
+      );
+    }
+
+    // End the local session before awaiting network cleanup so a slow or
+    // unavailable server cannot keep this account active on the device.
+    apiClient.clearAllTokens();
+    _currentUser = null;
+    state = null;
+    final clearOperations = <Future<void> Function()>[
+      secureAuthStorage.clearSession,
+      secureAuthStorage.clearLoginCredentials,
+      () => preferencesStorage.setRememberMe(false),
+    ];
+    for (final clearOperation in clearOperations) {
+      try {
+        await clearOperation();
+      } catch (e, stackTrace) {
+        developer.log(
+          'Failed to clear persisted logout state.',
+          name: 'AuthRepository',
+          stackTrace: stackTrace,
+        );
+      }
+    }
+
+    if (remoteTasks.isNotEmpty) {
+      try {
+        await Future.wait(remoteTasks).timeout(const Duration(seconds: 5));
+      } catch (e) {
+        // Local logout is authoritative; remote cleanup is best effort.
+        developer.log('Remote logout cleanup failed.', name: 'AuthRepository');
+      }
     }
   }
 
@@ -749,8 +785,10 @@ const allowedRTIds = {
 bool isAllowedRT(Map<String, dynamic>? user) {
   if (user == null) return false;
   final role = user['role'];
-  final systemRole =
-      (user['system_role'] ?? '').toString().trim().toLowerCase();
+  final systemRole = (user['system_role'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
   if (role == AppRole.superAdmin ||
       role == 'super_admin' ||
       systemRole == 'super_admin') {

@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,8 +25,6 @@ import (
 const (
 	testSigningKey = "test-signing-secret-at-least-16-chars"
 )
-
-var rtCounter int64 = time.Now().UnixNano() % 100000
 
 func testPool(t *testing.T) *database.Pool {
 	t.Helper()
@@ -172,9 +169,9 @@ func setupTestRT(t *testing.T, pool *database.Pool, name string, rw int, rtStr s
 	t.Helper()
 	db := pool.Raw()
 
-	c := atomic.AddInt64(&rtCounter, 1)
-	uniqueName := fmt.Sprintf("%s_%d", name, c)
-	uniqueRT := fmt.Sprintf("%s_%d", rtStr, c)
+	suffix := uuid.NewString()
+	uniqueName := fmt.Sprintf("%s_%s", name, suffix)
+	uniqueRT := fmt.Sprintf("%s_%s", rtStr, suffix)
 
 	var id string
 	err := db.QueryRowContext(context.Background(),
@@ -231,7 +228,7 @@ func insertTestHouseholdFixture(t *testing.T, db *sql.DB, rtID, headName string,
 		}
 		_, err = db.ExecContext(context.Background(),
 			`INSERT INTO household_occupancies (physical_house_id, household_id, occupancy_status, start_date, end_date)
-			 VALUES ($1, $2, $3, CURRENT_DATE, NULL)`,
+			 VALUES ($1, $2, $3, CURRENT_DATE - INTERVAL '10 days', NULL)`,
 			phID, id, st,
 		)
 		if err != nil {
@@ -261,7 +258,7 @@ func insertTestResidentFixture(t *testing.T, db *sql.DB, rtID, householdID, full
 		if err == nil {
 			_, err = db.ExecContext(context.Background(),
 				`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date, end_date)
-				 VALUES ($1, $2, CURRENT_DATE, NULL)`,
+				 VALUES ($1, $2, CURRENT_DATE - INTERVAL '10 days', NULL)`,
 				id, hoID,
 			)
 			if err != nil {
@@ -1613,9 +1610,9 @@ func TestSuperAdminListResidents(t *testing.T) {
 
 	// Insert residents directly via SQL for reliability
 	db := pool.Raw()
-	c := atomic.AddInt64(&rtCounter, 1)
-	resAName := fmt.Sprintf("SAResA-%d", c)
-	resBName := fmt.Sprintf("SAResB-%d", c+1)
+	suffix := uuid.NewString()
+	resAName := fmt.Sprintf("SAResA-%s", suffix)
+	resBName := fmt.Sprintf("SAResB-%s", suffix)
 
 	_, err := db.ExecContext(context.Background(),
 		`INSERT INTO residents (rt_id, full_name, is_active) VALUES ($1, $2, true)`,

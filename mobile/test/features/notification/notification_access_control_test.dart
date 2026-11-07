@@ -113,16 +113,31 @@ void main() {
       expect(canUserAccessNotificationAdmin(user), isTrue);
     });
 
-    test('Ketua RT has admin and menu access', () {
+    test('Ketua RT with notification.manage has admin and menu access', () {
       final user = {
         'id': 'u-ketua',
         'system_role': null,
         'role': AppRole.pengurus,
         'jabatan': 'ketua',
+        'effective_permissions': ['notification.manage'],
       };
       expect(canUserAccessNotificationMenu(user), isTrue);
       expect(canUserAccessNotificationAdmin(user), isTrue);
     });
+
+    test(
+      'Ketua RT without notification.manage permission has menu but NOT admin access',
+      () {
+        final user = {
+          'id': 'u-ketua',
+          'system_role': null,
+          'role': AppRole.pengurus,
+          'jabatan': 'ketua',
+        };
+        expect(canUserAccessNotificationMenu(user), isTrue);
+        expect(canUserAccessNotificationAdmin(user), isFalse);
+      },
+    );
 
     test('Bendahara RT has menu access but NOT admin access', () {
       final user = {
@@ -203,7 +218,9 @@ void main() {
 
         expect(find.byType(NotificationManagementScreen), findsOneWidget);
         expect(find.text('KELOLA NOTIFIKASI'), findsOneWidget);
-        // Superadmin sees Test Notifikasi button
+        // Superadmin sees Test Notifikasi button on the TEMPLATE tab
+        await tester.tap(find.text('TEMPLATE'));
+        await tester.pumpAndSettle();
         expect(find.text('Test Notifikasi'), findsWidgets);
       },
     );
@@ -218,6 +235,7 @@ void main() {
           'role': AppRole.pengurus,
           'system_role': null,
           'jabatan': 'ketua',
+          'effective_permissions': ['notification.manage'],
           'rt': '002',
           'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
         };
@@ -238,6 +256,9 @@ void main() {
         expect(find.byType(NotificationManagementScreen), findsOneWidget);
         expect(find.text('KELOLA NOTIFIKASI'), findsOneWidget);
         // Ketua RT can customize templates and broadcast manual push, but Test Notifikasi is Superadmin-only
+        // Tap the TEMPLATE tab to view template buttons
+        await tester.tap(find.text('TEMPLATE'));
+        await tester.pumpAndSettle();
         expect(find.text('Kustomisasi'), findsWidgets);
         expect(find.text('Kirim Notifikasi'), findsOneWidget);
         expect(find.text('Test Notifikasi'), findsNothing);

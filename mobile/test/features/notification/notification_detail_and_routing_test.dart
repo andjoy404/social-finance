@@ -20,6 +20,7 @@ import 'package:social_finance/features/notification/data/notification_api_clien
 import 'package:social_finance/features/notification/data/notification_repository.dart';
 import 'package:social_finance/features/notification/presentation/screens/notification_detail_screen.dart';
 import 'package:social_finance/features/notification/presentation/screens/notification_management_screen.dart';
+import 'package:social_finance/features/notification/presentation/screens/security_waste_truck_screen.dart';
 
 class _FakeDeviceService implements DeviceService {
   @override
@@ -155,7 +156,7 @@ class _FakeNotificationRepository extends NotificationRepository {
   NotificationLogEntry? entryToReturn;
 
   _FakeNotificationRepository({this.entryToReturn})
-      : super(apiClient: NotificationApiClient(dio: Dio()));
+    : super(apiClient: NotificationApiClient(dio: Dio()));
 
   @override
   Future<NotificationLogEntry> fetchNotificationDetail(String id) async {
@@ -195,6 +196,17 @@ class _FakeNotificationRepository extends NotificationRepository {
   Future<List<NotificationTemplate>> fetchTemplates() async => const [];
 
   @override
+  Future<WasteTruckTemplate> fetchWasteTruckTemplate() async =>
+      const WasteTruckTemplate(
+        id: 'template-waste-truck',
+        eventType: 'waste_truck_arrival',
+        name: 'Kedatangan Truk Sampah',
+        title: 'Truk Sampah Tiba',
+        body: 'Silakan keluarkan sampah.',
+        isActive: true,
+      );
+
+  @override
   Future<NotificationLogsResponse> fetchLogs({
     int page = 1,
     int perPage = 20,
@@ -220,103 +232,145 @@ class _FakeNotificationRepository extends NotificationRepository {
       totalPages: 1,
     );
   }
+
+  @override
+  Future<NotificationLogsResponse> fetchManagementHistory({
+    required String category,
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    return NotificationLogsResponse(
+      data: [
+        NotificationLogEntry(
+          id: 'log-in-app-1',
+          rtId: 'rt-01',
+          eventType: 'waste_truck_arrival',
+          title: 'Mobil Sampah Tiba di RT 01',
+          body: 'Silakan keluarkan sampah rumah tangga Anda sekarang.',
+          variables: const {},
+          recipientsCount: 15,
+          historyCategory: category,
+          createdAt: DateTime.utc(2026, 10, 29, 7, 30),
+        ),
+      ],
+      page: page,
+      perPage: perPage,
+      total: 1,
+      totalPages: 1,
+    );
+  }
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('normalizeNotificationTarget — Routing & Deep Link Parser', () {
-    test('routes manual_push and legacy /notifications to /home/notifikasi/detail', () {
-      final target = normalizeNotificationTarget(
-        '/notifications',
-        payload: {
-          'type': 'manual_push',
-          'notification_id': 'notif-123',
-          'title': 'Kerja Bakti Minggu Pagi',
-          'body': 'Warga dimohon berkumpul pukul 07.00 WIB.',
-          'image_url': '/api/v1/notifications/images/rt-1/banner.jpg',
-        },
-      );
+    test(
+      'routes manual_push and legacy /notifications to /home/notifikasi/detail',
+      () {
+        final target = normalizeNotificationTarget(
+          '/notifications',
+          payload: {
+            'type': 'manual_push',
+            'notification_id': 'notif-123',
+            'title': 'Kerja Bakti Minggu Pagi',
+            'body': 'Warga dimohon berkumpul pukul 07.00 WIB.',
+            'image_url': '/api/v1/notifications/images/rt-1/banner.jpg',
+          },
+        );
 
-      final uri = Uri.parse(target);
-      expect(uri.path, equals('/home/notifikasi/detail/notif-123'));
-      expect(uri.queryParameters['title'], equals('Kerja Bakti Minggu Pagi'));
-      expect(
-        uri.queryParameters['body'],
-        equals('Warga dimohon berkumpul pukul 07.00 WIB.'),
-      );
-      expect(
-        uri.queryParameters['image_url'],
-        equals('/api/v1/notifications/images/rt-1/banner.jpg'),
-      );
-      expect(uri.queryParameters['type'], equals('manual_push'));
-    });
+        final uri = Uri.parse(target);
+        expect(uri.path, equals('/home/notifikasi/detail/notif-123'));
+        expect(uri.queryParameters['title'], equals('Kerja Bakti Minggu Pagi'));
+        expect(
+          uri.queryParameters['body'],
+          equals('Warga dimohon berkumpul pukul 07.00 WIB.'),
+        );
+        expect(
+          uri.queryParameters['image_url'],
+          equals('/api/v1/notifications/images/rt-1/banner.jpg'),
+        );
+        expect(uri.queryParameters['type'], equals('manual_push'));
+      },
+    );
 
-    test('routes waste_truck_arrival to /home/notifikasi/detail even if legacy link was /iuran', () {
-      final target = normalizeNotificationTarget(
-        '/iuran',
-        payload: {
-          'type': 'waste_truck_arrival',
-          'notification_id': 'truck-456',
-          'title': 'Mobil Sampah Tiba',
-          'body': 'Petugas kebersihan sudah tiba.',
-        },
-      );
+    test(
+      'routes waste_truck_arrival to /home/notifikasi/detail even if legacy link was /iuran',
+      () {
+        final target = normalizeNotificationTarget(
+          '/iuran',
+          payload: {
+            'type': 'waste_truck_arrival',
+            'notification_id': 'truck-456',
+            'title': 'Mobil Sampah Tiba',
+            'body': 'Petugas kebersihan sudah tiba.',
+          },
+        );
 
-      final uri = Uri.parse(target);
-      expect(uri.path, equals('/home/notifikasi/detail/truck-456'));
-      expect(uri.queryParameters['type'], equals('waste_truck_arrival'));
-      expect(uri.queryParameters['title'], equals('Mobil Sampah Tiba'));
-    });
+        final uri = Uri.parse(target);
+        expect(uri.path, equals('/home/notifikasi/detail/truck-456'));
+        expect(uri.queryParameters['type'], equals('waste_truck_arrival'));
+        expect(uri.queryParameters['title'], equals('Mobil Sampah Tiba'));
+      },
+    );
 
-    test('preserves payment verification deep link for iuran_payment_submitted', () {
-      final target = normalizeNotificationTarget(
-        '/iuran/detail/bill-777?payment_id=pay-888',
-        payload: {
-          'type': 'iuran_payment_submitted',
-          'bill_id': 'bill-777',
-          'payment_id': 'pay-888',
-          'status': 'pending',
-        },
-      );
+    test(
+      'preserves payment verification deep link for iuran_payment_submitted',
+      () {
+        final target = normalizeNotificationTarget(
+          '/iuran/detail/bill-777?payment_id=pay-888',
+          payload: {
+            'type': 'iuran_payment_submitted',
+            'bill_id': 'bill-777',
+            'payment_id': 'pay-888',
+            'status': 'pending',
+          },
+        );
 
-      final uri = Uri.parse(target);
-      expect(uri.path, equals('/home/iuran/detail/bill-777'));
-      expect(uri.queryParameters['payment_id'], equals('pay-888'));
-      expect(uri.queryParameters['action'], equals('verify'));
-    });
+        final uri = Uri.parse(target);
+        expect(uri.path, equals('/home/iuran/detail/bill-777'));
+        expect(uri.queryParameters['payment_id'], equals('pay-888'));
+        expect(uri.queryParameters['action'], equals('verify'));
+      },
+    );
 
-    test('constructs payment verification route from payload if deep_link is missing', () {
-      final target = normalizeNotificationTarget(
-        '',
-        payload: {
-          'type': 'iuran_payment_verified',
-          'bill_id': 'bill-555',
-          'payment_id': 'pay-666',
-          'status': 'verified',
-        },
-      );
+    test(
+      'constructs payment verification route from payload if deep_link is missing',
+      () {
+        final target = normalizeNotificationTarget(
+          '',
+          payload: {
+            'type': 'iuran_payment_verified',
+            'bill_id': 'bill-555',
+            'payment_id': 'pay-666',
+            'status': 'verified',
+          },
+        );
 
-      final uri = Uri.parse(target);
-      expect(uri.path, equals('/home/iuran/detail/bill-555'));
-      expect(uri.queryParameters['payment_id'], equals('pay-666'));
-      expect(uri.queryParameters['view'], equals('status'));
-    });
+        final uri = Uri.parse(target);
+        expect(uri.path, equals('/home/iuran/detail/bill-555'));
+        expect(uri.queryParameters['payment_id'], equals('pay-666'));
+        expect(uri.queryParameters['view'], equals('status'));
+      },
+    );
 
-    test('routes unknown or incomplete notification payload safely to /home/notifikasi/detail', () {
-      final target = normalizeNotificationTarget(
-        '/unregistered/legacy/route',
-        payload: {
-          'title': 'Pengumuman RT',
-          'body': 'Isi pengumuman penting.',
-        },
-      );
+    test(
+      'routes unknown or incomplete notification payload safely to /home/notifikasi/detail',
+      () {
+        final target = normalizeNotificationTarget(
+          '/unregistered/legacy/route',
+          payload: {
+            'title': 'Pengumuman RT',
+            'body': 'Isi pengumuman penting.',
+          },
+        );
 
-      final uri = Uri.parse(target);
-      expect(uri.path, equals('/home/notifikasi/detail'));
-      expect(uri.queryParameters['title'], equals('Pengumuman RT'));
-      expect(uri.queryParameters['body'], equals('Isi pengumuman penting.'));
-    });
+        final uri = Uri.parse(target);
+        expect(uri.path, equals('/home/notifikasi/detail'));
+        expect(uri.queryParameters['title'], equals('Pengumuman RT'));
+        expect(uri.queryParameters['body'], equals('Isi pengumuman penting.'));
+      },
+    );
   });
 
   group('ApiConfig.resolveImageUrl — Image URL Normalization & Security', () {
@@ -324,18 +378,23 @@ void main() {
       ApiConfig.setRuntimeBaseUrl('');
     });
 
-    test('resolves relative /api/v1/... URL using runtime base URL without throwing ApiConfigException', () {
-      ApiConfig.setRuntimeBaseUrl('http://192.168.1.50:8085');
+    test(
+      'resolves relative /api/v1/... URL using runtime base URL without throwing ApiConfigException',
+      () {
+        ApiConfig.setRuntimeBaseUrl('http://192.168.1.50:8085');
 
-      final resolved = ApiConfig.resolveImageUrl(
-        '/api/v1/notifications/images/rt-01/photo.png',
-      );
+        final resolved = ApiConfig.resolveImageUrl(
+          '/api/v1/notifications/images/rt-01/photo.png',
+        );
 
-      expect(
-        resolved,
-        equals('http://192.168.1.50:8085/api/v1/notifications/images/rt-01/photo.png'),
-      );
-    });
+        expect(
+          resolved,
+          equals(
+            'http://192.168.1.50:8085/api/v1/notifications/images/rt-01/photo.png',
+          ),
+        );
+      },
+    );
 
     test('blocks path traversal and non-http schemes', () {
       ApiConfig.setRuntimeBaseUrl('http://192.168.1.50:8085');
@@ -344,98 +403,112 @@ void main() {
         ApiConfig.resolveImageUrl('/api/v1/notifications/images/../secret.png'),
         isNull,
       );
-      expect(
-        ApiConfig.resolveImageUrl('file:///etc/passwd'),
-        isNull,
-      );
-      expect(
-        ApiConfig.resolveImageUrl('javascript:alert(1)'),
-        isNull,
-      );
+      expect(ApiConfig.resolveImageUrl('file:///etc/passwd'), isNull);
+      expect(ApiConfig.resolveImageUrl('javascript:alert(1)'), isNull);
     });
   });
 
-  group('NotificationDetailScreen — Content, API Enrichment & Image Fallback', () {
-    testWidgets('renders title, body, category, and fetches detail from API once', (tester) async {
-      ApiConfig.setRuntimeBaseUrl('http://192.168.1.10:8085');
-      addTearDown(() => ApiConfig.setRuntimeBaseUrl(''));
+  group(
+    'NotificationDetailScreen — Content, API Enrichment & Image Fallback',
+    () {
+      testWidgets(
+        'renders title, body, category, and fetches detail from API once',
+        (tester) async {
+          ApiConfig.setRuntimeBaseUrl('http://192.168.1.10:8085');
+          addTearDown(() => ApiConfig.setRuntimeBaseUrl(''));
 
-      final fakeRepo = _FakeNotificationRepository();
+          final fakeRepo = _FakeNotificationRepository();
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            notificationRepositoryProvider.overrideWithValue(fakeRepo),
-          ],
-          child: const MaterialApp(
-            home: NotificationDetailScreen(
-              notificationId: 'notif-001',
-              initialTitle: 'Judul Awal',
-              initialBody: 'Pesan Awal',
-              initialEventType: 'waste_truck_arrival',
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                notificationRepositoryProvider.overrideWithValue(fakeRepo),
+              ],
+              child: const MaterialApp(
+                home: NotificationDetailScreen(
+                  notificationId: 'notif-001',
+                  initialTitle: 'Judul Awal',
+                  initialBody: 'Pesan Awal',
+                  initialEventType: 'waste_truck_arrival',
+                ),
+              ),
             ),
-          ),
-        ),
+          );
+
+          // Initial payload data is shown immediately while loading
+          expect(find.text('Judul Awal'), findsOneWidget);
+
+          await tester.pumpAndSettle();
+
+          // Enriched API response replaces title/body and only fetched once
+          expect(fakeRepo.detailFetchCount, equals(1));
+          expect(find.text('Mobil Sampah Tiba di RT 01'), findsOneWidget);
+          expect(
+            find.text('Silakan keluarkan sampah rumah tangga Anda sekarang.'),
+            findsOneWidget,
+          );
+          expect(find.text('Kedatangan Truk Sampah'), findsOneWidget);
+          expect(
+            find.byKey(const Key('notification_detail_image_tap')),
+            findsOneWidget,
+          );
+        },
       );
 
-      // Initial payload data is shown immediately while loading
-      expect(find.text('Judul Awal'), findsOneWidget);
+      testWidgets(
+        'shows graceful fallback when image fails to load instead of error page',
+        (tester) async {
+          ApiConfig.setRuntimeBaseUrl('http://127.0.0.1:9');
+          addTearDown(() => ApiConfig.setRuntimeBaseUrl(''));
 
-      await tester.pumpAndSettle();
-
-      // Enriched API response replaces title/body and only fetched once
-      expect(fakeRepo.detailFetchCount, equals(1));
-      expect(find.text('Mobil Sampah Tiba di RT 01'), findsOneWidget);
-      expect(
-        find.text('Silakan keluarkan sampah rumah tangga Anda sekarang.'),
-        findsOneWidget,
-      );
-      expect(find.text('Kedatangan Truk Sampah'), findsOneWidget);
-      expect(find.byKey(const Key('notification_detail_image_tap')), findsOneWidget);
-    });
-
-    testWidgets('shows graceful fallback when image fails to load instead of error page', (tester) async {
-      ApiConfig.setRuntimeBaseUrl('http://127.0.0.1:9');
-      addTearDown(() => ApiConfig.setRuntimeBaseUrl(''));
-
-      final fakeRepo = _FakeNotificationRepository(
-        entryToReturn: NotificationLogEntry(
-          id: 'notif-img-fail',
-          rtId: 'rt-01',
-          eventType: 'manual_push',
-          title: 'Pengumuman Gambar Rusak',
-          body: 'Tetap tampilkan isi pesan meskipun gambar gagal dimuat.',
-          imageUrl: '/api/v1/notifications/images/rt-01/missing.png',
-          variables: const {},
-          recipientsCount: 5,
-          createdAt: DateTime.utc(2026, 10, 29, 9, 0),
-        ),
-      );
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            notificationRepositoryProvider.overrideWithValue(fakeRepo),
-          ],
-          child: const MaterialApp(
-            home: NotificationDetailScreen(
-              notificationId: 'notif-img-fail',
+          final fakeRepo = _FakeNotificationRepository(
+            entryToReturn: NotificationLogEntry(
+              id: 'notif-img-fail',
+              rtId: 'rt-01',
+              eventType: 'manual_push',
+              title: 'Pengumuman Gambar Rusak',
+              body: 'Tetap tampilkan isi pesan meskipun gambar gagal dimuat.',
+              imageUrl: '/api/v1/notifications/images/rt-01/missing.png',
+              variables: const {},
+              recipientsCount: 5,
+              createdAt: DateTime.utc(2026, 10, 29, 9, 0),
             ),
-          ),
-        ),
-      );
+          );
 
-      await tester.pumpAndSettle();
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                notificationRepositoryProvider.overrideWithValue(fakeRepo),
+              ],
+              child: const MaterialApp(
+                home: NotificationDetailScreen(
+                  notificationId: 'notif-img-fail',
+                ),
+              ),
+            ),
+          );
 
-      expect(find.text('Pengumuman Gambar Rusak'), findsOneWidget);
-      expect(
-        find.text('Tetap tampilkan isi pesan meskipun gambar gagal dimuat.'),
-        findsOneWidget,
+          await tester.pumpAndSettle();
+
+          expect(find.text('Pengumuman Gambar Rusak'), findsOneWidget);
+          expect(
+            find.text(
+              'Tetap tampilkan isi pesan meskipun gambar gagal dimuat.',
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('notification_detail_image_fallback')),
+            findsOneWidget,
+          );
+          expect(
+            find.text('Gambar lampiran tidak dapat dimuat.'),
+            findsOneWidget,
+          );
+        },
       );
-      expect(find.byKey(const Key('notification_detail_image_fallback')), findsOneWidget);
-      expect(find.text('Gambar lampiran tidak dapat dimuat.'), findsOneWidget);
-    });
-  });
+    },
+  );
 
   group('End-to-End App Notification Flows (Masalah 1, 2, 3, 4)', () {
     late ApiClient apiClient;
@@ -455,15 +528,15 @@ void main() {
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('com.example.social_finance/notifications'),
-        (call) async {
-          nativeCalls.add(call);
-          if (call.method == 'showHeadsUpNotification') return true;
-          if (call.method == 'getInitialNotificationPayload') return null;
-          if (call.method == 'getInitialDeepLink') return null;
-          return null;
-        },
-      );
+            const MethodChannel('com.example.social_finance/notifications'),
+            (call) async {
+              nativeCalls.add(call);
+              if (call.method == 'showHeadsUpNotification') return true;
+              if (call.method == 'getInitialNotificationPayload') return null;
+              if (call.method == 'getInitialDeepLink') return null;
+              return null;
+            },
+          );
     });
 
     tearDown(() {
@@ -471,8 +544,54 @@ void main() {
       ApiConfig.setRuntimeBaseUrl('');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel('com.example.social_finance/notifications'),
-        null,
+            const MethodChannel('com.example.social_finance/notifications'),
+            null,
+          );
+    });
+
+    testWidgets('Back from Security notification root stays on the page', (
+      tester,
+    ) async {
+      final authRepo = _ControllableAuthRepository(
+        apiClient: apiClient,
+        preferencesStorage: fakePrefs,
+        secureAuthStorage: fakeSecure,
+        initialUser: {
+          'id': 'security-user',
+          'name': 'Petugas Keamanan',
+          'role': AppRole.warga,
+          'system_role': 'warga',
+          'jabatan': 'keamanan',
+          'rt_id': 'rt-01',
+          'profile_status': 'ready',
+        },
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiClientProvider.overrideWithValue(apiClient),
+            preferencesStorageProvider.overrideWithValue(fakePrefs),
+            secureAuthStorageProvider.overrideWithValue(fakeSecure),
+            authRepositoryProvider.overrideWith((ref) => authRepo),
+            pushNotificationServiceProvider.overrideWithValue(pushService),
+            notificationRepositoryProvider.overrideWithValue(fakeNotifRepo),
+          ],
+          child: const App(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('nav-item-notifikasi')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SecurityWasteTruckScreen), findsOneWidget);
+      final handled = await tester.binding.handlePopRoute();
+      await tester.pump();
+
+      expect(handled, isTrue);
+      expect(find.byType(SecurityWasteTruckScreen), findsOneWidget);
+      expect(
+        find.text('Tekan sekali lagi untuk keluar dari aplikasi'),
+        findsOneWidget,
       );
     });
 
@@ -532,8 +651,9 @@ void main() {
               .where((c) => c.method == 'showHeadsUpNotification')
               .toList();
           expect(showCalls.length, equals(1));
-          final args =
-              Map<String, dynamic>.from(showCalls.first.arguments as Map);
+          final args = Map<String, dynamic>.from(
+            showCalls.first.arguments as Map,
+          );
           expect(args['title'], equals('Truk Sampah Tiba'));
           expect(args['body'], equals('Segera keluarkan sampah Anda.'));
           expect(
@@ -747,6 +867,7 @@ void main() {
               'role': AppRole.pengurus,
               'system_role': 'pengurus',
               'jabatan': 'ketua',
+              'effective_permissions': ['notification.manage'],
               'rt_id': 'rt-01',
               'rt': '002',
               'profile_status': 'ready',
@@ -782,8 +903,8 @@ void main() {
 
           expect(find.byType(NotificationManagementScreen), findsOneWidget);
 
-          // Switch to "Riwayat" tab inside NotificationManagementScreen
-          await tester.tap(find.text('Riwayat'));
+          // Switch to categorized notification history.
+          await tester.tap(find.text('SISTEM'));
           await tester.pumpAndSettle();
 
           expect(
@@ -843,21 +964,21 @@ void main() {
         try {
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
               .setMockMethodCallHandler(
-            const MethodChannel('com.example.social_finance/notifications'),
-            (call) async {
-              nativeCalls.add(call);
-              if (call.method == 'getInitialNotificationPayload') {
-                return <String, dynamic>{
-                  'type': 'waste_truck_arrival',
-                  'notification_id': 'notif-term-1',
-                  'title': 'Truk Sampah Pagi',
-                  'body': 'Truk sampah sudah di depan gang.',
-                  'deep_link': '/home/notifikasi/detail/notif-term-1',
-                };
-              }
-              return null;
-            },
-          );
+                const MethodChannel('com.example.social_finance/notifications'),
+                (call) async {
+                  nativeCalls.add(call);
+                  if (call.method == 'getInitialNotificationPayload') {
+                    return <String, dynamic>{
+                      'type': 'waste_truck_arrival',
+                      'notification_id': 'notif-term-1',
+                      'title': 'Truk Sampah Pagi',
+                      'body': 'Truk sampah sudah di depan gang.',
+                      'deep_link': '/home/notifikasi/detail/notif-term-1',
+                    };
+                  }
+                  return null;
+                },
+              );
 
           final authRepo = _ControllableAuthRepository(
             apiClient: apiClient,

@@ -209,7 +209,8 @@ class PushNotificationService {
   }
 
   /// Posts a native Android heads-up notification banner at the top of the screen.
-  Future<void> showHeadsUpNotification({
+  /// Returns a map with display status (e.g. `ANDROID_DISPLAY_REQUESTED` or `DISPLAY_FAILED`).
+  Future<Map<String, dynamic>> showHeadsUpNotification({
     required String title,
     required String body,
     required String deepLink,
@@ -219,9 +220,11 @@ class PushNotificationService {
     String? sentAt,
     int? id,
   }) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return {'status': 'NOT_SUPPORTED_PLATFORM'};
+    }
     try {
-      await _nativeChannel.invokeMethod('showHeadsUpNotification', {
+      final res = await _nativeChannel.invokeMethod('showHeadsUpNotification', {
         'title': title,
         'body': body,
         'deep_link': deepLink,
@@ -232,10 +235,42 @@ class PushNotificationService {
         if (sentAt != null && sentAt.isNotEmpty) 'sent_at': sentAt,
         'id': id ?? (DateTime.now().millisecondsSinceEpoch % 100000),
       });
+      if (res is Map) {
+        final map = Map<String, dynamic>.from(res);
+        final status = map['status'] as String? ?? 'UNKNOWN';
+        if (kDebugMode) {
+          debugPrint('PushNotificationService: native display result: $status');
+        }
+        return map;
+      }
+      return {'status': 'ANDROID_DISPLAY_REQUESTED'};
     } catch (e) {
       if (kDebugMode) {
         debugPrint('PushNotificationService: failed to show native heads-up notification: $e');
       }
+      return {'status': 'DISPLAY_FAILED', 'reason': e.toString()};
+    }
+  }
+
+  /// Checks if native notifications and channel are fully enabled.
+  Future<bool> areNotificationsEnabled() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return true;
+    try {
+      final enabled = await _nativeChannel.invokeMethod<bool>('areNotificationsEnabled');
+      return enabled ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Checks permission status ("granted", "denied", or "not_applicable").
+  Future<String> checkNotificationPermissionStatus() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return 'not_applicable';
+    try {
+      final status = await _nativeChannel.invokeMethod<String>('getNotificationPermissionStatus');
+      return status ?? 'unknown';
+    } catch (e) {
+      return 'unknown';
     }
   }
 

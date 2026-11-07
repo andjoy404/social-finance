@@ -45,10 +45,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final user = authState?.valueOrNull;
     final userName = user?['name'] ?? 'Pengguna';
     final role = user?['role'] as AppRole? ?? AppRole.warga;
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    final isSpecialOfficer = jabatan == 'keamanan' || jabatan == 'kebersihan';
     final rt = user?['rt'] ?? '';
     final rawRw = (user?['rw'] as String?) ?? '';
-    final rwMemberships = (user?['rw_memberships'] as List?)
-        ?.whereType<Map<String, dynamic>>().toList() ?? <Map<String, dynamic>>[];
+    final rwMemberships =
+        (user?['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ??
+        <Map<String, dynamic>>[];
     final resolvedRw = looksLikeUuid(rawRw)
         ? resolveRwNumber(rawRw, rwMemberships)
         : rawRw;
@@ -60,8 +65,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final rawPhone = user?['phone'] as String?;
     final phoneDisplay = PhoneUtils.formatDisplay(rawPhone);
     final emailDisplay = (user?['email'] as String?) ?? '-';
+    final rtName = (user?['rt_name'] as String?) ?? '';
+    final rtAddress = (user?['rt_address'] as String?) ?? '';
+    final regionDisplay = [
+      if (rtName.isNotEmpty) rtName,
+      if (rtAddress.isNotEmpty) rtAddress,
+    ].join(' · ');
     final rawHouseNumber = (user?['house_number'] as String?)?.trim();
-    final houseNumberDisplay = (rawHouseNumber != null && rawHouseNumber.isNotEmpty)
+    final houseNumberDisplay =
+        (rawHouseNumber != null && rawHouseNumber.isNotEmpty)
         ? rawHouseNumber
         : '-';
 
@@ -74,9 +86,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           centerTitle: false,
           title: const MenuAppBarTitle(title: 'Profil'),
         ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
-          child: Column(
+        body: RefreshIndicator(
+          onRefresh: () async {
+            try {
+              await ref.read(authRepositoryProvider.notifier).reloadProfile();
+              if (mounted) {
+                setState(() {});
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Gagal memuat ulang profil: $e'),
+                    backgroundColor: AppColors.danger,
+                  ),
+                );
+              }
+            }
+          },
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+            child: Column(
             children: [
               // Top right compact Logout button
               Align(
@@ -85,7 +116,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   height: 36,
                   child: OutlinedButton.icon(
                     onPressed: () => _showLogoutDialog(context, authRepo),
-                    icon: const Icon(Icons.logout, size: 16, color: AppColors.expense),
+                    icon: const Icon(
+                      Icons.logout,
+                      size: 16,
+                      color: AppColors.expense,
+                    ),
                     label: const Text(
                       'Keluar',
                       style: TextStyle(
@@ -95,12 +130,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ),
                     ),
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      side: BorderSide(
-                        color: AppColors.expense.withValues(alpha: isDark ? 0.6 : 0.4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
                       ),
-                      backgroundColor:
-                          isDark ? AppColors.darkDangerSoft : AppColors.lightDangerSoft,
+                      side: BorderSide(
+                        color: AppColors.expense.withValues(
+                          alpha: isDark ? 0.6 : 0.4,
+                        ),
+                      ),
+                      backgroundColor: isDark
+                          ? AppColors.darkDangerSoft
+                          : AppColors.lightDangerSoft,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.base),
                       ),
@@ -133,7 +174,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     : theme.colorScheme.primary.withValues(alpha: 0.12),
               ),
               const SizedBox(height: 4),
-              Text(rtRwDisplay.isNotEmpty ? rtRwDisplay : 'RT / RW', style: theme.textTheme.bodySmall),
+              Text(
+                rtRwDisplay.isNotEmpty ? rtRwDisplay : 'RT / RW',
+                style: theme.textTheme.bodySmall,
+              ),
               const SizedBox(height: 24),
 
               // Profile items
@@ -152,25 +196,50 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   icon: Icons.phone_android,
                   title: 'Telepon',
                   subtitle: phoneDisplay,
-                  onTap: () => _showEditPhoneDialog(
-                    context,
-                    rawPhone ?? '',
-                    userName,
-                    emailDisplay == '-' ? null : emailDisplay,
-                  ),
+                  onTap: isSpecialOfficer
+                      ? null
+                      : () => _showEditPhoneDialog(
+                          context,
+                          rawPhone ?? '',
+                          userName,
+                          emailDisplay == '-' ? null : emailDisplay,
+                        ),
                 ),
                 _ProfileItemData(
                   icon: Icons.email_outlined,
                   title: 'Email',
                   subtitle: emailDisplay,
-                  onTap: () => _showEditEmailDialog(
-                    context,
-                    emailDisplay == '-' ? '' : emailDisplay,
-                    userName,
-                    rawPhone,
-                  ),
+                  onTap: isSpecialOfficer
+                      ? null
+                      : () => _showEditEmailDialog(
+                          context,
+                          emailDisplay == '-' ? '' : emailDisplay,
+                          userName,
+                          rawPhone,
+                        ),
                 ),
-                if (canUserAccessNotificationMenu(user))
+                if (isSpecialOfficer) ...[
+                  _ProfileItemData(
+                    icon: Icons.badge_outlined,
+                    title: 'Jabatan',
+                    subtitle: jabatan == 'keamanan'
+                        ? 'Petugas Keamanan'
+                        : 'Petugas Kebersihan',
+                  ),
+                  _ProfileItemData(
+                    icon: Icons.shield_outlined,
+                    title: 'Role',
+                    subtitle: appRoleDisplayName(role),
+                  ),
+                  _ProfileItemData(
+                    icon: Icons.location_city_outlined,
+                    title: 'Wilayah',
+                    subtitle: regionDisplay.isNotEmpty
+                        ? regionDisplay
+                        : (rtRwDisplay.isNotEmpty ? rtRwDisplay : '-'),
+                  ),
+                ],
+                if (!isSpecialOfficer && canUserAccessNotificationMenu(user))
                   _ProfileItemData(
                     icon: Icons.notifications_active_outlined,
                     title: 'Kelola Notifikasi',
@@ -204,7 +273,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildProfileSection(
@@ -311,9 +381,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppColors.expense),
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(dialogContext).pop();
-              authRepo.logout();
+              await authRepo.logout();
+              if (context.mounted) {
+                context.go('/login');
+              }
             },
             child: const Text('Keluar'),
           ),
@@ -329,9 +402,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       builder: (dialogContext) => SimpleDialog(
         title: const Text('Pilih Tema'),
         children: [
-          _themeRadioTile(dialogContext, ref, 'Ikuti Sistem', AppThemeMode.system, currentMode),
-          _themeRadioTile(dialogContext, ref, 'Terang', AppThemeMode.light, currentMode),
-          _themeRadioTile(dialogContext, ref, 'Gelap', AppThemeMode.dark, currentMode),
+          _themeRadioTile(
+            dialogContext,
+            ref,
+            'Ikuti Sistem',
+            AppThemeMode.system,
+            currentMode,
+          ),
+          _themeRadioTile(
+            dialogContext,
+            ref,
+            'Terang',
+            AppThemeMode.light,
+            currentMode,
+          ),
+          _themeRadioTile(
+            dialogContext,
+            ref,
+            'Gelap',
+            AppThemeMode.dark,
+            currentMode,
+          ),
         ],
       ),
     );
@@ -860,5 +951,3 @@ class _EditEmailDialogState extends State<_EditEmailDialog> {
     );
   }
 }
-
-

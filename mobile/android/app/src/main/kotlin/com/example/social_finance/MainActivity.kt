@@ -176,7 +176,7 @@ class MainActivity : FlutterActivity() {
                         val eventType = call.argument<String>("type")
                         val sentAt = call.argument<String>("sent_at")
                         val id = call.argument<Int>("id") ?: ((System.currentTimeMillis() % 100000).toInt())
-                        showHeadsUpNotification(
+                        val displayResult = showHeadsUpNotification(
                             notificationId = id,
                             title = title,
                             body = body,
@@ -186,7 +186,13 @@ class MainActivity : FlutterActivity() {
                             eventType = eventType,
                             sentAt = sentAt
                         )
-                        result.success(true)
+                        result.success(displayResult)
+                    }
+                    "areNotificationsEnabled" -> {
+                        result.success(areNotificationsFullyEnabled())
+                    }
+                    "getNotificationPermissionStatus" -> {
+                        result.success(checkNotificationPermissionStatus())
                     }
                     "getInitialDeepLink" -> {
                         val link = pendingDeepLink
@@ -299,6 +305,32 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun checkNotificationPermissionStatus(): String {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                "granted"
+            } else {
+                "denied"
+            }
+        } else {
+            "not_applicable"
+        }
+    }
+
+    private fun areNotificationsFullyEnabled(): Boolean {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
+        if (!notificationManager.areNotificationsEnabled()) {
+            return false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = notificationManager.getNotificationChannel(CHANNEL_ID)
+            if (channel != null && channel.importance == NotificationManager.IMPORTANCE_NONE) {
+                return false
+            }
+        }
+        return true
+    }
+
     private fun showHeadsUpNotification(
         notificationId: Int,
         title: String,
@@ -308,11 +340,33 @@ class MainActivity : FlutterActivity() {
         notificationIdStr: String? = null,
         eventType: String? = null,
         sentAt: String? = null
-    ) {
+    ): Map<String, Any> {
         val notificationManager =
-            getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return mapOf("status" to "DISPLAY_FAILED", "reason" to "no_notification_manager")
 
         NotificationImageHelper.ensureNotificationChannel(this)
+
+        if (!notificationManager.areNotificationsEnabled()) {
+            android.util.Log.w("SocialFinanceNotif", "DISPLAY_FAILED: notifications_disabled_for_package")
+            return mapOf("status" to "DISPLAY_FAILED", "reason" to "notifications_disabled")
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = notificationManager.getNotificationChannel(CHANNEL_ID)
+            if (channel != null && channel.importance == NotificationManager.IMPORTANCE_NONE) {
+                android.util.Log.w("SocialFinanceNotif", "DISPLAY_FAILED: channel_blocked")
+                return mapOf("status" to "DISPLAY_FAILED", "reason" to "channel_blocked")
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                android.util.Log.w("SocialFinanceNotif", "DISPLAY_FAILED: permission_denied")
+                return mapOf("status" to "DISPLAY_FAILED", "reason" to "permission_denied")
+            }
+        }
+
         val resolvedImageUrl = NotificationImageHelper.resolveImageUrl(this, imageUrl)
 
         val intent = Intent(this, MainActivity::class.java).apply {
@@ -353,9 +407,11 @@ class MainActivity : FlutterActivity() {
             Notification.Builder(this)
         }
 
+        val iconRes = if (applicationInfo.icon != 0) applicationInfo.icon else android.R.drawable.ic_dialog_info
+
         builder.setContentTitle(title)
             .setContentText(body)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(iconRes)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(Notification.PRIORITY_HIGH)
@@ -364,7 +420,7 @@ class MainActivity : FlutterActivity() {
             .setStyle(Notification.BigTextStyle().bigText(body).setBigContentTitle(title))
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val icon = Icon.createWithResource(this, applicationInfo.icon)
+            val icon = Icon.createWithResource(this, iconRes)
             val action = Notification.Action.Builder(
                 icon,
                 "Lihat Detail",
@@ -373,24 +429,36 @@ class MainActivity : FlutterActivity() {
             builder.addAction(action)
         }
 
-        if (!resolvedImageUrl.isNullOrBlank()) {
-            Thread {
-                val bitmap = NotificationImageHelper.downloadBitmap(resolvedImageUrl)
-                if (bitmap != null) {
-                    val bigPictureStyle = Notification.BigPictureStyle()
-                        .bigPicture(bitmap)
-                        .setBigContentTitle(title)
-                        .setSummaryText(body)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        bigPictureStyle.bigLargeIcon(null as Icon?)
+        try {
+            if (!resolvedImageUrl.isNullOrBlank()) {
+                Thread {
+                    try {
+                        val bitmap = NotificationImageHelper.downloadBitmap(resolvedImageUrl)
+                        if (bitmap != null) {
+                            val bigPictureStyle = Notification.BigPictureStyle()
+                                .bigPicture(bitmap)
+                                .setBigContentTitle(title)
+                                .setSummaryText(body)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                bigPictureStyle.bigLargeIcon(null as Icon?)
+                            }
+                            builder.setLargeIcon(bitmap)
+                            builder.setStyle(bigPictureStyle)
+                        }
+                        notificationManager.notify(notificationId, builder.build())
+                        android.util.Log.i("SocialFinanceNotif", "ANDROID_DISPLAY_REQUESTED: id=$notificationId with_image=true")
+                    } catch (e: Exception) {
+                        android.util.Log.w("SocialFinanceNotif", "DISPLAY_FAILED async image notify: ${e.message}")
                     }
-                    builder.setLargeIcon(bitmap)
-                    builder.setStyle(bigPictureStyle)
-                }
+                }.start()
+            } else {
                 notificationManager.notify(notificationId, builder.build())
-            }.start()
-        } else {
-            notificationManager.notify(notificationId, builder.build())
+                android.util.Log.i("SocialFinanceNotif", "ANDROID_DISPLAY_REQUESTED: id=$notificationId with_image=false")
+            }
+            return mapOf("status" to "ANDROID_DISPLAY_REQUESTED", "id" to notificationId)
+        } catch (e: Exception) {
+            android.util.Log.e("SocialFinanceNotif", "DISPLAY_FAILED: ${e.message}")
+            return mapOf("status" to "DISPLAY_FAILED", "reason" to (e.message ?: "unknown_notify_exception"))
         }
     }
 }

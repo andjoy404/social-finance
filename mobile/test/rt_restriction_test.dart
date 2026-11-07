@@ -105,6 +105,151 @@ void main() {
 
   group('RT Restriction - Navigation Shell UI', () {
     testWidgets(
+      'security officer opens Warga first and can navigate Warga, Notifikasi, Profile',
+      (tester) async {
+        final securityUser = {
+          'id': 'user-security',
+          'email': 'security@local.com',
+          'name': 'Petugas Keamanan',
+          'role': AppRole.warga,
+          'jabatan': 'keamanan',
+          'rt': '002',
+          'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+        };
+        final router = GoRouter(
+          initialLocation: '/home/warga',
+          routes: [
+            ShellRoute(
+              builder: (context, state, child) =>
+                  MainNavigationShell(child: child),
+              routes: [
+                GoRoute(
+                  path: '/home',
+                  builder: (context, state) => const Text('Beranda RT'),
+                ),
+                GoRoute(
+                  path: '/home/warga',
+                  builder: (context, state) => const Text('Daftar Warga'),
+                ),
+                GoRoute(
+                  path: '/home/notifikasi',
+                  builder: (context, state) => const Text('Menu Notifikasi'),
+                ),
+                GoRoute(
+                  path: '/home/profile',
+                  builder: (context, state) => const Text('Profil Petugas'),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _FakeAuthRepository(AsyncData(securityUser)),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Daftar Warga'), findsOneWidget);
+        expect(find.text('Beranda'), findsNothing);
+        expect(find.text('Warga'), findsOneWidget);
+        expect(find.text('Notifikasi'), findsOneWidget);
+        expect(find.text('Profil'), findsOneWidget);
+        expect(
+          tester.getCenter(find.byKey(const Key('nav-item-warga'))).dx,
+          lessThan(
+            tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
+          ),
+        );
+        expect(
+          tester.getCenter(find.byKey(const Key('nav-item-notifikasi'))).dx,
+          lessThan(
+            tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx,
+          ),
+        );
+
+        await tester.tap(find.byKey(const Key('nav-item-notifikasi')));
+        await tester.pumpAndSettle();
+        expect(find.text('Menu Notifikasi'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('nav-item-profil')));
+        await tester.pumpAndSettle();
+        expect(find.text('Profil Petugas'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'cleaning officer navigation contains Monitoring and Profile only',
+      (tester) async {
+        final cleaningUser = {
+          'id': 'user-cleaning',
+          'email': 'cleaning@local.com',
+          'name': 'Petugas Kebersihan',
+          'role': AppRole.warga,
+          'jabatan': 'kebersihan',
+          'rt': '002',
+          'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+        };
+        final router = GoRouter(
+          initialLocation: '/home/monitoring',
+          routes: [
+            ShellRoute(
+              builder: (context, state, child) =>
+                  MainNavigationShell(child: child),
+              routes: [
+                GoRoute(
+                  path: '/home',
+                  builder: (context, state) => const Text('Beranda RT'),
+                ),
+                GoRoute(
+                  path: '/home/monitoring',
+                  builder: (context, state) => const Text('Monitoring Screen'),
+                ),
+                GoRoute(
+                  path: '/home/profile',
+                  builder: (context, state) => const Text('Profile Screen'),
+                ),
+              ],
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith(
+                (ref) => _FakeAuthRepository(AsyncData(cleaningUser)),
+              ),
+            ],
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Monitoring Screen'), findsOneWidget);
+        expect(find.text('Monitoring'), findsOneWidget);
+        expect(find.text('Profil'), findsOneWidget);
+        expect(find.text('Beranda'), findsNothing);
+        expect(
+          tester.getCenter(find.byKey(const Key('nav-item-monitoring'))).dx,
+          lessThan(
+            tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx,
+          ),
+        );
+
+        await tester.tap(find.byKey(const Key('nav-item-profil')));
+        await tester.pumpAndSettle();
+        expect(find.text('Profile Screen'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
       'displays all 5 tabs (Beranda, Kas, Iuran, Warga, Profil) for RT 002/003 user',
       (tester) async {
         final allowedUser = {

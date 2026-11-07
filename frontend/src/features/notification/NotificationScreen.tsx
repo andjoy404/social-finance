@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   BellOutlined,
   PlusOutlined,
@@ -28,6 +28,7 @@ import {
   apiToggleNotificationTemplateActive,
   apiDeleteNotificationTemplate,
   apiGetNotificationLogs,
+  apiGetNotificationManagementHistory,
   apiUploadNotificationImage,
   apiTriggerManualPush,
   apiTestPush,
@@ -45,14 +46,45 @@ import {
   type ApiNotificationSchedule,
   type ApiCreateNotificationScheduleBody,
 } from '@/app/api'
+import { formatJakartaDateTime } from '@/utils/jakartaTime'
 import { renderNotificationBody } from './notificationUrl'
+
+function getDeliveryStatusDisplay(status: string | null | undefined, isAdmin = false) {
+  // Warga (non-admin): always hide internal delivery status, show TERKIRIM for everything.
+  // Admin/Ketua RT: show detailed status from the ledger.
+  if (!isAdmin) {
+    return { label: 'TERKIRIM', variant: 'green' as const }
+  }
+  const normalized = status?.trim().toUpperCase() || 'UNKNOWN'
+  switch (normalized) {
+    case 'SENT':
+      return { label: 'TERKIRIM', variant: 'green' as const }
+    case 'FAILED':
+      return { label: 'GAGAL', variant: 'red' as const }
+    case 'PARTIAL':
+      return { label: 'SEBAGIAN GAGAL', variant: 'amber' as const }
+    case 'APPROVED':
+      return { label: 'DISETUJUI', variant: 'green' as const }
+    case 'REJECTED':
+      return { label: 'DITOLAK', variant: 'red' as const }
+    case 'RECORDED':
+      return { label: 'TERCATAT', variant: 'green' as const }
+    case 'NO_DEVICE':
+      return { label: 'PERANGKAT TIDAK TERSEDIA', variant: 'amber' as const }
+    case 'UNKNOWN':
+    case 'PENDING':
+      return { label: 'TIDAK DIKETAHUI', variant: 'amber' as const }
+    default:
+      return { label: 'TIDAK DIKETAHUI', variant: 'amber' as const }
+  }
+}
 
 export function NotificationScreen() {
   const { user } = useAuth()
   const isSuperAdmin = isSuperAdminUser(user)
   const isAdmin = canAccessNotificationAdmin(user)
 
-  const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs' | 'schedules'>(isAdmin ? 'system' : 'logs')
+  const [activeTab, setActiveTab] = useState<'system' | 'templates' | 'logs' | 'mine' | 'schedules'>(isAdmin ? 'system' : 'logs')
 
   // Keep activeTab synced if role resolves
   useEffect(() => {
@@ -125,6 +157,8 @@ export function NotificationScreen() {
   } | null>(null)
 
   const [uploadingImage, setUploadingImage] = useState(false)
+  const createImageInputRef = useRef<HTMLInputElement>(null)
+  const editImageInputRef = useRef<HTMLInputElement>(null)
   const [testPushSubmitting, setTestPushSubmitting] = useState(false)
   const [broadcastSubmitting, setBroadcastSubmitting] = useState(false)
   const [confirmBroadcastItem, setConfirmBroadcastItem] = useState<{
@@ -172,17 +206,18 @@ export function NotificationScreen() {
       }
 
       // Also load logs and unread count
+      const historyCategory = activeTab === 'mine' ? 'mine' : 'system'
+      const historyPromise = isAdmin
+        ? apiGetNotificationManagementHistory(token, historyCategory, logsPage, logsPageSize)
+        : apiGetNotificationLogs(
+            token,
+            logsPage,
+            logsPageSize,
+            logsEventType || undefined,
+            logsStatusFilter !== 'all' ? logsStatusFilter : undefined,
+          )
       const [logsResp, unreadResp] = await Promise.all([
-        apiGetNotificationLogs(
-          token,
-          logsPage,
-          logsPageSize,
-          logsEventType || undefined,
-          logsStatusFilter !== 'all' ? logsStatusFilter : undefined,
-        ).catch(() => ({
-          data: [],
-          pagination: { page: 1, page_size: 15, total: 0, total_pages: 1 },
-        })),
+        historyPromise,
         apiGetNotificationUnreadCount(token).catch(() => ({ unread_count: 0 })),
       ])
       setLogs(logsResp.data || [])
@@ -193,7 +228,7 @@ export function NotificationScreen() {
     } finally {
       setLoading(false)
     }
-  }, [isAdmin, logsPage, logsPageSize, logsEventType, logsStatusFilter])
+  }, [isAdmin, activeTab, logsPage, logsPageSize, logsEventType, logsStatusFilter])
 
   // ── Schedules ───────────────────────────────────────────────────────────
   const loadSchedules = useCallback(async () => {
@@ -358,7 +393,7 @@ export function NotificationScreen() {
       dedupKey: log.dedup_key,
       imageUrl: log.image_url,
     })
-    handleMarkAsRead(log)
+    if (!isAdmin) handleMarkAsRead(log)
   }
 
   useEffect(() => {
@@ -653,83 +688,71 @@ export function NotificationScreen() {
 
       {/* Tabs (Rendered for Admins only) */}
       {isAdmin ? (
-        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)', marginBottom: 16 }}>
-          <button
-            type="button"
-            onClick={() => setActiveTab('system')}
-            style={{
-              padding: '10px 16px',
-              border: 'none',
-              background: 'none',
-              fontWeight: activeTab === 'system' ? 600 : 400,
-              fontSize: 14,
-              cursor: 'pointer',
-              borderBottom: activeTab === 'system' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              color: activeTab === 'system' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <AppstoreOutlined /> Notifikasi Sistem ({systemTypes.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('templates')}
-            style={{
-              padding: '10px 16px',
-              border: 'none',
-              background: 'none',
-              fontWeight: activeTab === 'templates' ? 600 : 400,
-              fontSize: 14,
-              cursor: 'pointer',
-              borderBottom: activeTab === 'templates' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              color: activeTab === 'templates' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <BellOutlined /> Template Kustom ({templates.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('schedules')}
-            style={{
-              padding: '10px 16px',
-              border: 'none',
-              background: 'none',
-              fontWeight: activeTab === 'schedules' ? 600 : 400,
-              fontSize: 14,
-              cursor: 'pointer',
-              borderBottom: activeTab === 'schedules' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              color: activeTab === 'schedules' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <ScheduleOutlined /> Penjadwalan ({schedules.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('logs')}
-            style={{
-              padding: '10px 16px',
-              border: 'none',
-              background: 'none',
-              fontWeight: activeTab === 'logs' ? 600 : 400,
-              fontSize: 14,
-              cursor: 'pointer',
-              borderBottom: activeTab === 'logs' ? '2px solid var(--sf-accent)' : '2px solid transparent',
-              color: activeTab === 'logs' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <HistoryOutlined /> Riwayat Pengiriman ({logsTotal})
-          </button>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--sf-border)' }}>
+            {[
+              { key: 'templates', label: 'Template', icon: <BellOutlined /> },
+              { key: 'logs', label: 'Riwayat Sistem', icon: <HistoryOutlined /> },
+              { key: 'mine', label: 'Riwayat Saya', icon: <HistoryOutlined /> },
+            ].map((tab) => {
+              const selected = tab.key === 'templates'
+                ? activeTab === 'system' || activeTab === 'templates' || activeTab === 'schedules'
+                : activeTab === tab.key
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    if (tab.key === 'logs' || tab.key === 'mine') setLogsPage(1)
+                    setActiveTab(tab.key as typeof activeTab)
+                  }}
+                  style={{
+                    padding: '10px 16px',
+                    border: 'none',
+                    background: 'none',
+                    fontWeight: selected ? 600 : 400,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    borderBottom: selected ? '2px solid var(--sf-accent)' : '2px solid transparent',
+                    color: selected ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              )
+            })}
+          </div>
+          {(activeTab === 'system' || activeTab === 'templates' || activeTab === 'schedules') && (
+            <div style={{ display: 'flex', gap: 16, padding: '8px 12px', borderBottom: '1px solid var(--sf-border)' }}>
+              {[
+                { key: 'system', label: `Notifikasi Sistem (${systemTypes.length})`, icon: <AppstoreOutlined /> },
+                { key: 'templates', label: `Template Kustom (${templates.length})`, icon: <BellOutlined /> },
+                { key: 'schedules', label: `Penjadwalan (${schedules.length})`, icon: <ScheduleOutlined /> },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key as typeof activeTab)}
+                  style={{
+                    padding: '6px 4px',
+                    border: 'none',
+                    background: 'none',
+                    color: activeTab === tab.key ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+                    fontWeight: activeTab === tab.key ? 600 : 400,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--sf-border)', paddingBottom: 12, marginBottom: 16 }}>
@@ -1082,11 +1105,85 @@ export function NotificationScreen() {
                               {s.is_active ? <Badge variant="green">Aktif</Badge> : <Badge variant="gray">Nonaktif</Badge>}
                             </td>
                             <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--sf-text-muted)' }}>
-                              {s.last_executed_at ? new Date(s.last_executed_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
-                              {s.last_executed_status && (
-                                <span style={{ fontSize: 11, marginLeft: 4, color: s.last_executed_status === 'success' ? 'var(--sf-success)' : 'var(--sf-danger)' }}>
-                                  ({s.last_executed_status})
-                                </span>
+                              {!s.last_executed_at && !s.last_executed_status ? (
+                                <span>-</span>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span>
+                                      {formatJakartaDateTime(s.last_executed_at)}
+                                    </span>
+                                    {s.last_executed_status && (
+                                      <span
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 600,
+                                          padding: '1px 6px',
+                                          borderRadius: 4,
+                                          background:
+                                            s.last_executed_status === 'success'
+                                              ? 'rgba(34, 197, 94, 0.12)'
+                                              : s.last_executed_status === 'partial'
+                                              ? 'rgba(234, 179, 8, 0.15)'
+                                              : s.last_executed_status === 'no_device'
+                                              ? 'rgba(59, 130, 246, 0.12)'
+                                              : s.last_executed_status === 'no_recipients'
+                                              ? 'rgba(107, 114, 128, 0.12)'
+                                              : 'rgba(239, 68, 68, 0.12)',
+                                          color:
+                                            s.last_executed_status === 'success'
+                                              ? 'var(--sf-success)'
+                                              : s.last_executed_status === 'partial'
+                                              ? '#d97706'
+                                              : s.last_executed_status === 'no_device'
+                                              ? '#2563eb'
+                                              : s.last_executed_status === 'no_recipients'
+                                              ? 'var(--sf-text-muted)'
+                                              : 'var(--sf-danger)',
+                                          border: `1px solid ${
+                                            s.last_executed_status === 'success'
+                                              ? 'rgba(34, 197, 94, 0.25)'
+                                              : s.last_executed_status === 'partial'
+                                              ? 'rgba(234, 179, 8, 0.3)'
+                                              : s.last_executed_status === 'no_device'
+                                              ? 'rgba(59, 130, 246, 0.25)'
+                                              : s.last_executed_status === 'no_recipients'
+                                              ? 'rgba(107, 114, 128, 0.25)'
+                                              : 'rgba(239, 68, 68, 0.25)'
+                                          }`,
+                                          textTransform: 'uppercase',
+                                        }}
+                                        title={s.last_executed_error || undefined}
+                                      >
+                                        {s.last_executed_status === 'success'
+                                          ? 'BERHASIL'
+                                          : s.last_executed_status === 'partial'
+                                          ? 'SEBAGIAN'
+                                          : s.last_executed_status === 'no_device'
+                                          ? 'IN-APP'
+                                          : s.last_executed_status === 'no_recipients'
+                                          ? 'NIHIL'
+                                          : 'GAGAL'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {s.last_executed_summary && (
+                                    <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>
+                                      {s.last_executed_status === 'no_recipients'
+                                        ? 'Tidak ada penerima memenuhi kriteria'
+                                        : s.last_executed_status === 'no_device'
+                                        ? `${s.last_executed_summary.no_device_count} warga (tanpa perangkat)`
+                                        : `${s.last_executed_summary.sent_count} terkirim${
+                                            s.last_executed_summary.failed_count > 0 ? `, ${s.last_executed_summary.failed_count} gagal` : ''
+                                          }${s.last_executed_summary.no_device_count > 0 ? `, ${s.last_executed_summary.no_device_count} tanpa perangkat` : ''}`}
+                                    </span>
+                                  )}
+                                  {s.last_executed_error && !s.last_executed_summary && (
+                                    <span style={{ fontSize: 11, color: 'var(--sf-danger)' }} title={s.last_executed_error}>
+                                      {s.last_executed_error}
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'right' }}>
@@ -1169,11 +1266,12 @@ export function NotificationScreen() {
       )}
 
           {/* TAB 3: RIWAYAT PENGIRIMAN */}
-          {activeTab === 'logs' && (
+          {(activeTab === 'logs' || activeTab === 'mine') && (
             <div>
               {/* Filter bar */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                {!isAdmin && (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>Filter Jenis:</span>
                     <select
@@ -1228,10 +1326,16 @@ export function NotificationScreen() {
                       <option value="read">Sudah Dibaca</option>
                     </select>
                   </div>
-                </div>
+                  </div>
+                )}
 
+                {isAdmin && (
+                  <h3 style={{ margin: 0, fontSize: 16 }}>
+                    {activeTab === 'mine' ? 'Riwayat Saya' : 'Riwayat Sistem'}
+                  </h3>
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <button
+                  {!isAdmin && <button
                     type="button"
                     className="sf-btn-outline"
                     onClick={handleMarkAllAsRead}
@@ -1247,7 +1351,7 @@ export function NotificationScreen() {
                     title="Tandai semua notifikasi sebagai sudah dibaca"
                   >
                     <CheckCircleOutlined /> Tandai Semua Dibaca
-                  </button>
+                  </button>}
                   <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
                     Total riwayat tersimpan: {logsTotal}
                   </div>
@@ -1273,26 +1377,27 @@ export function NotificationScreen() {
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Event</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Judul & Pesan</th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status Kirim</th>
-                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>Status Baca</th>
+                        <th style={{ padding: '12px 16px', fontWeight: 600 }}>
+                          {isAdmin ? 'Hasil Pengiriman' : 'Status Baca'}
+                        </th>
                         <th style={{ padding: '12px 16px', fontWeight: 600 }}>Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {logs.map((l) => (
-                        <tr
-                          key={l.id}
-                          onClick={() => handleOpenLogPreview(l)}
-                          style={{
-                            borderBottom: '1px solid var(--sf-border)',
-                            cursor: 'pointer',
-                            background: !l.is_read ? 'rgba(56, 132, 255, 0.04)' : undefined,
-                          }}
-                        >
+                      {logs.map((l) => {
+                        const statusDisplay = getDeliveryStatusDisplay(l.status, isAdmin)
+                        return (
+                          <tr
+                            key={l.id}
+                            onClick={() => handleOpenLogPreview(l)}
+                            style={{
+                              borderBottom: '1px solid var(--sf-border)',
+                              cursor: 'pointer',
+                              background: !isAdmin && !l.is_read ? 'rgba(56, 132, 255, 0.04)' : undefined,
+                            }}
+                          >
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--sf-text-muted)', fontSize: 12 }}>
-                            {new Date(l.created_at).toLocaleString('id-ID', {
-                              dateStyle: 'medium',
-                              timeStyle: 'short',
-                            })}
+                            {formatJakartaDateTime(l.created_at)}
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                             <Badge variant="gray">
@@ -1301,7 +1406,7 @@ export function NotificationScreen() {
                           </td>
                           <td style={{ padding: '12px 16px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                              {!l.is_read && (
+                              {!isAdmin && !l.is_read && (
                                 <span
                                   style={{
                                     width: 8,
@@ -1314,19 +1419,26 @@ export function NotificationScreen() {
                                   title="Belum dibaca"
                                 />
                               )}
-                              <span style={{ fontWeight: l.is_read ? 500 : 700, color: 'var(--sf-text)' }}>
+                              <span style={{ fontWeight: !isAdmin && !l.is_read ? 700 : 500, color: 'var(--sf-text)' }}>
                                 {l.title}
                               </span>
+                              {l.activity_relation === 'sent_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Dikirim oleh Saya</span>}
+                              {l.activity_relation === 'received_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Diterima oleh Saya</span>}
+                              {l.activity_relation === 'performed_by_me' && <span style={{ fontSize: 11, color: 'var(--sf-text-muted)' }}>Tindakan Saya</span>}
                             </div>
                             <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', maxWidth: 460 }}>
                               {renderNotificationBody(l.body, l.event_type, l.dedup_key)}
                             </div>
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            <Badge variant="green">TERKIRIM</Badge>
+                            <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            {l.is_read ? (
+                            {isAdmin ? (
+                              l.delivery_counts_available
+                                ? `${l.sent_count ?? 0} / ${l.recipients_count ?? 0}`
+                                : 'Tidak dicatat'
+                            ) : l.is_read ? (
                               <Badge variant="gray">Sudah Dibaca</Badge>
                             ) : (
                               <Badge variant="blue">Belum Dibaca</Badge>
@@ -1345,8 +1457,9 @@ export function NotificationScreen() {
                               <EyeOutlined style={{ marginRight: 4 }} /> Detail
                             </button>
                           </td>
-                        </tr>
-                      ))}
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
 
@@ -1464,16 +1577,24 @@ export function NotificationScreen() {
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                     Gambar Notifikasi (Opsional - JPEG, PNG, WebP)
                   </label>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      onChange={(e) => handleFileUpload(e, 'create')}
-                      disabled={uploadingImage}
-                      style={{ fontSize: 12 }}
-                    />
-                    {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>Mengunggah...</span>}
-                  </div>
+                  <input
+                    ref={createImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => handleFileUpload(e, 'create')}
+                    disabled={uploadingImage}
+                    hidden
+                  />
+                  <button
+                    type="button"
+                    className="sf-btn-outline"
+                    onClick={() => createImageInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    style={{ fontSize: 13 }}
+                  >
+                    {uploadingImage ? 'Mengunggah...' : 'Pilih gambar'}
+                  </button>
+                  {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginLeft: 8 }}>Mengunggah...</span>}
                   {createForm.image_url && (
                     <div style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
                       <img
@@ -1607,16 +1728,24 @@ export function NotificationScreen() {
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                     Gambar Notifikasi (Opsional - JPEG, PNG, WebP)
                   </label>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      onChange={(e) => handleFileUpload(e, 'edit')}
-                      disabled={uploadingImage}
-                      style={{ fontSize: 12 }}
-                    />
-                    {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>Mengunggah...</span>}
-                  </div>
+                  <input
+                    ref={editImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => handleFileUpload(e, 'edit')}
+                    disabled={uploadingImage}
+                    hidden
+                  />
+                  <button
+                    type="button"
+                    className="sf-btn-outline"
+                    onClick={() => editImageInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    style={{ fontSize: 13 }}
+                  >
+                    {uploadingImage ? 'Mengunggah...' : 'Pilih gambar'}
+                  </button>
+                  {uploadingImage && <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginLeft: 8 }}>Mengunggah...</span>}
                   {editForm.image_url && (
                     <div style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
                       <img

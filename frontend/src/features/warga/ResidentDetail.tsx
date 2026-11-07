@@ -46,7 +46,8 @@ export function ResidentDetail() {
 
   const isPengurus = user.role === 'pengurus'
   const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
-  const showNik = isPengurus || isSuperAdmin
+  const isSecurity = (user.jabatan ?? '').trim().toLowerCase() === 'keamanan'
+  const showNik = (isPengurus || isSuperAdmin) && !isSecurity
   const canWrite = hasWargaWriteAccess(user)
 
   const [loading, setLoading] = useState(true)

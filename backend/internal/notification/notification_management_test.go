@@ -18,6 +18,7 @@ import (
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	"social-finance/internal/notification"
+	"social-finance/internal/storage"
 	"social-finance/internal/testutil"
 
 	"github.com/google/uuid"
@@ -25,10 +26,12 @@ import (
 
 // mockManagementRepo stores templates and logs in-memory for testing management handlers.
 type mockManagementRepo struct {
-	mu        sync.Mutex
+	mu sync.Mutex
 	inMemoryRepo
-	templates map[string]*notification.NotificationTemplate // id -> template
-	logs      []notification.NotificationLogEntry
+	templates       map[string]*notification.NotificationTemplate // id -> template
+	logs            []notification.NotificationLogEntry
+	historyUserID   string
+	historyCategory string
 }
 
 func newMockManagementRepo() *mockManagementRepo {
@@ -169,11 +172,109 @@ func (m *mockManagementRepo) ListLogs(ctx context.Context, rtID, userID, eventTy
 	return filtered[start:end], total, nil
 }
 
+func (m *mockManagementRepo) ListManagementHistory(ctx context.Context, rtID, userID, category string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.historyUserID = userID
+	m.historyCategory = category
+	var filtered []notification.NotificationLogEntry
+	for _, entry := range m.logs {
+		if entry.RTID == rtID && entry.HistoryCategory == category {
+			filtered = append(filtered, entry)
+		}
+	}
+	total := len(filtered)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return filtered[offset:end], total, nil
+}
+
+func TestListManagementHistoryUsesAuthenticatedActorAndTenant(t *testing.T) {
+	repo := newMockManagementRepo()
+	rtA := "00000000-0000-0000-0000-000000000002"
+	rtB := "00000000-0000-0000-0000-000000000003"
+	repo.logs = []notification.NotificationLogEntry{
+		{ID: "mine-a", RTID: rtA, HistoryCategory: notification.HistoryCategoryMine, Title: "A"},
+		{ID: "system-a", RTID: rtA, HistoryCategory: notification.HistoryCategorySystem, Title: "System"},
+		{ID: "mine-b", RTID: rtB, HistoryCategory: notification.HistoryCategoryMine, Title: "B"},
+	}
+	svc := notification.NewService(repo, nil)
+	handler := notification.NewHandler(svc, nil, nil, "test")
+	ac := &auth.AuthContext{
+		UserID:     "authenticated-officer",
+		RTID:       rtA,
+		TenantRole: auth.RolePengurus,
+		Jabatan:    auth.JabatanKetua,
+	}
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/notifications/management-history?category=mine&sender_user_id=other&rt_id="+rtB,
+		nil,
+	)
+	req = withAuth(req, ac)
+	rec := httptest.NewRecorder()
+	handler.ListManagementHistory(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if repo.historyUserID != ac.UserID {
+		t.Fatalf("expected authenticated actor %q, got %q", ac.UserID, repo.historyUserID)
+	}
+	if repo.historyCategory != notification.HistoryCategoryMine {
+		t.Fatalf("expected mine category, got %q", repo.historyCategory)
+	}
+	var response struct {
+		Data []notification.NotificationLogEntry `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data) != 1 || response.Data[0].ID != "mine-a" {
+		t.Fatalf("expected only current-RT mine history, got %+v", response.Data)
+	}
+}
+
+func TestListManagementHistoryRejectsUnsupportedCategory(t *testing.T) {
+	repo := newMockManagementRepo()
+	handler := notification.NewHandler(notification.NewService(repo, nil), nil, nil, "test")
+	ac := &auth.AuthContext{
+		UserID:     "officer",
+		RTID:       "00000000-0000-0000-0000-000000000002",
+		TenantRole: auth.RolePengurus,
+		Jabatan:    auth.JabatanKetua,
+	}
+	req := withAuth(httptest.NewRequest(http.MethodGet, "/?category=all", nil), ac)
+	rec := httptest.NewRecorder()
+	handler.ListManagementHistory(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid category, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func (m *mockManagementRepo) GetLogByID(ctx context.Context, rtID, id string) (*notification.NotificationLogEntry, error) {
 	for _, l := range m.logs {
 		if l.ID == id && l.RTID == rtID {
 			copied := l
 			return &copied, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockManagementRepo) GetBroadcastRecipientLog(ctx context.Context, rtID, userID, eventType, broadcastID string) (*notification.NotificationLogEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	expectedKey := "recipient:" + eventType + ":" + broadcastID + ":" + userID
+	for _, entry := range m.logs {
+		if entry.RTID == rtID && entry.UserID != nil && *entry.UserID == userID && entry.DedupKey == expectedKey {
+			copy := entry
+			return &copy, nil
 		}
 	}
 	return nil, nil
@@ -186,7 +287,7 @@ func (m *mockManagementRepo) GetLogByID(ctx context.Context, rtID, id string) (*
 // Manual push and waste-truck endpoints are in a separate group with RequireRole.
 func setupManagementRouter(repo notification.Repository, svc notification.Service, pool *database.Pool) http.Handler {
 	r := chi.NewRouter()
-	h := notification.NewHandler(svc, nil, nil, "test")
+	h := notification.NewHandler(svc, pool, storage.NewMockStorage(), "test")
 
 	r.Get("/api/v1/notifications/images/*", h.GetImage)
 	r.Get("/api/v1/notifications/detail/{id}", h.GetNotificationDetail)
@@ -237,6 +338,7 @@ func setupManagementRouter(repo notification.Repository, svc notification.Servic
 		r.Patch("/api/v1/notifications/templates/{id}/toggle-active", h.ToggleTemplateActive)
 		r.Delete("/api/v1/notifications/templates/{id}", h.DeleteTemplate)
 		r.Get("/api/v1/notifications/logs", h.ListLogs)
+		r.Get("/api/v1/notifications/management-history", h.ListManagementHistory)
 		r.Post("/api/v1/notifications/test-push", h.TestPush)
 		r.Post("/api/v1/notifications/upload-image", h.UploadImage)
 	})
@@ -245,6 +347,9 @@ func setupManagementRouter(repo notification.Repository, svc notification.Servic
 	// Requires RequireAllowedRT + isOfficerUser check inside handler (like production)
 	r.Group(func(r chi.Router) {
 		r.Use(requireAllowedRT)
+		r.Get("/api/v1/notifications/waste-truck/template", h.GetWasteTruckTemplate)
+		r.Get("/api/v1/notifications/waste-truck/history", h.ListWasteTruckHistory)
+		r.Post("/api/v1/notifications/waste-truck/upload-image", h.UploadImage)
 		r.Post("/api/v1/notifications/manual", h.TriggerManualPush)
 		r.Post("/api/v1/notifications/waste-truck", h.TriggerWasteTruckArrival)
 	})
@@ -291,11 +396,11 @@ func TestNotificationManagement_TemplateCRUD(t *testing.T) {
 	router := setupManagementRouter(repo, svc, pool)
 
 	ketuaAuth := &auth.AuthContext{
-		UserID:         ketuaUID,
-		MembershipID:   membershipID,
-		RTID:           "00000000-0000-0000-0000-000000000002",
-		TenantRole:     auth.RolePengurus,
-		Jabatan:        auth.JabatanKetua,
+		UserID:       ketuaUID,
+		MembershipID: membershipID,
+		RTID:         "00000000-0000-0000-0000-000000000002",
+		TenantRole:   auth.RolePengurus,
+		Jabatan:      auth.JabatanKetua,
 	}
 
 	// 1. Create Valid Template
@@ -409,11 +514,11 @@ func TestNotificationManagement_AuthorizationRules(t *testing.T) {
 		{
 			name: "Ketua RT is allowed",
 			ac: &auth.AuthContext{
-				UserID:         ketuaUID,
-				MembershipID:   membershipID,
-				RTID:           "00000000-0000-0000-0000-000000000002",
-				TenantRole:     auth.RolePengurus,
-				Jabatan:        auth.JabatanKetua,
+				UserID:       ketuaUID,
+				MembershipID: membershipID,
+				RTID:         "00000000-0000-0000-0000-000000000002",
+				TenantRole:   auth.RolePengurus,
+				Jabatan:      auth.JabatanKetua,
 			},
 			expectCode: http.StatusOK,
 		},
@@ -779,16 +884,29 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 
 	repo.logs = []notification.NotificationLogEntry{
 		{
-			ID:        "log-manual-rt2",
-			RTID:      "00000000-0000-0000-0000-000000000002",
-			UserID:    &senderID,
-			EventType: notification.EventManualPush,
-			DedupKey:  "manual_push:rt-002:1",
-			Title:     "Kerja Bakti Minggu Pagi",
-			Body:      "Seluruh warga RT 002 diharapkan hadir.",
-			ImageURL:  &imgURL,
-			Status:    "SENT",
-			CreatedAt: time.Now(),
+			ID:           "log-manual-rt2",
+			RTID:         "00000000-0000-0000-0000-000000000002",
+			UserID:       &senderID,
+			SenderUserID: &senderID,
+			EventType:    notification.EventManualPush,
+			DedupKey:     "manual_push:rt-002:1",
+			Title:        "Kerja Bakti Minggu Pagi",
+			Body:         "Seluruh warga RT 002 diharapkan hadir.",
+			ImageURL:     &imgURL,
+			Status:       "SENT",
+			CreatedAt:    time.Now(),
+		},
+		{
+			ID:           "log-manual-received-warga-b",
+			RTID:         "00000000-0000-0000-0000-000000000002",
+			UserID:       &wargaB,
+			SenderUserID: &senderID,
+			EventType:    notification.EventManualPush,
+			DedupKey:     "recipient:manual_push:log-manual-rt2:" + wargaB,
+			Title:        "Kerja Bakti Minggu Pagi",
+			Body:         "Seluruh warga RT 002 diharapkan hadir.",
+			Status:       "SENT",
+			CreatedAt:    time.Now(),
 		},
 		{
 			ID:        "log-bill-warga-a",
@@ -814,7 +932,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 		},
 	}
 
-	// 1. Warga in RT 002 can view manual broadcast notification in RT 002
+	// 1. Warga in RT 002 can view the broadcast only through their own recipient record.
 	req1 := httptest.NewRequest("GET", "/api/v1/notifications/detail/log-manual-rt2", nil)
 	rec1 := httptest.NewRecorder()
 	router.ServeHTTP(rec1, withAuth(req1, &auth.AuthContext{
@@ -823,7 +941,7 @@ func TestNotificationManagement_GetNotificationDetail_TenantAndUserIsolation(t *
 		TenantRole: auth.RoleWarga,
 	}))
 	if rec1.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for RT member viewing manual broadcast, got %d (%s)", rec1.Code, rec1.Body.String())
+		t.Fatalf("expected 200 OK for actual recipient of manual broadcast, got %d (%s)", rec1.Code, rec1.Body.String())
 	}
 
 	// 2. Warga in different RT (rt-003) CANNOT view RT 002 notification (404 Not Found)
@@ -1142,11 +1260,11 @@ func TestManualPush_KetuaRT_CanSend(t *testing.T) {
 
 	// Ketua RT with TenantRole=warga, Jabatan=ketua
 	ac := &auth.AuthContext{
-		UserID:         ketuaUID,
-		MembershipID:   membershipID,
-		RTID:           "00000000-0000-0000-0000-000000000002",
-		TenantRole:     auth.RoleWarga,
-		Jabatan:        auth.JabatanKetua,
+		UserID:       ketuaUID,
+		MembershipID: membershipID,
+		RTID:         "00000000-0000-0000-0000-000000000002",
+		TenantRole:   auth.RoleWarga,
+		Jabatan:      auth.JabatanKetua,
 		RWMemberships: []auth.RWMembership{
 			{RWID: "rw-002", Jabatan: "ketua"},
 		},
@@ -1311,11 +1429,11 @@ func TestManualPush_KetuaCannotAccessOtherRT(t *testing.T) {
 
 	// Ketua of rt-002 acting in rt-003 context (where they are only a regular warga / anggota, not officer)
 	ac := &auth.AuthContext{
-		UserID:         ketuaUID,
-		MembershipID:   membershipID,
-		RTID:           "00000000-0000-0000-0000-000000000003", // trying to access different RT
-		TenantRole:     auth.RoleWarga,
-		Jabatan:        auth.JabatanAnggota,
+		UserID:       ketuaUID,
+		MembershipID: membershipID,
+		RTID:         "00000000-0000-0000-0000-000000000003", // trying to access different RT
+		TenantRole:   auth.RoleWarga,
+		Jabatan:      auth.JabatanAnggota,
 		RWMemberships: []auth.RWMembership{
 			{RWID: "rw-002", Jabatan: "ketua"},
 			{RWID: "rw-003", Jabatan: "anggota"}, // member of rt-003 but not officer
@@ -1370,19 +1488,19 @@ func TestManualPush_WasteTruck_KetuaCanSend(t *testing.T) {
 	router := setupManagementRouter(repo, svc, pool)
 
 	ac := &auth.AuthContext{
-		UserID:         ketuaUID,
-		MembershipID:   membershipID,
-		RTID:           "00000000-0000-0000-0000-000000000002",
-		TenantRole:     auth.RoleWarga,
-		Jabatan:        auth.JabatanKetua,
+		UserID:       ketuaUID,
+		MembershipID: membershipID,
+		RTID:         "00000000-0000-0000-0000-000000000002",
+		TenantRole:   auth.RoleWarga,
+		Jabatan:      auth.JabatanKetua,
 		RWMemberships: []auth.RWMembership{
 			{RWID: "rw-002", Jabatan: "ketua"},
 		},
 	}
 
 	body, _ := json.Marshal(notification.WasteTruckNotificationInput{
-		Message:   "Sampah telah diangkut.",
-		ImageURL:  nil,
+		Message:  "Sampah telah diangkut.",
+		ImageURL: nil,
 	})
 	req := httptest.NewRequest("POST", "/api/v1/notifications/waste-truck", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -1414,8 +1532,8 @@ func TestManualPush_WasteTruck_WargaCannotSend(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(notification.WasteTruckNotificationInput{
-		Message:   "Coba kirim sampah.",
-		ImageURL:  nil,
+		Message:  "Coba kirim sampah.",
+		ImageURL: nil,
 	})
 	req := httptest.NewRequest("POST", "/api/v1/notifications/waste-truck", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -1439,6 +1557,7 @@ func toUUID(s string) string {
 	return fmt.Sprintf("%s-%s-%s-%s-%s",
 		padded[0:8], padded[8:12], padded[12:16], padded[16:20], padded[20:32])
 }
+
 // ensure test util references are used
 var _ = sql.ErrNoRows
 var _ = database.Pool{}

@@ -963,7 +963,11 @@ Role: **Pengurus** only
 ### 6.11 Special Resident (Petugas Khusus)
 
 - `POST /api/v1/residents/special` — Creates a special resident without a household chain (`jabatan` must be one of `'keamanan'`, `'operasional'`, or `'kebersihan'`).
-- `PATCH /api/v1/residents/special/{id}` — Updates a special resident and/or their `jabatan` (`'keamanan'`, `'operasional'`, or `'kebersihan'`).
+  - Permitted: Pengurus or Bendahara role, Ketua/Wakil Ketua/Sekretaris/Bendahara position, or SUPER_ADMIN with a valid allowed-RT context.
+  - Tenant scope always comes from the authenticated RT context; a tenant caller cannot select another `rt_id`.
+  - Email must be unused. Existing accounts are not reused or moved between RTs; duplicate email returns `409 Conflict`.
+  - The new membership uses role `warga` and the selected `jabatan`; an initial random password is set and is not returned. Use the authorized password-reset flow to establish credentials.
+- `PATCH /api/v1/residents/special/{id}` — Updates a special resident and/or their `jabatan` (`'keamanan'`, `'operasional'`, or `'kebersihan'`). Uses the same access roles and tenant scope; cross-RT IDs return `404`.
 
 ---
 
@@ -1164,13 +1168,25 @@ Accessible strictly to **SUPER_ADMIN** and **Ketua RT** (`jabatan: ketua`).
 - `GET /api/v1/notifications/logs?page=1&page_size=20&event_type=&status=`
   - Accessible to all authenticated RT members (Warga, Pengurus, Bendahara, Super Admin).
   - Scope:
-    - **Warga**: Returns personal notifications targeted to the caller (`user_id = auth.UserID`) plus public RT announcements (`event_type IN ('manual_push', 'waste_truck_arrival')` or `user_id IS NULL`) in the caller's RT. Test pushes and other residents' private notifications are excluded.
-    - **Officers (Ketua RT, Super Admin, Pengurus, Bendahara)**: Returns all delivery records for the tenant RT.
+    - Returns only records addressed to the caller (`user_id = auth.UserID`) in the caller's RT. Broadcast records are visible through their per-recipient delivery records, not through the sender's RT-wide dispatch record. Test pushes are visible only to their authenticated owner.
+    - The user ID and RT scope come from the authenticated session; client-supplied recipient, sender, actor, or RT identifiers do not widen access.
   - Query parameters:
     - `page` (default 1), `page_size` (default 20, max 100)
     - `event_type` (optional filter)
     - `status` (optional: `unread`, `read`, or `all`)
-  - Response includes `is_read: boolean` and `read_at: string | null` per item for the authenticated caller.
+  - Response includes `is_read: boolean` and `read_at: string | null` per item for the authenticated caller. `status` is the delivery result on that recipient's record; explicit provider success remains `SENT`, provider failure remains `FAILED`, and missing delivery evidence is `UNKNOWN`.
+
+### 11.8.1 List Pengurus Notification Activity
+- `GET /api/v1/notifications/management-history?category=system|mine&page=1&page_size=20`
+  - Requires the existing `notification.manage` authorization and the caller's authorized RT scope.
+  - `category=system` includes only scheduler executions proven by the `schedule:` delivery dedup key, grouped once per schedule execution.
+  - `category=mine` preserves actions and broadcasts sent by the authenticated user and includes every actual notification recipient record addressed to them, including manual and waste-truck broadcasts. Recipient records are selected by authenticated `user_id` and tenant RT, not inferred from a sender's role or a broadcast's RT-wide parent record.
+  - The caller identity is read from the authenticated token. There is no `sender_user_id` or actor query parameter.
+  - Events without reliable system/actor provenance, including historical records that cannot be classified, are excluded rather than guessed into either category.
+  - Response entries include `history_category`, `activity_relation` (`system`, `sent_by_me`, `received_by_me`, or `performed_by_me`), `status`, and `delivery_counts_available`. Payment action status is not a delivery status. A grouped scheduled activity is `PARTIAL` only with evidence of both a successful and a failed provider attempt, `SENT` when there is a successful attempt and no proven failure, `FAILED` when all recorded provider outcomes failed, and `UNKNOWN` when no provider outcome is known. Recipients with no token remain `UNKNOWN` individually and do not convert successful attempts into failures. Incomplete/legacy delivery evidence is not inferred as success or failure.
+  - Waste-truck notifications are recorded once per eligible current household resident in `notification_logs`, in addition to the sender's dispatch record. Management history uses authenticated actor/recipient IDs and the token-derived RT; it does not expose another Pengurus's personal history.
+  - `page_size` defaults to 20 and is capped at 100.
+  - Users without `notification.manage` can use the regular `/notifications/logs` endpoint for their own received records only; management-history categories, templates, and schedules remain inaccessible.
 
 ### 11.9 Notification Read Receipts & Unread Count
 - `GET /api/v1/notifications/unread-count`
@@ -1197,10 +1213,51 @@ Accessible strictly to **SUPER_ADMIN** and **Ketua RT** (`jabatan: ketua`).
   - Multipart form file `image` and form field `event_type`.
   - Permitted: **SUPER_ADMIN** and **Ketua RT**.
   - Stores image in RustFS under `notifications/waste-truck/` or `notifications/manual/`. Returns public relative stream URL.
+- `POST /api/v1/notifications/waste-truck/upload-image`
+  - Multipart form file `file` (or `image`) and form field `event_type`.
+  - Permitted: existing RT officers; Petugas Keamanan only for `event_type=waste_truck_arrival` and only with `notification.send_waste_truck`.
+  - Other event types, including `manual_push` for Petugas Keamanan, are forbidden.
 
-### 11.13 Stream Notification Image
+### 11.13 Waste Truck Arrival
+- `GET /api/v1/notifications/waste-truck/template`
+  - Returns the active `waste_truck_arrival` template for the caller's RT.
+  - Permitted: existing RT officers and Petugas Keamanan in the authenticated RT. Read access does not grant dispatch permission.
+- `POST /api/v1/notifications/waste-truck`
+  - Triggers a public arrival notification for current household residents in the caller's RT.
+  - Permitted: existing RT officers or Petugas Keamanan with `notification.send_waste_truck`.
+  - Dispatch is permitted to existing RT officers or Petugas Keamanan with `notification.send_waste_truck`; only this event may be dispatched by Petugas Keamanan.
+  - Push recipients are current household residents with an active user, membership in the same RT, and residency/occupancy period currently in effect. Active device tokens are used when present; residents without a token remain visible in history with `UNKNOWN` delivery outcome. A Petugas Keamanan account is included only if it independently qualifies as a current household resident; no household or occupancy is synthesized.
+  - Returns `202 Accepted`; this confirms dispatch was queued, not delivery. Delivery status is recorded asynchronously and is available from the sender-only history endpoint.
+- `GET /api/v1/notifications/waste-truck/history?page=1&per_page=20`
+  - Returns paginated waste-truck dispatch records sent by the authenticated Petugas Keamanan in the authenticated RT.
+  - Requires `jabatan=keamanan` and the authenticated RT, but not dispatch permission. The backend filters by token-derived `rt_id` and `sender_user_id`; caller-supplied sender or tenant identifiers are not accepted.
+  - Dispatch records include `event_type`, `title`, `body`, `image_url`, `status` (`PENDING`, `SENT`, `PARTIAL`, `FAILED`, or `UNKNOWN` when the result cannot be established), safe `failure_reason` when applicable, and dispatch `created_at`.
+
+### 11.14 Stream Notification Image
 - `GET /api/v1/notifications/images/*`
   - Public read endpoint streaming notification images stored in RustFS.
+
+### 11.15 Notification Schedules API
+- `GET /api/v1/notifications/schedules`
+  - Lists all notification schedules for the caller's RT.
+  - Requires `notification.manage` permission.
+  - Response items include `id`, `name`, `event_type`, `template_id`, `send_days`, `send_hour`, `send_minute`, `timezone`, `is_active`, `last_executed_at`, `last_executed_status` (`success`, `partial`, `failed`, `no_device`, `no_recipients`), `last_executed_error` (safe error message), and `last_executed_summary` (`total_recipients`, `sent_count`, `failed_count`, `no_device_count`, `failure_reason`).
+- `POST /api/v1/notifications/schedules`
+  - Creates a new notification schedule for the caller's RT.
+  - Body: `{"name": "...", "event_type": "...", "template_id": "...", "send_days": [1, 15], "send_hour": 8, "send_minute": 0, "timezone": "Asia/Jakarta"}`
+- `PUT /api/v1/notifications/schedules/{id}`
+  - Updates an existing schedule.
+- `DELETE /api/v1/notifications/schedules/{id}`
+  - Deletes a schedule.
+- `PATCH /api/v1/notifications/schedules/{id}/toggle`
+  - Toggles `is_active` state of the schedule.
+- `GET /api/v1/notifications/schedules/history`
+  - Lists aggregated execution history for notification schedules in the caller's RT.
+  - Query parameters: `page`, `page_size`.
+  - Supports configuration versioning: multiple executions on the same date with distinct delivery configurations appear as separate history records with their respective `config_hash`, execution time, and delivery metrics.
+- `GET /api/v1/notifications/schedules/{schedule_id}/recipients`
+  - Returns individual recipient delivery results for a specific schedule execution.
+  - Query parameters: `exec_date` (required, YYYY-MM-DD), `config_hash` (optional, filters to a specific configuration version).
 
 ---
 
@@ -1302,4 +1359,3 @@ Supports 3 categories: `rekening`, `brankas`, and `coh`. Dana Hibah/Donasi is el
     - `code_expired`: kode reset sudah kedaluwarsa
     - `code_used`: kode reset sudah digunakan
   - Note: Pada endpoint `/api/v1/auth/login`, jika pengguna memasukkan 4-digit kode reset aktif pada input kata sandi biasa, sistem mengembalikan error `reset_code_entered` (HTTP 400) yang mengarahkan pengguna ke dialog "Lupa Kata Sandi?".
-

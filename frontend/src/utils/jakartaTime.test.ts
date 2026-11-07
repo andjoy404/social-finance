@@ -5,6 +5,7 @@ import {
   JAKARTA_TIMEZONE,
   parseIso8601ToEpoch,
   toJakartaIso8601,
+  formatJakartaDateTime,
 } from './jakartaTime'
 
 describe('Jakarta timezone utility', () => {
@@ -82,5 +83,35 @@ describe('Jakarta timezone utility', () => {
     expect(isNaN(parseIso8601ToEpoch(undefined))).toBe(true)
     expect(isNaN(parseIso8601ToEpoch(''))).toBe(true)
     expect(isNaN(parseIso8601ToEpoch('not-a-date'))).toBe(true)
+  })
+
+  describe('formatJakartaDateTime', () => {
+    it('formats UTC ISO timestamp to Jakarta wall-clock time (UTC+7)', () => {
+      // 01:05:45 UTC is 08:05:45 WIB
+      const formatted = formatJakartaDateTime('2026-11-07T01:05:45Z')
+      expect(formatted).toContain('2026')
+      expect(formatted).toMatch(/08[.:]05/)
+    })
+
+    it('crosses midnight date boundary correctly from UTC to Jakarta', () => {
+      // 2026-11-06T18:30:00Z is 2026-11-07 01:30:00 WIB
+      const formatted = formatJakartaDateTime('2026-11-06T18:30:00Z')
+      expect(formatted).toContain('7')
+      expect(formatted).toMatch(/01[.:]30/)
+    })
+
+    it('handles explicit +07:00 offset ISO timestamp identically', () => {
+      const fromUtc = formatJakartaDateTime('2026-11-07T01:05:45Z')
+      const fromWib = formatJakartaDateTime('2026-11-07T08:05:45+07:00')
+      expect(fromUtc).toBe(fromWib)
+    })
+
+    it('returns fallback string for null, undefined, empty, or invalid date', () => {
+      expect(formatJakartaDateTime(null)).toBe('-')
+      expect(formatJakartaDateTime(undefined)).toBe('-')
+      expect(formatJakartaDateTime('')).toBe('-')
+      expect(formatJakartaDateTime('invalid-date')).toBe('-')
+      expect(formatJakartaDateTime(null, {}, 'N/A')).toBe('N/A')
+    })
   })
 })

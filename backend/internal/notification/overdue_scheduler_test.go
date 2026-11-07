@@ -178,41 +178,51 @@ func TestOverdueAndUpcomingSchedulerEndToEnd(t *testing.T) {
 	// Evaluation date: 2026-10-15 08:00 WIB
 	evalOct15 := time.Date(2026, 10, 15, 8, 0, 0, 0, finance.JakartaLocation())
 
-	// 1. User A1 has TWO bills overdue >= 3 months:
-	//    - Bill 1: due 2026-06-15 (4 months overdue), Rp 150.000, partial paid Rp 50.000 -> remaining Rp 100.000
-	//    - Bill 2: due 2026-07-15 (exact 3 months overdue), Rp 150.000 unpaid -> remaining Rp 150.000
-	//    - Bill 3: due 2026-08-15 (2 months overdue -> NOT >= 3 months, must be ignored)
-	var billA1Jun, billA1Jul string
+	// 1. User A1 has bills:
+	//    - Bill 1: due 2026-05-15 (5 months overdue on 2026-10-15), Rp 150.000, partial paid Rp 50.000 -> remaining Rp 100.000
+	//    - Bill 2: due 2026-06-15 (4 months overdue on 2026-10-15), Rp 150.000 unpaid -> remaining Rp 150.000
+	//    - Bill 3: due 2026-07-15 (exact 3 months overdue on 2026-10-15 -> NOT > 3 months, must be ignored in October)
+	//    - Bill 4: due 2026-08-15 (2 months overdue on 2026-10-15, exact 3m on 2026-11-15 -> must be ignored in November)
+	var billA1May, billA1Jun string
 	err = db.QueryRowContext(ctx,
 		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
-		 VALUES ($1, $2, $3, '2026-06', 150000.00, 'partial', '2026-06-15'::date, true, true) RETURNING id`,
+		 VALUES ($1, $2, $3, '2026-05', 150000.00, 'partial', '2026-05-15'::date, true, true) RETURNING id`,
 		rtA, occA1, dueA,
-	).Scan(&billA1Jun)
+	).Scan(&billA1May)
 	require.NoError(t, err)
 
 	var payID string
 	err = db.QueryRowContext(ctx,
 		`INSERT INTO payments (rt_id, bill_id, amount, method, origin, status, submitted_by)
 		 VALUES ($1, $2, 50000.00, 'TRANSFER', 'SELF_SUBMITTED', 'APPROVED', $3) RETURNING id`,
-		rtA, billA1Jun, userA1,
+		rtA, billA1May, userA1,
 	).Scan(&payID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO payment_allocations (payment_id, bill_id, amount) VALUES ($1, $2, 50000.00)`,
-		payID, billA1Jun,
+		payID, billA1May,
 	)
 	require.NoError(t, err)
 
 	err = db.QueryRowContext(ctx,
 		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
-		 VALUES ($1, $2, $3, '2026-07', 150000.00, 'unpaid', '2026-07-15'::date, true, true) RETURNING id`,
+		 VALUES ($1, $2, $3, '2026-06', 150000.00, 'unpaid', '2026-06-15'::date, true, true) RETURNING id`,
 		rtA, occA1, dueA,
-	).Scan(&billA1Jul)
+	).Scan(&billA1Jun)
 	require.NoError(t, err)
 
+	// Bill 3: due 2026-08-10 (2m 5d in Oct -> ignored; strictly > 3m in Nov -> eligible)
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
-		 VALUES ($1, $2, $3, '2026-08', 150000.00, 'unpaid', '2026-08-15'::date, true, true)`,
+		 VALUES ($1, $2, $3, '2026-08', 150000.00, 'unpaid', '2026-08-10'::date, true, true)`,
+		rtA, occA1, dueA,
+	)
+	require.NoError(t, err)
+
+	// Bill 4: due 2026-08-15 (2m in Oct -> ignored; exact 3m on 2026-11-15 -> ignored in Nov)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
+		 VALUES ($1, $2, $3, '2026-09', 150000.00, 'unpaid', '2026-08-15'::date, true, true)`,
 		rtA, occA1, dueA,
 	)
 	require.NoError(t, err)
@@ -332,7 +342,7 @@ func TestOverdueAndUpcomingSchedulerEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 
 	// Running overdue schedule in the NEXT month (2026-11-15):
-	// Now 2026-08 bill ALSO reaches 3 months overdue (2026-08-15 + 3m = 2026-11-15), so Budi has 3 bills!
+	// In November (2026-11-15): Bill 3 (2026-07-15) now strictly exceeds 3 months (threshold was 2026-10-15), so Budi has 3 bills!
 	mockPush.Clear()
 	sentOverNov, err := svc.ExecuteSchedule(ctx, schedOverdue, evalNov15)
 	require.NoError(t, err)

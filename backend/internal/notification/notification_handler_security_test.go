@@ -432,8 +432,9 @@ func TestHandler_NotificationDetail_CannotReadOtherUser(t *testing.T) {
 	router := setupNotificationRouter(repo, svc)
 
 	userA := &auth.AuthContext{
-		UserID: "user-a",
-		RTID:   "rt-002",
+		UserID:     "user-a",
+		RTID:       "rt-002",
+		Jabatan:    auth.JabatanKeamanan,
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -465,8 +466,8 @@ func TestHandler_NotificationDetail_CannotReadOtherRT(t *testing.T) {
 	router := setupNotificationRouter(repo, svc)
 
 	userA := &auth.AuthContext{
-		UserID: "user-a",
-		RTID:   "rt-002",
+		UserID:     "user-a",
+		RTID:       "rt-002",
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -493,7 +494,16 @@ func TestHandler_NotificationDetail_CannotReadOtherRT(t *testing.T) {
 	}
 }
 
-func TestHandler_NotificationDetail_OfficerCanReadInSameRT(t *testing.T) {
+// Notification RT-wide officer visibility was replaced by the per-recipient
+// contract documented in docs/api.md §11.8: the detail endpoint only accepts
+// owner, sender, actual broadcast recipient, or callers whose notification.manage
+// permission is verified against the database (auth.HasNotificationManage).
+// In these in-memory tests the handler is constructed with a nil pool, so no
+// notification.manage evidence is available and the handler must deny access
+// to another member's personal notification even for an officer jabatan.
+// Manager-level detail access with a real pool is covered by
+// TestDetail_KetuaCanReadBroadcastInOwnRT (real PostgreSQL suite).
+func TestHandler_NotificationDetail_OfficerCannotReadOtherUserWithoutManage(t *testing.T) {
 	repo := newDeviceAwareRepo()
 	svc := notification.NewService(repo, nil)
 	router := setupNotificationRouter(repo, svc)
@@ -516,14 +526,36 @@ func TestHandler_NotificationDetail_OfficerCanReadInSameRT(t *testing.T) {
 		Status:    "SENT",
 	})
 
-	// Ketua can read user-a's notification in same RT
+	// Ketua cannot open user-a's personal notification detail without verified
+	// notification.manage permission.
 	req := httptest.NewRequest("GET", "/api/v1/notifications/detail/log-1", nil)
 	req = withAuthNotification(req, ketua)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 for ketua reading same-RT notification, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for ketua reading other member's notification without notification.manage, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The same officer may still open dispatch records he actually sent: the
+	// sender (and owner) of the RT-wide dispatch record always holds access.
+	sent := notification.NotificationLogEntry{
+		RTID:         "rt-002",
+		UserID:       strPtr("user-ketua"),
+		SenderUserID: strPtr("user-ketua"),
+		EventType:    notification.EventManualPush,
+		DedupKey:     "manual_push:rt-002:2",
+		Title:        "Pengumuman Saya",
+		Body:         "Pengumuman yang saya kirim.",
+		Status:       "SENT",
+	}
+	repo.AddLog(sent)
+	req2 := httptest.NewRequest("GET", "/api/v1/notifications/detail/log-2", nil)
+	req2 = withAuthNotification(req2, ketua)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Errorf("expected 200 for sender reading own dispatch record, got %d: %s", rec2.Code, rec2.Body.String())
 	}
 }
 
@@ -735,8 +767,9 @@ func TestHandler_ListLogs_ExcludesOtherUser(t *testing.T) {
 	router := setupNotificationRouter(repo, svc)
 
 	userA := &auth.AuthContext{
-		UserID: "user-a",
-		RTID:   "rt-002",
+		UserID:     "user-a",
+		RTID:       "rt-002",
+		Jabatan:    auth.JabatanKeamanan,
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -795,7 +828,12 @@ func TestHandler_ListLogs_ExcludesOtherUser(t *testing.T) {
 // Broadcast notification access tests
 // ============================================================================
 
-func TestHandler_BroadcastNotification_OfficerCanReadInSameRT(t *testing.T) {
+// Under the per-recipient contract, a same-RT member (including an officer
+// jabatan without database-verified notification.manage) cannot open the
+// RT-wide parent broadcast record: they must open their own recipient record.
+// Manager-level parent-record access with a real pool is covered by
+// TestDetail_KetuaCanReadBroadcastInOwnRT (real PostgreSQL suite).
+func TestHandler_BroadcastNotification_ParentRecordRequiresRecipientOrManage(t *testing.T) {
 	repo := newDeviceAwareRepo()
 	svc := notification.NewService(repo, nil)
 	router := setupNotificationRouter(repo, svc)
@@ -807,7 +845,7 @@ func TestHandler_BroadcastNotification_OfficerCanReadInSameRT(t *testing.T) {
 		Jabatan:    auth.JabatanKetua,
 	}
 
-	// Add broadcast notification in rt-002
+	// Add parent broadcast notification in rt-002 (no specific recipient user)
 	repo.AddLog(notification.NotificationLogEntry{
 		RTID:      "rt-002",
 		UserID:    nil, // broadcast - no specific user
@@ -817,15 +855,34 @@ func TestHandler_BroadcastNotification_OfficerCanReadInSameRT(t *testing.T) {
 		Body:      "Seluruh warga RT 002 hadir.",
 		Status:    "SENT",
 	})
+	// And ketua's actual recipient record for the same broadcast
+	repo.AddLog(notification.NotificationLogEntry{
+		RTID:         "rt-002",
+		UserID:       strPtr("user-ketua"),
+		SenderUserID: strPtr("user-sender"),
+		EventType:    notification.EventManualPush,
+		DedupKey:     "recipient:manual_push:log-1:user-ketua",
+		Title:        "Kerja Bakti",
+		Body:         "Seluruh warga RT 002 hadir.",
+		Status:       "SENT",
+	})
 
-	// Ketua can read broadcast notification in same RT
+	// Opening the parent record without recipient/owner/manage evidence is denied.
 	req := httptest.NewRequest("GET", "/api/v1/notifications/detail/log-1", nil)
 	req = withAuthNotification(req, ketua)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for reading broadcast parent record without notification.manage, got %d: %s", rec.Code, rec.Body.String())
+	}
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 for ketua reading broadcast notification, got %d: %s", rec.Code, rec.Body.String())
+	// Ketua reads the broadcast through his own recipient record.
+	req2 := httptest.NewRequest("GET", "/api/v1/notifications/detail/log-2", nil)
+	req2 = withAuthNotification(req2, ketua)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Errorf("expected 200 for actual recipient reading own broadcast recipient record, got %d: %s", rec2.Code, rec2.Body.String())
 	}
 }
 

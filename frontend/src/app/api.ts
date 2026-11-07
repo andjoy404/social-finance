@@ -22,6 +22,7 @@ export interface ApiUser {
   rt_rt?: string
   rw_id?: string
   rw_name?: string
+  rw_number?: number
   rw_memberships?: Array<{
     rw_id: string
     rw_name: string
@@ -1734,6 +1735,7 @@ export async function apiUnregisterDevice(token: string, fcmToken: string): Prom
 export async function apiTriggerWasteTruckArrival(
   token: string,
   message?: string,
+  imageUrl?: string,
 ): Promise<{ status: string; message: string }> {
   const res = await authenticatedApiRequest(BASE + '/notifications/waste-truck', {
     method: 'POST',
@@ -1743,6 +1745,7 @@ export async function apiTriggerWasteTruckArrival(
     },
     body: JSON.stringify({
       ...(message ? { message } : {}),
+      ...(imageUrl ? { image_url: imageUrl } : {}),
     }),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
@@ -1818,6 +1821,12 @@ export interface ApiNotificationLog {
   created_at: string
   is_read?: boolean
   read_at?: string | null
+  history_category?: 'system' | 'mine'
+  activity_relation?: 'system' | 'sent_by_me' | 'received_by_me' | 'performed_by_me'
+  recipients_count?: number
+  sent_count?: number
+  failed_count?: number
+  delivery_counts_available?: boolean
 }
 
 export async function apiGetNotificationSystemTypes(token: string): Promise<ApiSystemNotificationType[]> {
@@ -1969,6 +1978,30 @@ export async function apiGetNotificationLogs(
   return body
 }
 
+export async function apiGetNotificationManagementHistory(
+  token: string,
+  category: 'system' | 'mine',
+  page = 1,
+  pageSize = 20,
+): Promise<{ data: ApiNotificationLog[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> {
+  const params = new URLSearchParams({
+    category,
+    page: String(page),
+    page_size: String(pageSize),
+  })
+  const res = await authenticatedApiRequest(BASE + `/notifications/management-history?${params.toString()}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const body = await json<{ data: ApiNotificationLog[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to load management notification history')
+  }
+  return body
+}
+
 export async function apiMarkNotificationAsRead(token: string, id: string): Promise<void> {
   const res = await authenticatedApiRequest(BASE + `/notifications/logs/${id}/read`, {
     method: 'POST',
@@ -2032,6 +2065,100 @@ export async function apiUploadNotificationImage(
     throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal mengunggah gambar notifikasi')
   }
   return body
+}
+
+export async function apiUploadWasteTruckImage(
+  token: string,
+  eventType: 'waste_truck_arrival',
+  file: File,
+): Promise<{ status: string; image_url: string; key: string }> {
+  const formData = new FormData()
+  formData.append('event_type', eventType)
+  formData.append('file', file)
+
+  const res = await authenticatedApiRequest(BASE + '/notifications/waste-truck/upload-image', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+  })
+  const body = await json<{ status: string; image_url: string; key: string }>(res)
+  if (!res.ok || !body) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal mengunggah foto truk sampah')
+  }
+  return body
+}
+
+export interface ApiWasteTruckTemplate {
+  id: string
+  event_type: 'waste_truck_arrival'
+  name: string
+  title: string
+  body: string
+  image_url?: string | null
+}
+
+export async function apiGetWasteTruckTemplate(
+  token: string,
+): Promise<ApiWasteTruckTemplate> {
+  const res = await authenticatedApiRequest(BASE + '/notifications/waste-truck/template', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const response = await json<{ data: ApiWasteTruckTemplate }>(res)
+  if (!res.ok || !response?.data) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal memuat template truk sampah')
+  }
+  return response.data
+}
+
+export interface ApiWasteTruckDispatch {
+  id: string
+  event_type: 'waste_truck_arrival'
+  title: string
+  body: string
+  image_url?: string | null
+  status: string
+  failure_reason?: string | null
+  created_at: string
+}
+
+export interface ApiWasteTruckDispatchHistory {
+  data: ApiWasteTruckDispatch[]
+  pagination: {
+    page: number
+    per_page: number
+    total: number
+    total_pages: number
+  }
+}
+
+export async function apiGetWasteTruckHistory(
+  token: string,
+  page = 1,
+  perPage = 20,
+): Promise<ApiWasteTruckDispatchHistory> {
+  const query = new URLSearchParams({
+    page: String(page),
+    per_page: String(perPage),
+  })
+  const res = await authenticatedApiRequest(
+    BASE + '/notifications/waste-truck/history?' + query.toString(),
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+    },
+  )
+  const response = await json<ApiWasteTruckDispatchHistory>(res)
+  if (!res.ok || !response || !Array.isArray(response.data)) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Gagal memuat riwayat pengiriman')
+  }
+  return response
 }
 
 export async function apiTriggerManualPush(
@@ -2793,6 +2920,14 @@ export async function apiGetFundLocationReconciliation(token: string): Promise<R
 
 // ── Notification Schedules ──────────────────────────────────────────────
 
+export interface ApiScheduleExecutionSummary {
+  total_recipients: number
+  sent_count: number
+  failed_count: number
+  no_device_count: number
+  failure_reason?: string
+}
+
 export interface ApiNotificationSchedule {
   id: string
   rt_id: string
@@ -2806,6 +2941,8 @@ export interface ApiNotificationSchedule {
   timezone: string
   last_executed_at?: string | null
   last_executed_status?: string | null
+  last_executed_error?: string | null
+  last_executed_summary?: ApiScheduleExecutionSummary | null
   created_at: string
   updated_at: string
 }
@@ -2937,6 +3074,7 @@ export interface ApiSchedulerHistoryEntry {
   sent_count: number
   failed_count: number
   execution_time?: string | null
+  config_hash?: string | null
 }
 
 export interface ApiSchedulerHistoryResponse {
@@ -2977,9 +3115,12 @@ export async function apiGetNotificationSchedulerRecipientDetail(
   token: string,
   scheduleId: string,
   execDate: string,
+  configHash?: string,
 ): Promise<ApiSchedulerRecipientDetail[]> {
+  const q = new URLSearchParams({ exec_date: execDate })
+  if (configHash) q.set('config_hash', configHash)
   const res = await authenticatedApiRequest(
-    BASE + '/notifications/schedules/' + encodeURIComponent(scheduleId) + '/recipients?exec_date=' + encodeURIComponent(execDate),
+    BASE + '/notifications/schedules/' + encodeURIComponent(scheduleId) + '/recipients?' + q.toString(),
     {
       method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
@@ -2989,4 +3130,149 @@ export async function apiGetNotificationSchedulerRecipientDetail(
   const data = await json<{ data: ApiSchedulerRecipientDetail[] }>(res)
   if (!data || !Array.isArray(data.data)) throw new ApiError('unexpected', 'Response data missing')
   return data.data
+}
+
+
+export async function apiGetMonitoringHouseholds(
+  token: string,
+  rtId: string,
+): Promise<ApiMonitoringListResponse> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const response = await json<{
+    data?: ApiMonitoringHousehold[]
+    households?: ApiMonitoringHousehold[]
+    total?: number
+    eval_date?: string
+  }>(res)
+  return normalizeMonitoringResponse(response)
+}
+
+export async function apiCreateMonitoringNote(
+  token: string,
+  rtId: string,
+  householdOccupancyId: string,
+  note: string,
+): Promise<ApiMonitoringNoteResponse> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/notes/' + encodeURIComponent(householdOccupancyId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ note }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiMonitoringNoteResponse }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiGetMonitoringNotes(
+  token: string,
+  rtId: string,
+  householdOccupancyId: string,
+): Promise<ApiMonitoringNoteResponse[]> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/notes/' + encodeURIComponent(householdOccupancyId), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiMonitoringNoteResponse[] }>(res)
+  if (!data || !Array.isArray(data.data)) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiUpdateMonitoringNote(
+  token: string,
+  rtId: string,
+  householdOccupancyId: string,
+  note: string,
+): Promise<ApiMonitoringNoteResponse> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/notes/' + encodeURIComponent(householdOccupancyId), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ note }),
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+  })
+  const data = await json<{ data: ApiMonitoringNoteResponse }>(res)
+  if (!data || !data.data) throw new ApiError('unexpected', 'Response data missing')
+  return data.data
+}
+
+export async function apiExportMonitoringExcel(
+  token: string,
+  rtId: string,
+): Promise<Blob> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/export/excel', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to export monitoring Excel')
+  }
+  return res.blob()
+}
+
+export async function apiExportMonitoringPDF(
+  token: string,
+  rtId: string,
+): Promise<Blob> {
+  const res = await authenticatedApiRequest(BASE + '/rw/' + encodeURIComponent(rtId) + '/monitoring/export/pdf', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS * 2) } : {}),
+  })
+  if (!res.ok) {
+    const err = await json<ApiError>(res).catch(() => null)
+    throw new ApiError(err?.code ?? 'unexpected', err?.message ?? 'Failed to export monitoring PDF')
+  }
+  return res.blob()
+}
+
+// ── Monitoring Types ---
+export interface ApiMonitoringHousehold {
+  household_occupancy_id: string
+  house_number: string
+  note?: string | null
+  note_created_at?: string | null
+  note_created_by?: string | null
+  note_updated_at?: string | null
+}
+
+export interface ApiMonitoringListResponse {
+  households: ApiMonitoringHousehold[]
+  total: number
+  eval_date?: string
+}
+
+export function normalizeMonitoringResponse(response: {
+  data?: ApiMonitoringHousehold[]
+  households?: ApiMonitoringHousehold[]
+  total?: number
+  eval_date?: string
+} | null): ApiMonitoringListResponse {
+  const households = response?.data ?? response?.households
+  if (!Array.isArray(households)) throw new ApiError('unexpected', 'Monitoring list missing from response')
+  return {
+    households,
+    total: typeof response?.total === 'number' ? response.total : households.length,
+    eval_date: response?.eval_date,
+  }
+}
+
+export interface ApiMonitoringNoteRequest {
+  note: string
+}
+
+export interface ApiMonitoringNoteResponse {
+  household_occupancy_id: string
+  house_number: string
+  note: string
+  created_by?: string | null
+  updated_by?: string | null
+  created_at?: string | null
+  updated_at?: string | null
 }

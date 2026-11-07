@@ -147,33 +147,42 @@ func TestRequireAllowedRT_ProductionMiddleware(t *testing.T) {
 	_ = count
 }
 
-// setupTestRT inserts an RT with the given rt code if it doesn't exist,
-// returns its UUID. Does NOT modify existing shared RTs to avoid
-// uniq_rts_active partial-index violations.
+// setupTestRT creates an isolated active RT fixture with the requested
+// whitelisted RT code. A randomized RW number prevents collisions with shared
+// RT rows while preserving the production whitelist check exercised by these
+// tests. Cleanup targets only the RT row created by this helper.
 func setupTestRT(t *testing.T, pool *database.Pool, ctx context.Context, rtCode string) string {
 	t.Helper()
 
-	// Check if RT already exists.
 	var rtID string
-	var isActive bool
-	err := pool.Raw().QueryRowContext(ctx,
-		`SELECT id, is_active FROM rts WHERE rt = $1 LIMIT 1`, rtCode).Scan(&rtID, &isActive)
-	if err == nil && rtID != "" {
-		// RT exists — return it as-is (do not mutate shared data)
-		return rtID
+	var err error
+	for attempt := 0; attempt < 8; attempt++ {
+		fixtureID := uuid.New()
+		rwNumber := int(fixtureID.ID() & 0x7fffffff)
+		if rwNumber == 0 {
+			rwNumber = 1
+		}
+		rtID = fixtureID.String()
+		err = pool.Raw().QueryRowContext(ctx, `
+			INSERT INTO rts (id, rw, rt, name, is_active)
+			VALUES ($1, $2, $3, $4, true)
+			RETURNING id
+		`, rtID, rwNumber, rtCode, fmt.Sprintf("Test RT %s %s", rtCode, rtID)).Scan(&rtID)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		t.Fatalf("failed to create isolated active RT %s fixture: %v", rtCode, err)
 	}
 
-	// RT does not exist — create it with a fresh UUID.
-	var newID string
-	err = pool.Raw().QueryRowContext(ctx, `
-		INSERT INTO rts (id, rt, name, is_active)
-		VALUES (gen_random_uuid(), $1, $2, true)
-		RETURNING id
-	`, rtCode, fmt.Sprintf("RT %s", rtCode)).Scan(&newID)
-	if err != nil {
-		t.Fatalf("failed to setup RT %s: %v", rtCode, err)
-	}
-	return newID
+	fixtureRTID := rtID
+	t.Cleanup(func() {
+		if _, cleanupErr := pool.Raw().ExecContext(ctx, `DELETE FROM rts WHERE id = $1`, fixtureRTID); cleanupErr != nil {
+			t.Errorf("failed to clean up isolated RT fixture %s: %v", fixtureRTID, cleanupErr)
+		}
+	})
+	return fixtureRTID
 }
 
 // containsSubstring is a simple helper to check if a substring exists in a string.

@@ -111,7 +111,7 @@ describe('FundLocationList component', () => {
     // Check 3 category cards exist
     expect(screen.getByText('REKENING BANK')).toBeInTheDocument()
     expect(screen.getAllByText('BRANKAS KAS').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('CASH ON HAND (COH)').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/Kas di Tangan \(COH\)|CASH ON HAND \(COH\)/i).length).toBeGreaterThanOrEqual(1)
 
     // Check balances formatted
     expect(screen.getAllByText('Rp 1.500.000').length).toBeGreaterThanOrEqual(1)

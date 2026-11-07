@@ -446,28 +446,28 @@ export function RwDetailModal({
 
             <div style={{ marginBottom: 8 }}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>RT</label>
-              <input
-                type="text"
+              <button
+                type="button"
                 className="sf-form-input"
-                readOnly
-                value={selectedRt ? `RT ${selectedRt.rt} — ${selectedRt.name}` : 'Pilih RT...'}
+                style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
                 onClick={() => setRtSelectorOpen(true)}
                 disabled={modalSaving}
-                style={{ cursor: 'pointer' }}
-              />
+              >
+                {selectedRt ? `RT ${selectedRt.rt} — ${selectedRt.name}` : 'Pilih RT...'}
+              </button>
             </div>
 
             <div style={{ marginBottom: 8 }}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Warga</label>
-              <input
-                type="text"
+              <button
+                type="button"
                 className="sf-form-input"
-                readOnly
-                value={selectedMember ? (selectedMember.full_name || selectedMember.user_id) : 'Pilih Warga...'}
+                style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
                 onClick={() => { if (selectedRt) setMemberSelectorOpen(true) }}
                 disabled={modalSaving || !selectedRt}
-                style={{ width: '100%', cursor: 'pointer' }}
-              />
+              >
+                {selectedMember ? (selectedMember.full_name || selectedMember.user_id) : 'Pilih Warga...'}
+              </button>
             </div>
 
             {selectedRt && selectedMember && (

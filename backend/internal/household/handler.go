@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1431,38 +1432,50 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	}
 	defer tx.Rollback()
 
-	// 1. Create user (upsert by normalized email)
-	passwordHash, err := auth.Hash("SpecialResident123!")
+	// Never attach an existing account to a new RT or change its role/jabatan.
+	// Email is global across tenants, so reusing it could grant access to an
+	// existing warga account or move its resident record across RTs.
+	existingUser, findErr := auth.UsersFindByEmail(ctx, tx, canonEmail)
+	if findErr == nil && existingUser != nil {
+		httpx.WriteConflict(w, "email is already registered")
+		return
+	}
+	if !errors.Is(findErr, auth.ErrUserNotFound) {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to check registered email")
+		return
+	}
+
+	initialPassword := make([]byte, 32)
+	if _, err := crand.Read(initialPassword); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to generate initial password")
+		return
+	}
+	passwordHash, err := auth.Hash(base64.RawURLEncoding.EncodeToString(initialPassword))
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to hash password")
 		return
 	}
 	userID, err := auth.CreateNewUser(ctx, tx, canonEmail, &canonPhone, passwordHash, strings.TrimSpace(req.FullName), "")
 	if err != nil {
-		// User may already exist — query by normalized email to get the existing ID
-		existingUser, userErr := auth.UsersFindByEmail(ctx, tx, canonEmail)
-		if userErr != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create user")
+		if isPGUniqueViolation(err) {
+			httpx.WriteConflict(w, "email is already registered")
 			return
 		}
-		userID = existingUser.ID
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create user")
+		return
 	}
 
-	// 2. Upsert membership (pengurus + jabatan)
+	// 2. Create a least-privilege warga membership with the special jabatan.
 	memQ := `
 		INSERT INTO user_rt_memberships (user_id, rt_id, role, jabatan, is_active)
 		VALUES ($1, $2, $3, $4, true)
-		ON CONFLICT (user_id, rt_id) WHERE is_active = true DO UPDATE SET
-			role = EXCLUDED.role,
-			jabatan = EXCLUDED.jabatan,
-			updated_at = now()
 	`
-	if _, err := tx.ExecContext(ctx, memQ, userID, rtID, string(auth.RolePengurus), req.Jabatan); err != nil {
+	if _, err := tx.ExecContext(ctx, memQ, userID, rtID, string(auth.RoleWarga), req.Jabatan); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create membership")
 		return
 	}
 
-	// 3. Create resident with household_id = NULL
+	// 3. Create resident with household_id = NULL.
 	var resident Resident
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO residents (rt_id, user_id, full_name, phone, nik, email, is_active)
@@ -1602,6 +1615,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, "full_name cannot be empty", nil)
 			return
 		}
+		req.FullName = &trimmed
 		fields = append(fields, updateField{"full_name", trimmed})
 		args = append(args, trimmed)
 		argIdx++
@@ -1617,6 +1631,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, normErr.Error(), nil)
 			return
 		}
+		req.Phone = &normalized
 		fields = append(fields, updateField{"phone", normalized})
 		args = append(args, normalized)
 		argIdx++
@@ -1631,6 +1646,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, err.Error(), nil)
 			return
 		}
+		req.Nik = &trimmed
 		fields = append(fields, updateField{"nik", trimmed})
 		args = append(args, trimmed)
 		argIdx++
@@ -1645,8 +1661,10 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, err.Error(), nil)
 			return
 		}
-		fields = append(fields, updateField{"email", NormalizeEmail(trimmed)})
-		args = append(args, NormalizeEmail(trimmed))
+		normalized := NormalizeEmail(trimmed)
+		req.Email = &normalized
+		fields = append(fields, updateField{"email", normalized})
+		args = append(args, normalized)
 		argIdx++
 	}
 	if req.IsActive != nil {
@@ -1690,6 +1708,44 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		hasChanges = true
 	}
 
+	if userID.Valid && (req.FullName != nil || req.Phone != nil || req.Email != nil) {
+		var fullName, phone, email any
+		if req.FullName != nil {
+			fullName = *req.FullName
+		}
+		if req.Phone != nil {
+			phone = *req.Phone
+		}
+		if req.Email != nil {
+			email = *req.Email
+		}
+		result, updateErr := tx.ExecContext(ctx, `
+			UPDATE users
+			SET full_name = COALESCE($2, full_name),
+			    phone = COALESCE($3, phone),
+			    email = COALESCE($4, email),
+			    updated_at = now()
+			WHERE id = $1 AND is_active = true
+		`, userID.String, fullName, phone, email)
+		if updateErr != nil {
+			if isPGUniqueViolation(updateErr) {
+				httpx.WriteConflict(w, "account profile conflicts with an existing user")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to synchronize resident account")
+			return
+		}
+		rows, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify resident account update")
+			return
+		}
+		if rows == 0 {
+			httpx.WriteNotFound(w, "resident account not found")
+			return
+		}
+	}
+
 	if !hasChanges {
 		httpx.WriteNotFound(w, "no changes to apply")
 		return
@@ -1700,6 +1756,24 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if req.FullName != nil {
+		resident.FullName = *req.FullName
+	}
+	if req.Phone != nil {
+		phone := *req.Phone
+		resident.Phone = &phone
+	}
+	if req.Nik != nil {
+		nik := *req.Nik
+		resident.Nik = &nik
+	}
+	if req.Email != nil {
+		email := *req.Email
+		resident.Email = &email
+	}
+	if req.IsActive != nil {
+		resident.IsActive = *req.IsActive
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resident)

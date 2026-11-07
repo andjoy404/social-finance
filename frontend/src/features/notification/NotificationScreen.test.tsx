@@ -32,6 +32,7 @@ vi.mock('@/app/api', async () => {
     apiToggleNotificationTemplateActive: vi.fn(),
     apiDeleteNotificationTemplate: vi.fn(),
     apiGetNotificationLogs: vi.fn(),
+    apiGetNotificationManagementHistory: vi.fn(),
     apiUploadNotificationImage: vi.fn(),
     apiTriggerManualPush: vi.fn().mockResolvedValue({ status: 'accepted', message: 'dispatched' }),
     apiTestPush: vi.fn().mockResolvedValue({ status: 'dispatched', message: 'dispatched', dispatched_count: 1 }),
@@ -108,9 +109,25 @@ describe('NotificationScreen', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: {
+        id: 'usr-admin',
+        name: 'Super Admin',
+        email: 'admin@rt.local',
+        systemRole: 'super_admin',
+        role: 'pengurus',
+        jabatan: null,
+        rt: null,
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
     vi.mocked(api.apiGetNotificationSystemTypes).mockResolvedValue(mockSystemTypes)
     vi.mocked(api.apiGetNotificationTemplates).mockResolvedValue(mockTemplates)
     vi.mocked(api.apiGetNotificationLogs).mockResolvedValue(mockLogs)
+    vi.mocked(api.apiGetNotificationManagementHistory).mockResolvedValue(mockLogs)
   })
 
   it('renders correctly with tabs and loads system notification cards', async () => {
@@ -123,13 +140,53 @@ describe('NotificationScreen', () => {
     expect(screen.getByText('Kelola Notifikasi')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Notifikasi Sistem/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Template Kustom/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Riwayat/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Riwayat Sistem/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Riwayat Saya/i })).toBeInTheDocument()
 
     await waitFor(() => {
       expect(screen.getByText('Penerbitan Tagihan Iuran')).toBeInTheDocument()
       expect(screen.getByText('Kedatangan Mobil Sampah')).toBeInTheDocument()
       expect(screen.getByText('Diterbitkan saat bendahara men-generate tagihan iuran baru')).toBeInTheDocument()
     })
+  })
+
+  it('shows only the authenticated warga notification history and preserves SENT', async () => {
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: {
+        id: 'warga-1',
+        name: 'Warga',
+        email: 'warga@example.com',
+        systemRole: null,
+        role: 'warga',
+        jabatan: null,
+        rt: { id: 'rt-1', name: 'RT 01' },
+        rtId: 'rt-1',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter>
+        <NotificationScreen />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Riwayat Notifikasi')).toBeInTheDocument()
+    expect(await screen.findByText('TERKIRIM')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Riwayat Saya/ })).not.toBeInTheDocument()
+    expect(api.apiGetNotificationLogs).toHaveBeenCalledWith(
+      'mock-token',
+      1,
+      15,
+      undefined,
+      undefined,
+    )
+    expect(api.apiGetNotificationSystemTypes).not.toHaveBeenCalled()
+    expect(api.apiGetNotificationTemplates).not.toHaveBeenCalled()
+    expect(api.apiGetNotificationManagementHistory).not.toHaveBeenCalled()
   })
 
   it('navigates to Template Kustom tab and displays templates', async () => {
@@ -152,20 +209,58 @@ describe('NotificationScreen', () => {
     })
   })
 
-  it('navigates to Riwayat tab and displays logs', async () => {
+  it('navigates to Riwayat Sistem and displays system history', async () => {
     render(
       <MemoryRouter>
         <NotificationScreen />
       </MemoryRouter>
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /Riwayat/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Riwayat Sistem/i }))
 
     await waitFor(() => {
       expect(screen.getByText('Total riwayat tersimpan: 1')).toBeInTheDocument()
       expect(screen.getByText('Segera bayar tagihan nomor 101 ya.')).toBeInTheDocument()
       expect(screen.getByText('TERKIRIM')).toBeInTheDocument()
     })
+    expect(api.apiGetNotificationManagementHistory).toHaveBeenCalledWith(
+      'mock-token',
+      'system',
+      1,
+      15,
+    )
+  })
+
+  it('loads personal history from a distinct backend category', async () => {
+    vi.mocked(api.apiGetNotificationManagementHistory).mockImplementation(
+      async (_token, category) => ({
+        data: [
+          {
+            ...mockLogs.data[0],
+            id: `log-${category}`,
+            body: category === 'mine' ? 'Aktivitas pengurus saya' : 'Notifikasi sistem',
+          },
+        ],
+        pagination: { page: 1, page_size: 15, total: 1, total_pages: 1 },
+      }),
+    )
+    render(
+      <MemoryRouter>
+        <NotificationScreen />
+      </MemoryRouter>
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Riwayat Saya/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Aktivitas pengurus saya')).toBeInTheDocument()
+      expect(screen.queryByText('Notifikasi sistem')).not.toBeInTheDocument()
+    })
+    expect(api.apiGetNotificationManagementHistory).toHaveBeenCalledWith(
+      'mock-token',
+      'mine',
+      1,
+      15,
+    )
   })
 
   it('opens preview banner popup', async () => {
@@ -259,6 +354,7 @@ describe('NotificationScreen', () => {
         systemRole: null,
         role: 'pengurus',
         jabatan: 'ketua',
+        effectivePermissions: ['notification.manage'],
         rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
         rtCode: '002',
         rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
@@ -279,7 +375,11 @@ describe('NotificationScreen', () => {
       expect(screen.getByText('Kedatangan Mobil Sampah')).toBeInTheDocument()
     })
 
-    // Ketua RT can broadcast and manage templates
+    // Ketua RT with the RBAC permission retains the full management tabs.
+    expect(screen.getByRole('button', { name: /Notifikasi Sistem/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Template Kustom/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Riwayat Sistem/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Riwayat Saya/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Kirim Notifikasi/i })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /Tambah Template/i }).length).toBeGreaterThan(0)
     // SuperAdmin-only test push button must NOT be shown to Ketua RT
@@ -529,4 +629,6 @@ describe('notificationUrl helpers', () => {
       { type: 'text', text: '). Jangan klik javascript:alert(1)!' },
     ])
   })
+
+
 })

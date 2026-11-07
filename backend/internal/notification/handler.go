@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -37,6 +39,54 @@ func NewHandler(svc Service, pool *database.Pool, store storage.Service, appEnv 
 		store = storage.NewMockStorage()
 	}
 	return &Handler{svc: svc, pool: pool, storage: store, appEnv: env}
+}
+
+// isSecurityOfficer reports whether the authenticated principal holds the
+// security officer position (keamanan) within their RT.
+func isSecurityOfficer(ac *auth.AuthContext) bool {
+	return ac != nil && strings.EqualFold(strings.TrimSpace(string(ac.Jabatan)), string(auth.JabatanKeamanan))
+}
+
+func canViewWasteTruckNotifications(ac *auth.AuthContext) bool {
+	return isOfficerUser(ac) || isSecurityOfficer(ac)
+}
+
+// hasWasteTruckPermission reports whether the security officer holds the
+// dedicated notification.send_waste_truck permission.
+func (h *Handler) hasWasteTruckPermission(ctx context.Context, ac *auth.AuthContext) (bool, error) {
+	if h.pool == nil || ac == nil {
+		return false, errors.New("permission database unavailable")
+	}
+	tx, err := h.pool.BeginTx(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	pr := auth.NewPermissionResolver(h.pool)
+	return pr.HasPermission(ctx, tx, ac, "notification.send_waste_truck")
+}
+
+// canDispatchNotificationEvent enforces per-event authorization for officer
+// dispatch actions (upload image and trigger send).
+// The waste_truck_arrival event accepts RT officers and security officers
+// (keamanan) holding the dedicated notification.send_waste_truck permission.
+// Security officers cannot dispatch other events (e.g. manual_push).
+func (h *Handler) canDispatchNotificationEvent(ctx context.Context, ac *auth.AuthContext, eventType string) (bool, error) {
+	if ac == nil {
+		return false, nil
+	}
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return true, nil
+	}
+	if isSecurityOfficer(ac) {
+		if eventType == EventWasteTruckArrival {
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			return h.hasWasteTruckPermission(ctx, ac)
+		}
+		return false, nil
+	}
+	return isOfficerUser(ac), nil
 }
 
 // RegisterDevice registers an FCM token for the authenticated user.
@@ -93,17 +143,25 @@ func (h *Handler) UnregisterDevice(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// TriggerWasteTruckArrival allows pengurus or security in an RT to trigger garbage truck arrival alert.
+// TriggerWasteTruckArrival allows pengurus or security (keamanan) in an RT to trigger garbage truck arrival alert.
+// Security requires the notification.send_waste_truck permission; other officers use their existing officer access.
 func (h *Handler) TriggerWasteTruckArrival(w http.ResponseWriter, r *http.Request) {
 	ac := auth.GetAuthContext(r)
 	if ac == nil || ac.UserID == "" {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
-	if !isOfficerUser(ac) {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT yang berwenang memicu notifikasi waste truck")
+
+	allowed, authErr := h.canDispatchNotificationEvent(r.Context(), ac, EventWasteTruckArrival)
+	if authErr != nil {
+		httpx.WriteInternalServerError(w, "failed to check waste truck permission")
 		return
 	}
+	if !allowed {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT atau petugas keamanan dengan permission notification.send_waste_truck yang berwenang memicu notifikasi waste truck")
+		return
+	}
+
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
@@ -113,13 +171,69 @@ func (h *Handler) TriggerWasteTruckArrival(w http.ResponseWriter, r *http.Reques
 	var in WasteTruckNotificationInput
 	_ = json.NewDecoder(r.Body).Decode(&in)
 
-	h.svc.NotifyWasteTruckArrival(r.Context(), rtID, ac.UserID, in.Message, in.ImageURL)
+	idemKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idemKey == "" {
+		idemKey = strings.TrimSpace(in.IdempotencyKey)
+	}
+
+	h.svc.NotifyWasteTruckArrival(r.Context(), rtID, ac.UserID, in.Message, in.ImageURL, idemKey)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":  "accepted",
 		"message": "Waste truck arrival notification dispatched",
+	})
+}
+
+func parsePositiveQueryInt(r *http.Request, key string, fallback int) int {
+	value, err := strconv.Atoi(r.URL.Query().Get(key))
+	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
+}
+
+// ListWasteTruckHistory returns only dispatches created by the authenticated
+// security officer in the caller's current RT.
+func (h *Handler) ListWasteTruckHistory(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.UserID == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if !isSecurityOfficer(ac) {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "only security officers can view their waste truck dispatch history")
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", "valid RT context is required")
+		return
+	}
+
+	page := parsePositiveQueryInt(r, "page", 1)
+	pageSize := parsePositiveQueryInt(r, "per_page", 20)
+	entries, total, err := h.svc.ListWasteTruckHistory(r.Context(), ac, rtID, page, pageSize)
+	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			httpx.WriteError(w, http.StatusForbidden, "forbidden", "not authorized to view dispatch history")
+			return
+		}
+		httpx.WriteInternalServerError(w, "failed to list waste truck dispatch history")
+		return
+	}
+	totalPages := int(math.Ceil(float64(total) / float64(min(pageSize, 100))))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": entries,
+		"pagination": map[string]any{
+			"page": page, "per_page": min(pageSize, 100),
+			"total": total, "total_pages": totalPages,
+		},
 	})
 }
 
@@ -130,7 +244,12 @@ func (h *Handler) TriggerManualPush(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
-	if !isOfficerUser(ac) {
+	allowed, authErr := h.canDispatchNotificationEvent(r.Context(), ac, EventManualPush)
+	if authErr != nil {
+		httpx.WriteInternalServerError(w, "failed to check notification permission")
+		return
+	}
+	if !allowed {
 		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT yang berwenang mengirim notifikasi manual")
 		return
 	}
@@ -205,10 +324,6 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
-	if !isOfficerUser(ac) {
-		httpx.WriteError(w, http.StatusForbidden, "forbidden", "only officers can upload notification images")
-		return
-	}
 	rtID, err := h.resolveTenantRT(r, ac)
 	if err != nil || rtID == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
@@ -229,6 +344,15 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 	if eventType != EventWasteTruckArrival && eventType != EventManualPush {
 		httpx.WriteValidationError(w, fmt.Sprintf("upload gambar tidak diizinkan untuk event '%s'", eventType), nil)
+		return
+	}
+	allowed, authErr := h.canDispatchNotificationEvent(r.Context(), ac, eventType)
+	if authErr != nil {
+		httpx.WriteInternalServerError(w, "failed to check notification upload permission")
+		return
+	}
+	if !allowed {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT atau petugas keamanan dengan permission notification.send_waste_truck yang berwenang mengunggah gambar notifikasi")
 		return
 	}
 
@@ -327,6 +451,56 @@ func (h *Handler) resolveTenantRT(r *http.Request, ac *auth.AuthContext) (string
 	// back to a default RT.
 	headerRT := r.Header.Get("X-RT-ID")
 	return h.svc.ResolveTenantRT(r.Context(), ac, headerRT, r.URL.Query().Get("rt_id"))
+}
+
+// GetWasteTruckTemplate returns the active waste_truck_arrival template for
+// an authorized officer or security officer in the caller's RT. Reading the
+// template does not grant permission to dispatch it.
+func (h *Handler) GetWasteTruckTemplate(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil || ac.UserID == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	if !canViewWasteTruckNotifications(ac) {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "hanya officer RT atau petugas keamanan yang dapat melihat notifikasi truk sampah")
+		return
+	}
+
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", err.Error())
+		return
+	}
+
+	isActive := true
+	templates, err := h.svc.ListTemplates(r.Context(), rtID, EventWasteTruckArrival, &isActive)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to load template")
+		return
+	}
+	if len(templates) == 0 {
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "template waste_truck_arrival tidak tersedia untuk RT ini")
+		return
+	}
+	tmpl := templates[0]
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": map[string]any{
+			"id":         tmpl.ID,
+			"event_type": tmpl.EventType,
+			"name":       tmpl.Name,
+			"title":      tmpl.Title,
+			"body":       tmpl.Body,
+			"image_url":  tmpl.ImageURL,
+			"is_active":  tmpl.IsActive,
+			"variables":  tmpl.Variables,
+		},
+		"message": "Template waste_truck_arrival untuk RT",
+	})
 }
 
 // GetSystemTypes returns all recognized notification system events.
@@ -595,6 +769,61 @@ func (h *Handler) ListLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListManagementHistory returns categorized, server-scoped notification activity
+// for notification-management users.
+func (h *Handler) ListManagementHistory(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil || strings.TrimSpace(ac.UserID) == "" {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	category := strings.TrimSpace(r.URL.Query().Get("category"))
+	if category != HistoryCategorySystem && category != HistoryCategoryMine {
+		httpx.WriteValidationError(w, "category must be system or mine", nil)
+		return
+	}
+	rtID, err := h.resolveTenantRT(r, ac)
+	if err != nil || rtID == "" {
+		message := "invalid tenant context"
+		if err != nil {
+			message = err.Error()
+		}
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant_context", message)
+		return
+	}
+
+	page := parsePositiveQueryInt(r, "page", 1)
+	pageSize := parsePositiveQueryInt(r, "page_size", 20)
+	entries, total, err := h.svc.ListManagementHistory(r.Context(), ac, rtID, category, page, pageSize)
+	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			httpx.WriteError(w, http.StatusForbidden, "forbidden", "notification management access is required")
+			return
+		}
+		httpx.WriteInternalServerError(w, "failed to list categorized notification history")
+		return
+	}
+	if entries == nil {
+		entries = []NotificationLogEntry{}
+	}
+
+	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"data": entries,
+		"pagination": map[string]any{
+			"page":        page,
+			"page_size":   pageSize,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
+}
+
 // GetUnreadCount returns unread notifications count for the caller.
 func (h *Handler) GetUnreadCount(w http.ResponseWriter, r *http.Request) {
 	ac := auth.GetAuthContext(r)
@@ -706,7 +935,12 @@ func (h *Handler) GetNotificationDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	entry, err := h.svc.GetNotificationDetail(r.Context(), ac, rtID, id)
+	canManage, err := auth.HasNotificationManage(r.Context(), h.pool, ac)
+	if err != nil {
+		httpx.WriteInternalServerError(w, "failed to check notification permission")
+		return
+	}
+	entry, err := h.svc.GetNotificationDetail(r.Context(), ac, rtID, id, canManage)
 	if err != nil {
 		if errors.Is(err, ErrForbidden) {
 			httpx.WriteError(w, http.StatusForbidden, "forbidden", err.Error())
@@ -849,7 +1083,8 @@ func (h *Handler) GetSchedulerRecipientDetail(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	details, err := h.svc.GetSchedulerRecipientDetail(r.Context(), rtID, scheduleID, execDate)
+	configHash := strings.TrimSpace(r.URL.Query().Get("config_hash"))
+	details, err := h.svc.GetSchedulerRecipientDetail(r.Context(), rtID, scheduleID, execDate, configHash)
 	if err != nil {
 		httpx.WriteInternalServerError(w, "failed to get scheduler recipient detail")
 		return
@@ -1041,4 +1276,3 @@ func (h *Handler) ToggleScheduleActive(w http.ResponseWriter, r *http.Request) {
 		"data": schedule,
 	})
 }
-

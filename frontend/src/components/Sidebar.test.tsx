@@ -49,6 +49,7 @@ const mockKetuaRTUser: AuthUser = {
   systemRole: null,
   role: 'pengurus',
   jabatan: 'ketua',
+  effectivePermissions: ['notification.manage'],
   rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
   rtCode: '002',
   rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
@@ -88,6 +89,28 @@ const mockNonAllowedUser: AuthUser = {
   rt: { id: 'efb70405-09f5-48a0-ad14-34802cf09e3b', name: 'RT 004' },
   rtCode: '004',
   rtId: 'efb70405-09f5-48a0-ad14-34802cf09e3b',
+}
+
+const mockSecurityUser: AuthUser = {
+  id: 'user-keamanan',
+  name: 'Petugas Keamanan',
+  email: 'keamanan@example.com',
+  systemRole: null,
+  role: 'warga',
+  jabatan: 'keamanan',
+  effectivePermissions: ['notification.send_waste_truck'],
+  rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
+  rtCode: '002',
+  rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
+}
+
+const mockCleaningUser: AuthUser = {
+  ...mockSecurityUser,
+  id: 'user-kebersihan',
+  name: 'Petugas Kebersihan',
+  email: 'kebersihan@example.com',
+  jabatan: 'kebersihan',
+  effectivePermissions: [],
 }
 
 function renderSidebar(customUser?: AuthUser) {
@@ -154,11 +177,45 @@ describe('Sidebar — AndJoy visual language', () => {
   it('does not show SuperAdmin links for warga', () => {
     renderSidebar(mockWargaUser)
     expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
   })
 
   it('does not show SuperAdmin links for pengurus', () => {
     renderSidebar(mockPengurusUser)
     expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
+  })
+
+  it('shows only Warga and Notifikasi for a security officer', () => {
+    renderSidebar(mockSecurityUser)
+    expect(screen.getByText('Warga')).toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    expect(screen.queryByText('Beranda')).not.toBeInTheDocument()
+    expect(screen.queryByText('Kas')).not.toBeInTheDocument()
+    expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
+    expect(screen.queryByText('Lokasi Dana')).not.toBeInTheDocument()
+  })
+
+  it('shows Notifikasi for Pengurus without granting notification management', () => {
+    const pengurus = {
+      ...mockKetuaRTUser,
+      id: 'user-pengurus',
+      name: 'Pengurus RT',
+      jabatan: 'sekretaris',
+      effectivePermissions: [],
+    }
+    renderSidebar(pengurus)
+    expect(screen.getByRole('link', { name: /Notifikasi/ })).toBeInTheDocument()
+  })
+
+  it('shows only Monitoring for a cleaning officer', () => {
+    renderSidebar(mockCleaningUser)
+    expect(screen.getByText('Monitoring')).toBeInTheDocument()
+    expect(screen.queryByText('Beranda')).not.toBeInTheDocument()
+    expect(screen.queryByText('Kas')).not.toBeInTheDocument()
+    expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
+    expect(screen.queryByText('Lokasi Dana')).not.toBeInTheDocument()
+    expect(screen.queryByText('Warga')).not.toBeInTheDocument()
+    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
   })
 })
 
@@ -239,12 +296,12 @@ describe('Sidebar — navigation items', () => {
     clearSidebarLocalStorage()
   })
 
-  it('has exactly 4 nav items for warga: Beranda, Warga, Iuran, KAS', () => {
+  it('has exactly 5 nav items for warga, including Notifikasi', () => {
     renderSidebar()
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(4) // Beranda, Warga, Iuran, KAS
+    expect(links.length).toBe(5) // Beranda, Warga, Iuran, KAS, Notifikasi
     expect(buttons.length).toBe(1) // pin toggle
   })
 
@@ -266,21 +323,23 @@ describe('Sidebar — navigation items', () => {
     expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
   })
 
-  it('does NOT show Notifikasi menu for unauthorized roles (warga, bendahara, sekretaris, pengurus without ketua jabatan)', () => {
+  it('shows Notifikasi (personal history) for warga and pengurus roles, hides it for bendahara', () => {
     const u1 = renderSidebar(mockWargaUser)
-    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
     u1.unmount()
 
     const u2 = renderSidebar(mockBendaharaUser)
     expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
     u2.unmount()
 
+    // Pengurus RT without notification.manage keeps a personal Riwayat menu;
+    // no notification.manage permission is granted just to show it.
     const u3 = renderSidebar(mockSekretarisUser)
-    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
     u3.unmount()
 
     const u4 = renderSidebar(mockPengurusUser)
-    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
     u4.unmount()
   })
 
@@ -301,7 +360,7 @@ describe('Sidebar — navigation items', () => {
 
   it('contains nav entry for /kas (active route)', () => {
     renderSidebar()
-    expect(screen.getByText(/Kas/i)).toBeInTheDocument()
+    expect(document.querySelector('a[href="/kas"]')).toBeInTheDocument()
   })
 
   it('does not contain nav entry for /laporan (not implemented)', () => {

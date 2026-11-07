@@ -3,7 +3,9 @@ package notification_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -67,7 +69,8 @@ func notifTestRT(t *testing.T, pool *database.Pool) string {
 	var id string
 	err := db.QueryRowContext(ctx,
 		`INSERT INTO rts (name, rw, rt, is_active) VALUES ($1, $2, $3, true) RETURNING id`,
-		fmt.Sprintf("Notif Repo Test RT %d", n), 9, fmt.Sprintf("NOTIF-%d", n),
+		fmt.Sprintf("Notif Repo Test RT %d-%d", time.Now().UnixNano(), n), 9,
+		fmt.Sprintf("NOTIF-%d-%d", time.Now().UnixNano(), n),
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("create test RT: %v", err)
@@ -118,6 +121,91 @@ func notifTestDevice(t *testing.T, pool *database.Pool, userID, token string, ac
 	)
 	if err != nil {
 		t.Fatalf("create test device: %v", err)
+	}
+}
+
+func TestGetTokensForWasteTruckArrival_OnlyCurrentResidentsInRT(t *testing.T) {
+	pool := notifTestPool(t)
+	rtID := notifTestRT(t, pool)
+	otherRT := notifTestRT(t, pool)
+	n := atomic.AddInt64(&dbRTCounter, 1)
+
+	wargaID := notifTestUser(t, pool, "warga-recipient", true)
+	notifTestMembership(t, pool, wargaID, rtID, "warga", nil, true)
+	wargaToken := fmt.Sprintf("warga-recipient-%d", n)
+	notifTestDevice(t, pool, wargaID, wargaToken, true)
+	notifTestOccupancyWithResident(t, pool, rtID, &wargaID)
+
+	pengurusID := notifTestUser(t, pool, "pengurus-recipient", true)
+	notifTestMembership(t, pool, pengurusID, rtID, "pengurus", nil, true)
+	pengurusToken := fmt.Sprintf("pengurus-recipient-%d", n)
+	notifTestDevice(t, pool, pengurusID, pengurusToken, true)
+	notifTestOccupancyWithResident(t, pool, rtID, &pengurusID)
+
+	petugasID := notifTestUser(t, pool, "petugas-recipient", true)
+	keamanan := "keamanan"
+	notifTestMembership(t, pool, petugasID, rtID, "warga", &keamanan, true)
+	notifTestDevice(t, pool, petugasID, fmt.Sprintf("petugas-recipient-%d", n), true)
+
+	otherRTWargaID := notifTestUser(t, pool, "other-rt-recipient", true)
+	notifTestMembership(t, pool, otherRTWargaID, otherRT, "warga", nil, true)
+	notifTestDevice(t, pool, otherRTWargaID, fmt.Sprintf("other-rt-recipient-%d", n), true)
+	notifTestOccupancyWithResident(t, pool, otherRT, &otherRTWargaID)
+
+	futureWargaID := notifTestUser(t, pool, "future-warga-recipient", true)
+	notifTestMembership(t, pool, futureWargaID, rtID, "warga", nil, true)
+	notifTestDevice(t, pool, futureWargaID, fmt.Sprintf("future-warga-recipient-%d", n), true)
+	futureOccupancyID := notifTestOccupancyWithResident(t, pool, rtID, &futureWargaID)
+	if _, err := pool.Raw().ExecContext(context.Background(),
+		`UPDATE residency_periods SET start_date = CURRENT_DATE + 1 WHERE household_occupancy_id = $1`,
+		futureOccupancyID,
+	); err != nil {
+		t.Fatalf("make future residency: %v", err)
+	}
+
+	endedTodayID := notifTestUser(t, pool, "ended-today-recipient", true)
+	notifTestMembership(t, pool, endedTodayID, rtID, "warga", nil, true)
+	notifTestDevice(t, pool, endedTodayID, fmt.Sprintf("ended-today-recipient-%d", n), true)
+	endedTodayOccupancyID := notifTestOccupancyWithResident(t, pool, rtID, &endedTodayID)
+	if _, err := pool.Raw().ExecContext(context.Background(),
+		`UPDATE residency_periods SET start_date = CURRENT_DATE - 1, end_date = CURRENT_DATE WHERE household_occupancy_id = $1`,
+		endedTodayOccupancyID,
+	); err != nil {
+		t.Fatalf("end residency today: %v", err)
+	}
+
+	tokens, err := notification.NewRepository(pool).GetTokensForWasteTruckArrival(context.Background(), rtID)
+	if err != nil {
+		t.Fatalf("GetTokensForWasteTruckArrival: %v", err)
+	}
+	got := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		got[token] = true
+	}
+	if len(got) != 2 || !got[wargaToken] || !got[pengurusToken] {
+		t.Fatalf("expected only current household resident tokens %q and %q, got %v", wargaToken, pengurusToken, tokens)
+	}
+	recipients, err := notification.NewRepository(pool).GetWasteTruckArrivalRecipients(context.Background(), rtID)
+	if err != nil {
+		t.Fatalf("GetWasteTruckArrivalRecipients: %v", err)
+	}
+	recipientUsers := make(map[string]bool, len(recipients))
+	for _, recipient := range recipients {
+		recipientUsers[recipient.UserID] = true
+	}
+	if len(recipientUsers) != 2 || !recipientUsers[wargaID] || !recipientUsers[pengurusID] {
+		t.Fatalf("expected only current household resident users (including Pengurus as a resident), got %+v", recipients)
+	}
+	broadcastRecipients, err := notification.NewRepository(pool).GetRTBroadcastRecipients(context.Background(), rtID)
+	if err != nil {
+		t.Fatalf("GetRTBroadcastRecipients: %v", err)
+	}
+	broadcastUsers := make(map[string]bool, len(broadcastRecipients))
+	for _, recipient := range broadcastRecipients {
+		broadcastUsers[recipient.UserID] = true
+	}
+	if !broadcastUsers[petugasID] || broadcastUsers[otherRTWargaID] {
+		t.Fatalf("general RT broadcasts must include active same-RT security membership without synthetic occupancy and exclude other RT users: %+v", broadcastRecipients)
 	}
 }
 
@@ -199,6 +287,286 @@ func notifTestBill(t *testing.T, pool *database.Pool, rtID, occID, period string
 	}
 
 	return billID
+}
+
+func TestNotificationRepository_ManagementHistoryClassification(t *testing.T) {
+	pool := notifTestPool(t)
+	repo := notification.NewRepository(pool)
+	ctx := context.Background()
+
+	rtID := notifTestRT(t, pool)
+	otherRTID := notifTestRT(t, pool)
+	actorA := notifTestUser(t, pool, "history-actor-a", true)
+	actorB := notifTestUser(t, pool, "history-actor-b", true)
+	recipient := notifTestUser(t, pool, "history-recipient", true)
+	defer func() {
+		cleanupNotifTestRT(t, pool, rtID)
+		cleanupNotifTestRT(t, pool, otherRTID)
+		for _, userID := range []string{actorA, actorB, recipient} {
+			_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+		}
+	}()
+	testKey := fmt.Sprintf("%d", atomic.AddInt64(&dbRTCounter, 1))
+	ketuaJabatan := "ketua"
+	notifTestMembership(t, pool, actorA, rtID, "pengurus", &ketuaJabatan, true)
+	notifTestMembership(t, pool, actorB, rtID, "warga", nil, true)
+
+	occupancyID := notifTestOccupancyWithResident(t, pool, rtID, &recipient)
+	approvedBillID := notifTestBill(t, pool, rtID, occupancyID, fmt.Sprintf("history-approved-%d", atomic.AddInt64(&dbRTCounter, 1)))
+	rejectedBillID := notifTestBill(t, pool, rtID, occupancyID, fmt.Sprintf("history-rejected-%d", atomic.AddInt64(&dbRTCounter, 1)))
+	var approvedPaymentID, rejectedPaymentID string
+	if err := pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO payments (rt_id, bill_id, amount, method, origin, status, verified_by)
+		VALUES ($1, $2, 50000, 'TRANSFER', 'SELF_SUBMITTED', 'APPROVED', $3)
+		RETURNING id::text
+	`, rtID, approvedBillID, actorA).Scan(&approvedPaymentID); err != nil {
+		t.Fatalf("create approved payment: %v", err)
+	}
+	if err := pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO payments (rt_id, bill_id, amount, method, origin, status, verified_by)
+		VALUES ($1, $2, 50000, 'TRANSFER', 'SELF_SUBMITTED', 'REJECTED', $3)
+		RETURNING id::text
+	`, rtID, rejectedBillID, actorB).Scan(&rejectedPaymentID); err != nil {
+		t.Fatalf("create rejected payment: %v", err)
+	}
+
+	insertHistoryLog := func(logRT, userID, eventType, dedupKey, status, paymentID string) {
+		t.Helper()
+		payload := map[string]string{}
+		if paymentID != "" {
+			payload["payment_id"] = paymentID
+		}
+		payloadJSON, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal log payload: %v", err)
+		}
+		_, err = pool.Raw().ExecContext(ctx, `
+			INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, payload, status, failure_reason)
+			VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6, $7, $8,
+				CASE WHEN $8 = 'FAILED' THEN 'provider reported failure' ELSE NULL END)
+		`, logRT, userID, eventType, dedupKey, eventType, "history test", payloadJSON, status)
+		if err != nil {
+			t.Fatalf("insert history log %q: %v", dedupKey, err)
+		}
+	}
+
+	insertHistoryLog(rtID, "", notification.EventUpcomingDue3Months, "schedule:"+testKey+":2026-11-06:"+recipient, "SENT", "")
+	insertHistoryLog(rtID, "", notification.EventUpcomingDue3Months, "schedule:"+testKey+":2026-11-06:"+actorA, "FAILED", "")
+	insertHistoryLog(rtID, "", notification.EventUpcomingDue3Months, "schedule:"+testKey+":2026-11-07:"+actorA, "PENDING", "")
+	insertHistoryLog(rtID, actorA, notification.EventManualPush, "recipient:manual_push:"+testKey+":"+actorA, "SENT", "")
+	insertHistoryLog(otherRTID, actorA, notification.EventManualPush, "recipient:manual_push:other-"+testKey+":"+actorA, "SENT", "")
+	insertHistoryLog(rtID, actorB, notification.EventManualPush, "recipient:manual_push:"+testKey+":"+actorB, "SENT", "")
+	insertHistoryLog(rtID, actorB, notification.EventManualPush, "recipient:manual_push:mismatch-"+testKey+":"+actorA, "SENT", "") // mismatched user id/key is not a receipt for actor B
+	insertHistoryLog(rtID, recipient, notification.EventOverdue3Months, "schedule:"+testKey+":2026-11-09:"+recipient, "SENT", "")
+	insertHistoryLog(rtID, actorA, notification.EventOverdue3Months, "schedule:"+testKey+":2026-11-09:"+actorA, "UNKNOWN", "")
+	insertHistoryLog(otherRTID, "", notification.EventUpcomingDue3Months, "schedule:other-"+testKey+":2026-11-06:"+recipient, "SENT", "")
+	insertHistoryLog(rtID, actorA, notification.EventManualPush, "manual_push:"+testKey, "SENT", "")
+	insertHistoryLog(rtID, recipient, notification.EventPaymentVerified, "payment-approved:"+testKey+":recipient", "SENT", approvedPaymentID)
+	insertHistoryLog(rtID, "", notification.EventPaymentVerified, "payment-approved:"+testKey+":verifier", "FAILED", approvedPaymentID)
+	insertHistoryLog(rtID, recipient, notification.EventPaymentVerified, "payment-rejected:"+testKey+":recipient", "SENT", rejectedPaymentID)
+	insertHistoryLog(rtID, "", notification.EventPaymentVerified, "payment-rejected:"+testKey+":verifier", "SENT", rejectedPaymentID)
+	insertHistoryLog(rtID, actorA, notification.EventWasteTruckArrival, "recipient:waste_truck_arrival:"+testKey+":"+actorA, "SENT", "")
+	insertHistoryLog(rtID, actorB, notification.EventWasteTruckArrival, "recipient:waste_truck_arrival:"+testKey+":"+actorB, "SENT", "")
+	insertHistoryLog(rtID, actorB, notification.EventWasteTruckArrival, "recipient:waste_truck_arrival:mismatch-"+testKey+":"+actorA, "SENT", "") // mismatched user id/key is not a receipt for actor B
+	insertHistoryLog(otherRTID, actorA, notification.EventWasteTruckArrival, "recipient:waste_truck_arrival:other:"+actorA, "SENT", "")
+	insertHistoryLog(rtID, "", notification.EventBillCreated, "bill:unknown:"+testKey, "SENT", "")
+	legacyDedupKey := "schedule:" + testKey + ":2026-11-08:" + recipient
+	if _, err := pool.Raw().ExecContext(ctx, `
+		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, payload, status)
+		VALUES ($1, $2, $3, $4, 'Legacy reminder', 'Legacy body', '{}'::jsonb, 'FAILED')
+	`, rtID, recipient, notification.EventOverdue3Months, legacyDedupKey); err != nil {
+		t.Fatalf("insert legacy delivery without provider evidence: %v", err)
+	}
+
+	systemHistory, systemTotal, err := repo.ListManagementHistory(ctx, rtID, actorA, notification.HistoryCategorySystem, 0, 20)
+	if err != nil {
+		t.Fatalf("ListManagementHistory system: %v", err)
+	}
+	if systemTotal != 4 || len(systemHistory) != 4 {
+		t.Fatalf("expected four in-RT schedule activities, total=%d entries=%d: %+v", systemTotal, len(systemHistory), systemHistory)
+	}
+	foundPartial, foundUnknown, foundLegacyUnknown, foundSentWithUnknown := false, false, false, false
+	for _, entry := range systemHistory {
+		if strings.Contains(entry.DedupKey, ":2026-11-06:") {
+			foundPartial = entry.RecipientsCount == 2 && entry.SentCount == 1 &&
+				entry.FailedCount == 1 && entry.Status == "PARTIAL"
+		}
+		if strings.Contains(entry.DedupKey, ":2026-11-07:") {
+			foundUnknown = entry.RecipientsCount == 1 && entry.SentCount == 0 &&
+				entry.FailedCount == 0 && entry.Status == "UNKNOWN"
+		}
+		if entry.DedupKey == legacyDedupKey {
+			foundLegacyUnknown = entry.Status == "UNKNOWN"
+		}
+		if strings.Contains(entry.DedupKey, ":2026-11-09:") {
+			foundSentWithUnknown = entry.Status == "SENT" &&
+				entry.RecipientsCount == 2 && entry.SentCount == 1 && entry.FailedCount == 0
+		}
+	}
+	if !foundPartial || !foundUnknown || !foundLegacyUnknown || !foundSentWithUnknown {
+		t.Fatalf("unexpected grouped scheduler delivery statuses: %+v", systemHistory)
+	}
+	wargaHistory, _, err := repo.ListLogs(ctx, rtID, recipient, "", "", false, 0, 20)
+	if err != nil {
+		t.Fatalf("ListLogs for legacy reminder recipient: %v", err)
+	}
+	foundLegacyUnknown, foundRecipientSent := false, false
+	for _, entry := range wargaHistory {
+		if entry.DedupKey == legacyDedupKey {
+			foundLegacyUnknown = entry.Status == "UNKNOWN"
+		}
+		if strings.Contains(entry.DedupKey, ":2026-11-09:") {
+			foundRecipientSent = entry.Status == "SENT"
+		}
+	}
+	if !foundLegacyUnknown || !foundRecipientSent {
+		t.Fatalf("recipient must retain provider SENT while legacy FAILED without evidence remains UNKNOWN: %+v", wargaHistory)
+	}
+
+	mineA, mineATotal, err := repo.ListManagementHistory(ctx, rtID, actorA, notification.HistoryCategoryMine, 0, 20)
+	if err != nil {
+		t.Fatalf("ListManagementHistory actor A: %v", err)
+	}
+	if mineATotal != 5 || len(mineA) != 5 {
+		t.Fatalf("expected sent activity, actual received notifications, and payment action for actor A, got total=%d entries=%+v", mineATotal, mineA)
+	}
+	foundManual, foundPayment, foundReceivedBlast, foundReceivedManual, foundReceivedReminder := false, false, false, false, false
+	for _, entry := range mineA {
+		if entry.EventType == notification.EventManualPush {
+			foundManual = foundManual || (entry.Status == "RECORDED" && !entry.DeliveryCountsAvailable && entry.ActivityRelation == "sent_by_me")
+		}
+		if entry.DedupKey == "payment_action:"+approvedPaymentID+":APPROVED" {
+			foundPayment = entry.Status == "APPROVED" && !entry.DeliveryCountsAvailable && entry.ActivityRelation == "performed_by_me"
+		}
+		if strings.HasPrefix(entry.DedupKey, "recipient:waste_truck_arrival:") {
+			foundReceivedBlast = entry.Status == "SENT" && entry.ActivityRelation == "received_by_me"
+		}
+		if strings.HasPrefix(entry.DedupKey, "recipient:manual_push:") {
+			foundReceivedManual = entry.Status == "SENT" && entry.ActivityRelation == "received_by_me"
+		}
+		if strings.HasPrefix(entry.DedupKey, "schedule:") && strings.HasSuffix(entry.DedupKey, ":"+actorA) {
+			foundReceivedReminder = entry.Status == "UNKNOWN" && entry.ActivityRelation == "received_by_me"
+		}
+		if entry.ID == "" || entry.HistoryCategory != notification.HistoryCategoryMine {
+			t.Errorf("unexpected history metadata: %+v", entry)
+		}
+	}
+	if !foundManual || !foundPayment || !foundReceivedBlast || !foundReceivedManual || !foundReceivedReminder {
+		t.Fatalf("actor A history did not include sent activity and actual recipient records with their own statuses: %+v", mineA)
+	}
+	for _, entry := range mineA {
+		if entry.RTID != rtID {
+			t.Fatalf("actor A history contains cross-RT delivery: %+v", entry)
+		}
+	}
+
+	mineB, mineBTotal, err := repo.ListManagementHistory(ctx, rtID, actorB, notification.HistoryCategoryMine, 0, 20)
+	if err != nil {
+		t.Fatalf("ListManagementHistory actor B: %v", err)
+	}
+	if mineBTotal != 3 || len(mineB) != 3 {
+		t.Fatalf("actor B should see two actual broadcast receipts and their payment action, got total=%d: %+v", mineBTotal, mineB)
+	}
+	foundActorBManual, foundActorBWasteTruck := false, false
+	for _, entry := range mineB {
+		if entry.ActivityRelation != "received_by_me" || entry.UserID == nil || *entry.UserID != actorB {
+			continue
+		}
+		if entry.EventType == notification.EventManualPush {
+			foundActorBManual = entry.Status == "SENT" && strings.HasSuffix(entry.DedupKey, ":"+actorB)
+		}
+		if entry.EventType == notification.EventWasteTruckArrival {
+			foundActorBWasteTruck = entry.Status == "SENT" && strings.HasSuffix(entry.DedupKey, ":"+actorB)
+		}
+	}
+	if !foundActorBManual || !foundActorBWasteTruck {
+		t.Fatalf("actor B should see only the actual manual and waste-truck receipts: %+v", mineB)
+	}
+	for _, entry := range mineB {
+		if strings.HasSuffix(entry.DedupKey, ":"+actorA) {
+			t.Fatalf("actor B received an activity recorded for actor A: %+v", entry)
+		}
+	}
+}
+
+func TestManagementHistoryIncludesPersistedManualAndWasteTruckRecipientDeliveries(t *testing.T) {
+	pool := notifTestPool(t)
+	repo := notification.NewRepository(pool)
+	ctx := context.Background()
+	rtID := notifTestRT(t, pool)
+	senderID := notifTestUser(t, pool, "history-sender", true)
+	recipientID := notifTestUser(t, pool, "history-recipient-actual", true)
+	ketuaJabatan := "ketua"
+	notifTestMembership(t, pool, senderID, rtID, "pengurus", &ketuaJabatan, true)
+	notifTestMembership(t, pool, recipientID, rtID, "warga", nil, true)
+	defer func() {
+		cleanupNotifTestRT(t, pool, rtID)
+		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id IN ($1, $2)`, senderID, recipientID)
+	}()
+
+	recipients, err := repo.GetRTBroadcastRecipients(ctx, rtID)
+	if err != nil {
+		t.Fatalf("load actual active RT broadcast recipients: %v", err)
+	}
+	actualRecipients := make(map[string]struct{}, len(recipients))
+	for _, recipient := range recipients {
+		actualRecipients[recipient.UserID] = struct{}{}
+	}
+	if _, ok := actualRecipients[recipientID]; !ok {
+		t.Fatalf("test recipient %s was not selected from active RT memberships: %+v", recipientID, recipients)
+	}
+
+	manualPayload := map[string]string{"title": "Manual history test", "body": "Recipient-scoped manual broadcast"}
+	manualKey := fmt.Sprintf("manual_push:%s:%d:test", rtID, atomic.AddInt64(&dbRTCounter, 1))
+	created, err := repo.CheckAndRecordDedup(ctx, rtID, senderID, notification.EventManualPush, manualKey, manualPayload["title"], manualPayload["body"], manualPayload)
+	if err != nil || !created {
+		t.Fatalf("record manual broadcast parent: created=%t err=%v", created, err)
+	}
+	manualBroadcastID := manualPayload["notification_id"]
+	if err := repo.RecordBroadcastRecipientDelivery(ctx, rtID, senderID, recipientID, notification.EventManualPush, manualBroadcastID, manualPayload["title"], manualPayload["body"], manualPayload, "SENT"); err != nil {
+		t.Fatalf("persist actual manual recipient delivery: %v", err)
+	}
+
+	truckPayload := map[string]string{"title": "Waste truck history test", "body": "Recipient-scoped truck dispatch"}
+	truckKey := fmt.Sprintf("waste_truck:%s:test:%d", rtID, atomic.AddInt64(&dbRTCounter, 1))
+	truckID, created, err := repo.RecordWasteTruckDispatch(ctx, rtID, senderID, truckKey, truckPayload["title"], truckPayload["body"], truckPayload)
+	if err != nil || !created {
+		t.Fatalf("record waste-truck dispatch parent: id=%s created=%t err=%v", truckID, created, err)
+	}
+	if err := repo.RecordBroadcastRecipientDelivery(ctx, rtID, senderID, recipientID, notification.EventWasteTruckArrival, truckID, truckPayload["title"], truckPayload["body"], truckPayload, "SENT"); err != nil {
+		t.Fatalf("persist actual waste-truck recipient delivery: %v", err)
+	}
+
+	mine, total, err := repo.ListManagementHistory(ctx, rtID, recipientID, notification.HistoryCategoryMine, 0, 20)
+	if err != nil {
+		t.Fatalf("load recipient personal history: %v", err)
+	}
+	if total != 2 || len(mine) != 2 {
+		t.Fatalf("actual recipient should see one delivery for each broadcast event; got total=%d entries=%+v", total, mine)
+	}
+	foundManual, foundTruck := false, false
+	for _, entry := range mine {
+		if entry.RTID != rtID || entry.UserID == nil || *entry.UserID != recipientID || entry.ActivityRelation != "received_by_me" {
+			t.Fatalf("recipient history contains a non-recipient or cross-RT row: %+v", entry)
+		}
+		switch entry.EventType {
+		case notification.EventManualPush:
+			foundManual = entry.Status == "SENT" && entry.ID != manualBroadcastID
+		case notification.EventWasteTruckArrival:
+			foundTruck = entry.Status == "SENT" && entry.ID != truckID
+		}
+	}
+	if !foundManual || !foundTruck {
+		t.Fatalf("recipient history omitted persisted manual or waste-truck deliveries: %+v", mine)
+	}
+
+	senderHistory, senderTotal, err := repo.ListManagementHistory(ctx, rtID, senderID, notification.HistoryCategoryMine, 0, 20)
+	if err != nil {
+		t.Fatalf("load sender personal history: %v", err)
+	}
+	if senderTotal < 2 {
+		t.Fatalf("sender history lost manual/truck dispatch activity: %+v", senderHistory)
+	}
 }
 
 func cleanupNotifTestRT(t *testing.T, pool *database.Pool, rtID string) {
@@ -633,19 +1001,37 @@ func TestNotificationRepository_ReadReceiptsAndScoping(t *testing.T) {
 	notifTestMembership(t, pool, wargaBID, rtID, "warga", nil, true)
 
 	// Insert:
-	// 1. Broadcast public announcement (manual_push, user_id=NULL) in rtID
+	// 1. Broadcast parent plus an actual recipient delivery for Warga A in rtID
 	// 2. Personal bill notification for Warga A in rtID
 	// 3. Personal bill notification for Warga B in rtID
 	// 4. Internal notification with user_id=NULL (NOT public announcement) in rtID
 	// 5. Cross-tenant notification in otherRTID
-	var notifAnnounceID, notifBillAID, notifBillBID, notifInternalNullID, notifOtherRTID string
+	var notifAnnounceParentID, notifAnnounceID, notifAnnounceBID, notifBillAID, notifBillBID, notifInternalNullID, notifOtherRTID string
 	err := pool.Raw().QueryRowContext(ctx, `
 		INSERT INTO notification_logs (rt_id, user_id, event_type, dedup_key, title, body, status, created_at)
 		VALUES ($1, NULL, 'manual_push', 'test_db:manual:1', 'Pengumuman Kerja Bakti', 'Minggu jam 7', 'SENT', NOW() - INTERVAL '5 minutes')
 		RETURNING id::text
-	`, rtID).Scan(&notifAnnounceID)
+	`, rtID).Scan(&notifAnnounceParentID)
 	if err != nil {
 		t.Fatalf("insert announcement: %v", err)
+	}
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO notification_logs
+			(rt_id, user_id, sender_user_id, event_type, dedup_key, title, body, status, created_at)
+		VALUES ($1, $2, $3, 'manual_push', $4, 'Pengumuman Kerja Bakti', 'Minggu jam 7', 'SENT', NOW() - INTERVAL '5 minutes')
+		RETURNING id::text
+	`, rtID, wargaAID, wargaBID, "recipient:manual_push:"+notifAnnounceParentID+":"+wargaAID).Scan(&notifAnnounceID)
+	if err != nil {
+		t.Fatalf("insert announcement recipient delivery: %v", err)
+	}
+	err = pool.Raw().QueryRowContext(ctx, `
+		INSERT INTO notification_logs
+			(rt_id, user_id, sender_user_id, event_type, dedup_key, title, body, status, created_at)
+		VALUES ($1, $2, $3, 'manual_push', $4, 'Pengumuman Kerja Bakti', 'Minggu jam 7', 'SENT', NOW() - INTERVAL '5 minutes')
+		RETURNING id::text
+	`, rtID, wargaBID, wargaAID, "recipient:manual_push:"+notifAnnounceParentID+":"+wargaBID).Scan(&notifAnnounceBID)
+	if err != nil {
+		t.Fatalf("insert announcement recipient delivery for Warga B: %v", err)
 	}
 
 	err = pool.Raw().QueryRowContext(ctx, `
@@ -684,7 +1070,7 @@ func TestNotificationRepository_ReadReceiptsAndScoping(t *testing.T) {
 		t.Fatalf("insert other RT log: %v", err)
 	}
 
-	// 1. Warga A lists logs -> sees ONLY announcement + own bill (2 items), unread
+	// 1. Warga A lists logs -> sees only their recorded delivery and own bill.
 	logsA, totalA, err := repo.ListLogs(ctx, rtID, wargaAID, "", "", false, 0, 10)
 	if err != nil {
 		t.Fatalf("ListLogs for Warga A: %v", err)
@@ -786,14 +1172,14 @@ func TestNotificationRepository_ReadReceiptsAndScoping(t *testing.T) {
 		t.Errorf("expected Warga B to still have 2 unread, got %d", unreadB3)
 	}
 
-	// 7. Officer listing sees all 4 notifications in this RT (announcement, bill A, bill B, internal)
+	// 7. Officer listing through the personal logs endpoint sees only records addressed to them.
 	officerID := notifTestUser(t, pool, "officer", false)
 	notifTestMembership(t, pool, officerID, rtID, "pengurus", nil, true)
 	officerLogs, totalOff, err := repo.ListLogs(ctx, rtID, officerID, "", "", true, 0, 10)
 	if err != nil {
 		t.Fatalf("Officer ListLogs: %v", err)
 	}
-	if totalOff != 4 || len(officerLogs) != 4 {
-		t.Errorf("expected officer to see all 4 logs in rtID, got total=%d len=%d", totalOff, len(officerLogs))
+	if totalOff != 0 || len(officerLogs) != 0 {
+		t.Errorf("expected officer personal history to exclude other recipients and RT-wide parent logs, got total=%d len=%d", totalOff, len(officerLogs))
 	}
 }

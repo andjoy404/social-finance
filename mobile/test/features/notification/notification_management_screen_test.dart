@@ -11,13 +11,17 @@ import 'package:social_finance/features/notification/data/notification_api_clien
 import 'package:social_finance/features/notification/data/notification_repository.dart';
 import 'package:social_finance/features/notification/presentation/screens/notification_management_screen.dart';
 
+final requestedHistoryCategories = <String>[];
+
 class FakeNotificationRepository extends NotificationRepository {
-  FakeNotificationRepository()
-      : super(apiClient: NotificationApiClient(dio: Dio()));
+  FakeNotificationRepository({this.additionalSystemTypes = 0})
+    : super(apiClient: NotificationApiClient(dio: Dio()));
+
+  final int additionalSystemTypes;
 
   @override
   Future<List<SystemNotificationType>> fetchSystemTypes() async {
-    return const [
+    return [
       SystemNotificationType(
         eventType: 'iuran_bill_created',
         name: 'Penerbitan Tagihan Iuran',
@@ -37,6 +41,16 @@ class FakeNotificationRepository extends NotificationRepository {
         defaultBody: 'Truk pengangkut sampah sudah berada di lingkungan RT.',
         allowedVariables: [],
       ),
+      for (var index = 0; index < additionalSystemTypes; index++)
+        SystemNotificationType(
+          eventType: 'system_test_$index',
+          name: 'Jenis Notifikasi Tambahan $index',
+          trigger: 'Dipicu untuk pengujian layout',
+          recipientsRule: 'Warga RT',
+          defaultTitle: 'Notifikasi Tambahan $index',
+          defaultBody: 'Konten tambahan $index',
+          allowedVariables: const [],
+        ),
     ];
   }
 
@@ -67,6 +81,7 @@ class FakeNotificationRepository extends NotificationRepository {
         NotificationLogEntry(
           id: 'log-1',
           rtId: 'rt-1',
+          userId: 'u-warga',
           eventType: 'iuran_bill_created',
           title: 'Halo Warga!',
           body: 'Mohon lunasi tagihan nomor 101',
@@ -81,17 +96,58 @@ class FakeNotificationRepository extends NotificationRepository {
       totalPages: 1,
     );
   }
+
+  @override
+  Future<NotificationLogsResponse> fetchManagementHistory({
+    required String category,
+    int page = 1,
+    int perPage = 50,
+  }) async {
+    requestedHistoryCategories.add(category);
+    final title = category == 'mine'
+        ? 'Aktivitas Saya'
+        : 'Notifikasi Terjadwal';
+    return NotificationLogsResponse(
+      data: [
+        NotificationLogEntry(
+          id: 'log-$category',
+          rtId: 'rt-1',
+          eventType: category == 'mine'
+              ? 'manual_push'
+              : 'iuran_payment_reminder',
+          title: title,
+          body: '$title detail',
+          variables: const {},
+          recipientsCount: 4,
+          sentCount: 4,
+          historyCategory: category,
+          createdAt: DateTime(2026, 10, 29, 8, 30),
+        ),
+      ],
+      page: page,
+      perPage: perPage,
+      total: 1,
+      totalPages: 1,
+    );
+  }
 }
 
 void main() {
-  Widget buildTestWidget({Map<String, dynamic>? user}) {
-    final fakeRepo = FakeNotificationRepository();
-    final defaultUser = user ?? {
-      'id': 'u-admin',
-      'system_role': 'super_admin',
-      'role': AppRole.superAdmin,
-      'jabatan': null,
-    };
+  Widget buildTestWidget({
+    Map<String, dynamic>? user,
+    int additionalSystemTypes = 0,
+  }) {
+    final fakeRepo = FakeNotificationRepository(
+      additionalSystemTypes: additionalSystemTypes,
+    );
+    final defaultUser =
+        user ??
+        {
+          'id': 'u-admin',
+          'system_role': 'super_admin',
+          'role': AppRole.superAdmin,
+          'jabatan': null,
+        };
     return ProviderScope(
       overrides: [
         authRepositoryProvider.overrideWith((_) {
@@ -104,36 +160,97 @@ void main() {
           return repo;
         }),
         notificationRepositoryProvider.overrideWithValue(fakeRepo),
-        notificationSystemTypesProvider.overrideWith((ref) => fakeRepo.fetchSystemTypes()),
-        notificationTemplatesProvider.overrideWith((ref) => fakeRepo.fetchTemplates()),
+        notificationSystemTypesProvider.overrideWith(
+          (ref) => fakeRepo.fetchSystemTypes(),
+        ),
+        notificationTemplatesProvider.overrideWith(
+          (ref) => fakeRepo.fetchTemplates(),
+        ),
       ],
-      child: const MaterialApp(
-        home: NotificationManagementScreen(),
-      ),
+      child: const MaterialApp(home: NotificationManagementScreen()),
     );
   }
 
-  testWidgets('renders NotificationManagementScreen with 3 tabs and system items',
-      (tester) async {
+  testWidgets(
+    'management screen centers primary tabs and keeps history and template subtabs',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      final primaryTabs = find.byType(TabBar).first;
+      final primaryRect = tester.getRect(primaryTabs);
+      expect(find.text('KELOLA NOTIFIKASI'), findsOneWidget);
+      expect(find.text('NOTIFIKASI'), findsOneWidget);
+      expect(find.text('TEMPLATE'), findsOneWidget);
+      expect(find.text('SISTEM'), findsOneWidget);
+      expect(find.text('RIWAYAT SAYA'), findsOneWidget);
+      expect(find.text('KUSTOM'), findsNothing);
+      expect(find.text('PENJADWALAN'), findsNothing);
+      expect(tester.getRect(find.text('NOTIFIKASI')).center.dx, closeTo(primaryRect.center.dx / 2, 1));
+      expect(tester.getRect(find.text('TEMPLATE')).center.dx, closeTo(primaryRect.center.dx * 1.5, 1));
+
+      await tester.tap(find.text('TEMPLATE'));
+      await tester.pumpAndSettle();
+      expect(find.text('KUSTOM'), findsOneWidget);
+      expect(find.text('PENJADWALAN'), findsOneWidget);
+      expect(find.text('Template Kustom'), findsNothing);
+
+      final configTabs = find.byType(TabBar).last;
+      final configRect = tester.getRect(configTabs);
+      expect(tester.getRect(find.text('SISTEM').last).center.dx, closeTo(configRect.left + configRect.width / 6, 2));
+      expect(tester.getRect(find.text('KUSTOM')).center.dx, closeTo(configRect.center.dx, 2));
+      expect(tester.getRect(find.text('PENJADWALAN')).center.dx, closeTo(configRect.left + configRect.width * 5 / 6, 2));
+      expect(find.text('Penerbitan Tagihan Iuran'), findsOneWidget);
+      final layoutException = tester.takeException();
+      expect(layoutException, isNull, reason: layoutException?.toString());
+    },
+  );
+
+  testWidgets(
+    'configuration tabs stay fixed while system history content scrolls',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestWidget(additionalSystemTypes: 20));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('TEMPLATE'));
+      await tester.pumpAndSettle();
+
+      final configTabs = find.byType(TabBar).last;
+      final topBefore = tester.getTopLeft(configTabs).dy;
+      expect(find.text('SISTEM'), findsOneWidget);
+      expect(find.text('KUSTOM'), findsOneWidget);
+      expect(find.text('PENJADWALAN'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -450));
+      await tester.pumpAndSettle();
+
+      expect(tester.getTopLeft(configTabs).dy, topBefore);
+      expect(find.text('SISTEM'), findsOneWidget);
+      expect(find.text('KUSTOM'), findsOneWidget);
+      expect(find.text('PENJADWALAN'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('switches to KUSTOM and shows editable custom templates', (
+    tester,
+  ) async {
     await tester.pumpWidget(buildTestWidget());
     await tester.pumpAndSettle();
 
-    expect(find.text('KELOLA NOTIFIKASI'), findsOneWidget);
-    expect(find.text('Sistem'), findsOneWidget);
-    expect(find.text('Template'), findsOneWidget);
-    expect(find.text('Riwayat'), findsOneWidget);
-
-    expect(find.text('Penerbitan Tagihan Iuran'), findsOneWidget);
-    expect(find.text('Kedatangan Mobil Sampah'), findsOneWidget);
-    expect(find.text('FCM PUSH'), findsNWidgets(2));
-  });
-
-  testWidgets('switches to Template tab and shows custom templates',
-      (tester) async {
-    await tester.pumpWidget(buildTestWidget());
+    await tester.tap(find.text('TEMPLATE'));
     await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Template'));
+    await tester.tap(find.text('KUSTOM'));
     await tester.pumpAndSettle();
 
     expect(find.text('Tagihan Khusus Warga'), findsOneWidget);
@@ -141,22 +258,34 @@ void main() {
     expect(find.byType(Switch), findsOneWidget);
   });
 
-  testWidgets('switches to Riwayat tab and shows notification logs',
-      (tester) async {
+  testWidgets(
+    'system and personal history tabs load distinct backend categories',
+    (tester) async {
+      requestedHistoryCategories.clear();
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('NOTIFIKASI'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('SISTEM'));
+      await tester.pumpAndSettle();
+
+      expect(requestedHistoryCategories, contains('system'));
+      expect(find.text('Notifikasi Terjadwal'), findsOneWidget);
+      expect(find.text('Aktivitas Saya'), findsNothing);
+
+      await tester.tap(find.text('RIWAYAT SAYA'));
+      await tester.pumpAndSettle();
+      expect(requestedHistoryCategories, contains('mine'));
+      expect(find.text('Aktivitas Saya'), findsOneWidget);
+      expect(find.text('Notifikasi Terjadwal'), findsNothing);
+    },
+  );
+
+  testWidgets('opens push notification preview banner modal', (tester) async {
     await tester.pumpWidget(buildTestWidget());
     await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Riwayat'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Mohon lunasi tagihan nomor 101'), findsOneWidget);
-    expect(find.text('TERKIRIM'), findsOneWidget);
-    expect(find.text('Penerima: 4 perangkat'), findsOneWidget);
-  });
-
-  testWidgets('opens push notification preview banner modal',
-      (tester) async {
-    await tester.pumpWidget(buildTestWidget());
+    await tester.tap(find.text('TEMPLATE'));
     await tester.pumpAndSettle();
 
     final previewButtons = find.text('Preview Banner');
@@ -177,29 +306,31 @@ void main() {
     expect(find.text('Preview Notifikasi'), findsNothing);
   });
 
-  testWidgets('renders only Riwayat for Warga without Sistem or Template tabs',
-      (tester) async {
-    final wargaUser = {
-      'id': 'u-warga',
-      'email': 'warga@local.com',
-      'name': 'Warga RT',
-      'role': AppRole.warga,
-      'system_role': null,
-      'jabatan': null,
-    };
-    await tester.pumpWidget(buildTestWidget(user: wargaUser));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'renders only notification history for Warga without admin tabs',
+    (tester) async {
+      final wargaUser = {
+        'id': 'u-warga',
+        'email': 'warga@local.com',
+        'name': 'Warga RT',
+        'role': AppRole.warga,
+        'system_role': null,
+        'jabatan': null,
+      };
+      await tester.pumpWidget(buildTestWidget(user: wargaUser));
+      await tester.pumpAndSettle();
 
-    // Title is NOTIFIKASI
-    expect(find.text('NOTIFIKASI'), findsOneWidget);
-    expect(find.text('KELOLA NOTIFIKASI'), findsNothing);
+      // Title is NOTIFIKASI
+      expect(find.text('NOTIFIKASI'), findsOneWidget);
+      expect(find.text('KELOLA NOTIFIKASI'), findsNothing);
 
-    // Administrative tabs must not be rendered
-    expect(find.text('Sistem'), findsNothing);
-    expect(find.text('Template'), findsNothing);
+      // Administrative tabs must not be rendered
+      expect(find.text('Sistem'), findsNothing);
+      expect(find.text('Template'), findsNothing);
 
-    // Riwayat list is rendered directly
-    expect(find.text('Halo Warga!'), findsOneWidget);
-    expect(find.text('Mohon lunasi tagihan nomor 101'), findsOneWidget);
-  });
+      // Riwayat list is rendered directly
+      expect(find.text('Halo Warga!'), findsOneWidget);
+      expect(find.text('Mohon lunasi tagihan nomor 101'), findsOneWidget);
+    },
+  );
 }

@@ -133,13 +133,14 @@ func IsUpcomingDue3Months(dueDate, evalDate time.Time) bool {
 	return !evalNorm.Before(triggerDate) && evalNorm.Before(dueNorm)
 }
 
-// IsOverdue3Months returns true when evalDate has reached or passed 3 calendar months
-// after dueDate (evalDate >= dueDate + 3 calendar months).
+// IsOverdue3Months returns true when evalDate is strictly more than 3 calendar months
+// after dueDate (evalDate > dueDate + 3 calendar months).
+// Exact 3 calendar months is NOT eligible.
 func IsOverdue3Months(dueDate, evalDate time.Time) bool {
 	dueNorm := NormalizeDateJakarta(dueDate)
 	evalNorm := NormalizeDateJakarta(evalDate)
 	thresholdDate := Overdue3MonthsThresholdDate(dueNorm)
-	return !evalNorm.Before(thresholdDate)
+	return evalNorm.After(thresholdDate)
 }
 
 // CalculateOutstandingCents returns the remaining unpaid obligation in cents:

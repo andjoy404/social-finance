@@ -256,7 +256,7 @@ bool rwMembershipHasWriteAccess(
 
   final currentMembership = memberships
       .where((m) => m['rw_id'] == rwId)
-      .firstOrNull as Map<String, dynamic>?;
+      .firstOrNull;
 
   if (currentMembership == null) return false;
 

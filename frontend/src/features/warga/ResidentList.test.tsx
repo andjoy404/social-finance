@@ -139,6 +139,47 @@ describe('W4.2C — ResidentList rendering', () => {
     })
   })
 
+  it('hides NIK column header and data cells for keamanan officer', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: {
+        ...mockUser,
+        role: 'warga',
+        jabatan: 'keamanan',
+      },
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+    render(
+      <MemoryRouter initialEntries={['/warga']}>
+        <ResidentList />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('columnheader', { name: 'NIK' })).not.toBeInTheDocument()
+    expect(screen.queryByText('3201011234560001')).not.toBeInTheDocument()
+  })
+
+  it('renders NIK column header and cell for pengurus role', async () => {
+    mockFetch(() => {
+      return mockSuccessResponse(mockPaginatedResponse([mockResident]))
+    })
+    renderResidentList()
+
+    await waitFor(() => {
+      expect(screen.getByText('Budi Santoso')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('columnheader', { name: 'NIK' })).toBeInTheDocument()
+    expect(screen.getByText('3201011234560001')).toBeInTheDocument()
+  })
+
   it('shows empty state when no residents', async () => {
     mockFetch(() => {
       return mockSuccessResponse(mockPaginatedResponse([]))

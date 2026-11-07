@@ -30,6 +30,8 @@ export interface AuthUser {
   effectivePermissions?: string[]
   rt: { id: string; name: string } | null
   rtCode?: string | null
+  rwName?: string | null
+  rwNumber?: number | null
   rtId?: string | null
   rwId?: string | null
   rwMemberships?: RWMembership[]
@@ -72,7 +74,8 @@ export function hasRwWriteAccess(
 }
 
 export function canAccessNotificationAdmin(user: AuthUser | null | undefined): boolean {
-  return isSuperAdminUser(user) || isKetuaRTUser(user)
+  return isSuperAdminUser(user) ||
+    (user?.effectivePermissions ?? []).includes('notification.manage')
 }
 
 export function canAccessNotificationMenu(user: AuthUser | null | undefined): boolean {
@@ -119,6 +122,8 @@ function mapUser(raw: ApiUser): AuthUser {
     effectivePermissions: raw.effective_permissions ?? [],
     rt: raw.rt ?? (raw.rt_id ? { id: raw.rt_id, name: raw.rt_name ?? '' } : null),
     rtCode,
+    rwName: raw.rw_name ?? null,
+    rwNumber: raw.rw_number ?? raw.rt_rw ?? null,
     rtId,
     rwId,
     rwMemberships,

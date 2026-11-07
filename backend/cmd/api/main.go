@@ -597,6 +597,18 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		))
 		r.Post("/api/v1/households", hh.CreateHousehold)
 		r.Post("/api/v1/residents", hh.CreateResident)
+	})
+
+	// Pembuatan petugas khusus (keamanan, kebersihan, operasional) tanpa household.
+	// Tidak memerlukan warga.create — special resident adalah akun petugas, bukan warga.
+	// Hanya pengurus (Ketua/WakilKetua/Sekretaris/Bendahara) atau super admin yang berwenang.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAccess(
+			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},
+			[]auth.Jabatan{auth.JabatanKetua, auth.JabatanWakilKetua, auth.JabatanSekretaris, auth.JabatanBendahara},
+		))
 		r.Post("/api/v1/residents/special", hh.CreateSpecialResident)
 	})
 
@@ -863,6 +875,9 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
+		r.Get("/api/v1/notifications/waste-truck/template", notifH.GetWasteTruckTemplate)
+		r.Get("/api/v1/notifications/waste-truck/history", notifH.ListWasteTruckHistory)
+		r.Post("/api/v1/notifications/waste-truck/upload-image", notifH.UploadImage)
 		r.Post("/api/v1/notifications/waste-truck", notifH.TriggerWasteTruckArrival)
 		r.Post("/api/v1/notifications/manual", notifH.TriggerManualPush)
 	})
@@ -875,6 +890,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Use(auth.RequireAllowedRT(pool))
 		r.Use(auth.RequireNotificationAdmin(pool))
 		r.Get("/api/v1/notifications/system-types", notifH.GetSystemTypes)
+		r.Get("/api/v1/notifications/management-history", notifH.ListManagementHistory)
 		r.Get("/api/v1/notifications/templates", notifH.ListTemplates)
 		r.Post("/api/v1/notifications/templates", notifH.CreateTemplate)
 		r.Get("/api/v1/notifications/templates/{id}", notifH.GetTemplate)
@@ -899,6 +915,29 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/notifications/schedules/{schedule_id}/recipients", notifH.GetSchedulerRecipientDetail)
 	})
 
+	// Kebersihan monitoring: read-only list of households with 3+ month overdue
+	// obligatory bills, field notes, and export. Access-controlled with
+	// rw.monitoring.read / rw.monitoring.notes.write / rw.monitoring.export
+	// permissions.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequirePermission(pool, "rw.monitoring.read"))
+			r.Get("/api/v1/rw/{rwId}/monitoring", notifH.ListMonitoringHouseholds)
+			r.Get("/api/v1/rw/{rwId}/monitoring/notes/{household_occupancy_id}", notifH.ListMonitoringNotes)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequirePermission(pool, "rw.monitoring.notes.write"))
+			r.Post("/api/v1/rw/{rwId}/monitoring/notes/{household_occupancy_id}", notifH.CreateMonitoringNote)
+			r.Patch("/api/v1/rw/{rwId}/monitoring/notes/{household_occupancy_id}", notifH.UpdateMonitoringNote)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequirePermission(pool, "rw.monitoring.export"))
+			r.Get("/api/v1/rw/{rwId}/monitoring/export/excel", notifH.ExportMonitoringExcel)
+			r.Get("/api/v1/rw/{rwId}/monitoring/export/pdf", notifH.ExportMonitoringPDF)
+		})
+	})
 	return r
 }
 

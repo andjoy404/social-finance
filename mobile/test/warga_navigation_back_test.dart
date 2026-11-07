@@ -22,6 +22,7 @@ import 'package:social_finance/app/app.dart';
 import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/models/role.dart';
+import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
@@ -31,12 +32,12 @@ import 'package:social_finance/features/warga/presentation/screens/household_edi
 import 'package:social_finance/features/warga/presentation/screens/warga_screen.dart';
 
 MappedResident _sampleResident() => const MappedResident(
-      id: 'resident-1',
-      householdId: 'household-1',
-      name: 'Budi Santoso',
-      nik: '3201234567890001',
-      houseNumber: '01',
-    );
+  id: 'resident-1',
+  householdId: 'household-1',
+  name: 'Budi Santoso',
+  nik: '3201234567890001',
+  houseNumber: '01',
+);
 
 const _sampleHousehold = BackendHousehold(
   id: 'household-1',
@@ -55,21 +56,21 @@ class _FakeWargaRepository extends WargaRepository {
     int page = 1,
     int pageSize = 100,
     String? search,
-  }) async =>
-      PaginatedResponse<MappedResident>(
-        data: [_sampleResident()],
-        pagination:
-            PaginationInfo(page: page, pageSize: pageSize, total: 1, totalPages: 1),
-      );
+  }) async => PaginatedResponse<MappedResident>(
+    data: [_sampleResident()],
+    pagination: PaginationInfo(
+      page: page,
+      pageSize: pageSize,
+      total: 1,
+      totalPages: 1,
+    ),
+  );
 
   @override
   Future<Map<String, BackendHousehold>> fetchHouseholds({
     int page = 1,
     int pageSize = 100,
-  }) async =>
-      const {
-        'household-1': _sampleHousehold,
-      };
+  }) async => const {'household-1': _sampleHousehold};
 }
 
 class _StaticWargaListNotifier extends WargaListNotifier {
@@ -160,10 +161,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(
-        find.descendant(
-          of: find.byType(Dialog),
-          matching: find.text('Warga'),
-        ),
+        find.descendant(of: find.byType(Dialog), matching: find.text('Warga')),
       );
       await tester.pumpAndSettle();
 
@@ -176,7 +174,8 @@ void main() {
       expect(
         handled,
         isTrue,
-        reason: 'back event was not handled by the app; the OS would exit '
+        reason:
+            'back event was not handled by the app; the OS would exit '
             'the application instead of showing the confirmation dialog',
       );
       // Form is still visible.
@@ -184,7 +183,10 @@ void main() {
       // Dialog is visible.
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
-      expect(find.text('Perubahan yang belum disimpan akan hilang.'), findsOneWidget);
+      expect(
+        find.text('Perubahan yang belum disimpan akan hilang.'),
+        findsOneWidget,
+      );
       expect(find.text('Tidak, Tetap di Halaman'), findsOneWidget);
       expect(find.text('Ya, Batalkan'), findsOneWidget);
 
@@ -211,7 +213,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(handledThird, isTrue);
       expect(find.byType(WargaScreen), findsOneWidget);
-      expect(find.text('Tekan sekali lagi untuk keluar dari aplikasi'), findsOneWidget);
+      expect(
+        find.text('Tekan sekali lagi untuk keluar dari aplikasi'),
+        findsOneWidget,
+      );
     },
   );
 
@@ -260,7 +265,10 @@ void main() {
         // The confirmation dialog must appear (not the form popping directly).
         expect(find.byType(HouseholdCreateScreen), findsOneWidget);
         expect(find.byType(AlertDialog), findsOneWidget);
-        expect(find.text('Apakah Anda yakin ingin membatalkan?'), findsOneWidget);
+        expect(
+          find.text('Apakah Anda yakin ingin membatalkan?'),
+          findsOneWidget,
+        );
 
         // Tap "Ya, Batalkan" to confirm exit.
         await tapDialogConfirm(tester);
@@ -299,7 +307,8 @@ void main() {
       expect(
         handled,
         isTrue,
-        reason: 'back event was not handled by the app; the OS would exit '
+        reason:
+            'back event was not handled by the app; the OS would exit '
             'the application instead of showing the confirmation dialog',
       );
       // Form is still visible.
@@ -319,23 +328,62 @@ void main() {
       await tester.pumpAndSettle();
       expect(handledAgain, isTrue);
       expect(find.byType(WargaScreen), findsOneWidget);
-      expect(find.text('Tekan sekali lagi untuk keluar dari aplikasi'), findsOneWidget);
+      expect(
+        find.text('Tekan sekali lagi untuk keluar dari aplikasi'),
+        findsOneWidget,
+      );
     },
   );
 
-  testWidgets(
-    'system back on Beranda (/home) stays and shows exit snackbar',
-    (tester) async {
-      await tester.pumpWidget(_app());
-      await tester.pumpAndSettle();
+  testWidgets('system back on Beranda (/home) stays and shows exit snackbar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
 
-      expect(find.text('Tekan sekali lagi untuk keluar dari aplikasi'), findsNothing);
+    expect(
+      find.text('Tekan sekali lagi untuk keluar dari aplikasi'),
+      findsNothing,
+    );
 
-      final handled = await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+    final handled = await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
 
-      expect(handled, isTrue, reason: 'Beranda back must be handled by app');
-      expect(find.text('Tekan sekali lagi untuk keluar dari aplikasi'), findsOneWidget);
-    },
-  );
+    expect(handled, isTrue, reason: 'Beranda back must be handled by app');
+    expect(
+      find.text('Tekan sekali lagi untuk keluar dari aplikasi'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('double back on a top-level screen requests app exit', (
+    tester,
+  ) async {
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          calls.add(call);
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: DoubleBackExitScope(child: Scaffold(body: Text('Notifikasi'))),
+      ),
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(
+      find.text('Tekan sekali lagi untuk keluar dari aplikasi'),
+      findsOneWidget,
+    );
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(calls.any((call) => call.method == 'SystemNavigator.pop'), isTrue);
+  });
 }

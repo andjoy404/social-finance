@@ -588,7 +588,7 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile.EffectivePermissions, err = effectiveIuranPermissions(ctx, tx, h.p, ac)
+	profile.EffectivePermissions, err = effectivePermissions(ctx, tx, h.p, ac)
 	if err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile permissions")
 		return
@@ -758,7 +758,7 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile.EffectivePermissions, err = effectiveIuranPermissions(ctx, tx, h.p, ac)
+	profile.EffectivePermissions, err = effectivePermissions(ctx, tx, h.p, ac)
 	if err != nil {
 		httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile permissions")
 		return
@@ -889,8 +889,8 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, ac *AuthContext) ([]string, error) {
-	permissions := make([]string, 0, 4)
+func effectivePermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, ac *AuthContext) ([]string, error) {
+	permissions := make([]string, 0, 5)
 	roleAllowsRead := ac.TenantRole == RoleWarga ||
 		ac.TenantRole == RoleBendahara ||
 		ac.TenantRole == RolePengurus
@@ -909,6 +909,7 @@ func effectiveIuranPermissions(ctx context.Context, tx *sql.Tx, pool *database.P
 		{code: "finance.create", roleAllows: roleAllowsManagement},
 		{code: "finance.update", roleAllows: roleAllowsManagement},
 		{code: "finance.approve", roleAllows: roleAllowsManagement},
+		{code: "notification.manage", roleAllows: false},
 	}
 
 	resolver := NewPermissionResolver(pool)

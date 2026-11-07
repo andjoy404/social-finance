@@ -1,5 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationMenu } from '@/app/AuthContext'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useAuth, isAllowedRT, isSuperAdminUser } from '@/app/AuthContext'
 import { Login } from '@/features/auth/Login'
 import { Dashboard } from '@/features/dashboard/Dashboard'
 import { AppLayout } from '@/layouts/AppLayout'
@@ -19,7 +19,9 @@ import { HouseholdMove } from '@/features/warga/HouseholdMove'
 import { SpecialResidentCreate } from '@/features/warga/SpecialResidentCreate'
 import { SpecialResidentEdit } from '@/features/warga/SpecialResidentEdit'
 import { NotificationScreen } from '@/features/notification/NotificationScreen'
+import { MonitoringScreen } from '@/features/monitoring/MonitoringScreen'
 import { RwDataView } from '@/features/rw/RwDataView'
+import { SecurityWasteTruckScreen } from '@/features/notification/SecurityWasteTruckScreen'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -51,15 +53,44 @@ function AllowedRTRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-function NotificationAdminRoute({ children }: { children: React.ReactNode }) {
+export function getOfficerRouteDestination(
+  jabatan: string | null | undefined,
+  pathname: string,
+): string | null {
+  const normalized = (jabatan ?? '').trim().toLowerCase()
+  if (normalized !== 'keamanan' && normalized !== 'kebersihan') return null
+  const defaultPath = normalized === 'keamanan' ? '/warga' : '/monitoring'
+  if (pathname === '/') return defaultPath
+  const allowed = normalized === 'keamanan'
+    ? pathname === '/warga' ||
+      pathname.startsWith('/warga/') ||
+      pathname === '/notifikasi'
+    : pathname === '/monitoring'
+  return allowed ? null : defaultPath
+}
+
+function OfficerAccessRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated } = useAuth()
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
-  if (!canAccessNotificationMenu(user)) {
-    return <Navigate to="/" replace />
-  }
+  const location = useLocation()
+  if (!isAuthenticated) return <>{children}</>
+
+  const destination = getOfficerRouteDestination(user?.jabatan, location.pathname)
+  if (destination) return <Navigate to={destination} replace />
   return <>{children}</>
+}
+
+function NotificationEntryRoute() {
+  const { user, isAuthenticated } = useAuth()
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  const jabatan = (user?.jabatan ?? '').trim().toLowerCase()
+  if (jabatan === 'kebersihan') {
+    return <Navigate to="/monitoring" replace />
+  }
+  if (jabatan === 'keamanan') {
+    const canDispatch = (user?.effectivePermissions ?? []).includes('notification.send_waste_truck')
+    return <SecurityWasteTruckScreen canDispatch={canDispatch} />
+  }
+  return <NotificationScreen />
 }
 
 export function App() {
@@ -78,7 +109,9 @@ export function App() {
         path="/"
         element={
           <ProtectedRoute>
-            <AppLayout />
+            <OfficerAccessRoute>
+              <AppLayout />
+            </OfficerAccessRoute>
           </ProtectedRoute>
         }
       >
@@ -178,11 +211,7 @@ export function App() {
         />
         <Route
           path="notifikasi"
-          element={
-            <NotificationAdminRoute>
-              <NotificationScreen />
-            </NotificationAdminRoute>
-          }
+          element={<NotificationEntryRoute />}
         />
         <Route
           path="rw-view/:rwId/*"
@@ -190,6 +219,14 @@ export function App() {
             <ProtectedRoute>
               <RwDataView />
             </ProtectedRoute>
+          }
+        />
+        <Route
+          path="monitoring"
+          element={
+            <AllowedRTRoute>
+              <MonitoringScreen />
+            </AllowedRTRoute>
           }
         />
       </Route>

@@ -47,6 +47,8 @@ import '../features/fund_location/presentation/screens/fund_location_screen.dart
 import '../features/notification/data/models/notification_models.dart';
 import '../features/notification/presentation/screens/notification_detail_screen.dart';
 import '../features/notification/presentation/screens/notification_management_screen.dart';
+import '../features/notification/presentation/screens/security_waste_truck_screen.dart';
+import '../features/monitoring/presentation/screens/monitoring_screen.dart';
 
 /// Normalizes a notification deep link and/or FCM data payload into a valid
 /// internal GoRouter destination path.
@@ -231,6 +233,24 @@ String normalizeNotificationTarget(
   // 6. Safe fallback for unknown notification links/payloads so GoRouter never
   // lands on the error page when opening a notification.
   return buildNotificationDetailUrl();
+}
+
+String? securityOfficerHomeRedirect(String? jabatan, String location) {
+  final normalizedJabatan = (jabatan ?? '').trim().toLowerCase();
+  if (normalizedJabatan == 'keamanan' &&
+      (location == '/login' || location == '/home')) {
+    return '/home/warga';
+  }
+  return null;
+}
+
+String? cleaningOfficerHomeRedirect(String? jabatan, String location) {
+  final normalizedJabatan = (jabatan ?? '').trim().toLowerCase();
+  if (normalizedJabatan == 'kebersihan' &&
+      (location == '/login' || location == '/home')) {
+    return '/home/monitoring';
+  }
+  return null;
 }
 
 class App extends ConsumerStatefulWidget {
@@ -679,25 +699,44 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           final user = authState?.valueOrNull;
           return _resolveAuthorizedTarget(pending, user);
         }
-        if (loggedIn && state.matchedLocation == '/login') {
-          return '/home';
-        }
         if (!loggedIn && state.matchedLocation != '/login') {
           return '/login';
         }
         if (loggedIn) {
           final user = authState?.valueOrNull;
           final loc = state.matchedLocation;
-          if (loc == '/home/notifikasi' &&
-              !_canUserAccessNotificationMenu(user)) {
-            return '/home';
+          final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+          final securityLanding = securityOfficerHomeRedirect(
+            jabatan,
+            loc,
+          );
+          if (securityLanding != null) return securityLanding;
+          final cleaningLanding = cleaningOfficerHomeRedirect(jabatan, loc);
+          if (cleaningLanding != null) return cleaningLanding;
+          if (loc == '/login') return '/home';
+          // A restored session or system Back can land on /home; route
+          // security officers to their first authorized tab instead.
+          if (loc == '/home/notifikasi') {
+            // Petugas keamanan membuka fitur khusus pengiriman notifikasi
+            // truk sampah (template read-only + foto + kirim), bukan menu
+            // manajemen notifikasi warga.
+            if (jabatan == 'keamanan') {
+              return '/home/notifikasi/waste-truck';
+            }
+            if (!_canUserAccessNotificationMenu(user)) {
+              return '/home';
+            }
           }
           final isRTOperational =
               loc.startsWith('/home/kas') ||
               loc.startsWith('/home/lokasi-dana') ||
               loc.startsWith('/home/iuran') ||
               loc.startsWith('/home/warga');
-          if (isRTOperational && !isAllowedRT(user)) {
+          final isSecurityWargaPath =
+              jabatan == 'keamanan' && loc == '/home/warga';
+          if (isRTOperational &&
+              !isAllowedRT(user) &&
+              !isSecurityWargaPath) {
             return '/home';
           }
           if (loc.startsWith('/home/lokasi-dana')) {
@@ -716,6 +755,19 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           if (loc.startsWith('/home/iuran/')) {
             if (!canAccessIuranPath(loc, user)) {
               return '/home/iuran';
+            }
+          }
+          // Monitoring hanya untuk petugas kebersihan.
+          if (loc == '/home/monitoring') {
+            if (jabatan != 'kebersihan') {
+              return '/home';
+            }
+          }
+          // Waste truck hanya untuk petugas keamanan.
+          if (loc.startsWith('/home/notifikasi/waste-truck')) {
+            final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
+            if (jabatan != 'keamanan') {
+              return '/home';
             }
           }
           if (loc.startsWith('/rw/')) {
@@ -847,6 +899,16 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   },
                 ),
               ],
+            ),
+            GoRoute(
+              path: '/home/notifikasi/waste-truck',
+              name: 'notifikasi_waste_truck',
+              builder: (context, state) => const SecurityWasteTruckScreen(),
+            ),
+            GoRoute(
+              path: '/home/monitoring',
+              name: 'monitoring',
+              builder: (context, state) => const MonitoringScreen(),
             ),
             GoRoute(
               path: '/home/cash',

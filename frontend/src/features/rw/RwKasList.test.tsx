@@ -4,17 +4,21 @@ import { RwKasList } from './RwKasList'
 import * as rwApi from './rw-api'
 import * as AuthContext from '@/app/AuthContext'
 
-vi.mock('@/app/AuthContext', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'user-1',
-      name: 'Bendahara RW 002',
-      role: 'bendahara',
-      jabatan: 'bendahara',
-      rwMemberships: [{ rw_id: 'rw-002', jabatan: 'bendahara', source: 'explicit' }],
-    },
-  }),
-}))
+vi.mock('@/app/AuthContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/app/AuthContext')>()
+  return {
+    ...actual,
+    useAuth: () => ({
+      user: {
+        id: 'user-1',
+        name: 'Bendahara RW 002',
+        role: 'bendahara',
+        jabatan: 'bendahara',
+        rwMemberships: [{ rw_id: 'rw-002', jabatan: 'bendahara', source: 'explicit' }],
+      },
+    }),
+  }
+})
 
 vi.mock('@/app/api', () => ({
   getSessionPair: () => ({ accessToken: 'test-token' }),
@@ -112,7 +116,7 @@ describe('RwKasList', () => {
     render(<RwKasList rwId="rw-016" />)
 
     await waitFor(() => {
-      expect(screen.getByText('KAS RW — rw-016')).toBeInTheDocument()
+      expect(screen.getByText(/KAS RW — (rw-016|RW 016)/i)).toBeInTheDocument()
     })
 
     // Header should show read-only subtitle
@@ -161,7 +165,7 @@ describe('RwKasList', () => {
     render(<RwKasList rwId="rw-016" />)
 
     await waitFor(() => {
-      expect(screen.getByText('KAS RW — rw-016')).toBeInTheDocument()
+      expect(screen.getByText(/KAS RW — (rw-016|RW 016)/i)).toBeInTheDocument()
     })
 
     expect(screen.getByText('Buku kas RW (Mode Read-Only)')).toBeInTheDocument()
@@ -207,7 +211,7 @@ describe('RwKasList', () => {
     render(<RwKasList rwId="rw-017" />)
 
     await waitFor(() => {
-      expect(screen.getByText('KAS RW — rw-017')).toBeInTheDocument()
+      expect(screen.getByText(/KAS RW — (rw-017|RW 017)/i)).toBeInTheDocument()
     })
 
     expect(screen.queryByText('Buku kas RW (Mode Read-Only)')).not.toBeInTheDocument()

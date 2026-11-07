@@ -170,7 +170,7 @@ describe('RwDataView', () => {
     })
 
     // Render with inferred RW selected
-    render(
+    const { unmount } = render(
       <MemoryRouter initialEntries={['/rw-view/rw-016/dashboard']}>
         <Routes>
           <Route path="/rw-view/:rwId/*" element={<RwDataView />} />
@@ -180,6 +180,9 @@ describe('RwDataView', () => {
 
     expect(screen.getByText('Keuangan RW 016')).toBeInTheDocument()
     expect(screen.getByText('Mode Read-Only')).toBeInTheDocument()
+
+    // Unmount before rendering second view
+    unmount()
 
     // Now switch to explicit RW
     render(

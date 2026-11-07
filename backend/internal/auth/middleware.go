@@ -507,6 +507,33 @@ func RequireAccess(roles []Role, jabatans []Jabatan) func(http.Handler) http.Han
 // This replaces the previous hardcoded jabatan "ketua" check so that any
 // jabatan granted notification.manage via position_permissions gains access
 // without code changes.
+func HasNotificationManage(ctx context.Context, pool *database.Pool, ac *AuthContext) (bool, error) {
+	if ac == nil {
+		return false, nil
+	}
+	if ac.SystemRole == SystemRoleSuperAdmin {
+		return true, nil
+	}
+	if ac.Jabatan == "" || ac.MembershipID == "" || ac.RTID == "" || pool == nil {
+		return false, nil
+	}
+
+	tx, err := pool.BeginTx(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	jabatan, err := validateMembershipJabatan(ctx, tx, ac.UserID, ac.RTID, ac.Jabatan)
+	if err != nil {
+		return false, err
+	}
+	if jabatan == "" {
+		return false, nil
+	}
+	return hasPermissionForPosition(ctx, tx, jabatan, "notification.manage")
+}
+
 func RequireNotificationAdmin(pool *database.Pool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -515,39 +542,9 @@ func RequireNotificationAdmin(pool *database.Pool) func(http.Handler) http.Handl
 				httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
 				return
 			}
-			// System-level SUPER_ADMIN bypass — unrestricted access.
-			if ac.SystemRole == SystemRoleSuperAdmin {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// Users without a jabatan cannot manage notifications — there is no
-			// role-based fallback for this admin permission.
-			if ac.Jabatan == "" || ac.MembershipID == "" || ac.RTID == "" {
-				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
-				return
-			}
-			// Jabatan-based user: verify membership exists in current RT, then
-			// check position_permissions for notification.manage.
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			defer cancel()
-
-			tx, err := pool.BeginTx(ctx)
-			if err != nil {
-				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
-				return
-			}
-			defer tx.Rollback()
-
-			jabatan, err := validateMembershipJabatan(ctx, tx, ac.UserID, ac.RTID, ac.Jabatan)
-			if err != nil {
-				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to validate membership")
-				return
-			}
-			if jabatan == "" {
-				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "insufficient permissions")
-				return
-			}
-			has, err := hasPermissionForPosition(ctx, tx, jabatan, "notification.manage")
+			has, err := HasNotificationManage(ctx, pool, ac)
 			if err != nil {
 				httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to check permission")
 				return

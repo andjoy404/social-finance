@@ -122,3 +122,33 @@ export function parseIso8601ToEpoch(iso: string | null | undefined): number {
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : NaN;
 }
+
+/**
+ * Format an ISO timestamp or Date object to Indonesian locale using Asia/Jakarta timezone.
+ *
+ * Guarantees that regardless of the user's browser/system timezone (UTC, America/New_York, etc.),
+ * the displayed time is always strictly in WIB (UTC+07:00).
+ *
+ * @param dateInput - ISO string, Date, or null/undefined
+ * @param options - Custom Intl.DateTimeFormatOptions (defaults to dateStyle: 'medium', timeStyle: 'short')
+ * @param fallback - Fallback string when dateInput is empty or invalid (default: '-')
+ */
+export function formatJakartaDateTime(
+  dateInput: Date | string | null | undefined,
+  options?: Intl.DateTimeFormatOptions,
+  fallback = '-'
+): string {
+  if (!dateInput) return fallback;
+  const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  if (isNaN(date.getTime())) return fallback;
+
+  const resolvedOptions: Intl.DateTimeFormatOptions = {
+    timeZone: JAKARTA_TIMEZONE,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    ...options,
+  };
+
+  return date.toLocaleString('id-ID', resolvedOptions);
+}
+
