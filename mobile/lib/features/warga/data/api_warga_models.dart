@@ -424,7 +424,7 @@ class MappedResident {
       case 'bendahara':
         return 'Bendahara RT';
       case 'keamanan':
-        return 'Seksi Keamanan';
+        return 'Keamanan';
       case 'sosial':
         return 'Seksi Sosial';
       case 'operasional':

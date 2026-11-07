@@ -324,7 +324,13 @@ export function WargaImportModal({
                   <strong>Kolom Wajib:</strong> <code>house_number</code>, <code>head_name</code>, <code>occupancy_status</code> (OWNER/TENANT), <code>resident_name</code>
                 </li>
                 <li>
-                  <strong>Kolom Opsional:</strong> <code>address</code>, <code>nik</code> (16 digit), <code>phone</code>, <code>email</code>
+                  <strong>Kolom Opsional:</strong> <code>address</code>, <code>nik</code> (16 digit), <code>phone</code>, <code>email</code>, <code>move_in_date</code> (YYYY-MM-DD), <code>jabatan</code>, <code>password</code>
+                </li>
+                <li>
+                  <strong>Kolom Password:</strong> Kosong = tidak mengubah password lama. Isi (minimal 8 karakter) = mengubah password.
+                </li>
+                <li>
+                  <strong>Kolom Jabatan:</strong> Nilai valid: ketua, wakil_ketua, sekretaris, bendahara, keamanan, sosial, operasional, kebersihan, anggota. Alias "Seksi Keamanan" tetap diterima.
                 </li>
                 <li>
                   Beberapa baris dengan <code>house_number</code> yang sama akan dikelompokkan ke dalam satu Rumah Tangga.

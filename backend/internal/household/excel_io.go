@@ -21,7 +21,7 @@ import (
 var excelHeaders = []string{
 	"house_number", "head_name", "occupancy_status",
 	"address", "resident_name", "nik", "phone",
-	"email",
+	"email", "move_in_date", "jabatan", "password",
 }
 
 // RequiredColumns are the Excel columns that must be present for import.
@@ -144,6 +144,9 @@ func parseExcelRows(f *excelize.File) ([]WargaCSVRow, []RowError, error) {
 			Nik:                nikRaw,
 			Phone:              getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
 			Email:              getVal(record, "email", "resident_email"),
+			MoveInDate:         getVal(record, "move_in_date", "tanggal_mulai", "move_in"),
+			Jabatan:            getVal(record, "jabatan", "position", "jabatan_warga"),
+			Password:           getVal(record, "password", "kata_sandi"),
 		}
 
 		// Field-level validation (identical to ParseWargaCSV).
@@ -212,6 +215,46 @@ func parseExcelRows(f *excelize.File) ([]WargaCSVRow, []RowError, error) {
 				})
 			} else {
 				row.Email = NormalizeEmail(row.Email)
+			}
+		}
+
+		// Validate move_in_date (optional, YYYY-MM-DD format)
+		if row.MoveInDate != "" {
+			if _, err := parseMoveInDate(row.MoveInDate); err != nil {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "move_in_date",
+					Code:    "invalid_date_format",
+					Message: "move_in_date must be in YYYY-MM-DD format",
+				})
+			} else {
+				row.MoveInDate = normalizeDate(row.MoveInDate)
+			}
+		}
+
+		// Validate jabatan (optional, must be a recognized position)
+		if row.Jabatan != "" {
+			if err := validateJabatan(row.Jabatan); err != nil {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "jabatan",
+					Code:    "invalid_jabatan",
+					Message: err.Error(),
+				})
+			} else {
+				row.Jabatan = normalizeJabatan(row.Jabatan)
+			}
+		}
+
+		// Validate password (optional, non-empty passwords must be at least 8 chars)
+		if row.Password != "" {
+			if len(strings.TrimSpace(row.Password)) < 8 {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "password",
+					Code:    "password_too_short",
+					Message: "password must be at least 8 characters",
+				})
 			}
 		}
 
@@ -489,7 +532,7 @@ func HandleWargaImportPreviewXLSX(pool *database.Pool) http.HandlerFunc {
 			ValidRows:   validCount,
 			InvalidRows: invalidCount,
 			Errors:      allErrors,
-			PreviewData: rows,
+			PreviewData: rowsToPreview(rows),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -574,9 +617,14 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 			   r.full_name as resident_name,
 			   COALESCE(r.nik, '') as nik,
 			   COALESCE(r.phone, '') as phone,
-			   COALESCE(r.email, '') as email
+			   COALESCE(r.email, '') as email,
+			   COALESCE(rp.start_date::text, '') as move_in_date,
+			   COALESCE(urm.jabatan, '') as jabatan,
+			   '' as password
 			 FROM residents r
 			 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+			 LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id
+			   AND urm.rt_id = $1 AND urm.is_active = true AND urm.jabatan IS NOT NULL
 			 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
 			 JOIN households h ON ho.household_id = h.id AND h.is_active = true
 			 JOIN physical_houses ph ON ho.physical_house_id = ph.id AND ph.is_active = true
@@ -594,9 +642,14 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 			   r.full_name as resident_name,
 			   COALESCE(r.nik, '') as nik,
 			   COALESCE(r.phone, '') as phone,
-			   COALESCE(r.email, '') as email
+			   COALESCE(r.email, '') as email,
+			   COALESCE(rp.start_date::text, '') as move_in_date,
+			   COALESCE(urm.jabatan, '') as jabatan,
+			   '' as password
 			 FROM residents r
 			 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+			 LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id
+			   AND urm.rt_id = r.rt_id AND urm.is_active = true AND urm.jabatan IS NOT NULL
 			 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
 			 JOIN households h ON ho.household_id = h.id AND h.is_active = true
 			 JOIN physical_houses ph ON ho.physical_house_id = ph.id AND ph.is_active = true
@@ -630,9 +683,11 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 	rowNum := 2
 	for rows.Next() {
 		var houseNum, headName, occStatus, addr, resName, nik, phone, email string
+		var moveInDate, jabatan, password string
 		if err := rows.Scan(
 			&houseNum, &headName, &occStatus, &addr,
 			&resName, &nik, &phone, &email,
+			&moveInDate, &jabatan, &password,
 		); err != nil {
 			f.Close()
 			return nil, fmt.Errorf("scan export row: %w", err)
@@ -642,6 +697,7 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 		for ci, val := range []string{
 			houseNum, headName, occStatus, addr,
 			resName, nik, phone, email,
+			moveInDate, jabatan, password,
 		} {
 			cell, _ = excelize.CoordinatesToCellName(ci+1, rowNum)
 			if err := f.SetCellValue("Warga", cell, val); err != nil {
@@ -658,8 +714,8 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 	}
 
 	// Set column widths for readability.
-	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H"}
-	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28}
+	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"}
+	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28, 14, 18, 8}
 	for i, col := range columns {
 		if i < len(widths) {
 			f.SetColWidth("Warga", col, col, widths[i])
@@ -689,8 +745,8 @@ func buildTemplateXLSX() (*excelize.File, error) {
 	}
 
 	// Set column widths matching export.
-	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H"}
-	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28}
+	columns := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"}
+	widths := []float64{14, 24, 16, 30, 24, 20, 18, 28, 14, 18, 8}
 	for i, col := range columns {
 		if i < len(widths) {
 			f.SetColWidth("Template", col, col, widths[i])

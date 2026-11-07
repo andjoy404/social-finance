@@ -127,7 +127,7 @@ function getJabatanLabel(jabatan: string | null | undefined): string {
     case 'sosial':
       return 'Seksi Sosial'
     case 'keamanan':
-      return 'Seksi Keamanan'
+      return 'Keamanan'
     case 'operasional':
       return 'Operasional'
     case 'kebersihan':

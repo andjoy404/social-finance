@@ -68,8 +68,8 @@ func writeRow(f *excelize.File, dataRow int, vals []string) {
 func TestParseExcelRowsValid(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Ani", "3171010101010002", "08112", "ani@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Ani", "3171010101010002", "08112", "ani@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -156,7 +156,7 @@ func TestParseExcelMissingRequiredColumn(t *testing.T) {
 func TestParseExcelInvalidNik(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "12345", "08111", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "12345", "08111", "bodi@test.com", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -176,7 +176,7 @@ func TestParseExcelInvalidNik(t *testing.T) {
 func TestParseExcelInvalidEmail(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "08111", "not-an-email", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "08111", "not-an-email", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -204,7 +204,7 @@ func TestParseExcelPhoneNormalization(t *testing.T) {
 	for _, tc := range cases {
 		f := excelize.NewFile()
 		writeHeaderRow(f)
-		writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", tc.input, "bodi@test.com", "HEAD"})
+		writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", tc.input, "bodi@test.com", "", "", ""})
 
 		rows, errs, err := parseExcelRows(f)
 		if err != nil {
@@ -222,7 +222,7 @@ func TestParseExcelPhoneNormalization(t *testing.T) {
 func TestParseExcelOccupancyPEMILIK(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "PEMILIK", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "PEMILIK", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -239,7 +239,7 @@ func TestParseExcelOccupancyPEMILIK(t *testing.T) {
 func TestParseExcelOccupancySEWA(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "SEWA", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "SEWA", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -256,7 +256,7 @@ func TestParseExcelOccupancySEWA(t *testing.T) {
 func TestParseExcelOccupancyKONTRAK(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "KONTRAK", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "KONTRAK", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -273,8 +273,8 @@ func TestParseExcelOccupancyKONTRAK(t *testing.T) {
 func TestParseExcelDuplicateNik(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"A2", "Citra", "OWNER", "Jl. M.", "Ani", "3171010101010001", "", "ani@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"A2", "Citra", "OWNER", "Jl. M.", "Ani", "3171010101010001", "", "ani@test.com", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -296,8 +296,8 @@ func TestParseExcelDuplicateNik(t *testing.T) {
 func TestParseExcelConflictingHeadName(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"A1", "Citra", "OWNER", "Jl. M.", "Ani", "3171010101010002", "", "ani@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"A1", "Citra", "OWNER", "Jl. M.", "Ani", "3171010101010002", "", "ani@test.com", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -317,8 +317,8 @@ func TestParseExcelConflictingHeadName(t *testing.T) {
 func TestParseExcelConflictingOccupancyStatus(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"A1", "Budi", "TENANT", "Jl. M.", "Ani", "3171010101010002", "", "ani@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"A1", "Budi", "TENANT", "Jl. M.", "Ani", "3171010101010002", "", "ani@test.com", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -338,10 +338,10 @@ func TestParseExcelConflictingOccupancyStatus(t *testing.T) {
 func TestParseExcelEmptyRowsSkipped(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "HEAD"})
-	writeRow(f, 1, []string{"", "", "", "", "", "", "", "", ""})
-	writeRow(f, 2, []string{"", "", "", "", "", "", "", "", ""})
-	writeRow(f, 3, []string{"A2", "Citra", "OWNER", "Jl. M.", "Citra", "3171010101010002", "", "citra@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "", "bodi@test.com", "", "", ""})
+	writeRow(f, 1, []string{"", "", "", "", "", "", "", "", "", "", ""})
+	writeRow(f, 2, []string{"", "", "", "", "", "", "", "", "", "", ""})
+	writeRow(f, 3, []string{"A2", "Citra", "OWNER", "Jl. M.", "Citra", "3171010101010002", "", "citra@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -390,7 +390,7 @@ func TestParseExcelAliasHeadersRejected(t *testing.T) {
 	f.SetCellValue("Sheet1", "G1", "telepon")
 	f.SetCellValue("Sheet1", "H1", "resident_email")
 	f.SetCellValue("Sheet1", "I1", "hubungan")
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "08111", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3171010101010001", "08111", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -429,7 +429,7 @@ func TestParseExcelAliasHeadersRejected(t *testing.T) {
 func TestParseExcelMissingRequiredFields(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"", "", "INVALID", "", "", "", "08111", "", ""})
+	writeRow(f, 0, []string{"", "", "INVALID", "", "", "", "08111", "", "", "", ""})
 
 	_, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -443,7 +443,7 @@ func TestParseExcelMissingRequiredFields(t *testing.T) {
 func TestParseExcelNIKStripNonDigits(t *testing.T) {
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3.171010101E+15", "08111", "bodi@test.com", "HEAD"})
+	writeRow(f, 0, []string{"A1", "Budi", "OWNER", "Jl. M.", "Budi", "3.171010101E+15", "08111", "bodi@test.com", "", "", ""})
 
 	rows, errs, err := parseExcelRows(f)
 	if err != nil {
@@ -798,8 +798,8 @@ func TestHandleWargaImportPreviewXLSX(t *testing.T) {
 	// Build valid XLSX with 2 rows
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-PRV-1", "Preview Head", "OWNER", "Jl. Preview 1", "Preview Resident 1", "3171010101010201", "08111", "p1@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-PRV-1", "Preview Head", "OWNER", "Jl. Preview 1", "Preview Resident 2", "3171010101010202", "08112", "p2@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"X-PRV-1", "Preview Head", "OWNER", "Jl. Preview 1", "Preview Resident 1", "3171010101010201", "08111", "p1@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-PRV-1", "Preview Head", "OWNER", "Jl. Preview 1", "Preview Resident 2", "3171010101010202", "08112", "p2@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -875,7 +875,7 @@ func TestHandleWargaImportPreviewXLXWargaForbidden(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-W-1", "Warga Head", "OWNER", "Jl. M.", "Warga Resident", "3171010101010301", "", "w@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-W-1", "Warga Head", "OWNER", "Jl. M.", "Warga Resident", "3171010101010301", "", "w@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -905,8 +905,8 @@ func TestHandleWargaImportCommitXLSX(t *testing.T) {
 	// Build valid XLSX
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-CMT-1", "Commit Head", "OWNER", "Jl. Commit 1", "Commit Resident 1", "3171010101010401", "08201", "c1@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-CMT-1", "Commit Head", "OWNER", "Jl. Commit 1", "Commit Resident 2", "3171010101010402", "08202", "c2@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"X-CMT-1", "Commit Head", "OWNER", "Jl. Commit 1", "Commit Resident 1", "3171010101010401", "08201", "c1@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-CMT-1", "Commit Head", "OWNER", "Jl. Commit 1", "Commit Resident 2", "3171010101010402", "08202", "c2@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1007,7 +1007,7 @@ func TestHandleWargaImportCommitXLSXWargaForbidden(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-WC-1", "Warga Commit", "OWNER", "Jl. M.", "Warga C", "3171010101010501", "", "wc@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-WC-1", "Warga Commit", "OWNER", "Jl. M.", "Warga C", "3171010101010501", "", "wc@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1032,7 +1032,7 @@ func TestHandleWargaImportCommitXLSXBendaharaForbidden(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-BC-1", "Bendahara Commit", "OWNER", "Jl. M.", "Bendahara C", "3171010101010601", "", "bc@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-BC-1", "Bendahara Commit", "OWNER", "Jl. M.", "Bendahara C", "3171010101010601", "", "bc@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1062,8 +1062,8 @@ func TestCommitXLSXRejectsPartialCommit(t *testing.T) {
 	// Build XLSX: 1 valid head, 1 invalid NIK
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-PT-1", "Valid Head", "OWNER", "Jl. M.", "Valid Resident", "3171010101010701", "", "val@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-PT-2", "Invalid Head", "OWNER", "Jl. M.", "Invalid Resident", "12345", "", "inv@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-PT-1", "Valid Head", "OWNER", "Jl. M.", "Valid Resident", "3171010101010701", "", "val@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-PT-2", "Invalid Head", "OWNER", "Jl. M.", "Invalid Resident", "12345", "", "inv@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1116,8 +1116,8 @@ func TestCommitXLSXDuplicateNIK(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-DN-1", "Dup Head 1", "OWNER", "Jl. M.", "Dup Resident 1", "3171010101010801", "", "d1@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-DN-2", "Dup Head 2", "OWNER", "Jl. M.", "Dup Resident 2", "3171010101010801", "", "d2@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-DN-1", "Dup Head 1", "OWNER", "Jl. M.", "Dup Resident 1", "3171010101010801", "", "d1@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-DN-2", "Dup Head 2", "OWNER", "Jl. M.", "Dup Resident 2", "3171010101010801", "", "d2@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1156,8 +1156,8 @@ func TestCommitXLSXConflictingHeadName(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-CH-1", "Conflicting Head A", "OWNER", "Jl. M.", "Resident A", "3171010101010901", "", "a@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-CH-1", "Conflicting Head B", "OWNER", "Jl. M.", "Resident B", "3171010101010902", "", "b@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"X-CH-1", "Conflicting Head A", "OWNER", "Jl. M.", "Resident A", "3171010101010901", "", "a@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-CH-1", "Conflicting Head B", "OWNER", "Jl. M.", "Resident B", "3171010101010902", "", "b@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1191,8 +1191,8 @@ func TestCommitXLSXConflictingOccupancyStatus(t *testing.T) {
 
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-CO-1", "Same Head", "OWNER", "Jl. M.", "Owner Resident", "3171010101011001", "", "o@test.com", "HEAD"})
-	writeRow(f, 1, []string{"X-CO-1", "Same Head", "TENANT", "Jl. M.", "Tenant Resident", "3171010101011002", "", "t@test.com", "SPOUSE"})
+	writeRow(f, 0, []string{"X-CO-1", "Same Head", "OWNER", "Jl. M.", "Owner Resident", "3171010101011001", "", "o@test.com", "", "", ""})
+	writeRow(f, 1, []string{"X-CO-1", "Same Head", "TENANT", "Jl. M.", "Tenant Resident", "3171010101011002", "", "t@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1230,7 +1230,7 @@ func TestPreviewCommitValidationParity(t *testing.T) {
 	// Build invalid XLSX: bad NIK
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-PAR-1", "Parity Head", "OWNER", "Jl. M.", "Parity Resident", "12345", "", "p@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-PAR-1", "Parity Head", "OWNER", "Jl. M.", "Parity Resident", "12345", "", "p@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	defer f.Close()
 
@@ -1483,7 +1483,7 @@ func TestSuperAdminWargaImportXLSX(t *testing.T) {
 	// Valid XLSX with 1 row
 	f := excelize.NewFile()
 	writeHeaderRow(f)
-	writeRow(f, 0, []string{"X-SAI-1", "SA Import Head", "OWNER", "Jl. SA 1", "SA Import Res", "3171010101010999", "08111", "sa@test.com", "HEAD"})
+	writeRow(f, 0, []string{"X-SAI-1", "SA Import Head", "OWNER", "Jl. SA 1", "SA Import Res", "3171010101010999", "08111", "sa@test.com", "", "", ""})
 	xlsxData := xlsxBytes(f)
 	f.Close()
 
@@ -1588,7 +1588,7 @@ func TestParseExcelNonEmptySheetDetection(t *testing.T) {
 		cell, _ := excelize.CoordinatesToCellName(ci+1, 1)
 		f.SetCellValue("DataSheet", cell, col)
 	}
-	vals := []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "HEAD"}
+	vals := []string{"A1", "Budi", "OWNER", "Jl. Merdeka 1", "Budi", "3171010101010001", "08111", "bodi@test.com", "", "", ""}
 	for i, v := range vals {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 2)
 		f.SetCellValue("DataSheet", cell, v)

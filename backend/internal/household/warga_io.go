@@ -11,6 +11,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
@@ -28,6 +31,27 @@ type WargaCSVRow struct {
 	Nik            string `json:"nik"`
 	Phone          string `json:"phone"`
 	Email          string `json:"email"`
+	MoveInDate     string `json:"move_in_date"`
+	Jabatan        string `json:"jabatan"`
+	Password       string `json:"password"`
+}
+
+// WargaPreviewRow is the safe, sanitized preview row returned to the client.
+// It is a strict subset of WargaCSVRow with the Password field omitted.
+type WargaPreviewRow struct {
+	RowNumber      int    `json:"row_number"`
+	HouseNumber    string `json:"house_number"`
+	HeadName       string `json:"head_name"`
+	OccupancyStatus string `json:"occupancy_status"`
+	Address        string `json:"address"`
+	ResidentName   string `json:"resident_name"`
+	Nik            string `json:"nik"`
+	Phone          string `json:"phone"`
+	Email          string `json:"email"`
+	MoveInDate     string `json:"move_in_date"`
+	Jabatan        string `json:"jabatan"`
+	// Password field intentionally omitted to prevent password leak in preview responses.
+	PasswordHint string `json:"password_hint,omitempty"`
 }
 
 // RowError captures an error on a specific row and field.
@@ -40,11 +64,11 @@ type RowError struct {
 
 // ImportPreviewResponse returns machine-readable summary of validation.
 type ImportPreviewResponse struct {
-	TotalRows   int           `json:"total_rows"`
-	ValidRows   int           `json:"valid_rows"`
-	InvalidRows int           `json:"invalid_rows"`
-	Errors      []RowError    `json:"errors"`
-	PreviewData []WargaCSVRow `json:"preview_data"`
+	TotalRows   int              `json:"total_rows"`
+	ValidRows   int              `json:"valid_rows"`
+	InvalidRows int              `json:"invalid_rows"`
+	Errors      []RowError       `json:"errors"`
+	PreviewData []WargaPreviewRow `json:"preview_data"`
 }
 
 // ImportCommitResponse returns summary after committing import.
@@ -155,6 +179,9 @@ func ParseWargaCSV(r io.Reader) ([]WargaCSVRow, []RowError, error) {
 			Nik:                getVal(record, "nik", "resident_nik", "ktp"),
 			Phone:              getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
 			Email:              getVal(record, "email", "resident_email"),
+			MoveInDate:         getVal(record, "move_in_date", "tanggal_mulai", "move_in"),
+			Jabatan:            getVal(record, "jabatan", "position", "jabatan_warga"),
+			Password:           getVal(record, "password", "kata_sandi"),
 		}
 
 		// Field validations
@@ -223,6 +250,46 @@ func ParseWargaCSV(r io.Reader) ([]WargaCSVRow, []RowError, error) {
 				})
 			} else {
 				row.Email = NormalizeEmail(row.Email)
+			}
+		}
+
+		// Validate move_in_date (optional, YYYY-MM-DD format)
+		if row.MoveInDate != "" {
+			if _, err := parseMoveInDate(row.MoveInDate); err != nil {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "move_in_date",
+					Code:    "invalid_date_format",
+					Message: "move_in_date must be in YYYY-MM-DD format",
+				})
+			} else {
+				row.MoveInDate = normalizeDate(row.MoveInDate)
+			}
+		}
+
+		// Validate jabatan (optional, must be a recognized position)
+		if row.Jabatan != "" {
+			if err := validateJabatan(row.Jabatan); err != nil {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "jabatan",
+					Code:    "invalid_jabatan",
+					Message: err.Error(),
+				})
+			} else {
+				row.Jabatan = normalizeJabatan(row.Jabatan)
+			}
+		}
+
+		// Validate password (optional, non-empty passwords must be at least 8 chars)
+		if row.Password != "" {
+			if len(strings.TrimSpace(row.Password)) < 8 {
+				rowErrors = append(rowErrors, RowError{
+					Row:     rowNum,
+					Field:   "password",
+					Code:    "password_too_short",
+					Message: "password must be at least 8 characters",
+				})
 			}
 		}
 
@@ -353,6 +420,9 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 	}
 	defer tx.Rollback()
 
+	// Unique import suffix to ensure user emails are unique per import run
+	importSuffix := uuid.NewString()
+
 	// 1. Group rows by HouseNumber
 	type householdGroup struct {
 		HouseNumber     string
@@ -447,7 +517,7 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 			}
 		}
 
-		// C. Create residents and current residency periods
+		// C. Process residents — create new or partially update existing
 		for _, res := range grp.Residents {
 			var existingResID string
 			err := tx.QueryRowContext(ctx,
@@ -458,11 +528,17 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 				 LIMIT 1`,
 				hoID, rtID, res.ResidentName, res.Nik,
 			).Scan(&existingResID)
+
 			if err == nil {
-				// Already exists in current occupancy, skip
+				// Existing resident in current occupancy — perform partial update per column
+				err = processExistingResident(ctx, tx, rtID, hoID, existingResID, res, importSuffix)
+				if err != nil {
+					return nil, fmt.Errorf("update resident %s: %w", res.ResidentName, err)
+				}
 				continue
 			}
 
+			// New resident — full creation flow
 			var nikPtr, phonePtr, emailPtr *string
 			if res.Nik != "" {
 				nikPtr = &res.Nik
@@ -484,18 +560,41 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 				return nil, fmt.Errorf("insert resident %s: %w", res.ResidentName, err)
 			}
 
+			// Determine start_date for residency: use move_in_date if provided, else CURRENT_DATE
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO residency_periods (resident_id, household_occupancy_id, start_date)
-				 VALUES ($1, $2, CURRENT_DATE)`,
-				resID, hoID,
+				 VALUES ($1, $2, COALESCE(NULLIF($3, '')::date, CURRENT_DATE))`,
+				resID, hoID, res.MoveInDate,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("insert residency period for %s: %w", res.ResidentName, err)
 			}
 			importedResidents++
-		}
 
-		triggerSyncBills(ctx, tx, rtID, hoID)
+			// Handle jabatan: create user + membership if provided
+			if res.Jabatan != "" {
+				var pwHash *string
+				if res.Password != "" {
+					h, err := auth.Hash(res.Password)
+					if err != nil {
+						return nil, fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
+					}
+					pwHash = &h
+				}
+				err = createResidentUserAndMembership(ctx, tx, resID, rtID, res.ResidentName, pwHash, res.Jabatan, importSuffix)
+				if err != nil {
+					return nil, fmt.Errorf("create user+membership for %s: %w", res.ResidentName, err)
+				}
+			} else if res.Password != "" {
+				// Password provided but no jabatan — try to update existing user's password
+				err = updateResidentPassword(ctx, tx, resID, res.Password)
+				if err != nil {
+					return nil, fmt.Errorf("update password for %s: %w", res.ResidentName, err)
+				}
+			}
+
+			triggerSyncBills(ctx, tx, rtID, hoID)
+		}
 	}
 
 	// Record audit log
@@ -529,11 +628,212 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 	}, nil
 }
 
+// processExistingResident handles partial updates for a resident that already exists.
+// Each column is handled independently: empty means "keep existing value".
+func processExistingResident(
+	ctx context.Context,
+	tx *sql.Tx,
+	rtID, hoID, resID string,
+	res WargaCSVRow,
+	importSuffix string,
+) error {
+	// --- 1. Move-in date: update current residency period start_date if provided ---
+	if res.MoveInDate != "" {
+		_, err := tx.ExecContext(ctx,
+			`UPDATE residency_periods
+			 SET start_date = $1, updated_at = now()
+			 WHERE resident_id = $2 AND household_occupancy_id = $3 AND end_date IS NULL`,
+			res.MoveInDate, resID, hoID,
+		)
+		if err != nil {
+			return fmt.Errorf("update residency start_date for %s: %w", res.ResidentName, err)
+		}
+	}
+
+	// --- 2. Jabatan: upsert membership if provided, do nothing if empty ---
+	if res.Jabatan != "" {
+		var userID sql.NullString
+		err := tx.QueryRowContext(ctx,
+			`SELECT user_id FROM residents WHERE id = $1`, resID,
+		).Scan(&userID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("query user_id for resident %s: %w", res.ResidentName, err)
+		}
+
+		if userID.Valid {
+			// User exists — upsert membership jabatan
+			// Since idx_memberships_user_rt_active is a partial index (not a constraint),
+			// we use INSERT + UPDATE pattern instead of ON CONFLICT.
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO user_rt_memberships (user_id, rt_id, jabatan, is_active)
+				 SELECT $1, $2, $3, true
+				 WHERE NOT EXISTS (
+				   SELECT 1 FROM user_rt_memberships
+				   WHERE user_id = $1 AND rt_id = $2 AND is_active = true
+				 )`,
+				userID.String, rtID, res.Jabatan,
+			)
+			if err != nil {
+				return fmt.Errorf("insert membership jabatan for %s: %w", res.ResidentName, err)
+			}
+			// Always update jabatan (insert or update)
+			_, err = tx.ExecContext(ctx,
+				`UPDATE user_rt_memberships
+				 SET jabatan = $3, updated_at = now()
+				 WHERE user_id = $1 AND rt_id = $2 AND is_active = true`,
+				userID.String, rtID, res.Jabatan,
+			)
+			if err != nil {
+				return fmt.Errorf("update membership jabatan for %s: %w", res.ResidentName, err)
+			}
+		} else if res.Password != "" {
+			// No existing user — create user with password and membership
+			pwHash, err := auth.Hash(res.Password)
+			if err != nil {
+				return fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
+			}
+
+			var newUserID string
+			err = tx.QueryRowContext(ctx,
+				`INSERT INTO users (email, password_hash, system_role, created_at, updated_at)
+				 VALUES ($1, $2, NULL, now(), now()) RETURNING id`,
+				fmt.Sprintf("%s-%s@import.local", strings.ToLower(res.ResidentName), importSuffix), pwHash,
+			).Scan(&newUserID)
+			if err != nil {
+				return fmt.Errorf("create user for %s: %w", res.ResidentName, err)
+			}
+
+			// Link resident to new user
+			_, err = tx.ExecContext(ctx,
+				`UPDATE residents SET user_id = $1 WHERE id = $2`,
+				newUserID, resID,
+			)
+			if err != nil {
+				return fmt.Errorf("link user to resident %s: %w", res.ResidentName, err)
+			}
+
+			// Create RT membership with jabatan
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO user_rt_memberships (user_id, rt_id, role, jabatan, is_active)
+				 VALUES ($1, $2, 'warga', $3, true)`,
+				newUserID, rtID, res.Jabatan,
+			)
+			if err != nil {
+				return fmt.Errorf("create RT membership for %s: %w", res.ResidentName, err)
+			}
+		}
+	} else if res.Password != "" {
+		// Password provided but no jabatan — update existing user's password
+		err := updateResidentPassword(ctx, tx, resID, res.Password)
+		if err != nil {
+			return fmt.Errorf("update password for %s: %w", res.ResidentName, err)
+		}
+	}
+
+	return nil
+}
+
+// createResidentUserAndMembership creates a new user account and RT membership for a new resident.
+func createResidentUserAndMembership(
+	ctx context.Context,
+	tx *sql.Tx,
+	resID, rtID, residentName string,
+	pwHash *string, // nil if no password
+	jabatan string,
+	importSuffix string,
+) error {
+	var newUserID string
+	var err error
+
+	if pwHash != nil {
+		// Create user with password
+		err = tx.QueryRowContext(ctx,
+			`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
+			 VALUES ($1, $2, $3, NULL, now(), now()) RETURNING id`,
+			fmt.Sprintf("%s-%s@import.local", strings.ToLower(residentName), importSuffix), residentName, *pwHash,
+		).Scan(&newUserID)
+		if err != nil {
+			return fmt.Errorf("create user for %s: %w", residentName, err)
+		}
+
+		// Link resident to new user
+		_, err = tx.ExecContext(ctx,
+			`UPDATE residents SET user_id = $1 WHERE id = $2`,
+			newUserID, resID,
+		)
+		if err != nil {
+			return fmt.Errorf("link user to resident %s: %w", residentName, err)
+		}
+	} else {
+		// Create user without password (imported without password)
+		err = tx.QueryRowContext(ctx,
+			`INSERT INTO users (email, full_name, system_role, created_at, updated_at)
+			 VALUES ($1, $2, NULL, now(), now()) RETURNING id`,
+			fmt.Sprintf("%s-%s@import.local", strings.ToLower(residentName), importSuffix), residentName,
+		).Scan(&newUserID)
+		if err != nil {
+			return fmt.Errorf("create user (no pw) for %s: %w", residentName, err)
+		}
+
+		// Link resident to new user
+		_, err = tx.ExecContext(ctx,
+			`UPDATE residents SET user_id = $1 WHERE id = $2`,
+			newUserID, resID,
+		)
+		if err != nil {
+			return fmt.Errorf("link user to resident %s: %w", residentName, err)
+		}
+	}
+
+	// Create RT membership with jabatan
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO user_rt_memberships (user_id, rt_id, role, jabatan, is_active)
+		 VALUES ($1, $2, 'warga', $3, true)`,
+		newUserID, rtID, jabatan,
+	)
+	if err != nil {
+		return fmt.Errorf("create RT membership for %s: %w", residentName, err)
+	}
+
+	return nil
+}
+
+// updateResidentPassword hashes and updates the password for an existing resident's user account.
+func updateResidentPassword(ctx context.Context, tx *sql.Tx, resID, password string) error {
+	var userID sql.NullString
+	err := tx.QueryRowContext(ctx,
+		`SELECT user_id FROM residents WHERE id = $1`, resID,
+	).Scan(&userID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("query user_id for resident %s: %w", resID, err)
+	}
+	if !userID.Valid {
+		// No user account linked — skip password update silently
+		return nil
+	}
+
+	pwHash, err := auth.Hash(password)
+	if err != nil {
+		return fmt.Errorf("hash password for resident %s: %w", resID, err)
+	}
+	_, err = tx.ExecContext(ctx,
+		`UPDATE users SET password_hash = $1, updated_at = now()
+		 WHERE id = $2`,
+		pwHash, userID.String,
+	)
+	if err != nil {
+		return fmt.Errorf("update password for resident %s: %w", resID, err)
+	}
+	return nil
+}
+
 // ExportWargaCSV writes out all active residents and their household info to CSV format.
 func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.Writer) error {
 	db := pool.Raw()
 
-	rows, err := db.QueryContext(ctx,
+	var rows *sql.Rows
+	var err error
+	rows, err = db.QueryContext(ctx,
 		`SELECT
 		   COALESCE(ph.house_number, '') as house_number,
 		   h.head_name,
@@ -542,9 +842,14 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 		   r.full_name as resident_name,
 		   COALESCE(r.nik, '') as nik,
 		   COALESCE(r.phone, '') as phone,
-		   COALESCE(r.email, '') as email
+		   COALESCE(r.email, '') as email,
+		   COALESCE(rp.start_date::text, '') as move_in_date,
+		   COALESCE(urm.jabatan, '') as jabatan,
+		   '' as password
 		 FROM residents r
 		 JOIN residency_periods rp ON rp.resident_id = r.id AND rp.end_date IS NULL
+		 LEFT JOIN user_rt_memberships urm ON urm.user_id = r.user_id
+		   AND urm.rt_id = $1 AND urm.is_active = true AND urm.jabatan IS NOT NULL
 		 JOIN household_occupancies ho ON rp.household_occupancy_id = ho.id AND ho.end_date IS NULL
 		 JOIN households h ON ho.household_id = h.id AND h.is_active = true
 		 JOIN physical_houses ph ON ho.physical_house_id = ph.id AND ph.is_active = true
@@ -563,7 +868,7 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 	header := []string{
 		"house_number", "head_name", "occupancy_status",
 		"address", "resident_name", "nik", "phone",
-		"email",
+		"email", "move_in_date", "jabatan", "password",
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("write csv header: %w", err)
@@ -571,9 +876,11 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 
 	for rows.Next() {
 		var houseNum, headName, occStatus, addr, resName, nik, phone, email string
+		var moveInDate, jabatan, password string
 		if err := rows.Scan(
 			&houseNum, &headName, &occStatus, &addr,
 			&resName, &nik, &phone, &email,
+			&moveInDate, &jabatan, &password,
 		); err != nil {
 			return fmt.Errorf("scan export row: %w", err)
 		}
@@ -581,6 +888,7 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 		record := []string{
 			houseNum, headName, occStatus, addr,
 			resName, nik, phone, email,
+			moveInDate, jabatan, password,
 		}
 		if err := writer.Write(record); err != nil {
 			return fmt.Errorf("write csv row: %w", err)
@@ -642,8 +950,18 @@ func readCSVBody(r *http.Request) (io.Reader, error) {
 func HandleWargaImportPreview(pool *database.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ac := auth.GetAuthContext(r)
-		if ac == nil || ac.RTID == "" {
-			httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "invalid or missing tenant context")
+		if ac == nil {
+			httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+			return
+		}
+
+		targetRT, err := resolveImportRTID(r.Context(), pool, r, ac, true)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				httpx.ErrorJSON(w, http.StatusNotFound, "not_found", "target RT not found")
+				return
+			}
+			httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", err.Error())
 			return
 		}
 
@@ -659,7 +977,7 @@ func HandleWargaImportPreview(pool *database.Pool) http.HandlerFunc {
 			return
 		}
 
-		allErrors, err := ValidateAgainstDatabase(r.Context(), pool, ac.RTID, rows, parseErrors)
+		allErrors, err := ValidateAgainstDatabase(r.Context(), pool, targetRT, rows, parseErrors)
 		if err != nil {
 			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", err.Error())
 			return
@@ -681,7 +999,7 @@ func HandleWargaImportPreview(pool *database.Pool) http.HandlerFunc {
 			ValidRows:   validCount,
 			InvalidRows: invalidCount,
 			Errors:      allErrors,
-			PreviewData: rows,
+			PreviewData: rowsToPreview(rows),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -690,12 +1008,49 @@ func HandleWargaImportPreview(pool *database.Pool) http.HandlerFunc {
 	}
 }
 
+// rowsToPreview converts WargaCSVRow (input model) to WargaPreviewRow (safe response DTO),
+// stripping the password and adding a hint about password update status.
+func rowsToPreview(rows []WargaCSVRow) []WargaPreviewRow {
+	preview := make([]WargaPreviewRow, len(rows))
+	for i, r := range rows {
+		preview[i] = WargaPreviewRow{
+			RowNumber:       r.RowNumber,
+			HouseNumber:     r.HouseNumber,
+			HeadName:        r.HeadName,
+			OccupancyStatus: r.OccupancyStatus,
+			Address:         r.Address,
+			ResidentName:    r.ResidentName,
+			Nik:             r.Nik,
+			Phone:           r.Phone,
+			Email:           r.Email,
+			MoveInDate:      r.MoveInDate,
+			Jabatan:         r.Jabatan,
+		}
+		if r.Password != "" {
+			preview[i].PasswordHint = "password will be set"
+		} else {
+			preview[i].PasswordHint = "password unchanged"
+		}
+	}
+	return preview
+}
+
 // HandleWargaImportCommit parses, validates, and commits CSV data to DB in a transaction.
 func HandleWargaImportCommit(pool *database.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ac := auth.GetAuthContext(r)
-		if ac == nil || ac.RTID == "" {
-			httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "invalid or missing tenant context")
+		if ac == nil {
+			httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+			return
+		}
+
+		targetRT, err := resolveImportRTID(r.Context(), pool, r, ac, true)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				httpx.ErrorJSON(w, http.StatusNotFound, "not_found", "target RT not found")
+				return
+			}
+			httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", err.Error())
 			return
 		}
 
@@ -711,7 +1066,7 @@ func HandleWargaImportCommit(pool *database.Pool) http.HandlerFunc {
 			return
 		}
 
-		allErrors, err := ValidateAgainstDatabase(r.Context(), pool, ac.RTID, rows, parseErrors)
+		allErrors, err := ValidateAgainstDatabase(r.Context(), pool, targetRT, rows, parseErrors)
 		if err != nil {
 			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", err.Error())
 			return
@@ -730,7 +1085,7 @@ func HandleWargaImportCommit(pool *database.Pool) http.HandlerFunc {
 			return
 		}
 
-		result, err := CommitWargaImport(r.Context(), pool, ac.RTID, ac.UserID, rows)
+		result, err := CommitWargaImport(r.Context(), pool, targetRT, ac.UserID, rows)
 		if err != nil {
 			httpx.ErrorJSON(w, http.StatusInternalServerError, "import_failed", err.Error())
 			return
@@ -740,4 +1095,97 @@ func HandleWargaImportCommit(pool *database.Pool) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(result)
 	}
+}
+
+// --- Date helpers ---
+
+// parseMoveInDate parses a YYYY-MM-DD date string. Returns error if not valid.
+func parseMoveInDate(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", fmt.Errorf("move_in_date is empty")
+	}
+	if len(s) < 10 {
+		return "", fmt.Errorf("move_in_date is too short")
+	}
+	// Accept YYYY-MM-DD, strip leading/trailing spaces
+	dateStr := s[:10]
+	_, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return "", fmt.Errorf("move_in_date must be in YYYY-MM-DD format, got %q", dateStr)
+	}
+	return dateStr, nil
+}
+
+// normalizeDate normalizes a date to YYYY-MM-DD.
+func normalizeDate(s string) string {
+	// Already validated via parseMoveInDate; just return the YYYY-MM-DD part.
+	s = strings.TrimSpace(s)
+	if len(s) >= 10 {
+		return s[:10]
+	}
+	return s
+}
+
+// --- Jabatan helpers ---
+
+// validRTJabatans defines all valid jabatan values for RT memberships.
+var validRTJabatans = map[string]bool{
+	"ketua":       true,
+	"wakil_ketua": true,
+	"sekretaris":  true,
+	"bendahara":   true,
+	"keamanan":    true,
+	"sosial":      true,
+	"operasional": true,
+	"kebersihan":  true,
+	"anggota":     true,
+}
+
+// canonicalJabatan maps display aliases to the canonical lower-case jabatan value.
+var canonicalJabatan = map[string]string{
+	"ketua":          "ketua",
+	"ketua_rt":       "ketua",
+	"ketua rt":       "ketua",
+	"wakil_ketua":    "wakil_ketua",
+	"wakil ketua":    "wakil_ketua",
+	"sekretaris":     "sekretaris",
+	"bendahara":      "bendahara",
+	"keamanan":       "keamanan",
+	"seksi keamanan": "keamanan",
+	"sosial":         "sosial",
+	"seksi sosial":   "sosial",
+	"operasional":    "operasional",
+	"kebersihan":     "kebersihan",
+	"anggota":        "anggota",
+}
+
+// validateJabatan checks that the jabatan string is valid.
+func validateJabatan(jabatan string) error {
+	normed := normalizeJabatan(jabatan)
+	if !validRTJabatans[normed] {
+		validList := []string{
+			"ketua", "wakil_ketua", "sekretaris", "bendahara",
+			"keamanan", "sosial", "operasional", "kebersihan", "anggota",
+		}
+		return fmt.Errorf(
+			"jabatan %q is not valid; must be one of: %s",
+			jabatan, strings.Join(validList, ", "),
+		)
+	}
+	return nil
+}
+
+// normalizeJabatan maps a display string to the canonical lower-case jabatan.
+// It handles aliases like "Seksi Keamanan" -> "keamanan".
+func normalizeJabatan(jabatan string) string {
+	l := strings.ToLower(strings.TrimSpace(jabatan))
+	if val, ok := canonicalJabatan[l]; ok {
+		return val
+	}
+	// If already a canonical value, return as-is
+	if validRTJabatans[l] {
+		return l
+	}
+	return l
 }
