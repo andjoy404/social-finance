@@ -171,17 +171,36 @@ export function ResidentList() {
   const [importOpen, setImportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
 
-  // RT selection state for super_admin import/export.
+  // RT selection state for super_admin.
   // Non-super-admin users (Ketua RT, Pengurus, Bendahara) operate within their
-  // own RT only — default importRtId to the user's RT so the preview/commit
-  // button can enable after a valid file is selected. Super Admin must
-  // explicitly select an RT (remains undefined until chosen); never auto-select
-  // the first RT.
-  const [importRtId, setImportRtId] = useState<string | undefined>(() => {
-    if (isSuperAdmin) return undefined
+  // own RT only. Super Admin must select an RT to view and manage residents.
+  const [selectedRtId, setSelectedRtId] = useState<string | undefined>(() => {
+    if (isSuperAdmin) {
+      if (typeof sessionStorage !== 'undefined') {
+        return sessionStorage.getItem('sf_active_rt_id') || undefined
+      }
+      return undefined
+    }
     return user.rt?.id ?? undefined
   })
-  const [exportRtId, setExportRtId] = useState<string | undefined>()
+  const [importRtId, setImportRtId] = useState<string | undefined>(() => {
+    if (isSuperAdmin) {
+      if (typeof sessionStorage !== 'undefined') {
+        return sessionStorage.getItem('sf_active_rt_id') || undefined
+      }
+      return undefined
+    }
+    return user.rt?.id ?? undefined
+  })
+  const [exportRtId, setExportRtId] = useState<string | undefined>(() => {
+    if (isSuperAdmin) {
+      if (typeof sessionStorage !== 'undefined') {
+        return sessionStorage.getItem('sf_active_rt_id') || undefined
+      }
+      return undefined
+    }
+    return user.rt?.id ?? undefined
+  })
   const [importRtList, setImportRtList] = useState<ApiRT[]>([])
   const [exportRtList, setExportRtList] = useState<ApiRT[]>([])
   const [rtFetchError, setRtFetchError] = useState<string | null>(null)
@@ -290,6 +309,18 @@ export function ResidentList() {
     prevImportRtIdRef.current = importRtId
   }, [importOpen, importRtId, resetImportPreview])
 
+  const handleRtChange = useCallback((val: string | undefined) => {
+    setSelectedRtId(val)
+    setExportRtId(val)
+    setImportRtId(val)
+    if (val && typeof sessionStorage !== 'undefined') {
+      try { sessionStorage.setItem('sf_active_rt_id', val) } catch { /* ignore */ }
+    } else if (typeof sessionStorage !== 'undefined') {
+      try { sessionStorage.removeItem('sf_active_rt_id') } catch { /* ignore */ }
+    }
+    setPage(1)
+  }, [])
+
   const fetchResidents = useCallback(async (p: number, size: number) => {
     // Abort any in-flight request before starting a new one
     abortRef.current?.abort()
@@ -310,6 +341,10 @@ export function ResidentList() {
         page: p,
         page_size: size,
         signal: controller.signal,
+      }
+
+      if (isSuperAdmin && selectedRtId) {
+        params.rt_id = selectedRtId
       }
 
       if (filterType === 'status' && statusValue === 'aktif') params.is_active = true
@@ -343,7 +378,7 @@ export function ResidentList() {
         setLoading(false)
       }
     }
-  }, [filterType, statusValue, search])
+  }, [filterType, statusValue, search, isSuperAdmin, selectedRtId])
 
   useEffect(() => {
     void fetchResidents(page, pageSize)
@@ -596,16 +631,15 @@ export function ResidentList() {
 
           {/* Action buttons — hidden for unauthorized users */}
           <div className="sf-list-toolbar-right" style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Super Admin: RT selector for import/export */}
+            {/* Super Admin: RT selector */}
             {isSuperAdmin && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--sf-text-muted)' }}>
                 <EnvironmentOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
                 <select
-                  value={exportRtId || ''}
+                  value={selectedRtId || ''}
                   onChange={(e) => {
                     const val = e.target.value || undefined
-                    setExportRtId(val)
-                    setImportRtId(val)
+                    handleRtChange(val)
                   }}
                   style={{
                     padding: '4px 8px',
@@ -613,7 +647,7 @@ export function ResidentList() {
                     borderRadius: 'var(--sf-radius-sm)',
                     border: '1px solid var(--sf-border)',
                     background: 'var(--sf-bg)',
-                    color: exportRtId ? 'var(--sf-text)' : 'var(--sf-text-muted)',
+                    color: selectedRtId ? 'var(--sf-text)' : 'var(--sf-text-muted)',
                     cursor: 'pointer',
                     minWidth: 140,
                   }}

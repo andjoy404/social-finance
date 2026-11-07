@@ -362,7 +362,7 @@ export function HouseholdCreate() {
 
   /* SUPER_ADMIN RT selector state */
   const [rtOptions, setRtOptions] = useState<ApiRT[]>([])
-  const [selectedRtId, setSelectedRtId] = useState<string>('')
+  const [selectedRtId, setSelectedRtId] = useState<string>(() => (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sf_active_rt_id') || '' : ''))
   const [rtLoading, setRtLoading] = useState(false)
   const [rtError, setRtError] = useState<ApiErrorType | null>(null)
 
@@ -512,6 +512,9 @@ export function HouseholdCreate() {
                 disabled={loading || rtLoading}
                 onChange={(v) => {
                   setSelectedRtId(v)
+                  if (v && typeof sessionStorage !== 'undefined') {
+                    try { sessionStorage.setItem('sf_active_rt_id', v) } catch { /* ignore */ }
+                  }
                   if (validationErrors.length > 0) setValidationErrors([])
                 }}
               />

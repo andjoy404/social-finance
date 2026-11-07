@@ -124,17 +124,20 @@ type Resident struct {
 // CreateResidentInput holds the fields for creating a new resident.
 // HouseholdID is required for normal residents; nil/empty for special residents
 // (keamanan, operasional, kebersihan) who have no household chain.
+// RequestedRTID is optional: allowed for SUPER_ADMIN to explicitly specify the target RT;
+// forbidden for tenant users (who always inherit RT from their authenticated membership).
 type CreateResidentInput struct {
-	HouseholdID *string `json:"household_id"`
-	FullName    string  `json:"full_name"`
-	Phone       *string `json:"phone"`
-	Nik         *string `json:"nik"`
-	Email       *string `json:"email"`
-	StartDate   *string `json:"start_date,omitempty"` // YYYY-MM-DD
-	EndDate     *string `json:"end_date,omitempty"`   // YYYY-MM-DD
-	MoveInDate  *string `json:"move_in_date,omitempty"`
-	MoveOutDate *string `json:"move_out_date,omitempty"`
-	Password    *string `json:"password,omitempty"`
+	HouseholdID   *string `json:"household_id"`
+	RequestedRTID *string `json:"rt_id,omitempty"`
+	FullName      string  `json:"full_name"`
+	Phone         *string `json:"phone"`
+	Nik           *string `json:"nik"`
+	Email         *string `json:"email"`
+	StartDate     *string `json:"start_date,omitempty"` // YYYY-MM-DD
+	EndDate       *string `json:"end_date,omitempty"`   // YYYY-MM-DD
+	MoveInDate    *string `json:"move_in_date,omitempty"`
+	MoveOutDate   *string `json:"move_out_date,omitempty"`
+	Password      *string `json:"password,omitempty"`
 }
 
 // MoveResidentInput holds fields for moving a resident to another household.

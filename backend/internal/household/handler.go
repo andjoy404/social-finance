@@ -207,16 +207,28 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
-		if req.RequestedRTID == nil {
+		targetRT := ""
+		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
+			bodyRT := strings.TrimSpace(*req.RequestedRTID)
+			if ac.RTID != "" && ac.RTID != bodyRT {
+				httpx.WriteValidationError(w, "rt_id in body does not match X-RT-ID header", nil)
+				return
+			}
+			targetRT = bodyRT
+		} else if ac.RTID != "" {
+			targetRT = ac.RTID
+		} else {
+			reqRT := strings.TrimSpace(r.URL.Query().Get("rt_id"))
+			if reqRT != "" {
+				targetRT = reqRT
+			}
+		}
+
+		if targetRT == "" {
 			httpx.WriteValidationError(w, "rt_id is required", nil)
 			return
 		}
-		trimmedRTID := strings.TrimSpace(*req.RequestedRTID)
-		if trimmedRTID == "" {
-			httpx.WriteValidationError(w, "rt_id cannot be empty", nil)
-			return
-		}
-		rtID := trimmedRTID
+		rtID := targetRT
 		rt, err := rtpkg.GetByID(ctx, tx, rtID)
 		if err != nil {
 			if errors.Is(err, rtpkg.ErrNotFound) {
@@ -379,6 +391,36 @@ func (h *Handler) ListHouseholds(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := ac.RTID
+		if targetRT == "" {
+			rtQueryPtr := parseStringQuery(r, "rt_id")
+			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+				targetRT = strings.TrimSpace(*rtQueryPtr)
+			}
+		}
+
+		if targetRT != "" {
+			households, err := svc.ListHouseholds(ctx, tx, targetRT, isActive, search, offset, pageSize)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list households")
+				return
+			}
+
+			total, err := svc.CountHouseholds(ctx, tx, targetRT, isActive, search)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to count households")
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list households")
+				return
+			}
+
+			writePaginated(w, http.StatusOK, households, page, pageSize, total)
+			return
+		}
+
 		households, err := svc.ListAllHouseholds(ctx, tx, isActive, search, offset, pageSize)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list households")
@@ -449,6 +491,34 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := ac.RTID
+		if targetRT == "" {
+			rtQueryPtr := parseStringQuery(r, "rt_id")
+			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+				targetRT = strings.TrimSpace(*rtQueryPtr)
+			}
+		}
+
+		if targetRT != "" {
+			household, err := svc.GetHouseholdByID(ctx, tx, id, targetRT)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					httpx.WriteNotFound(w, "household not found")
+					return
+				}
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load household")
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load household")
+				return
+			}
+
+			writeJSON(w, http.StatusOK, household)
+			return
+		}
+
 		household, err := svc.GetAllHouseholdByID(ctx, tx, id)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -782,31 +852,85 @@ func (h *Handler) DeactivateHousehold(w http.ResponseWriter, r *http.Request) {
 // ─── Resident Handlers ──────────────────────────────────────────────────────
 
 // CreateResident handles POST /api/v1/residents — pengurus only,
-// system-level SUPER_ADMIN derives target RT from target household.
+// SUPER_ADMIN with explicit target rt_id (via X-RT-ID header, query param, or JSON body) or target household.
 func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
 	var req CreateResidentInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
 		return
 	}
 
-	// Resolve target RT: tenant users use authenticated RT;
-	// system super_admin without RT resolves it from the target household (if provided).
-	// For special residents (no household_id), RT comes from auth context only.
 	var rtID string
-	var ok bool
-	if req.HouseholdID != nil && *req.HouseholdID != "" {
-		rtID, ok = h.resolveRTID(w, r, func(ctx context.Context, tx *sql.Tx) (string, error) {
-			return HouseholdGetRTByID(ctx, tx, *req.HouseholdID)
-		})
-		if !ok {
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := ac.RTID
+		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
+			bodyRT := strings.TrimSpace(*req.RequestedRTID)
+			if targetRT != "" && targetRT != bodyRT {
+				httpx.WriteValidationError(w, "rt_id in body does not match X-RT-ID header", nil)
+				return
+			}
+			targetRT = bodyRT
+		} else if targetRT == "" {
+			reqRT := strings.TrimSpace(r.URL.Query().Get("rt_id"))
+			if reqRT != "" {
+				targetRT = reqRT
+			}
+		}
+
+		if targetRT == "" && req.HouseholdID != nil && strings.TrimSpace(*req.HouseholdID) != "" {
+			ctxH, cancelH := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancelH()
+			txH, errH := h.pool.BeginTx(ctxH)
+			if errH == nil {
+				targetRT, _ = HouseholdGetRTByID(ctxH, txH, strings.TrimSpace(*req.HouseholdID))
+				_ = txH.Rollback()
+			}
+		}
+
+		if targetRT == "" {
+			httpx.WriteError(w, http.StatusForbidden, "forbidden", "tenant context required")
 			return
 		}
+
+		// Verify target RT exists and is active
+		ctxV, cancelV := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancelV()
+		txV, errV := h.pool.BeginTx(ctxV)
+		if errV != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
+			return
+		}
+		defer txV.Rollback()
+
+		rt, errRT := rtpkg.GetByID(ctxV, txV, targetRT)
+		if errRT != nil {
+			if errors.Is(errRT, rtpkg.ErrNotFound) {
+				httpx.WriteNotFound(w, "target RT not found")
+				return
+			}
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify target RT")
+			return
+		}
+		if !rt.IsActive {
+			httpx.WriteValidationError(w, "cannot create resident under an inactive RT", nil)
+			return
+		}
+		_ = txV.Rollback()
+
+		rtID = targetRT
 	} else {
-		// Special resident: RT must come from auth context (not from client).
-		ac := auth.GetAuthContext(r)
-		if ac == nil || ac.RTID == "" {
-			httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		if req.RequestedRTID != nil && strings.TrimSpace(*req.RequestedRTID) != "" {
+			httpx.WriteValidationError(w, "rt_id is not allowed for tenant users", nil)
+			return
+		}
+		if ac.RTID == "" {
+			httpx.WriteError(w, http.StatusForbidden, "forbidden", "tenant context required")
 			return
 		}
 		rtID = ac.RTID
@@ -933,17 +1057,22 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
-		// When rt_id query param is present, use tenant-scoped list (single-RT view for super_admin).
-		// When absent, use cross-tenant view (admin managing all RTs).
-		rtQueryPtr := parseStringQuery(r, "rt_id")
-		if rtQueryPtr != nil && *rtQueryPtr != "" {
-			residents, err := svc.ListResidents(ctx, tx, *rtQueryPtr, householdID, isActive, search, offset, pageSize)
+		targetRT := ac.RTID
+		if targetRT == "" {
+			rtQueryPtr := parseStringQuery(r, "rt_id")
+			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+				targetRT = strings.TrimSpace(*rtQueryPtr)
+			}
+		}
+
+		if targetRT != "" {
+			residents, err := svc.ListResidents(ctx, tx, targetRT, householdID, isActive, search, offset, pageSize)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list residents")
 				return
 			}
 
-			total, err := svc.CountResidents(ctx, tx, *rtQueryPtr, householdID, isActive)
+			total, err := svc.CountResidents(ctx, tx, targetRT, householdID, isActive)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to count residents")
 				return
@@ -1027,6 +1156,34 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 	svc := NewHouseholdManager(h.pool)
 
 	if ac != nil && ac.SystemRole == auth.SystemRoleSuperAdmin {
+		targetRT := ac.RTID
+		if targetRT == "" {
+			rtQueryPtr := parseStringQuery(r, "rt_id")
+			if rtQueryPtr != nil && strings.TrimSpace(*rtQueryPtr) != "" {
+				targetRT = strings.TrimSpace(*rtQueryPtr)
+			}
+		}
+
+		if targetRT != "" {
+			resident, err := svc.GetResidentByID(ctx, tx, id, targetRT)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					httpx.WriteNotFound(w, "resident not found")
+					return
+				}
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+				return
+			}
+
+			if err := tx.Commit(); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to load resident")
+				return
+			}
+
+			writeJSON(w, http.StatusOK, resident)
+			return
+		}
+
 		resident, err := svc.GetAllResidentByID(ctx, tx, id)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {

@@ -838,7 +838,8 @@ export interface ApiResident {
 }
 
 export interface ApiCreateResidentBody {
-  household_id: string
+  household_id?: string
+  rt_id?: string
   full_name: string
   nik: string
   phone?: string | null
@@ -870,6 +871,7 @@ export interface ApiListResidentsParams {
   is_active?: boolean
   search?: string
   household_id?: string
+  rt_id?: string
   signal?: AbortSignal
 }
 
@@ -880,9 +882,13 @@ export async function listResidents(token: string, params: ApiListResidentsParam
   if (params.is_active != null) q.set('is_active', String(params.is_active))
   if (params.search != null) q.set('search', params.search)
   if (params.household_id != null) q.set('household_id', params.household_id)
+  if (params.rt_id != null) q.set('rt_id', params.rt_id)
   const res = await authenticatedApiRequest(BASE + '/residents?' + q.toString(), {
     method: 'GET',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(params.rt_id ? { 'X-RT-ID': params.rt_id } : {}),
+    },
     signal: params.signal ?? (typeof AbortSignal !== 'undefined' ? AbortSignal.timeout(TIMEOUT_MS) : undefined),
   })
   const data = await json<ApiPaginated<ApiResident>>(res)
@@ -904,7 +910,11 @@ export async function getResident(token: string, id: string): Promise<ApiResiden
 export async function createResident(token: string, body: ApiCreateResidentBody): Promise<ApiResident | void> {
   const res = await authenticatedApiRequest(BASE + '/residents', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(body.rt_id ? { 'X-RT-ID': body.rt_id } : {}),
+    },
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
   })
