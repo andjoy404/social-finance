@@ -16,7 +16,7 @@ import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
 import { useAuth, hasRwWriteAccess } from '@/app/AuthContext'
-import { getSessionPair } from '@/app/api'
+import { getSessionPair, apiListCategories, type ApiFinancialCategory } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
 import { resolveRwLabel } from '@/utils/rwUtils'
 import {
@@ -25,6 +25,7 @@ import {
   apiListRWLocations,
   apiCreateRWTransaction,
   apiUpdateRWOpeningBalance,
+  apiListRWRTRs,
   type ApiRWTransaction,
   type ApiRWKASReport,
   type ApiRWLocation,
@@ -45,18 +46,15 @@ function formatTanggal(dateStr: string): string {
 export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const { user } = useAuth()
 
-  const isSuperAdmin = user?.systemRole === 'super_admin' || user?.role === 'super_admin'
   const rwMemberships = (user as any)?.rw_memberships || (user as any)?.rwMemberships || []
-  const currentRw = rwMemberships.find((m: any) => m.rw_id === rwId)
   const displayRwLabel = resolveRwLabel(rwId, rwMemberships, rwName)
-  const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
 
-  // Source-aware write permission: RT inferred users see read-only UI.
-  // Checks the membership for the current RW only.
+  // Source-aware write permission: Only Ketua RW and Bendahara RW have write access.
+  // Pengurus RW (wakil_ketua, sekretaris) and Pengurus RT get read-only.
   const canWrite = hasRwWriteAccess(user, rwId)
-  const canCreate = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
-  const canUpdate = isSuperAdmin || (canWrite && ['ketua', 'bendahara'].includes(jabatan))
-  const canEditSaldoAwal = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
+  const canCreate = canWrite
+  const canUpdate = canWrite
+  const canEditSaldoAwal = canWrite
   const isReadOnly = !canCreate && !canUpdate
 
   // Month filter state
@@ -86,19 +84,26 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   // Transaction Create Modal
   const [showTxModal, setShowTxModal] = useState(false)
   const [txType, setTxType] = useState<'income' | 'expense'>('income')
+  const [txIncomeSubType, setTxIncomeSubType] = useState<'kas_masuk' | 'setoran_rt'>('kas_masuk')
   const [locations, setLocations] = useState<ApiRWLocation[]>([])
+  const [rts, setRts] = useState<{ id: string; name: string; rt: string; label: string }[]>([])
+  const [expenseCategories, setExpenseCategories] = useState<ApiFinancialCategory[]>([])
   const [txForm, setTxForm] = useState<{
     location_id: string
     amount: string
     description: string
     payment_method: 'transfer' | 'cash'
     source_rt_name?: string
+    source_rt_id?: string
+    expense_category?: string
   }>({
     location_id: '',
     amount: '',
     description: '',
     payment_method: 'transfer',
     source_rt_name: '',
+    source_rt_id: '',
+    expense_category: '',
   })
   const [txError, setTxError] = useState<string | null>(null)
   const [submittingTx, setSubmittingTx] = useState(false)
@@ -118,7 +123,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
     }
 
     try {
-      const [report, txData, locData] = await Promise.all([
+      const [report, txData, locData, rtData, catData] = await Promise.all([
         apiGetRWKAS(token, rwId, activePeriodStr),
         apiListRWTransactions(token, rwId, {
           page,
@@ -127,6 +132,8 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
           search: search.trim() || undefined,
         }),
         apiListRWLocations(token, rwId, { is_active: true }),
+        apiListRWRTRs(token, rwId),
+        apiListCategories(token, true),
       ])
 
       setKasReport(report)
@@ -134,6 +141,8 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
       setTotalCount(txData.pagination?.total || 0)
       setTotalPages(Math.max(1, txData.pagination?.total_pages || 1))
       setLocations(locData || [])
+      setRts(rtData || [])
+      setExpenseCategories(catData || [])
     } catch (err: any) {
       setError(err?.message || 'Gagal memuat data KAS RW')
     } finally {
@@ -192,6 +201,9 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const openCreateTx = (type: 'income' | 'expense') => {
     setTxType(type)
     setTxError(null)
+    if (type === 'income') {
+      setTxIncomeSubType('kas_masuk')
+    }
     const initialLocId = locations.length > 0 ? locations[0].id : ''
     setTxForm({
       location_id: initialLocId,
@@ -199,6 +211,8 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
       description: '',
       payment_method: getMethodForLocation(initialLocId),
       source_rt_name: '',
+      source_rt_id: '',
+      expense_category: '',
     })
     setShowTxModal(true)
   }
@@ -243,6 +257,8 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
         location_id: txForm.location_id,
         description: txForm.description.trim(),
         payment_method: derivedMethod,
+        source_rt_id: txIncomeSubType === 'setoran_rt' && txForm.source_rt_id ? txForm.source_rt_id : undefined,
+        expense_category: txType === 'expense' && txForm.expense_category ? txForm.expense_category : undefined,
       })
       setShowTxModal(false)
       loadData()
@@ -694,6 +710,80 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                         })}
                       </select>
                     </div>
+
+                    {txType === 'income' && (
+                      <>
+                        <div className="sf-form-group">
+                          <label>Jenis Kas Masuk *</label>
+                          <select
+                            className="sf-form-select"
+                            value={txIncomeSubType}
+                            onChange={(e) => setTxIncomeSubType(e.target.value as 'kas_masuk' | 'setoran_rt')}
+                            required
+                          >
+                            <option value="kas_masuk">Kas Masuk</option>
+                            <option value="setoran_rt">Setoran RT</option>
+                          </select>
+                        </div>
+                        {txIncomeSubType === 'setoran_rt' && (
+                          <div className="sf-form-group">
+                            <label>RT Sumber *</label>
+                            <select
+                              className="sf-form-select"
+                              value={txForm.source_rt_id || ''}
+                              onChange={(e) => {
+                                const rtId = e.target.value
+                                const rt = rts.find((r) => r.id === rtId)
+                                setTxForm({
+                                  ...txForm,
+                                  source_rt_id: rtId,
+                                  source_rt_name: rt?.name || '',
+                                })
+                              }}
+                              required
+                            >
+                              <option value="">-- Pilih RT Sumber --</option>
+                              {rts.map((rt) => (
+                                <option key={rt.id} value={rt.id}>
+                                  {rt.label}
+                                </option>
+                              ))}
+                            </select>
+                            {rts.length === 0 && (
+                              <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>
+                                Tidak ada RT yang tersedia di RW ini.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {txType === 'expense' && (
+                      <div className="sf-form-group">
+                        <label>Kategori Kas Keluar *</label>
+                        <select
+                          className="sf-form-select"
+                          value={txForm.expense_category || ''}
+                          onChange={(e) => setTxForm({ ...txForm, expense_category: e.target.value })}
+                          required
+                        >
+                          <option value="">-- Pilih Kategori Pengeluaran --</option>
+                          {expenseCategories
+                            .filter((c) => c.type === 'expense')
+                            .map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                        </select>
+                        {expenseCategories.filter((c) => c.type === 'expense').length === 0 && (
+                          <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>
+                            Tidak ada kategori pengeluaran yang tersedia.
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="sf-form-group">
                       <label>Nominal (Rp) *</label>

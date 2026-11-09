@@ -423,14 +423,14 @@ export async function apiListRTs(
 }
 
 export interface ApiCreateRWBody {
-  rw_number: number
+  rw_number: number | string
   name?: string
   address?: string | null
   head_name?: string | null
 }
 
 export interface ApiUpdateRWBody {
-  rw_number?: number
+  rw_number?: number | string
   name?: string
   address?: string | null
   head_name?: string | null

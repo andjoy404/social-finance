@@ -54,13 +54,36 @@ export function isKetuaRTUser(user: AuthUser | null | undefined): boolean {
  * Check whether a user has full RW write access for a specific RW.
  *
  * Checks only the membership for the given `rwId`. Returns `true` if that
- * membership has `source === 'explicit'` or the user is super_admin.
- * Returns `false` only when the membership is `source === 'rt_inferred'`
- * or when no matching membership is found.
+ * membership has `source === 'explicit'` AND jabatan is ketua or bendahara,
+ * or if the user is super_admin.
+ * Returns `false` for other pengurus positions (wakil_ketua, sekretaris),
+ * when the membership is `source === 'rt_inferred'`, or when no matching
+ * membership is found.
  *
  * Super Admin always gets `true`.
  */
 export function hasRwWriteAccess(
+  user: AuthUser | null | undefined,
+  rwId?: string | null,
+): boolean {
+  if (!user) return false
+  if (user.systemRole === 'super_admin' || user.role === 'super_admin') return true
+  const memberships = user.rwMemberships ?? []
+  if (!rwId) return false
+  const membership = memberships.find((m) => m.rw_id === rwId)
+  if (!membership) return false
+  if (membership.source !== 'explicit') return false
+  const cleanJabatan = (membership.jabatan || '').trim().toLowerCase()
+  return cleanJabatan === 'ketua' || cleanJabatan === 'bendahara'
+}
+
+/**
+ * Check whether a user has access to RW sub-features (KAS, Lokasi Dana, Notifikasi RW).
+ *
+ * Only explicit RW members (any valid jabatan) and Super Admin have access.
+ * RT-inferred members are strictly limited to Beranda RW (dashboard).
+ */
+export function hasRwFeatureAccess(
   user: AuthUser | null | undefined,
   rwId?: string | null,
 ): boolean {
@@ -78,8 +101,13 @@ export function canAccessNotificationAdmin(user: AuthUser | null | undefined): b
     (user?.effectivePermissions ?? []).includes('notification.manage')
 }
 
+export function canAccessNotificationRead(user: AuthUser | null | undefined): boolean {
+  return isSuperAdminUser(user) ||
+    (user?.effectivePermissions ?? []).includes('notification.read')
+}
+
 export function canAccessNotificationMenu(user: AuthUser | null | undefined): boolean {
-  return !!user
+  return !!user && (canAccessNotificationAdmin(user) || canAccessNotificationRead(user))
 }
 
 export function isAllowedRT(user: AuthUser | null): boolean {

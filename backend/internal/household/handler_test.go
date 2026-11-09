@@ -86,11 +86,15 @@ func makeTenantToken(t *testing.T, userID, membershipID, rtID string, role auth.
 
 		// If rtID is a valid UUID, upsert test membership
 		if _, err := uuid.Parse(rtID); err == nil {
+			var jabatan any = nil
+			if role == auth.RolePengurus {
+				jabatan = "ketua"
+			}
 			_, err = db.ExecContext(ctx,
-				`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, is_active)
-				 VALUES ($1, $2, $3, $4, true)
-				 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, is_active = true, rt_id = EXCLUDED.rt_id`,
-				realMID, realUserID, rtID, string(role),
+				`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+				 VALUES ($1, $2, $3, $4, $5, true)
+				 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, jabatan = EXCLUDED.jabatan, is_active = true, rt_id = EXCLUDED.rt_id`,
+				realMID, realUserID, rtID, string(role), jabatan,
 			)
 			if err != nil {
 				t.Fatalf("failed to insert test membership %s: %v", membershipID, err)
@@ -98,12 +102,16 @@ func makeTenantToken(t *testing.T, userID, membershipID, rtID string, role auth.
 		}
 	}
 
-	return makeToken(t, auth.TokenClaims{
+	claims := auth.TokenClaims{
 		UserID: realUserID,
 		MID:    realMID,
 		RTID:   rtID,
 		Role:   string(role),
-	})
+	}
+	if role == auth.RolePengurus {
+		claims.Jabatan = "ketua"
+	}
+	return makeToken(t, claims)
 }
 
 func makeSuperAdminToken(t *testing.T) string {
@@ -185,9 +193,11 @@ func setupTestRT(t *testing.T, pool *database.Pool, name string, rw int, rtStr s
 
 	t.Cleanup(func() {
 		db.Exec("DELETE FROM residency_periods WHERE resident_id IN (SELECT id FROM residents WHERE rt_id = $1)", id)
-		db.Exec("DELETE FROM household_occupancies WHERE household_id IN (SELECT id FROM households WHERE rt_id = $1) OR physical_house_id IN (SELECT id FROM physical_houses WHERE rt_id = $1)", id)
+		db.Exec(`DELETE FROM users WHERE id IN (SELECT user_id FROM residents WHERE rt_id = $1)`, id)
+		db.Exec("DELETE FROM user_rt_memberships WHERE rt_id = $1", id)
 		db.Exec("DELETE FROM physical_houses WHERE rt_id = $1", id)
 		db.Exec("DELETE FROM residents WHERE rt_id = $1", id)
+		db.Exec("DELETE FROM household_occupancies WHERE household_id IN (SELECT id FROM households WHERE rt_id = $1) OR physical_house_id IN (SELECT id FROM physical_houses WHERE rt_id = $1)", id)
 		db.Exec("DELETE FROM households WHERE rt_id = $1", id)
 		db.Exec("DELETE FROM rts WHERE id = $1", id)
 	})

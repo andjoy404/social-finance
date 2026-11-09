@@ -61,6 +61,20 @@ type Service interface {
 	// Scheduler history (aggregated per execution, for pengurus/Super Admin)
 	ListSchedulerHistory(ctx context.Context, rtID string, page, pageSize int) ([]*NotificationSchedulerHistory, int, error)
 	GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string, configHash ...string) ([]*NotificationSchedulerRecipientDetail, error)
+
+	// RW notifications
+	NotifyRWCashIn(ctx context.Context, rwID, txID, amount, description, locationName string)
+	NotifyRWCashOut(ctx context.Context, rwID, txID, amount, description, category, locationName string)
+	SendRWManualPush(ctx context.Context, rwID, senderUserID string, title, body string, target ...string) (int, error)
+	ListRWLogs(ctx context.Context, rwID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error)
+
+	// RW notification templates
+	ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]NotificationTemplate, error)
+	GetRWTemplateByID(ctx context.Context, rwID, id string) (*NotificationTemplate, error)
+	CreateRWTemplate(ctx context.Context, rwID string, in CreateTemplateInput) (*NotificationTemplate, error)
+	UpdateRWTemplate(ctx context.Context, rwID, id string, in UpdateTemplateInput) (*NotificationTemplate, error)
+	ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*NotificationTemplate, error)
+	DeleteRWTemplate(ctx context.Context, rwID, id string) error
 }
 
 var ErrForbidden = errors.New("forbidden: akses detail notifikasi ditolak")
@@ -878,6 +892,38 @@ var SystemNotificationTypes = []SystemNotificationType{
 		SupportsImage:    false,
 		SupportsTest:     false,
 	},
+	{
+		EventType:        EventRWCashIn,
+		Name:             "Kas Masuk RW",
+		Trigger:          "Penerimaan dana kas masuk tingkat RW",
+		Channel:          "push",
+		RecipientsRule:   "Seluruh pengurus RW aktif",
+		DefaultTitle:     "Kas Masuk RW Diterima",
+		DefaultBody:      "Penerimaan kas masuk RW sebesar {{amount}} telah dicatat.",
+		AllowedVariables: []string{"amount", "description", "location"},
+		IsConfigurable:   false,
+		SupportsImage:    false,
+		SupportsTest:     false,
+	},
+	{
+		EventType:        EventRWCashOut,
+		Name:             "Kas Keluar RW",
+		Trigger:          "Pengeluaran dana kas keluar tingkat RW",
+		Channel:          "push",
+		RecipientsRule:   "Seluruh pengurus RW aktif",
+		DefaultTitle:     "Kas Keluar RW Dicatat",
+		DefaultBody:      "Pengeluaran kas RW sebesar {{amount}} untuk {{description}} telah dicatat.",
+		AllowedVariables: []string{"amount", "description", "category", "location"},
+		IsConfigurable:   false,
+		SupportsImage:    false,
+		SupportsTest:     false,
+	},
+}
+
+// IsFixedSystemEvent reports whether eventType is one of the permanent system events
+// that cannot be created as custom templates or scheduled.
+func IsFixedSystemEvent(eventType string) bool {
+	return eventType == EventBillCreated || eventType == EventPaymentSubmitted || eventType == EventPaymentVerified
 }
 
 func (s *service) GetSystemTypes() []SystemNotificationType {
@@ -935,7 +981,20 @@ func validateTemplateVariables(text string, allowed []string) error {
 }
 
 func (s *service) ListTemplates(ctx context.Context, rtID, eventType string, isActive *bool) ([]NotificationTemplate, error) {
-	return s.repo.ListTemplates(ctx, rtID, eventType, isActive)
+	tmpls, err := s.repo.ListTemplates(ctx, rtID, eventType, isActive)
+	if err != nil {
+		return nil, err
+	}
+	if eventType == "" {
+		filtered := make([]NotificationTemplate, 0, len(tmpls))
+		for _, t := range tmpls {
+			if !IsFixedSystemEvent(t.EventType) {
+				filtered = append(filtered, t)
+			}
+		}
+		return filtered, nil
+	}
+	return tmpls, nil
 }
 
 func (s *service) GetTemplate(ctx context.Context, rtID, id string) (*NotificationTemplate, error) {
@@ -943,6 +1002,9 @@ func (s *service) GetTemplate(ctx context.Context, rtID, id string) (*Notificati
 }
 
 func (s *service) CreateTemplate(ctx context.Context, rtID string, in CreateTemplateInput) (*NotificationTemplate, error) {
+	if IsFixedSystemEvent(in.EventType) {
+		return nil, errors.New("event ini merupakan notifikasi sistem tetap dan tidak dapat dibuat sebagai template kustom")
+	}
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, errors.New("nama template wajib diisi")
 	}
@@ -1022,11 +1084,140 @@ func (s *service) UpdateTemplate(ctx context.Context, rtID, id string, in Update
 }
 
 func (s *service) ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error) {
+	existing, err := s.repo.GetTemplateByID(ctx, rtID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil && IsFixedSystemEvent(existing.EventType) {
+		return nil, errors.New("template notifikasi sistem tetap tidak dapat dinonaktifkan")
+	}
 	return s.repo.ToggleTemplateActive(ctx, rtID, id)
 }
 
 func (s *service) DeleteTemplate(ctx context.Context, rtID, id string) error {
+	existing, err := s.repo.GetTemplateByID(ctx, rtID, id)
+	if err != nil {
+		return err
+	}
+	if existing != nil && IsFixedSystemEvent(existing.EventType) {
+		return errors.New("template notifikasi sistem tetap tidak dapat dihapus")
+	}
 	return s.repo.DeleteTemplate(ctx, rtID, id)
+}
+
+// ListRWTemplates lists notification templates scoped to an RW.
+func (s *service) ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]NotificationTemplate, error) {
+	return s.repo.ListRWTemplates(ctx, rwID, eventType, isActive)
+}
+
+// GetRWTemplateByID gets an RW-scoped template by ID.
+func (s *service) GetRWTemplateByID(ctx context.Context, rwID, id string) (*NotificationTemplate, error) {
+	return s.repo.GetRWTemplateByID(ctx, rwID, id)
+}
+
+// CreateRWTemplate creates a new RW-scoped notification template.
+func (s *service) CreateRWTemplate(ctx context.Context, rwID string, in CreateTemplateInput) (*NotificationTemplate, error) {
+	if strings.TrimSpace(in.Name) == "" {
+		return nil, errors.New("nama template wajib diisi")
+	}
+	if strings.TrimSpace(in.EventType) == "" {
+		return nil, errors.New("jenis event wajib dipilih")
+	}
+	if strings.TrimSpace(in.Title) == "" {
+		return nil, errors.New("judul notifikasi wajib diisi")
+	}
+	if strings.TrimSpace(in.Body) == "" {
+		return nil, errors.New("isi pesan notifikasi wajib diisi")
+	}
+
+	sysType := findSystemType(in.EventType)
+	if sysType == nil {
+		return nil, fmt.Errorf("jenis event '%s' tidak valid atau tidak didukung", in.EventType)
+	}
+
+	if in.ImageURL != nil && strings.TrimSpace(*in.ImageURL) != "" {
+		if !sysType.SupportsImage {
+			return nil, fmt.Errorf("gambar tidak diizinkan untuk event '%s'", in.EventType)
+		}
+	}
+
+	if err := validateTemplateVariables(in.Title, sysType.AllowedVariables); err != nil {
+		return nil, err
+	}
+	if err := validateTemplateVariables(in.Body, sysType.AllowedVariables); err != nil {
+		return nil, err
+	}
+
+	return s.repo.CreateRWTemplate(ctx, rwID, in, sysType.AllowedVariables)
+}
+
+// UpdateRWTemplate updates an existing RW-scoped notification template.
+func (s *service) UpdateRWTemplate(ctx context.Context, rwID, id string, in UpdateTemplateInput) (*NotificationTemplate, error) {
+	existing, err := s.repo.GetRWTemplateByID(ctx, rwID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, errors.New("template tidak ditemukan")
+	}
+
+	sysType := findSystemType(existing.EventType)
+	if sysType == nil {
+		return nil, errors.New("jenis event tidak valid")
+	}
+
+	if in.ImageURL != nil && strings.TrimSpace(*in.ImageURL) != "" {
+		if !sysType.SupportsImage {
+			return nil, fmt.Errorf("gambar tidak diizinkan untuk event '%s'", existing.EventType)
+		}
+	}
+
+	if in.Name != "" && strings.TrimSpace(in.Name) == "" {
+		return nil, errors.New("nama template tidak boleh kosong")
+	}
+	if in.Title != "" && strings.TrimSpace(in.Title) == "" {
+		return nil, errors.New("judul notifikasi tidak boleh kosong")
+	}
+	if in.Body != "" && strings.TrimSpace(in.Body) == "" {
+		return nil, errors.New("isi pesan notifikasi tidak boleh kosong")
+	}
+
+	if in.Title != "" {
+		if err := validateTemplateVariables(in.Title, sysType.AllowedVariables); err != nil {
+			return nil, err
+		}
+	}
+	if in.Body != "" {
+		if err := validateTemplateVariables(in.Body, sysType.AllowedVariables); err != nil {
+			return nil, err
+		}
+	}
+
+	return s.repo.UpdateRWTemplate(ctx, rwID, id, in)
+}
+
+// ToggleRWTemplateActive toggles the is_active flag on an RW-scoped template.
+func (s *service) ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*NotificationTemplate, error) {
+	existing, err := s.repo.GetRWTemplateByID(ctx, rwID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil && IsFixedSystemEvent(existing.EventType) {
+		return nil, errors.New("template notifikasi sistem tetap tidak dapat dinonaktifkan")
+	}
+	return s.repo.ToggleRWTemplateActive(ctx, rwID, id)
+}
+
+// DeleteRWTemplate deletes an RW-scoped notification template.
+func (s *service) DeleteRWTemplate(ctx context.Context, rwID, id string) error {
+	existing, err := s.repo.GetRWTemplateByID(ctx, rwID, id)
+	if err != nil {
+		return err
+	}
+	if existing != nil && IsFixedSystemEvent(existing.EventType) {
+		return errors.New("template notifikasi sistem tetap tidak dapat dihapus")
+	}
+	return s.repo.DeleteRWTemplate(ctx, rwID, id)
 }
 
 func isOfficerUser(ac *auth.AuthContext) bool {
@@ -1217,6 +1408,9 @@ func (s *service) GetSchedule(ctx context.Context, rtID, id string) (*Notificati
 }
 
 func (s *service) CreateSchedule(ctx context.Context, rtID, userID string, in CreateScheduleInput) (*NotificationSchedule, error) {
+	if IsFixedSystemEvent(in.EventType) {
+		return nil, errors.New("event ini merupakan notifikasi sistem tetap dan tidak dapat dijadwalkan")
+	}
 	if strings.TrimSpace(in.EventType) == "" {
 		return nil, errors.New("jenis event wajib diisi")
 	}
@@ -1253,6 +1447,13 @@ func (s *service) DeleteSchedule(ctx context.Context, rtID, id string) error {
 }
 
 func (s *service) ToggleScheduleActive(ctx context.Context, rtID, id, userID string) (*NotificationSchedule, error) {
+	existing, err := s.repo.GetSchedule(ctx, rtID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil && IsFixedSystemEvent(existing.EventType) {
+		return nil, errors.New("event ini merupakan notifikasi sistem tetap dan tidak dapat dijadwalkan")
+	}
 	return s.repo.ToggleScheduleActive(ctx, rtID, id, userID)
 }
 
@@ -1814,4 +2015,142 @@ func (s *service) ListSchedulerHistory(ctx context.Context, rtID string, page, p
 
 func (s *service) GetSchedulerRecipientDetail(ctx context.Context, rtID, scheduleID, execDate string, configHash ...string) ([]*NotificationSchedulerRecipientDetail, error) {
 	return s.repo.GetSchedulerRecipientDetail(ctx, rtID, scheduleID, execDate, configHash...)
+}
+
+func (s *service) NotifyRWCashIn(ctx context.Context, rwID, txID, amount, description, locationName string) {
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		targets, err := s.repo.GetRWPengurusUserIDs(bgCtx, rwID)
+		if err != nil {
+			slog.Error("failed to find recipients for rw_cash_in", "rw_id", rwID, "error", err)
+			return
+		}
+
+		title := "Kas Masuk RW Diterima"
+		body := fmt.Sprintf("Penerimaan kas masuk RW sebesar Rp %s telah dicatat.", amount)
+		if strings.TrimSpace(description) != "" {
+			body = fmt.Sprintf("Penerimaan kas masuk RW sebesar Rp %s (%s) telah dicatat.", amount, description)
+		}
+
+		payload := map[string]string{
+			"type":        EventRWCashIn,
+			"rw_id":       rwID,
+			"tx_id":       txID,
+			"amount":      amount,
+			"description": description,
+			"location":    locationName,
+			"sent_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		}
+
+		for _, uid := range targets {
+			dedupKey := fmt.Sprintf("rw_kas:%s:income:%s", txID, uid)
+			ok, err := s.repo.RecordRWDedup(bgCtx, rwID, uid, EventRWCashIn, dedupKey, title, body, payload, nil)
+			if err != nil {
+				slog.Warn("rw_cash_in dedup check failed", "user_id", uid, "error", err)
+			}
+			if !ok {
+				continue
+			}
+			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
+			s.sendPushToTokens(bgCtx, tokens, title, body, payload)
+		}
+	}()
+}
+
+func (s *service) NotifyRWCashOut(ctx context.Context, rwID, txID, amount, description, category, locationName string) {
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		targets, err := s.repo.GetRWPengurusUserIDs(bgCtx, rwID)
+		if err != nil {
+			slog.Error("failed to find recipients for rw_cash_out", "rw_id", rwID, "error", err)
+			return
+		}
+
+		title := "Kas Keluar RW Dicatat"
+		body := fmt.Sprintf("Pengeluaran kas RW sebesar Rp %s untuk %s telah dicatat.", amount, description)
+
+		payload := map[string]string{
+			"type":        EventRWCashOut,
+			"rw_id":       rwID,
+			"tx_id":       txID,
+			"amount":      amount,
+			"description": description,
+			"category":    category,
+			"location":    locationName,
+			"sent_at":     time.Now().UTC().Format(time.RFC3339Nano),
+		}
+
+		for _, uid := range targets {
+			dedupKey := fmt.Sprintf("rw_kas:%s:expense:%s", txID, uid)
+			ok, err := s.repo.RecordRWDedup(bgCtx, rwID, uid, EventRWCashOut, dedupKey, title, body, payload, nil)
+			if err != nil {
+				slog.Warn("rw_cash_out dedup check failed", "user_id", uid, "error", err)
+			}
+			if !ok {
+				continue
+			}
+			tokens, _ := s.repo.GetTokensForUser(bgCtx, uid)
+			s.sendPushToTokens(bgCtx, tokens, title, body, payload)
+		}
+	}()
+}
+
+func (s *service) SendRWManualPush(ctx context.Context, rwID, senderUserID, title, body string, target ...string) (int, error) {
+	var targets []string
+	var err error
+	if len(target) > 0 && strings.TrimSpace(target[0]) == "rw_only" {
+		targets, err = s.repo.GetRWPengurusUserIDs(ctx, rwID)
+	} else {
+		targets, err = s.repo.GetRWAndRTPengurusUserIDs(ctx, rwID)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to get RW manual push recipients: %w", err)
+	}
+	if len(targets) == 0 {
+		return 0, nil
+	}
+
+	payload := map[string]string{
+		"type":           EventManualPush,
+		"rw_id":          rwID,
+		"title":          title,
+		"body":           body,
+		"sender_user_id": senderUserID,
+		"sent_at":        time.Now().UTC().Format(time.RFC3339Nano),
+	}
+
+	batchID := fmt.Sprintf("rw_manual:%s:%d", rwID, time.Now().UnixNano())
+	sentCount := 0
+	senderPtr := &senderUserID
+	for _, uid := range targets {
+		dedupKey := fmt.Sprintf("%s:%s", batchID, uid)
+		ok, err := s.repo.RecordRWDedup(ctx, rwID, uid, EventManualPush, dedupKey, title, body, payload, senderPtr)
+		if err != nil {
+			slog.Warn("rw manual push dedup failed", "user_id", uid, "error", err)
+		}
+		if !ok {
+			continue
+		}
+		tokens, err := s.repo.GetTokensForUser(ctx, uid)
+		if err == nil && len(tokens) > 0 {
+			s.sendPushToTokens(ctx, tokens, title, body, payload)
+		}
+		sentCount++
+	}
+	return sentCount, nil
+}
+
+func (s *service) ListRWLogs(ctx context.Context, rwID, eventType string, page, pageSize int) ([]NotificationLogEntry, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+	return s.repo.ListRWLogs(ctx, rwID, eventType, offset, pageSize)
 }

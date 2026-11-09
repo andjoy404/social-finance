@@ -172,7 +172,18 @@ func TestBendaharaCannotDeleteFinancialCategories(t *testing.T) {
 	var rtID, categoryID string
 	err := pool.Raw().QueryRowContext(ctx, `SELECT id, rt_id FROM financial_categories WHERE is_active = true LIMIT 1`).Scan(&categoryID, &rtID)
 	if err != nil {
-		t.Fatalf("get category: %v", err)
+		err = pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE is_active = true LIMIT 1`).Scan(&rtID)
+		if err != nil {
+			t.Fatalf("get rt: %v", err)
+		}
+		err = pool.Raw().QueryRowContext(ctx, `
+			INSERT INTO financial_categories (id, rt_id, name, type, is_active)
+			VALUES (gen_random_uuid(), $1, 'Kategori Test', 'expense', true)
+			RETURNING id
+		`, rtID).Scan(&categoryID)
+		if err != nil {
+			t.Fatalf("create category: %v", err)
+		}
 	}
 
 	// Bendahara membership

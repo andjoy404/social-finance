@@ -170,6 +170,31 @@ func (r *schedulerRegressionRepo) DeleteTemplate(ctx context.Context, rtID, id s
 	return nil
 }
 
+func (r *schedulerRegressionRepo) ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *schedulerRegressionRepo) GetRWTemplateByID(ctx context.Context, rwID, id string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *schedulerRegressionRepo) CreateRWTemplate(ctx context.Context, rwID string, in notification.CreateTemplateInput, allowedVars []string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *schedulerRegressionRepo) UpdateRWTemplate(ctx context.Context, rwID, id string, in notification.UpdateTemplateInput) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *schedulerRegressionRepo) ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *schedulerRegressionRepo) DeleteRWTemplate(ctx context.Context, rwID, id string) error {
+	return nil
+}
+
+
 func (r *schedulerRegressionRepo) CreateSchedule(ctx context.Context, rtID, userID string, in notification.CreateScheduleInput) (*notification.NotificationSchedule, error) {
 	s := &notification.NotificationSchedule{
 		ID:         "sched-" + in.Name,
@@ -431,6 +456,22 @@ func (r *schedulerRegressionRepo) GetUnreadCount(ctx context.Context, rtID, user
 
 func (r *schedulerRegressionRepo) GetDefaultRTID(ctx context.Context) (string, error) {
 	return "test-rt-002", nil
+}
+
+func (r *schedulerRegressionRepo) GetRWPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
+	return nil, nil
+}
+
+func (r *schedulerRegressionRepo) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
+	return nil, nil
+}
+
+func (r *schedulerRegressionRepo) RecordRWDedup(ctx context.Context, rwID, userID, eventType, dedupKey, title, body string, payload map[string]string, senderUserID *string) (bool, error) {
+	return true, nil
+}
+
+func (r *schedulerRegressionRepo) ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	return nil, 0, nil
 }
 
 func (r *schedulerRegressionRepo) GetRTUserBillsForEvaluation(ctx context.Context, rtID string) ([]finance.BillEvaluationInput, error) {

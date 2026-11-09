@@ -528,19 +528,20 @@ func TestSecurity_WakilKetuaDirectHTTPMutationBlocked(t *testing.T) {
 	recTx := httptest.NewRecorder()
 	router.ServeHTTP(recTx, reqTx)
 
-	if recTx.Code != http.StatusCreated {
-		t.Fatalf("expected 201 Created for Wakil Ketua creating kas transaction, got %d. Body: %s", recTx.Code, recTx.Body.String())
+	// Per Final RBAC Matrix: Wakil Ketua (Pengurus RW) is strictly read-only and blocked from creating kas transactions
+	if recTx.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Wakil Ketua creating kas transaction per Final RBAC matrix, got %d. Body: %s", recTx.Code, recTx.Body.String())
 	}
 
-	// Verify positive control created exactly 1 transaction and 1 balance change, but NO transfer
+	// Verify Wakil Ketua cannot mutate: txCount and changeCount must remain unchanged
 	stateAfter := getRWSecurityDBState(t, pool, rwAID, locA1, locA2)
-	if stateAfter.txCount != stateBefore.txCount+1 {
-		t.Fatalf("expected txCount to increase by 1, got %d (was %d)", stateAfter.txCount, stateBefore.txCount)
+	if stateAfter.txCount != stateBefore.txCount {
+		t.Fatalf("expected txCount to remain unchanged, got %d (was %d)", stateAfter.txCount, stateBefore.txCount)
 	}
 	if stateAfter.transferCount != stateBefore.transferCount {
 		t.Fatalf("transferCount unexpectedly changed: got %d (was %d)", stateAfter.transferCount, stateBefore.transferCount)
 	}
-	if stateAfter.changeCount != stateBefore.changeCount+1 {
-		t.Fatalf("expected changeCount to increase by 1, got %d (was %d)", stateAfter.changeCount, stateBefore.changeCount)
+	if stateAfter.changeCount != stateBefore.changeCount {
+		t.Fatalf("expected changeCount to remain unchanged, got %d (was %d)", stateAfter.changeCount, stateBefore.changeCount)
 	}
 }

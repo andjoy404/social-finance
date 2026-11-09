@@ -41,6 +41,14 @@ type Repository interface {
 	ToggleTemplateActive(ctx context.Context, rtID, id string) (*NotificationTemplate, error)
 	DeleteTemplate(ctx context.Context, rtID, id string) error
 
+	// RW-scoped template management
+	ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]NotificationTemplate, error)
+	GetRWTemplateByID(ctx context.Context, rwID, id string) (*NotificationTemplate, error)
+	CreateRWTemplate(ctx context.Context, rwID string, in CreateTemplateInput, allowedVars []string) (*NotificationTemplate, error)
+	UpdateRWTemplate(ctx context.Context, rwID, id string, in UpdateTemplateInput) (*NotificationTemplate, error)
+	ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*NotificationTemplate, error)
+	DeleteRWTemplate(ctx context.Context, rwID, id string) error
+
 	// Schedule management
 	CreateSchedule(ctx context.Context, rtID, userID string, in CreateScheduleInput) (*NotificationSchedule, error)
 	GetSchedule(ctx context.Context, rtID, id string) (*NotificationSchedule, error)
@@ -103,6 +111,12 @@ type Repository interface {
 
 	// Tenant resolution fallback for system roles
 	GetDefaultRTID(ctx context.Context) (string, error)
+
+	// RW notifications
+	GetRWPengurusUserIDs(ctx context.Context, rwID string) ([]string, error)
+	GetRWAndRTPengurusUserIDs(ctx context.Context, rwID string) ([]string, error)
+	RecordRWDedup(ctx context.Context, rwID, userID, eventType, dedupKey, title, body string, payload map[string]string, senderUserID *string) (bool, error)
+	ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error)
 }
 
 // OverdueReminderRepository is an optional extension of Repository that evaluates
@@ -834,6 +848,229 @@ func (r *pgRepository) DeleteTemplate(ctx context.Context, rtID, id string) erro
 	}
 	return nil
 }
+
+// ListRWTemplates lists notification templates scoped to an RW.
+func (r *pgRepository) ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]NotificationTemplate, error) {
+	query := `
+		SELECT id, rw_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url
+		FROM notification_templates
+		WHERE rw_id = $1
+	`
+	args := []any{rwID}
+	argIdx := 2
+
+	if strings.TrimSpace(eventType) != "" {
+		query += fmt.Sprintf(" AND event_type = $%d", argIdx)
+		args = append(args, strings.TrimSpace(eventType))
+		argIdx++
+	}
+
+	if isActive != nil {
+		query += fmt.Sprintf(" AND is_active = $%d", argIdx)
+		args = append(args, *isActive)
+		argIdx++
+	}
+
+	query += " ORDER BY created_at DESC"
+
+	rows, err := r.pool.Raw().QueryContext(ctx, query, args...)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return []NotificationTemplate{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var templates []NotificationTemplate
+	for rows.Next() {
+		var t NotificationTemplate
+		var varsRaw []byte
+		if err := rows.Scan(&t.ID, &t.RWID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL); err != nil {
+			return nil, err
+		}
+		if len(varsRaw) > 0 {
+			_ = json.Unmarshal(varsRaw, &t.Variables)
+		}
+		if t.Variables == nil {
+			t.Variables = []string{}
+		}
+		templates = append(templates, t)
+	}
+	if templates == nil {
+		templates = []NotificationTemplate{}
+	}
+	return templates, rows.Err()
+}
+
+// GetRWTemplateByID gets an RW-scoped template by ID.
+func (r *pgRepository) GetRWTemplateByID(ctx context.Context, rwID, id string) (*NotificationTemplate, error) {
+	query := `
+		SELECT id, rw_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url
+		FROM notification_templates
+		WHERE id = $1 AND rw_id = $2
+		LIMIT 1;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, id, rwID).Scan(
+		&t.ID, &t.RWID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+// CreateRWTemplate creates a new RW-scoped notification template.
+func (r *pgRepository) CreateRWTemplate(ctx context.Context, rwID string, in CreateTemplateInput, allowedVars []string) (*NotificationTemplate, error) {
+	channel := "push"
+	if strings.TrimSpace(in.Channel) != "" {
+		channel = strings.TrimSpace(in.Channel)
+	}
+	varsJSON, _ := json.Marshal(allowedVars)
+
+	var imageURL *string
+	if in.ImageURL != nil && strings.TrimSpace(*in.ImageURL) != "" {
+		trimmed := strings.TrimSpace(*in.ImageURL)
+		imageURL = &trimmed
+	}
+
+	query := `
+		INSERT INTO notification_templates (rw_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url)
+		VALUES ($1, $2, $3, $4, $5, $6, true, $7, NOW(), NOW(), $8)
+		RETURNING id, rw_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, rwID, in.Name, in.EventType, channel, in.Title, in.Body, varsJSON, imageURL).Scan(
+		&t.ID, &t.RWID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+// UpdateRWTemplate updates an existing RW-scoped notification template.
+func (r *pgRepository) UpdateRWTemplate(ctx context.Context, rwID, id string, in UpdateTemplateInput) (*NotificationTemplate, error) {
+	existing, err := r.GetRWTemplateByID(ctx, rwID, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, nil
+	}
+
+	name := existing.Name
+	if strings.TrimSpace(in.Name) != "" {
+		name = strings.TrimSpace(in.Name)
+	}
+	title := existing.Title
+	if strings.TrimSpace(in.Title) != "" {
+		title = strings.TrimSpace(in.Title)
+	}
+	body := existing.Body
+	if strings.TrimSpace(in.Body) != "" {
+		body = strings.TrimSpace(in.Body)
+	}
+	isActive := existing.IsActive
+	if in.IsActive != nil {
+		isActive = *in.IsActive
+	}
+	imageURL := existing.ImageURL
+	if in.ImageURL != nil {
+		if strings.TrimSpace(*in.ImageURL) == "" {
+			imageURL = nil
+		} else {
+			trimmed := strings.TrimSpace(*in.ImageURL)
+			imageURL = &trimmed
+		}
+	}
+
+	query := `
+		UPDATE notification_templates
+		SET name = $1, title = $2, body = $3, is_active = $4, image_url = $5, updated_at = NOW()
+		WHERE id = $6 AND rw_id = $7
+		RETURNING id, rw_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err = r.pool.Raw().QueryRowContext(ctx, query, name, title, body, isActive, imageURL, id, rwID).Scan(
+		&t.ID, &t.RWID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+// ToggleRWTemplateActive toggles the is_active flag on an RW-scoped template.
+func (r *pgRepository) ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*NotificationTemplate, error) {
+	query := `
+		UPDATE notification_templates
+		SET is_active = NOT is_active, updated_at = NOW()
+		WHERE id = $1 AND rw_id = $2
+		RETURNING id, rw_id, name, event_type, channel, title, body, is_active, variables, created_at, updated_at, image_url;
+	`
+	var t NotificationTemplate
+	var varsRaw []byte
+	err := r.pool.Raw().QueryRowContext(ctx, query, id, rwID).Scan(
+		&t.ID, &t.RWID, &t.Name, &t.EventType, &t.Channel, &t.Title, &t.Body, &t.IsActive, &varsRaw, &t.CreatedAt, &t.UpdatedAt, &t.ImageURL,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(varsRaw) > 0 {
+		_ = json.Unmarshal(varsRaw, &t.Variables)
+	}
+	if t.Variables == nil {
+		t.Variables = []string{}
+	}
+	return &t, nil
+}
+
+// DeleteRWTemplate deletes an RW-scoped notification template.
+func (r *pgRepository) DeleteRWTemplate(ctx context.Context, rwID, id string) error {
+	query := `DELETE FROM notification_templates WHERE id = $1 AND rw_id = $2;`
+	res, err := r.pool.Raw().ExecContext(ctx, query, id, rwID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 
 func (r *pgRepository) CreateSchedule(ctx context.Context, rtID, userID string, in CreateScheduleInput) (*NotificationSchedule, error) {
 	if strings.TrimSpace(in.Name) == "" {
@@ -2284,4 +2521,142 @@ func (r *pgRepository) GetDefaultRTID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return rtID, nil
+}
+
+// GetRWPengurusUserIDs returns user IDs of all active RW pengurus.
+func (r *pgRepository) GetRWPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
+	query := `
+		SELECT DISTINCT user_id
+		FROM user_rw_memberships
+		WHERE rw_id = $1 AND is_active = true;
+	`
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rwID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var uids []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		uids = append(uids, uid)
+	}
+	return uids, nil
+}
+
+// GetRWAndRTPengurusUserIDs returns user IDs of active RW pengurus plus active RT pengurus in the RW.
+func (r *pgRepository) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
+	query := `
+		SELECT DISTINCT user_id FROM (
+			SELECT user_id FROM user_rw_memberships
+			WHERE rw_id = $1 AND is_active = true
+			UNION
+			SELECT urm.user_id FROM user_rt_memberships urm
+			JOIN rts r ON r.id = urm.rt_id
+			WHERE r.rw_id = $1 AND r.is_active = true AND urm.is_active = true AND urm.role IN ('pengurus', 'bendahara')
+		) all_pengurus;
+	`
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rwID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var uids []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		uids = append(uids, uid)
+	}
+	return uids, nil
+}
+
+// RecordRWDedup records a notification delivery log scoped to an RW.
+func (r *pgRepository) RecordRWDedup(
+	ctx context.Context,
+	rwID, userID, eventType, dedupKey, title, body string,
+	payload map[string]string,
+	senderUserID *string,
+) (bool, error) {
+	payloadJSON, _ := json.Marshal(payload)
+	var uidParam *string
+	if strings.TrimSpace(userID) != "" {
+		trimmed := strings.TrimSpace(userID)
+		uidParam = &trimmed
+	}
+	query := `
+		INSERT INTO notification_logs (rw_id, user_id, event_type, dedup_key, title, body, payload, status, sender_user_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'SENT', $8)
+		ON CONFLICT (dedup_key) DO NOTHING
+		RETURNING id;
+	`
+	var id string
+	err := r.pool.Raw().QueryRowContext(ctx, query, rwID, uidParam, eventType, dedupKey, title, body, payloadJSON, senderUserID).Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil // deduplicated
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// ListRWLogs lists notifications for an RW.
+func (r *pgRepository) ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]NotificationLogEntry, int, error) {
+	countQuery := `
+		SELECT COUNT(*)
+		FROM notification_logs
+		WHERE rw_id = $1 AND ($2 = '' OR event_type = $2);
+	`
+	var total int
+	if err := r.pool.Raw().QueryRowContext(ctx, countQuery, rwID, eventType).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, rw_id, user_id, sender_user_id, event_type, dedup_key, title, body, payload, image_url, status, created_at
+		FROM notification_logs
+		WHERE rw_id = $1 AND ($2 = '' OR event_type = $2)
+		ORDER BY created_at DESC
+		LIMIT $3 OFFSET $4;
+	`
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rwID, eventType, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var logs []NotificationLogEntry
+	for rows.Next() {
+		var l NotificationLogEntry
+		var payloadJSON []byte
+		var rwIDVal *string
+		if err := rows.Scan(
+			&l.ID,
+			&rwIDVal,
+			&l.UserID,
+			&l.SenderUserID,
+			&l.EventType,
+			&l.DedupKey,
+			&l.Title,
+			&l.Body,
+			&payloadJSON,
+			&l.ImageURL,
+			&l.Status,
+			&l.CreatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		l.RWID = rwIDVal
+		if len(payloadJSON) > 0 {
+			_ = json.Unmarshal(payloadJSON, &l.Payload)
+		}
+		logs = append(logs, l)
+	}
+	return logs, total, nil
 }

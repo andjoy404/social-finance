@@ -166,7 +166,11 @@ export function RtDetailModal({
     if (!rtForm.name.trim()) validationErrors.push('Nama RT harus diisi.')
     if (!rtForm.rw || !/^\d+$/.test(rtForm.rw)) validationErrors.push('RW harus angka yang valid.')
     if (rtForm.rw && /^\d+$/.test(rtForm.rw) && Number(rtForm.rw) < 0) validationErrors.push('RW tidak boleh negatif.')
-    if (!rtForm.rt.trim()) validationErrors.push('Kode RT harus diisi.')
+    if (!rtForm.rt.trim()) {
+      validationErrors.push('Kode RT harus diisi.')
+    } else if (!/^[0-9]{3}$/.test(rtForm.rt.trim())) {
+      validationErrors.push('Nomor RT harus tepat 3 digit angka (contoh: 002).')
+    }
     if (validationErrors.length > 0) {
       setEditValidationErrors(validationErrors)
       return

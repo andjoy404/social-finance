@@ -541,32 +541,55 @@ func (r *Repository) GetReconciliationReport(ctx context.Context, tx *sql.Tx, rw
 
 	kasCents, _, _ := ParseMoney(kasReport.TotalBalance)
 	allocCents, _, _ := ParseMoney(totalAllocatedStr)
-	discCents := kasCents - allocCents
+
+	// K = total Kas RW (opening balance + income - expense)
+	// L = total allocated to all locations (sum of all amount_delta)
+	// U = K - L when K >= L, else 0
+	// D = 0 when K >= L (everything reconciled, some just unallocated), else K - L (negative discrepancy)
+	var unallocatedCents, discCents int64
+	if kasCents >= allocCents {
+		unallocatedCents = kasCents - allocCents
+		discCents = 0
+	} else {
+		unallocatedCents = 0
+		discCents = kasCents - allocCents // negative
+	}
 
 	status := "matched"
-	statusLabel := "Saldo Sesuai"
+	statusLabel := "Cocok Sempurna"
 	var anomalies []string
 
-	if discCents != 0 {
+	if unallocatedCents > 0 {
+		status = "belum_teralokasi"
+		statusLabel = "Belum Teralokasi"
+	} else if discCents < 0 {
 		status = "discrepant"
-		statusLabel = "Selisih Terdeteksi"
+		statusLabel = "Discrepancy"
 		anomalies = append(anomalies, fmt.Sprintf("Selisih antara saldo kas RW dan total alokasi lokasi dana: %s", FormatMoney(discCents)))
 	}
 
-	unallocatedCents := discCents
-	if unallocatedCents < 0 {
-		unallocatedCents = 0
+	var allocatedPercentage float64
+	if kasCents > 0 {
+		allocatedPercentage = float64(allocCents) / float64(kasCents) * 100
 	}
 
 	return &ReconciliationReport{
-		KasBalance:            kasReport.TotalBalance,
-		TotalAllocatedBalance: totalAllocatedStr,
-		UnallocatedBalance:    FormatMoney(unallocatedCents),
-		Discrepancy:           FormatMoney(discCents),
-		Status:                status,
-		StatusLabel:           statusLabel,
-		LocationsSummary:      summaries,
-		AnomaliesDetected:     anomalies,
+		KasBalance:             kasReport.TotalBalance,
+		TotalAllocatedBalance:  totalAllocatedStr,
+		UnallocatedBalance:     FormatMoney(unallocatedCents),
+		Discrepancy:            FormatMoney(discCents),
+		Status:                 status,
+		StatusLabel:            statusLabel,
+		AllocatedPercentage:    allocatedPercentage,
+		OpeningBalance:         kasReport.OpeningBalance,
+		TotalIncome:            kasReport.TotalIncome,
+		TotalExpense:           kasReport.TotalExpense,
+		CalculatedBalance:      kasReport.TotalBalance,
+		TotalLocationBalances:  totalAllocatedStr,
+		IsReconciled:           discCents == 0,
+		CategoryBreakdown:      summaries,
+		LocationsSummary:       summaries,
+		AnomaliesDetected:      anomalies,
 	}, nil
 }
 
@@ -957,14 +980,14 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 	if in.SourceRTID != nil && *in.SourceRTID != "" {
 		var rtExists bool
 		err = tx.QueryRowContext(ctx,
-			`SELECT EXISTS(SELECT 1 FROM rts WHERE id = $1 AND is_active = true)`,
-			*in.SourceRTID,
+			`SELECT EXISTS(SELECT 1 FROM rts WHERE id = $1 AND rw_id = $2 AND is_active = true)`,
+			*in.SourceRTID, rwID,
 		).Scan(&rtExists)
 		if err != nil {
 			return nil, fmt.Errorf("validate source rt: %w", err)
 		}
 		if !rtExists {
-			return nil, fmt.Errorf("%w: source RT not found or inactive", ErrValidation)
+			return nil, fmt.Errorf("%w: source RT not found, inactive, or not part of this RW", ErrValidation)
 		}
 	}
 
@@ -1380,4 +1403,80 @@ func (r *Repository) SetOpeningBalance(ctx context.Context, tx *sql.Tx, rwID, am
 		return fmt.Errorf("insert rw_opening_balance: %w", err)
 	}
 	return nil
+}
+
+// AllocateOpeningBalance allocates opening balance from unallocated cash (U)
+// to a specific RW fund location.
+// U = K - L where K = total Kas RW balance and L = total allocated to locations.
+// Records as change_type = 'opening_balance' in rw_location_balance_changes.
+func (r *Repository) AllocateOpeningBalance(ctx context.Context, tx *sql.Tx, rwID, locationID string, amtCents int64, notes *string, userID string) (*LocationSummary, error) {
+	// Lock the target location to serialize concurrent allocations.
+	var lockDummy int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM rw_fund_locations WHERE rw_id = $1 AND id = $2 FOR UPDATE`, rwID, locationID).Scan(&lockDummy)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lock fund location: %w", err)
+	}
+
+	// Verify location belongs to rwID and is active.
+	loc, err := r.GetLocationByID(ctx, tx, rwID, locationID)
+	if err != nil {
+		return nil, fmt.Errorf("fund location: %w", err)
+	}
+	if !loc.IsActive {
+		return nil, fmt.Errorf("%w: location %s is inactive", ErrInactiveLocation, loc.Name)
+	}
+
+	// Calculate K = total Kas RW balance (opening balance + income - expense)
+	kasReport, err := r.GetKASReport(ctx, tx, rwID, "")
+	if err != nil {
+		return nil, fmt.Errorf("kas report: %w", err)
+	}
+	kCents, _, err := ParseMoney(kasReport.TotalBalance)
+	if err != nil {
+		return nil, fmt.Errorf("parse kas balance: %w", err)
+	}
+
+	// Calculate L = total allocated to locations (sum of all lbc amount_delta)
+	var totalAllocatedStr string
+	err = tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(lbc.amount_delta), 0)::numeric(15,2)::text
+		 FROM rw_location_balance_changes lbc
+		 JOIN rw_fund_locations fl ON lbc.location_id = fl.id
+		 WHERE fl.rw_id = $1`, rwID,
+	).Scan(&totalAllocatedStr)
+	if err != nil {
+		return nil, fmt.Errorf("query total allocated balance: %w", err)
+	}
+	lCents, _, err := ParseMoney(totalAllocatedStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse allocated balance: %w", err)
+	}
+
+	// U = K - L (unallocated cash)
+	unallocatedCents := kCents - lCents
+	if amtCents > unallocatedCents {
+		return nil, fmt.Errorf("%w: requested %s exceeds unallocated cash %s", ErrInsufficientFunds, FormatMoney(amtCents), FormatMoney(unallocatedCents))
+	}
+
+	notesStr := "Alokasi saldo awal kas historis"
+	if notes != nil && strings.TrimSpace(*notes) != "" {
+		notesStr = strings.TrimSpace(*notes)
+	}
+
+	amountStr := FormatMoney(amtCents)
+
+	// Insert opening_balance mutation into rw_location_balance_changes.
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO rw_location_balance_changes (rw_id, location_id, change_type, amount_delta, notes, created_by)
+		 VALUES ($1, $2, 'opening_balance', $3::numeric(15,2), $4, $5)`,
+		rwID, locationID, amountStr, notesStr, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert opening balance allocation: %w", err)
+	}
+
+	return r.GetLocationByID(ctx, tx, rwID, locationID)
 }

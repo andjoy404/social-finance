@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -15,7 +14,6 @@ import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
 import 'package:social_finance/features/rw/data/rw_providers.dart';
-
 /// KAS screen untuk konteks RW — catatan transaksi KAS RW dan riwayat.
 class RwKasScreen extends ConsumerStatefulWidget {
   final String rwId;
@@ -33,6 +31,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
   bool get wantKeepAlive => true;
   RwKasReport? _kasReport;
   List<RwTransaction> _transactions = [];
+  List<RwRtInfo> _rts = [];
+  List<RwFinancialCategory> _expenseCategories = [];
   bool _isLoading = true;
   String? _error;
   int _selectedMonth = DateTime.now().month;
@@ -59,7 +59,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
         .where((m) => m['rw_id'] == widget.rwId)
         .firstOrNull as Map<String, dynamic>?;
     final jabatan = (currentMembership?['jabatan'] ?? '').toLowerCase();
-    return jabatan == 'bendahara' || jabatan == 'ketua' || jabatan == 'wakil_ketua';
+    return jabatan == 'bendahara' || jabatan == 'ketua';
   }
 
   @override
@@ -84,11 +84,17 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
           page: 1,
           pageSize: 100,
         ),
+        api.getRTRs(widget.rwId),
+        api.getCategories(isActive: true),
       ]);
       if (mounted) {
         setState(() {
           _kasReport = results[0] as RwKasReport;
           _transactions = (results[1] as RwTransactionsResponse).data;
+          _rts = (results[2] as List<RwRtInfo>);
+          _expenseCategories = (results[3] as List<RwFinancialCategory>)
+              .where((c) => c.type == 'expense')
+              .toList();
         });
       }
     } catch (e) {
@@ -925,24 +931,6 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     );
   }
 
-  static const List<String> _kExpenseCategories = [
-    'Konsumsi',
-    'ATK',
-    'Kebersihan',
-    'Keamanan',
-    'Pemeliharaan dan Perbaikan',
-    'Kegiatan Warga',
-    'Sosial dan Santunan',
-    'Operasional',
-    'Transportasi',
-    'Listrik dan Air',
-    'Komunikasi dan Internet',
-    'Administrasi dan Dokumentasi',
-    'Perlengkapan dan Peralatan',
-    'Sewa',
-    'Lain-lain',
-  ];
-
   static String _formatFundLocationCategory(String cat) {
     final c = cat.trim().toLowerCase();
     if (c == 'cash' || c == 'coh') return 'COH';
@@ -1051,21 +1039,38 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     Uint8List? proofBytes;
     String? selectedLocationId;
     String? selectedExpenseCategory;
+    String? selectedSourceRtId; // RT sumber untuk Setoran RT
     String paymentMethod = 'transfer';
     bool saving = false;
     String? error;
     List<RwFundLocation> locations = [];
+    List<RwRtInfo> rts = [];
+    List<RwFinancialCategory> expenseCategories = [];
     bool loadingLocations = true;
+    bool loadingRefData = true;
 
     try {
-      locations = await ref.read(rwApiClientProvider).getLocations(widget.rwId, isActive: true);
-      loadingLocations = false;
-      if (locations.isNotEmpty) {
-        selectedLocationId = locations.first.id;
-        paymentMethod = locations.first.category == 'rekening' ? 'transfer' : 'cash';
-      }
+      final api = ref.read(rwApiClientProvider);
+      final futures = <Future<void>>[];
+      futures.add(api.getLocations(widget.rwId, isActive: true).then((loc) {
+        locations = loc;
+        loadingLocations = false;
+        if (locations.isNotEmpty) {
+          selectedLocationId = locations.first.id;
+          paymentMethod = locations.first.category == 'rekening' ? 'transfer' : 'cash';
+        }
+      }));
+      futures.add(api.getRTRs(widget.rwId).then((rtList) {
+        rts = rtList;
+      }));
+      futures.add(api.getCategories(isActive: true).then((catList) {
+        expenseCategories = catList.where((c) => c.type == 'expense').toList();
+      }));
+      await Future.wait(futures);
+      loadingRefData = false;
     } catch (_) {
       loadingLocations = false;
+      loadingRefData = false;
     }
 
     if (!context.mounted) return;
@@ -1129,20 +1134,47 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         },
                       ),
                       const SizedBox(height: 8),
-                      if (!isIncome) ...[
+                      if (isIncome) ...[
+                        DropdownButtonFormField<String?>(
+                          value: selectedSourceRtId,
+                          decoration: const InputDecoration(
+                            labelText: 'Jenis Kas Masuk',
+                            hintText: 'Pilih: Kas Masuk atau Setoran RT',
+                          ),
+                          items: [
+                            const DropdownMenuItem<String?>(value: null, child: Text('Kas Masuk')),
+                            ...rts.map((rt) => DropdownMenuItem<String?>(
+                              value: rt.id,
+                              child: Text('Setoran RT — ${rt.label}'),
+                            )),
+                          ],
+                          onChanged: (val) {
+                            setDialogState(() => selectedSourceRtId = val);
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ] else ...[
                         DropdownButtonFormField<String>(
                           value: selectedExpenseCategory,
                           decoration: const InputDecoration(
                             labelText: 'Kategori Kas Keluar *',
                           ),
-                          items: _kExpenseCategories.map((cat) {
-                            return DropdownMenuItem(value: cat, child: Text(cat));
+                          items: expenseCategories.map((cat) {
+                            return DropdownMenuItem(
+                              value: cat.id,
+                              child: Text(cat.name),
+                            );
                           }).toList(),
                           onChanged: (val) {
                             setDialogState(() => selectedExpenseCategory = val);
                           },
                         ),
                         const SizedBox(height: 8),
+                        if (expenseCategories.isEmpty)
+                          const Text(
+                            'Tidak ada kategori pengeluaran yang tersedia.',
+                            style: TextStyle(color: AppColors.danger, fontSize: 12),
+                          ),
                       ],
                       TextField(
                         controller: amountCtrl,
@@ -1292,6 +1324,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       setDialogState(() => error = 'Pilih kategori kas keluar');
                       return;
                     }
+                    if (isIncome && selectedSourceRtId != null && rts.where((rt) => rt.id == selectedSourceRtId).isEmpty) {
+                      setDialogState(() => error = 'Pilih RT sumber yang valid untuk Setoran RT');
+                      return;
+                    }
                     final amt = double.tryParse(amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
                     if (amt <= 0) {
                       setDialogState(() => error = 'Nominal harus lebih dari 0');
@@ -1323,6 +1359,8 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                         'location_id': selectedLocationId,
                         'description': descCtrl.text.trim(),
                         'payment_method': paymentMethod,
+                        if (isIncome && selectedSourceRtId != null)
+                          'source_rt_id': selectedSourceRtId,
                         if (!isIncome && selectedExpenseCategory != null)
                           'expense_category': selectedExpenseCategory,
                       });

@@ -8,16 +8,22 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useAuth, hasRwWriteAccess, type RWMembership } from '@/app/AuthContext'
+import {
+  useAuth,
+  hasRwWriteAccess,
+  hasRwFeatureAccess,
+  type RWMembership,
+} from '@/app/AuthContext'
 import { RwDashboard } from './RwDashboard'
 import { RwKasList } from './RwKasList'
 import { RwFundLocationList } from './RwFundLocationList'
-import { LeftOutlined, DashboardOutlined, WalletOutlined, BankOutlined } from '@ant-design/icons'
+import { RwNotificationScreen } from './RwNotificationScreen'
+import { LeftOutlined, DashboardOutlined, WalletOutlined, BankOutlined, BellOutlined } from '@ant-design/icons'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
 import { Select } from 'antd'
 
-type RwViewTab = 'dashboard' | 'kas' | 'lokasi-dana'
+type RwViewTab = 'dashboard' | 'kas' | 'lokasi-dana' | 'notification'
 
 export function RwDataView({ rwId }: { rwId?: string }) {
   const { user } = useAuth()
@@ -30,15 +36,30 @@ export function RwDataView({ rwId }: { rwId?: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<RwViewTab>('dashboard')
-
-  const isSuperAdmin = user?.role === 'super_admin' || (user as any)?.systemRole === 'super_admin' || (user as any)?.system_role === 'super_admin'
   const rawRwMemberships: RWMembership[] = user?.rwMemberships ?? []
+  const isSuperAdmin = user?.role === 'super_admin' || (user as any)?.systemRole === 'super_admin' || (user as any)?.system_role === 'super_admin'
   const rwMemberships = rawRwMemberships.filter(
     (m) => isSuperAdmin || (m.jabatan && ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'].includes(m.jabatan.toLowerCase()))
   )
 
-  // Source-aware: RT inferred users cannot see the Lokasi Dana tab.
+  // Sync tab with URL wildcard
+  useEffect(() => {
+    const rawSub = (params['*'] || '').split('/')[0]
+    if (rawSub === 'kas' || rawSub === 'lokasi-dana' || rawSub === 'notification') {
+      setActiveTab(rawSub)
+    } else if (rawSub === 'dashboard' || !rawSub) {
+      setActiveTab('dashboard')
+    }
+  }, [params])
+
+  // Final Matrix permissions:
+  // Pengurus RT (rt_inferred): Beranda RW only. KAS, Lokasi Dana, Notifikasi are NO.
+  // Pengurus RW (explicit, e.g. wakil_ketua, sekretaris): READ for all 4 features. WRITE is NO.
+  // Ketua RW & Bendahara RW: READ + WRITE for all 4 features.
+  // Super Admin: Full bypass.
+  const canAccessFeatures = hasRwFeatureAccess(user, selectedRwId)
   const canWriteForSelected = hasRwWriteAccess(user, selectedRwId)
+
   const visibleTabs: { key: RwViewTab; label: string; icon: React.ReactNode }[] = useMemo(() => {
     const base: { key: RwViewTab; label: string; icon: React.ReactNode }[] = [
       {
@@ -46,21 +67,26 @@ export function RwDataView({ rwId }: { rwId?: string }) {
         label: 'BERANDA',
         icon: <DashboardOutlined />,
       },
-      {
+    ]
+    if (canAccessFeatures) {
+      base.push({
         key: 'kas',
         label: 'KAS',
         icon: <WalletOutlined />,
-      },
-    ]
-    if (canWriteForSelected) {
+      })
       base.push({
         key: 'lokasi-dana',
         label: 'Lokasi Dana',
         icon: <BankOutlined />,
       })
+      base.push({
+        key: 'notification',
+        label: canWriteForSelected ? 'Notifikasi Kelola' : 'Notifikasi',
+        icon: <BellOutlined />,
+      })
     }
     return base
-  }, [canWriteForSelected])
+  }, [canAccessFeatures, canWriteForSelected])
   const tabs = visibleTabs
 
   // Initialize selected RW from URL param or auto-select single membership
@@ -193,13 +219,10 @@ export function RwDataView({ rwId }: { rwId?: string }) {
 
   const membership = rwMemberships.find((m) => m.rw_id === selectedRwId)
   const displayName = membership?.rw_name || selectedRwName || 'DATA RW'
-  const jabatan = (membership?.jabatan || user?.jabatan || '').toLowerCase()
-  // Source-aware: RT inferred users get read-only badge.
-  // Checks the membership for the selected RW only.
+  // Source-aware: Only Ketua RW and Bendahara RW have write access.
+  // Pengurus RW (wakil_ketua, sekretaris) and Pengurus RT get read-only.
   const canWrite = hasRwWriteAccess(user, selectedRwId)
-  const canCreate = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
-  const canUpdate = isSuperAdmin || (canWrite && ['ketua', 'bendahara'].includes(jabatan))
-  const isReadOnly = !canCreate && !canUpdate
+  const isReadOnly = !canWrite
 
   return (
     <div>
@@ -289,11 +312,72 @@ export function RwDataView({ rwId }: { rwId?: string }) {
           <RwDashboard
             rwId={selectedRwId}
             rwName={displayName || undefined}
-            onNavigateToKas={() => handleTabChange('kas')}
+            onNavigateToKas={() => (canAccessFeatures ? handleTabChange('kas') : undefined)}
           />
         )}
-        {activeTab === 'kas' && <RwKasList rwId={selectedRwId} rwName={displayName || undefined} />}
-        {activeTab === 'lokasi-dana' && <RwFundLocationList rwId={selectedRwId} rwName={displayName || undefined} />}
+        {activeTab === 'kas' && (
+          canAccessFeatures ? (
+            <RwKasList rwId={selectedRwId} rwName={displayName || undefined} />
+          ) : (
+            <div style={{ padding: 32, textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-danger)', marginBottom: 8 }}>
+                Akses Ditolak
+              </div>
+              <div style={{ color: 'var(--sf-text-muted)', marginBottom: 16 }}>
+                Pengurus RT tidak memiliki akses ke KAS RW.
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTabChange('dashboard')}
+                className="ant-btn ant-btn-primary"
+              >
+                Kembali ke Beranda RW
+              </button>
+            </div>
+          )
+        )}
+        {activeTab === 'lokasi-dana' && (
+          canAccessFeatures ? (
+            <RwFundLocationList rwId={selectedRwId} rwName={displayName || undefined} />
+          ) : (
+            <div style={{ padding: 32, textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-danger)', marginBottom: 8 }}>
+                Akses Ditolak
+              </div>
+              <div style={{ color: 'var(--sf-text-muted)', marginBottom: 16 }}>
+                Pengurus RT tidak memiliki akses ke Lokasi Dana RW.
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTabChange('dashboard')}
+                className="ant-btn ant-btn-primary"
+              >
+                Kembali ke Beranda RW
+              </button>
+            </div>
+          )
+        )}
+        {activeTab === 'notification' && (
+          canAccessFeatures ? (
+            <RwNotificationScreen rwId={selectedRwId} rwName={displayName || undefined} />
+          ) : (
+            <div style={{ padding: 32, textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-danger)', marginBottom: 8 }}>
+                Akses Ditolak
+              </div>
+              <div style={{ color: 'var(--sf-text-muted)', marginBottom: 16 }}>
+                Pengurus RT tidak memiliki akses ke Notifikasi RW.
+              </div>
+              <button
+                type="button"
+                onClick={() => handleTabChange('dashboard')}
+                className="ant-btn ant-btn-primary"
+              >
+                Kembali ke Beranda RW
+              </button>
+            </div>
+          )
+        )}
       </div>
     </div>
   )

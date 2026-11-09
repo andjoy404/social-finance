@@ -225,14 +225,28 @@ func TestLoadRWMembershipsMultipleRTDifferentRWs(t *testing.T) {
 
 func TestHasRWScopePermissionRTInferredReadonly(t *testing.T) {
 	for _, jabatan := range []string{"ketua", "wakil_ketua", "sekretaris", "bendahara"} {
-		if !HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "finance.read") {
-			t.Errorf("expected %s (rt_inferred) to have finance.read", jabatan)
+		// RT inferred users have ONLY Beranda RW read access (rw.dashboard.read)
+		if !HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.dashboard.read") {
+			t.Errorf("expected %s (rt_inferred) to have rw.dashboard.read", jabatan)
+		}
+		// NO access to KAS RW, Lokasi Dana RW, or Notifikasi RW
+		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "finance.read") {
+			t.Errorf("expected %s (rt_inferred) to NOT have finance.read", jabatan)
+		}
+		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.kas.read") {
+			t.Errorf("expected %s (rt_inferred) to NOT have rw.kas.read", jabatan)
 		}
 		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "finance.create") {
 			t.Errorf("expected %s (rt_inferred) to NOT have finance.create", jabatan)
 		}
+		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.kas.write") {
+			t.Errorf("expected %s (rt_inferred) to NOT have rw.kas.write", jabatan)
+		}
 		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "finance.update") {
 			t.Errorf("expected %s (rt_inferred) to NOT have finance.update", jabatan)
+		}
+		if HasRWScopePermission(jabatan, RWMembershipSourceRTInferred, "rw.notification.read") {
+			t.Errorf("expected %s (rt_inferred) to NOT have rw.notification.read", jabatan)
 		}
 	}
 }
@@ -244,7 +258,7 @@ func TestHasRWScopePermissionExplicitFull(t *testing.T) {
 		hasUpdate bool
 	}{
 		{"ketua", true, true},
-		{"wakil_ketua", true, false},
+		{"wakil_ketua", false, false}, // Pengurus RW besides ketua/bendahara is READ ONLY
 		{"sekretaris", false, false},
 		{"bendahara", true, true},
 	}
@@ -434,8 +448,14 @@ func TestCheckRWPermissionRejectsMutationForInferred(t *testing.T) {
 		},
 	}
 
-	if err := checkRWPermissionSimulated(acInferred, "rw-1", "finance.read"); err != nil {
-		t.Errorf("inferred ketua should have finance.read: %v", err)
+	// Final Matrix: inferred ketua has rw.dashboard.read ONLY; finance.read must be denied!
+	if err := checkRWPermissionSimulated(acInferred, "rw-1", "rw.dashboard.read"); err != nil {
+		t.Errorf("inferred ketua should have rw.dashboard.read: %v", err)
+	}
+	if err := checkRWPermissionSimulated(acInferred, "rw-1", "finance.read"); err == nil {
+		t.Error("inferred ketua should NOT have finance.read (KAS is NO)")
+	} else if !isPermissionDenied(err) {
+		t.Errorf("expected permission denied error, got: %v", err)
 	}
 	if err := checkRWPermissionSimulated(acInferred, "rw-1", "finance.create"); err == nil {
 		t.Error("inferred ketua should NOT have finance.create")

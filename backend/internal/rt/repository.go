@@ -345,6 +345,15 @@ func CreateRW(ctx context.Context, tx *sql.Tx, in CreateRWInput) (*RW, error) {
 	if name == "" {
 		name = fmt.Sprintf("RW %03d", in.RWNumber)
 	}
+	var existingID string
+	checkErr := tx.QueryRowContext(ctx,
+		`SELECT id FROM rws WHERE rw_number = $1 AND is_active = true LIMIT 1`,
+		in.RWNumber,
+	).Scan(&existingID)
+	if checkErr == nil {
+		return nil, fmt.Errorf("create rw: %w", ErrRWDuplicate)
+	}
+
 	var item RW
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO rws (rw_number, name, head_name, address)

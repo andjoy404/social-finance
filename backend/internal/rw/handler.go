@@ -8,12 +8,15 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	httpx "social-finance/internal/http"
+	"social-finance/internal/notification"
 	"social-finance/internal/storage"
 )
 
@@ -21,10 +24,11 @@ import (
 type Handler struct {
 	pool    *database.Pool
 	svc     *Service
+	nsvc    notification.Service
 	storage storage.Service
 }
 
-func NewHandler(pool *database.Pool, svc *Service, store ...storage.Service) *Handler {
+func NewHandler(pool *database.Pool, svc *Service, nsvc notification.Service, store ...storage.Service) *Handler {
 	var s storage.Service
 	if len(store) > 0 {
 		s = store[0]
@@ -32,6 +36,7 @@ func NewHandler(pool *database.Pool, svc *Service, store ...storage.Service) *Ha
 	return &Handler{
 		pool:    pool,
 		svc:     svc,
+		nsvc:    nsvc,
 		storage: s,
 	}
 }
@@ -126,6 +131,44 @@ func (h *Handler) UpdateOpeningBalance(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"message": "opening balance updated successfully",
+	})
+}
+
+// AllocateOpeningBalance handles POST /api/v1/rw/{rwId}/locations/{id}/opening-balance
+func (h *Handler) AllocateOpeningBalance(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
+	rwID := chi.URLParam(r, "rwId")
+	if rwID == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "rwId is required")
+		return
+	}
+
+	locID := chi.URLParam(r, "id")
+	if locID == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "location id is required")
+		return
+	}
+
+	var in AllocateOpeningBalanceInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+	in.LocationID = locID
+
+	loc, err := h.svc.AllocateOpeningBalance(r.Context(), ac, rwID, in)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": loc,
 	})
 }
 
@@ -662,6 +705,493 @@ func getAuthContext(r *http.Request) (*auth.AuthContext, bool) {
 	return ac, true
 }
 
+var rePlaceholder = regexp.MustCompile(`\{\{([a-zA-Z0-9_]+)\}\}`)
+
+func extractPlaceholders(texts ...string) []string {
+	seen := make(map[string]bool)
+	var list []string
+	for _, text := range texts {
+		matches := rePlaceholder.FindAllStringSubmatch(text, -1)
+		for _, m := range matches {
+			if len(m) > 1 && !seen[m[1]] {
+				seen[m[1]] = true
+				list = append(list, m[1])
+			}
+		}
+	}
+	if list == nil {
+		list = []string{}
+	}
+	return list
+}
+
+func defaultSampleData() map[string]string {
+	return map[string]string{
+		"nama":              "Budi Santoso",
+		"bill_id":           "BILL-2026-001",
+		"period":            "November 2026",
+		"amount":            "Rp 50.000",
+		"total_outstanding": "Rp 150.000",
+		"bill_count":        "3",
+		"due_date":          "10 November 2026",
+		"rw_name":           "RW 05",
+		"rt_name":           "RT 02",
+		"category":          "Operasional",
+		"location":          "Kas Utama RW",
+		"status":            "Diverifikasi",
+		"rejection_reason":  "Bukti transfer tidak terbaca",
+		"deep_link":         "https://socialfinance.id",
+	}
+}
+
+func renderTemplateWithSamples(title, body string, overrides map[string]string) (string, string, []string, map[string]string) {
+	placeholders := extractPlaceholders(title, body)
+	samples := defaultSampleData()
+	usedSamples := make(map[string]string)
+	for _, p := range placeholders {
+		if val, ok := overrides[p]; ok && strings.TrimSpace(val) != "" {
+			usedSamples[p] = val
+		} else if val, ok := samples[p]; ok {
+			usedSamples[p] = val
+		} else {
+			usedSamples[p] = fmt.Sprintf("[%s]", p)
+		}
+	}
+
+	renderedTitle := rePlaceholder.ReplaceAllStringFunc(title, func(m string) string {
+		varName := strings.TrimSuffix(strings.TrimPrefix(m, "{{"), "}}")
+		if v, ok := usedSamples[varName]; ok {
+			return v
+		}
+		return m
+	})
+	renderedBody := rePlaceholder.ReplaceAllStringFunc(body, func(m string) string {
+		varName := strings.TrimSuffix(strings.TrimPrefix(m, "{{"), "}}")
+		if v, ok := usedSamples[varName]; ok {
+			return v
+		}
+		return m
+	})
+	return renderedTitle, renderedBody, placeholders, usedSamples
+}
+
+// RWManualPushRequest is the payload for sending a manual push notification to RW and RT officials.
+type RWManualPushRequest struct {
+	Title      string            `json:"title"`
+	Body       string            `json:"body"`
+	TemplateID string            `json:"template_id,omitempty"`
+	Target     string            `json:"target,omitempty"`
+	Variables  map[string]string `json:"variables,omitempty"`
+}
+
+// SendManualPush handles POST /api/v1/rw/{rwId}/notifications/manual
+func (h *Handler) SendManualPush(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	var req RWManualPushRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	title := strings.TrimSpace(req.Title)
+	body := strings.TrimSpace(req.Body)
+
+	if req.TemplateID != "" && (title == "" || body == "") {
+		tmpl, err := h.nsvc.GetRWTemplateByID(r.Context(), rwID, req.TemplateID)
+		if err != nil {
+			h.handleError(w, err)
+			return
+		}
+		if tmpl == nil {
+			httpx.ErrorJSON(w, http.StatusNotFound, "not_found", "template not found")
+			return
+		}
+		if !tmpl.IsActive {
+			httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "template sedang tidak aktif")
+			return
+		}
+		rTitle, rBody, _, _ := renderTemplateWithSamples(tmpl.Title, tmpl.Body, req.Variables)
+		if title == "" {
+			title = rTitle
+		}
+		if body == "" {
+			body = rBody
+		}
+	}
+
+	count, err := h.svc.SendManualPush(r.Context(), ac, rwID, title, body, req.Target)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"sent_count": count,
+		},
+	})
+}
+
+// PreviewRWTemplate handles POST and GET /api/v1/rw/{rwId}/notifications/templates/{id}/preview
+func (h *Handler) PreviewRWTemplate(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	id := chi.URLParam(r, "id")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.read"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	tmpl, err := h.nsvc.GetRWTemplateByID(r.Context(), rwID, id)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if tmpl == nil {
+		httpx.ErrorJSON(w, http.StatusNotFound, "not_found", "template not found")
+		return
+	}
+
+	var overrides map[string]string
+	if r.Method == http.MethodPost && r.Body != nil {
+		var req struct {
+			Variables map[string]string `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		overrides = req.Variables
+	}
+
+	renderedTitle, renderedBody, placeholders, sampleData := renderTemplateWithSamples(tmpl.Title, tmpl.Body, overrides)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"template_id":    tmpl.ID,
+			"name":           tmpl.Name,
+			"event_type":     tmpl.EventType,
+			"original_title": tmpl.Title,
+			"original_body":  tmpl.Body,
+			"rendered_title": renderedTitle,
+			"rendered_body":  renderedBody,
+			"placeholders":   placeholders,
+			"sample_data":    sampleData,
+			"is_active":      tmpl.IsActive,
+		},
+	})
+}
+
+// PreviewRWTemplateDirect handles POST /api/v1/rw/{rwId}/notifications/templates/preview
+// It allows previewing template title and body directly without saving.
+func (h *Handler) PreviewRWTemplateDirect(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.read"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	var req struct {
+		Name      string            `json:"name"`
+		EventType string            `json:"event_type"`
+		Title     string            `json:"title"`
+		Body      string            `json:"body"`
+		Variables map[string]string `json:"variables"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	renderedTitle, renderedBody, placeholders, sampleData := renderTemplateWithSamples(req.Title, req.Body, req.Variables)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"name":           req.Name,
+			"event_type":     req.EventType,
+			"original_title": req.Title,
+			"original_body":  req.Body,
+			"rendered_title": renderedTitle,
+			"rendered_body":  renderedBody,
+			"placeholders":   placeholders,
+			"sample_data":    sampleData,
+		},
+	})
+}
+
+// SendRWTemplateNotification handles POST /api/v1/rw/{rwId}/notifications/templates/{id}/send
+func (h *Handler) SendRWTemplateNotification(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	id := chi.URLParam(r, "id")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.write"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	tmpl, err := h.nsvc.GetRWTemplateByID(r.Context(), rwID, id)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if tmpl == nil {
+		httpx.ErrorJSON(w, http.StatusNotFound, "not_found", "template not found")
+		return
+	}
+	if !tmpl.IsActive {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "template sedang tidak aktif")
+		return
+	}
+
+	var req struct {
+		Target    string            `json:"target"`
+		Variables map[string]string `json:"variables"`
+		Title     string            `json:"title"`
+		Body      string            `json:"body"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	renderedTitle, renderedBody, _, _ := renderTemplateWithSamples(tmpl.Title, tmpl.Body, req.Variables)
+	if strings.TrimSpace(req.Title) != "" {
+		renderedTitle = strings.TrimSpace(req.Title)
+	}
+	if strings.TrimSpace(req.Body) != "" {
+		renderedBody = strings.TrimSpace(req.Body)
+	}
+
+	target := strings.TrimSpace(req.Target)
+	count, err := h.svc.SendManualPush(r.Context(), ac, rwID, renderedTitle, renderedBody, target)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"sent_count":    count,
+			"template_id":   tmpl.ID,
+			"template_name": tmpl.Name,
+			"title":         renderedTitle,
+			"body":          renderedBody,
+			"target":        target,
+		},
+	})
+}
+
+// ListRWTemplates handles GET /api/v1/rw/{rwId}/notifications/templates
+func (h *Handler) ListRWTemplates(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.read"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+	eventType := r.URL.Query().Get("event_type")
+
+	templates, err := h.nsvc.ListRWTemplates(r.Context(), rwID, eventType, nil)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if templates == nil {
+		templates = []notification.NotificationTemplate{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": templates,
+	})
+}
+
+// GetRWTemplateByID handles GET /api/v1/rw/{rwId}/notifications/templates/{id}
+func (h *Handler) GetRWTemplateByID(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	id := chi.URLParam(r, "id")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.read"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	tmpl, err := h.nsvc.GetRWTemplateByID(r.Context(), rwID, id)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if tmpl == nil {
+		httpx.WriteNotFound(w, "template not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": tmpl,
+	})
+}
+
+// CreateRWTemplate handles POST /api/v1/rw/{rwId}/notifications/templates
+func (h *Handler) CreateRWTemplate(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.write"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+	var in notification.CreateTemplateInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	tmpl, err := h.nsvc.CreateRWTemplate(r.Context(), rwID, in)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"data": tmpl,
+	})
+}
+
+// UpdateRWTemplate handles PUT /api/v1/rw/{rwId}/notifications/templates/{id}
+func (h *Handler) UpdateRWTemplate(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	id := chi.URLParam(r, "id")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.write"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+	var in notification.UpdateTemplateInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	tmpl, err := h.nsvc.UpdateRWTemplate(r.Context(), rwID, id, in)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": tmpl,
+	})
+}
+
+// ToggleRWTemplateActive handles PATCH /api/v1/rw/{rwId}/notifications/templates/{id}/toggle
+func (h *Handler) ToggleRWTemplateActive(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	id := chi.URLParam(r, "id")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.write"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	tmpl, err := h.nsvc.ToggleRWTemplateActive(r.Context(), rwID, id)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if tmpl == nil {
+		httpx.WriteNotFound(w, "template not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": tmpl,
+	})
+}
+
+// DeleteRWTemplate handles DELETE /api/v1/rw/{rwId}/notifications/templates/{id}
+func (h *Handler) DeleteRWTemplate(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	id := chi.URLParam(r, "id")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	if err := h.svc.RequirePermission(r.Context(), ac, rwID, "rw.notification.write"); err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	err := h.nsvc.DeleteRWTemplate(r.Context(), rwID, id)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message": "template deleted successfully",
+	})
+}
+
+// ListNotifications handles GET /api/v1/rw/{rwId}/notifications
+func (h *Handler) ListNotifications(w http.ResponseWriter, r *http.Request) {
+	rwID := chi.URLParam(r, "rwId")
+	ac := auth.GetAuthContext(r)
+	if ac == nil {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+	page, pageSize := parsePagination(r)
+	eventType := r.URL.Query().Get("event_type")
+
+	logs, total, err := h.svc.ListNotifications(r.Context(), ac, rwID, eventType, page, pageSize)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	if logs == nil {
+		logs = []notification.NotificationLogEntry{}
+	}
+	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": logs,
+		"pagination": map[string]any{
+			"page":        page,
+			"per_page":    pageSize,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+	})
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -687,8 +1217,60 @@ func parsePagination(r *http.Request) (int, int) {
 	return page, pageSize
 }
 
-func (h *Handler) handleError(w http.ResponseWriter, err error) {
-	switch {
+// GetRTRs handles GET /api/v1/rw/{rwId}/rts — lists RTs under an RW for dropdown selection.
+func (h *Handler) GetRTRs(w http.ResponseWriter, r *http.Request) {
+	if _, ok := getAuthContext(r); !ok {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
+	rwID := chi.URLParam(r, "rwId")
+	if rwID == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "rwId is required")
+		return
+	}
+
+	rows, err := h.pool.Raw().QueryContext(r.Context(),
+		`SELECT id, name, rt, rw_id
+		 FROM rts
+		 WHERE rw_id = $1 AND is_active = true
+		 ORDER BY rt ASC`,
+		rwID,
+	)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+	defer rows.Close()
+
+	type rtItem struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		RT     string `json:"rt"`
+		RWID   string `json:"rw_id"`
+		Label  string `json:"label"`
+	}
+
+	var rts []rtItem
+	for rows.Next() {
+		var item rtItem
+		if err := rows.Scan(&item.ID, &item.Name, &item.RT, &item.RWID); err != nil {
+			h.handleError(w, err)
+			return
+		}
+		item.Label = fmt.Sprintf("RT %s — %s", item.RT, item.Name)
+		rts = append(rts, item)
+	}
+	if rts == nil {
+		rts = []rtItem{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": rts,
+	})
+}
+
+func (h *Handler) handleError(w http.ResponseWriter, err error) {	switch {
 	case errors.Is(err, ErrRWAccessDenied):
 		httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rw access denied")
 	case errors.Is(err, ErrPermissionDenied):

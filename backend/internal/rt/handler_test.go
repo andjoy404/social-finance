@@ -170,7 +170,7 @@ func TestCreateRT(t *testing.T) {
 	})
 
 	t.Run("valid input", func(t *testing.T) {
-		body := bytes.NewBufferString(`{"name":"CreateTest RT01","rw":11,"rt":"C01"}`)
+		body := bytes.NewBufferString(`{"name":"CreateTest RT01","rw":11,"rt":"001"}`)
 		req := httptest.NewRequest("POST", "/api/v1/rts", body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -191,8 +191,8 @@ func TestCreateRT(t *testing.T) {
 		if result.RW != 11 {
 			t.Errorf("expected rw 1, got %d", result.RW)
 		}
-		if result.RT != "C01" {
-			t.Errorf("expected rt '01', got %q", result.RT)
+		if result.RT != "001" {
+			t.Errorf("expected rt '001', got %q", result.RT)
 		}
 		if result.ID == "" {
 			t.Error("expected non-empty ID")
@@ -203,7 +203,7 @@ func TestCreateRT(t *testing.T) {
 	})
 
 	t.Run("missing name", func(t *testing.T) {
-		body := bytes.NewBufferString(`{"rw":11,"rt":"C02"}`)
+		body := bytes.NewBufferString(`{"rw":11,"rt":"002"}`)
 		req := httptest.NewRequest("POST", "/api/v1/rts", body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -610,10 +610,26 @@ func TestRWJabatanRejectsNonSuperAdmin(t *testing.T) {
 
 	// Build a non-super-admin token
 	auth.SigningSecret = []byte(testSigningKey)
+	var regularUserID string
+	if auth.AuthDBPool != nil {
+		db := auth.AuthDBPool.Raw()
+		err := db.QueryRowContext(context.Background(),
+			`INSERT INTO users (email, phone, password_hash, full_name, system_role, is_active)
+			 VALUES ($1, '08123456780', 'dummyhash', 'Regular User', NULL, true)
+			 RETURNING id`,
+			fmt.Sprintf("regular_%d@test.com", time.Now().UnixNano()),
+		).Scan(&regularUserID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		regularUserID = "00000000-0000-0000-0000-000000000099"
+	}
+
 	claims := auth.TokenClaims{
-		UserID: "regular-user-uuid",
+		UserID: regularUserID,
 		Role:   "warga",
-		RTID:   "test-rt-uuid",
+		RTID:   "00000000-0000-0000-0000-000000000001",
 	}
 	claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(15 * time.Minute))
 	claims.IssuedAt = jwt.NewNumericDate(time.Now())
@@ -624,8 +640,8 @@ func TestRWJabatanRejectsNonSuperAdmin(t *testing.T) {
 
 	// Non-super-admin should get 403, NOT 404
 	putReq := httptest.NewRequest("PUT",
-		"/api/v1/rws/"+rwID+"/memberships/test-user/jabatan",
-		bytes.NewBufferString(`{"jabatan":"ketua","rt_id":"test-rt"}`))
+		"/api/v1/rws/"+rwID+"/memberships/00000000-0000-0000-0000-000000000002/jabatan",
+		bytes.NewBufferString(`{"jabatan":"ketua","rt_id":"00000000-0000-0000-0000-000000000001"}`))
 	putReq.Header.Set("Content-Type", "application/json")
 	putReq.Header.Set("Authorization", "Bearer "+regularTok)
 	putRec := httptest.NewRecorder()
@@ -751,7 +767,7 @@ func TestRWJabatanReturns404ForNotRWFound(t *testing.T) {
 
 	// PUT to non-existent RW should return 404 (handler processes, not route mismatch)
 	putReq := httptest.NewRequest("PUT",
-		"/api/v1/rws/nonexistent-uuid-0000000000/memberships/test-user/jabatan",
+		"/api/v1/rws/00000000-0000-0000-0000-000000000001/memberships/test-user/jabatan",
 		bytes.NewBufferString(`{"jabatan":"ketua","rt_id":"test-rt"}`))
 	putReq.Header.Set("Content-Type", "application/json")
 	putReq.Header.Set("Authorization", "Bearer "+token)

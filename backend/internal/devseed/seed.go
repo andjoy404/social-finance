@@ -646,15 +646,20 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, fmt.Errorf("create special position resident %s: %w", sprs.FullName, err)
 		}
-		// Resident may already exist from a previous seed run; check if one exists for this user
+		// Resident may already exist from a previous seed run; find and relink to resolved user.
 		if residentID == "" {
 			var existingID string
 			err = tx.QueryRowContext(ctx,
-				`SELECT id FROM residents WHERE user_id = $1 LIMIT 1`, resolvedUserID).Scan(&existingID)
+				`SELECT id FROM residents WHERE user_id = $1 OR (rt_id = $2 AND nik = $3) LIMIT 1`,
+				resolvedUserID, sprs.RTID, sprs.NIK).Scan(&existingID)
 			if err != nil && err != sql.ErrNoRows {
 				return nil, fmt.Errorf("check existing special position resident: %w", err)
 			}
 			residentID = existingID
+			if residentID != "" {
+				_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1, full_name = $2, email = $3, is_active = true WHERE id = $4`,
+					resolvedUserID, sprs.FullName, sprs.Email, residentID)
+			}
 		}
 		if residentID != "" {
 			summary.PositionResidentsCount++
@@ -676,6 +681,8 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		{"finance.create", "finance", "create"},
 		{"finance.update", "finance", "update"},
 		{"finance.approve", "finance", "approve"},
+		{"notification.read", "notification", "read"},
+		{"notification.manage", "notification", "manage"},
 		{"reports.read", "reports", "read"},
 		{"rt.settings.read", "rt.settings", "read"},
 		{"rt.settings.manage", "rt.settings", "manage"},
@@ -697,10 +704,10 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 
 	// 10. Position Permissions — resolve permission_id by code, then insert
 	positionPermissions := map[string][]string{
-		"ketua":       {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read", "rt.settings.read", "rt.settings.manage"},
-		"wakil_ketua": {"warga.read", "warga.create", "warga.update", "finance.read", "reports.read", "rt.settings.read"},
-		"sekretaris":  {"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "reports.read", "rt.settings.read"},
-		"bendahara":   {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "reports.read"},
+		"ketua":       {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "notification.read", "notification.manage", "reports.read", "rt.settings.read", "rt.settings.manage"},
+		"wakil_ketua": {"warga.read", "warga.create", "warga.update", "finance.read", "notification.read", "reports.read", "rt.settings.read"},
+		"sekretaris":  {"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "notification.read", "reports.read", "rt.settings.read"},
+		"bendahara":   {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "notification.read", "reports.read"},
 		"keamanan":    {"warga.read", "reports.read"},
 		"sosial":      {"warga.read", "reports.read"},
 		"operasional": {"warga.read", "reports.read"},

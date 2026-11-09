@@ -9,33 +9,9 @@ import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'rw_dashboard_screen.dart';
 import 'rw_fund_location_screen.dart';
 import 'rw_kas_screen.dart';
+import 'rw_notification_screen.dart';
 
-/// Check if a user has full RW write access for a specific RW.
-///
-/// Checks only the membership for the given `rwId`:
-/// - Super Admin → true
-/// - source === 'explicit' → true
-/// - source === 'rt_inferred' or missing → false
-bool _rwMembershipHasWriteAccess(
-  Map<String, dynamic>? user,
-  String rwId,
-) {
-  if (user == null) return false;
-  if (user['role'] == 'super_admin' || user['system_role'] == 'super_admin') return true;
-
-  final rawMemberships = (user['rw_memberships'] as List?)
-          ?.whereType<Map<String, dynamic>>()
-          .toList() ??
-      <Map<String, dynamic>>[];
-  final membership = rawMemberships
-      .where((m) => m['rw_id'] == rwId)
-      .firstOrNull as Map<String, dynamic>?;
-
-  if (membership == null) return false;
-  return membership['source'] == 'explicit';
-}
-
-/// Screen gabungan Keuangan / DATA RW dengan 3 Tab: BERANDA, KAS, dan LOKASI DANA.
+/// Screen gabungan Keuangan / DATA RW dengan Tab: BERANDA, KAS, dan LOKASI DANA.
 class RwKeuanganScreen extends ConsumerStatefulWidget {
   final String rwId;
   final int initialTab;
@@ -51,7 +27,7 @@ class RwKeuanganScreen extends ConsumerStatefulWidget {
 }
 
 class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   TabController? _tabController;
 
   @override
@@ -96,13 +72,21 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
         ? currentMembership!.rwNumber!.toString().padLeft(3, '0')
         : resolveRwNumber(widget.rwId, rwMemberships);
 
-    // Source-aware: hide LOKASI DANA tab for rt_inferred users.
-    final hasWriteAccess = _rwMembershipHasWriteAccess(user, widget.rwId);
-    final showLokasiDana = hasWriteAccess;
-    final tabCount = 2 + (showLokasiDana ? 1 : 0);
+    // Final Matrix:
+    // Pengurus RT (rt_inferred): Beranda RW only. KAS/Lokasi Dana/Notifikasi NO.
+    // Pengurus RW (explicit): Beranda, KAS, Lokasi Dana, Notifikasi (read; write by jabatan).
+    // Ketua RW & Bendahara RW explicit: write-capable per feature/backend.
+    // Super Admin: all tabs.
+    final isSuperAdmin = user?['role'] == 'super_admin' || user?['system_role'] == 'super_admin';
+    final isExplicitMember = currentMembership?.source == 'explicit';
+    final hasFeatureAccess = rwMembershipHasFeatureAccess(user, widget.rwId);
+    final showKas = hasFeatureAccess;
+    final showLokasiDana = hasFeatureAccess;
+    final showNotifikasi = isSuperAdmin || isExplicitMember; // explicit read + SA; rt_inferred hidden
+    final tabCount = 1 + (showKas ? 1 : 0) + (showLokasiDana ? 1 : 0) + (showNotifikasi ? 1 : 0);
 
     // Recreate controller if tab count changed (e.g. inferred → explicit or
-    // vice versa).  TabController.length has no setter, so we must dispose
+    // vice versa). TabController.length has no setter, so we must dispose
     // and allocate a new controller rather than mutating in place.
     if (_tabController == null || _tabController!.length != tabCount) {
       _tabController?.dispose();
@@ -131,8 +115,9 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
           indicatorWeight: 3,
           tabs: [
             const Tab(text: 'BERANDA'),
-            const Tab(text: 'KAS'),
+            if (showKas) const Tab(text: 'KAS'),
             if (showLokasiDana) const Tab(text: 'LOKASI DANA'),
+            if (showNotifikasi) const Tab(text: 'NOTIFIKASI'),
           ],
         ),
       ),
@@ -140,9 +125,11 @@ class _RwKeuanganScreenState extends ConsumerState<RwKeuanganScreen>
         controller: _tabController,
         children: [
           RwDashboardScreen(rwId: widget.rwId, isTabView: true),
-          RwKasScreen(rwId: widget.rwId, isTabView: true),
+          if (showKas) RwKasScreen(rwId: widget.rwId, isTabView: true),
           if (showLokasiDana)
             RwFundLocationScreen(rwId: widget.rwId, isTabView: true),
+          if (showNotifikasi)
+            RwNotificationScreen(rwId: widget.rwId),
         ],
       ),
     );

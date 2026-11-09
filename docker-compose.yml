@@ -42,8 +42,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      seed:
-        condition: service_completed_successfully
       rustfs:
         condition: service_healthy
       rustfs-init:
@@ -198,6 +196,8 @@ services:
 
   seed:
     restart: "no"
+    profiles:
+      - seed
     build:
       context: ./backend
       dockerfile: Dockerfile.dev

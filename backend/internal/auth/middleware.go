@@ -361,10 +361,14 @@ func RequirePermission(pool *database.Pool, permission string) func(http.Handler
 				return
 			}
 
-			// All users (jabatan-based and role-based without jabatan) are
-			// evaluated by PermissionResolver.HasPermission:
-			//   - jabatan-based: checked against position_permissions DB table
-			//   - no jabatan: passes through (RequireRole enforces role access)
+			// Role-based users (no jabatan) pass through RequirePermission;
+			// their access is enforced by RequireRole middleware stacked on the route.
+			// Jabatan-based users are evaluated against position_permissions.
+			if ac.Jabatan == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			defer cancel()
 

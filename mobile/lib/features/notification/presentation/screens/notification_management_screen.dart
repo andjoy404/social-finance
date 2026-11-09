@@ -20,6 +20,7 @@ import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import '../../data/models/notification_models.dart';
 import '../../data/notification_repository.dart';
+import '../../data/notification_severity.dart';
 import 'notification_detail_screen.dart';
 
 class NotificationManagementScreen extends ConsumerStatefulWidget {
@@ -1865,7 +1866,8 @@ class _NotificationManagementScreenState
                         data: (templates) {
                           final systemTypes =
                               systemTypesAsync.valueOrNull ?? [];
-                          if (templates.isEmpty) {
+                          final customTemplates = templates;
+                          if (customTemplates.isEmpty) {
                             return Center(
                               child: Padding(
                                 padding: const EdgeInsets.all(24.0),
@@ -1906,7 +1908,7 @@ class _NotificationManagementScreenState
                                           ),
                                       icon: const Icon(Icons.add),
                                       label: const Text(
-                                        'Buat Template Pertama',
+                                        'Tambah Template',
                                       ),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: AppColors.accent,
@@ -1919,26 +1921,55 @@ class _NotificationManagementScreenState
                             );
                           }
 
-                          return ListView.builder(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: templates.length + 1,
-                            itemBuilder: (context, index) {
-                              if (index == templates.length) {
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 8,
-                                  ),
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _showAddEditTemplateDialog(
-                                      systemTypes: systemTypes,
+                          return Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Template Kustom (${customTemplates.length})',
+                                            style: theme.textTheme.titleSmall?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          Text(
+                                            'Kelola template pesan kustom RT',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: isDark
+                                                  ? AppColors.darkTextMuted
+                                                  : AppColors.lightTextMuted,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                    icon: const Icon(Icons.add),
-                                    label: const Text('Tambah Template Baru'),
-                                  ),
-                                );
-                              }
-
-                              final tmpl = templates[index];
+                                    ElevatedButton.icon(
+                                      onPressed: () => _showAddEditTemplateDialog(
+                                        systemTypes: systemTypes,
+                                      ),
+                                      icon: const Icon(Icons.add, size: 16),
+                                      label: const Text('Tambah Template', style: TextStyle(fontSize: 12)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.accent,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Expanded(
+                                child: ListView.builder(
+                                  padding: const EdgeInsets.all(16),
+                                  itemCount: customTemplates.length,
+                                  itemBuilder: (context, index) {
+                                    final tmpl = customTemplates[index];
                               final stName = systemTypes
                                   .firstWhere(
                                     (s) => s.eventType == tmpl.eventType,
@@ -2008,9 +2039,15 @@ class _NotificationManagementScreenState
                                         children: [
                                           AppBadge(
                                             label: stName,
-                                            backgroundColor: AppColors.accent
-                                                .withValues(alpha: 0.15),
-                                            textColor: AppColors.accent,
+                                            backgroundColor:
+                                                getNotificationSeverityBgColor(
+                                              tmpl.eventType,
+                                              isDark,
+                                            ),
+                                            textColor:
+                                                getNotificationSeverityColor(
+                                              tmpl.eventType,
+                                            ),
                                           ),
                                           if (tmpl.imageUrl != null &&
                                               tmpl.imageUrl!.isNotEmpty)
@@ -2134,12 +2171,15 @@ class _NotificationManagementScreenState
                                 ),
                               );
                             },
-                          );
-                        },
-                      ),
-                    ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
 
-                    // TAB 3: PENJADWALAN NOTIFIKASI
+              // TAB 3: PENJADWALAN NOTIFIKASI
                     RefreshIndicator(
                       onRefresh: () async {
                         ref.invalidate(notificationSchedulesProvider);
@@ -2180,25 +2220,57 @@ class _NotificationManagementScreenState
     if (_schedulesError != null) {
       return ErrorState(message: _schedulesError!, onRetry: _loadSchedules);
     }
-    if (_schedules.isEmpty) {
-      return EmptyState(
-        icon: Icons.schedule_outlined,
-        title: 'Belum Ada Jadwal Notifikasi',
-        description:
-            'Buat jadwal untuk mengirim notifikasi otomatis (misal pengingat pembayaran iuran) sesuai tanggal dan jam yang ditentukan.',
-        actionText: 'Buat Jadwal',
-        onAction: () => _showAddEditScheduleDialog(),
-      );
-    }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _schedules.length,
-      itemBuilder: (context, index) {
-        final s = _schedules[index];
-        final eventName = _knownEventNames[s.eventType] ?? s.eventType;
-        final days = s.sendDays.isNotEmpty ? s.sendDays.join(', ') : '-';
-        return AppCard(
+    // Always show "Tambah Jadwal" button at the top of the schedules tab
+    return Column(
+      children: [
+        // Header with "Tambah Jadwal" button
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Jadwal Notifikasi',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => _showAddEditScheduleDialog(),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Tambah Jadwal', style: TextStyle(fontSize: 12)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        if (_schedules.isEmpty)
+          EmptyState(
+            icon: Icons.schedule_outlined,
+            title: 'Belum Ada Jadwal Notifikasi',
+            description:
+                'Buat jadwal untuk mengirim notifikasi otomatis (misal pengingat pembayaran iuran) sesuai tanggal dan jam yang ditentukan.',
+            actionText: 'Buat Jadwal',
+            onAction: () => _showAddEditScheduleDialog(),
+          )
+        else
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _schedules.length,
+              itemBuilder: (context, index) {
+                final s = _schedules[index];
+                final eventName = _knownEventNames[s.eventType] ?? s.eventType;
+                final days = s.sendDays.isNotEmpty ? s.sendDays.join(', ') : '-';
+                return AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -2239,12 +2311,13 @@ class _NotificationManagementScreenState
               // Info section
               Row(
                 children: [
-                  Text(
-                    eventName,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: textColor,
-                      fontWeight: FontWeight.w600,
+                  AppBadge(
+                    label: eventName,
+                    backgroundColor: getNotificationSeverityBgColor(
+                      s.eventType,
+                      isDark,
                     ),
+                    textColor: getNotificationSeverityColor(s.eventType),
                   ),
                 ],
               ),
@@ -2409,10 +2482,13 @@ class _NotificationManagementScreenState
                   ),
                 ],
               ),
-            ],
+              ],
+            ),
+          );
+        },
+            ),
           ),
-        );
-      },
+      ],
     );
   }
 
@@ -2538,9 +2614,11 @@ class _NotificationManagementScreenState
       templates = await ref.read(notificationTemplatesProvider.future);
     } catch (_) {}
 
+    final schedulableTypes =
+        systemTypes.where((t) => !isFixedSystemEvent(t.eventType)).toList();
     String? selectedEventType = schedule?.eventType;
-    if (selectedEventType == null && systemTypes.isNotEmpty) {
-      selectedEventType = systemTypes.first.eventType;
+    if (selectedEventType == null && schedulableTypes.isNotEmpty) {
+      selectedEventType = schedulableTypes.first.eventType;
     }
     String? selectedTemplateId = schedule?.templateId;
     if (selectedTemplateId == null && templates.isNotEmpty) {
@@ -2583,10 +2661,10 @@ class _NotificationManagementScreenState
                       ),
                       const SizedBox(height: 12),
                       // Event type
-                      if (systemTypes.isNotEmpty)
+                      if (schedulableTypes.isNotEmpty)
                         DropdownButtonFormField<String>(
                           value: selectedEventType,
-                          items: systemTypes
+                          items: schedulableTypes
                               .map(
                                 (t) => DropdownMenuItem(
                                   value: t.eventType,

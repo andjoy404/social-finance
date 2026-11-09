@@ -910,17 +910,29 @@ func effectivePermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, 
 		{code: "finance.update", roleAllows: roleAllowsManagement},
 		{code: "finance.approve", roleAllows: roleAllowsManagement},
 		{code: "notification.manage", roleAllows: false},
+		{code: "notification.read", roleAllows: false},
 	}
 
 	resolver := NewPermissionResolver(pool)
 	for _, check := range checks {
-		// Jabatan-based users always go through the PermissionResolver to verify
-		// explicit position_permissions grants. Role-based users without jabatan
-		// are gated by roleAllows and then pass through the resolver (which
-		// returns true for role-based users without jabatan).
-		if ac.SystemRole != SystemRoleSuperAdmin && !check.roleAllows && ac.Jabatan == "" {
+		// System-level super_admin gets all permissions without DB query.
+		if ac.SystemRole == SystemRoleSuperAdmin {
+			permissions = append(permissions, check.code)
 			continue
 		}
+		// Users without an explicit jabatan (role-based users: warga, pengurus,
+		// bendahara) are gated by roleAllows. When roleAllows is true, the
+		// permission is granted based on TenantRole alone without consulting
+		// position_permissions. When roleAllows is false, the permission is
+		// denied for users without jabatan.
+		if ac.Jabatan == "" {
+			if check.roleAllows {
+				permissions = append(permissions, check.code)
+			}
+			continue
+		}
+		// Jabatan-based users always go through the PermissionResolver to verify
+		// explicit position_permissions grants.
 		allowed, err := resolver.HasPermission(ctx, tx, ac, check.code)
 		if err != nil {
 			return nil, fmt.Errorf("resolve effective permission %s: %w", check.code, err)

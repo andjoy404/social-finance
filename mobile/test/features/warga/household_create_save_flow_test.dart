@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/api/client.dart';
+import 'package:social_finance/core/api/models.dart';
 import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
@@ -64,7 +65,7 @@ class _MockApiClient extends ApiClient {
   Future<void> deleteRT(String id) async {}
 
   @override
-  Future<List<BackendRT>> listRTs({
+  Future<List<Map<String, dynamic>>> listRTs({
     int page = 1,
     int pageSize = 100,
     String? search,
@@ -90,7 +91,6 @@ class _MockApiClient extends ApiClient {
     String? occupation,
     String? bloodType,
     String? address,
-    List<RTUserGroup> userGroups = const [RTUserGroup.resident],
     List<String> groupIds = const [],
   }) async => 'mock-user-id';
 
@@ -98,7 +98,7 @@ class _MockApiClient extends ApiClient {
   Future<void> deleteUser(String id, {String? rtId}) async {}
 
   @override
-  Future<List<BackendUser>> listUsers({
+  Future<List<Map<String, dynamic>>> listUsers({
     int page = 1,
     int pageSize = 100,
     String? search,
@@ -109,10 +109,10 @@ class _MockApiClient extends ApiClient {
   }) async => [];
 
   @override
-  Future<BackendUser> getUser(String id, {String? rtId}) async => throw UnimplementedError();
+  Future<Map<String, dynamic>> getUser(String id, {String? rtId}) async => throw UnimplementedError();
 
   @override
-  Future<BackendUser> updateUser(String id, {
+  Future<Map<String, dynamic>> updateUser(String id, {
     String? fullName,
     String? nik,
     String? phoneNumber,
@@ -126,17 +126,17 @@ class _MockApiClient extends ApiClient {
     String? bloodType,
     String? address,
     String? status,
-    List<RTUserGroup> groups = const [RTUserGroup.resident],
+     groups = const [],
   }) async => throw UnimplementedError();
 
   @override
   Future<void> updateUserStatus(String id, {required String status, String? rtId}) async {}
 
   @override
-  Future<List<BackendUser>> listUsersInRT(String rtId, {int page = 1, int pageSize = 100}) async => [];
+  Future<List<Map<String, dynamic>>> listUsersInRT(String rtId, {int page = 1, int pageSize = 100}) async => [];
 
   @override
-  Future<List<BackendGroup>> listUserGroups({
+  Future<List<Map<String, dynamic>>> listUserGroups({
     int page = 1,
     int pageSize = 100,
     String? search,
@@ -153,10 +153,10 @@ class _MockApiClient extends ApiClient {
   Future<void> deleteUserGroup(String id) async {}
 
   @override
-  Future<BackendGroup> getUserGroup(String id) async => throw UnimplementedError();
+  Future<Map<String, dynamic>> getUserGroup(String id) async => throw UnimplementedError();
 
   @override
-  Future<BackendGroup> updateUserGroup(
+  Future<Map<String, dynamic>> updateUserGroup(
     String id, {
     required String name,
     String? description,
@@ -166,19 +166,19 @@ class _MockApiClient extends ApiClient {
   Future<void> deactivateUserGroup(String id) async {}
 
   @override
-  Future<List<BackendUser>> listUsersInGroup(String groupId) async => [];
+  Future<List<Map<String, dynamic>>> listUsersInGroup(String groupId) async => [];
 
   @override
-  Future<List<BackendUser>> listUsersWithoutGroup(String groupId) async => [];
+  Future<List<Map<String, dynamic>>> listUsersWithoutGroup(String groupId) async => [];
 
   @override
-  Future<List<BackendRT>> listMyRTs() async => [];
+  Future<List<Map<String, dynamic>>> listMyRTs() async => [];
 
   @override
-  Future<BackendUser> getUserByNIK(String nik) async => throw UnimplementedError();
+  Future<Map<String, dynamic>> getUserByNIK(String nik) async => throw UnimplementedError();
 
   @override
-  Future<List<HouseholdOccupancy>> listHouseholdOccupancies({
+  Future<List<Map<String, dynamic>>> listHouseholdOccupancies({
     String? householdId,
     String? search,
     String? status,
@@ -199,16 +199,12 @@ class _MockApiClient extends ApiClient {
 
 /// Mock repository using the mock client.
 class _FakeWargaRepository extends WargaRepository {
-  _FakeWargaRepository() : super(apiClient: _MockApiClient());
+  _FakeWargaRepository() : super(client: _MockApiClient());
 
   @override
   Future<String> createHousehold({
-    required String houseNumber,
-    required String headOfFamilyName,
-    required String nik,
-    String? phoneNumber,
-    String? email,
-    String? startDate,
+    required CreateHouseholdRequest request,
+    String? rtId,
   }) async {
     return 'household-created-id';
   }
@@ -220,12 +216,16 @@ class _FakeWargaRepository extends WargaRepository {
   }) async {}
 
   @override
-  Future<List<MappedResident>> fetchResidents({
-    String? householdId,
+  Future<PaginatedResponse<BackendResident>> fetchResidents({
+    int page = 1,
+    int pageSize = 100,
     String? search,
-    String? status,
-    bool? isActive,
-  }) async => [];
+  }) async {
+    return const PaginatedResponse<BackendResident>(
+      data: [],
+      pagination: PaginationInfo(page: 1, pageSize: 100, total: 0, totalPages: 0),
+    );
+  }
 
   @override
   Future<List<MappedResident>> fetchAllResidents({
@@ -236,16 +236,22 @@ class _FakeWargaRepository extends WargaRepository {
   }) async => [];
 
   @override
-  Future<List<RTOption>> fetchRts() async => [];
+  Future<List<Map<String, dynamic>>> fetchRts({
+    int page = 1,
+    int pageSize = 100,
+  }) async => [];
 
   @override
-  Future<List<HouseholdOption>> fetchHouseholds() async => [];
+  Future<Map<String, BackendHousehold>> fetchHouseholds({
+    int page = 1,
+    int pageSize = 100,
+  }) async => {};
 
   @override
-  Future<MappedResident?> fetchResidentById(String id) async => null;
+  Future<BackendResident> fetchResidentById(String id) async => throw UnimplementedError();
 
   @override
-  Future<List<RTOption>> fetchResidentsRts() async => [];
+  Future<List<Map<String, dynamic>>> fetchResidentsRts() async => [];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────

@@ -406,7 +406,7 @@ func TestNotificationManagement_TemplateCRUD(t *testing.T) {
 	// 1. Create Valid Template
 	createBody := map[string]any{
 		"name":       "Template Tagihan Bulanan",
-		"event_type": notification.EventBillCreated,
+		"event_type": notification.EventPaymentReminder,
 		"channel":    "push",
 		"title":      "Pemberitahuan Iuran RT 002: {{bill_id}}",
 		"body":       "Halo warga, tagihan iuran baru Anda dengan ID {{bill_id}} telah siap dibayar.",
@@ -435,7 +435,7 @@ func TestNotificationManagement_TemplateCRUD(t *testing.T) {
 	// 2. Reject Invalid Variable in Template
 	invalidBody := map[string]any{
 		"name":       "Template Tagihan Ilegal",
-		"event_type": notification.EventBillCreated,
+		"event_type": notification.EventPaymentReminder,
 		"channel":    "push",
 		"title":      "Pemberitahuan: {{password}}", // unauthorized variable
 		"body":       "Pesan: {{nik}}",

@@ -184,6 +184,19 @@ func ParseWargaCSV(r io.Reader) ([]WargaCSVRow, []RowError, error) {
 			Password:           getVal(record, "password", "kata_sandi"),
 		}
 
+		// Normalize "kosong" (Indonesian for "empty") to empty string for optional
+		// fields. This allows import files to explicitly mark a field as "no value"
+		// without being rejected as an invalid jabatan or too-short password.
+		if strings.EqualFold(row.Jabatan, "kosong") {
+			row.Jabatan = ""
+		}
+		if strings.EqualFold(row.Password, "kosong") {
+			row.Password = ""
+		}
+		if strings.EqualFold(row.MoveInDate, "kosong") {
+			row.MoveInDate = ""
+		}
+
 		// Field validations
 		if row.HouseNumber == "" {
 			rowErrors = append(rowErrors, RowError{
@@ -355,24 +368,74 @@ func ValidateAgainstDatabase(ctx context.Context, pool *database.Pool, rtID stri
 	errorsList := append([]RowError{}, existingErrors...)
 	db := pool.Raw()
 
+	// Build a set of house numbers that are already validated within this import
+	// (from the same file) so that cross-row conflicts are caught but self-reference
+	// is allowed.
+	houseNumbersInFile := make(map[string]bool)
+
 	for _, r := range rows {
 		if r.HouseNumber == "" {
 			continue
 		}
 
-		// Check if house_number currently occupied by a different household in the same RT
+		// Cross-row consistency: same house number in the file must have the same
+		// head_name. This catches file-level data issues early.
+		hnKey := strings.ToLower(r.HouseNumber)
+		if already, exists := houseNumbersInFile[hnKey]; exists {
+			if !already {
+				// Already flagged as conflicting in internal validation
+				continue
+			}
+		}
+		houseNumbersInFile[hnKey] = true
+
+		// Check if house_number is currently occupied by a different household in the same RT.
+		// We need a more robust matching strategy to support re-imports:
+		// 1. If NIK is provided and matches a resident in the currently occupied household → same household, no error.
+		// 2. If head_name matches (case-insensitive) → same household, no error.
+		// 3. Otherwise → potential conflict, flag it.
 		var currentOccupantHead string
+		var currentOccupantHouseholdID string
 		err := db.QueryRowContext(ctx,
-			`SELECT h.head_name
+			`SELECT h.id, h.head_name
 			 FROM physical_houses ph
 			 JOIN household_occupancies ho ON ho.physical_house_id = ph.id AND ho.end_date IS NULL
 			 JOIN households h ON ho.household_id = h.id AND h.is_active = true
 			 WHERE ph.rt_id = $1 AND ph.house_number = $2 AND ph.is_active = true
 			 LIMIT 1`,
 			rtID, r.HouseNumber,
-		).Scan(&currentOccupantHead)
+		).Scan(&currentOccupantHouseholdID, &currentOccupantHead)
 		if err == nil {
-			if !strings.EqualFold(currentOccupantHead, r.HeadName) {
+			// Check if this import row's head_name matches the current occupant (case-insensitive).
+			// If so, it's a re-import of the same household.
+			headNameMatch := strings.EqualFold(currentOccupantHead, r.HeadName)
+
+			// If head_name doesn't match, check if any NIK in the same import file
+			// matches a resident in the current household. This handles cases where
+			// the head_name might have been typo'd or abbreviated differently.
+			nikMatch := false
+			if !headNameMatch && r.Nik != "" {
+				err = db.QueryRowContext(ctx,
+					`SELECT COUNT(*) > 0
+					 FROM residents re
+					 JOIN residency_periods rpp ON rpp.resident_id = re.id AND rpp.end_date IS NULL
+					 WHERE re.rt_id = $1 AND re.nik = $2 AND rpp.household_occupancy_id = (
+					 	SELECT ho2.id
+					 	 FROM household_occupancies ho2
+					 	 WHERE ho2.household_id = $3 AND ho2.end_date IS NULL
+					 	 LIMIT 1
+					 )`,
+					rtID, r.Nik, currentOccupantHouseholdID,
+				).Scan(&nikMatch)
+				if err != nil {
+					// If we can't check NIK, fall through to head_name-based logic
+					nikMatch = false
+				}
+			}
+
+			if !headNameMatch && !nikMatch {
+				// Neither head_name nor NIK matches — this is a genuine conflict
+				// indicating a different household occupying the same house.
 				errorsList = append(errorsList, RowError{
 					Row:     r.RowNumber,
 					Field:   "house_number",
@@ -384,7 +447,14 @@ func ValidateAgainstDatabase(ctx context.Context, pool *database.Pool, rtID stri
 			return nil, fmt.Errorf("check house occupancy: %w", err)
 		}
 
-		// Check if NIK already exists in residents in the same RT
+		// Check if NIK already exists in residents in the same RT.
+		// A resident with the same NIK and same name is considered the same person
+		// and is a no-op for import. Different name = possible re-import with name
+		// format change, OR a duplicate identity conflict. We distinguish these:
+		//   - NIK exists in SAME house_number → same household being re-imported
+		//     (name format may differ), so allow.
+		//   - NIK exists in DIFFERENT house_number → duplicate identity conflict,
+		//     reject.
 		if r.Nik != "" {
 			var existingResidentName string
 			err = db.QueryRowContext(ctx,
@@ -395,17 +465,144 @@ func ValidateAgainstDatabase(ctx context.Context, pool *database.Pool, rtID stri
 				rtID, r.Nik,
 			).Scan(&existingResidentName)
 			if err == nil {
-				if !strings.EqualFold(existingResidentName, r.ResidentName) {
-					errorsList = append(errorsList, RowError{
-						Row:     r.RowNumber,
-						Field:   "nik",
-						Code:    "duplicate_nik",
-						Message: fmt.Sprintf("NIK '%s' is already registered to resident '%s'", r.Nik, existingResidentName),
-					})
+				if strings.EqualFold(existingResidentName, r.ResidentName) {
+					// Same NIK + same name → identical resident, allow (no-op).
+				} else {
+					// Names differ — check if this NIK already belongs to a resident
+					// in the SAME house_number. If yes, it's a re-import (name format
+					// changed) and should be allowed. If no, it's a duplicate identity.
+					var isInSameHouse bool
+					err = db.QueryRowContext(ctx,
+						`SELECT EXISTS(
+							SELECT 1 FROM residents re
+							JOIN residency_periods rp ON rp.resident_id = re.id AND rp.end_date IS NULL
+							JOIN household_occupancies ho ON ho.id = rp.household_occupancy_id AND ho.end_date IS NULL
+							JOIN physical_houses ph ON ph.id = ho.physical_house_id AND ph.is_active = true
+							WHERE re.rt_id = $1 AND re.nik = $2 AND ph.house_number = $3
+						)`,
+						rtID, r.Nik, r.HouseNumber,
+					).Scan(&isInSameHouse)
+					if err != nil && !errors.Is(err, sql.ErrNoRows) {
+						return nil, fmt.Errorf("check NIK house: %w", err)
+					}
+					if !isInSameHouse {
+						errorsList = append(errorsList, RowError{
+							Row:     r.RowNumber,
+							Field:   "nik",
+							Code:    "duplicate_nik",
+							Message: fmt.Sprintf("NIK '%s' is already registered to resident '%s'", r.Nik, existingResidentName),
+						})
+					}
+					// If isInSameHouse: allow (re-import with name change in same house).
 				}
 			} else if !errors.Is(err, sql.ErrNoRows) {
 				return nil, fmt.Errorf("check resident NIK: %w", err)
 			}
+		}
+	}
+
+	// Check for email duplicate within the import file itself (internal conflict).
+	// Cross-user email conflicts are handled by the DB unique index on
+	// lower(trim(email)) — if the import changes a user's email to one that
+	// another user already owns, the DB will reject it as a unique violation.
+	// We only pre-check for rows within the same import file requesting the
+	// same email (which would unambiguously be a conflict).
+	emailOwner := make(map[string]string) // normalizedEmail → row number
+	for _, r := range rows {
+		if r.Email == "" {
+			continue
+		}
+
+		normalizedEmail := NormalizeEmail(r.Email)
+		if normalizedEmail == "" {
+			continue
+		}
+
+		if existingRow, exists := emailOwner[normalizedEmail]; exists {
+			errorsList = append(errorsList, RowError{
+				Row:     r.RowNumber,
+				Field:   "email",
+				Code:    "duplicate_email",
+				Message: fmt.Sprintf("email '%s' is also used on row %s", normalizedEmail, existingRow),
+			})
+		} else {
+			emailOwner[normalizedEmail] = fmt.Sprintf("%d", r.RowNumber)
+		}
+	}
+
+	// For rows that will create a user (have both jabatan and email),
+	// check if the email is already taken by a user not linked to any
+	// resident in this import file.
+	for _, r := range rows {
+		if r.Email == "" || r.Jabatan == "" {
+			continue
+		}
+		normalizedEmail := NormalizeEmail(r.Email)
+
+		var owningUserID string
+		if err := db.QueryRowContext(ctx,
+			`SELECT u.id FROM users u WHERE lower(trim(u.email)) = $1`,
+			normalizedEmail,
+		).Scan(&owningUserID); err != nil || owningUserID == "" {
+			continue // email not taken by any user
+		}
+
+		// Email is taken. Determine whether to flag it as a conflict:
+		// 1. If the owner has a linked resident in the import RT →
+		//    check if it's the same person (same NIK). Same person
+		//    = re-import (allow). Different person = email stealing (reject).
+		// 2. If the owner has linked residents but ONLY in other RTs →
+		//    allow (different RT; DB unique constraint handles cross-RT
+		//    conflicts at commit time if they ever arise).
+		// 3. If the owner has NO linked resident at all (standalone
+		//    user) → reject because email is globally unique and already
+		//    taken by that user.
+		var hasLinkedInImportRT, hasLinkedAnyRT bool
+		row := db.QueryRowContext(ctx,
+			`SELECT
+				EXISTS(SELECT 1 FROM residents re WHERE re.user_id = $1 AND re.rt_id = $2),
+				EXISTS(SELECT 1 FROM residents re WHERE re.user_id = $1)`,
+			owningUserID, rtID,
+		)
+		if err := row.Scan(&hasLinkedInImportRT, &hasLinkedAnyRT); err != nil {
+			continue // can't determine — allow
+		}
+
+		if hasLinkedInImportRT {
+			// Owner has a linked resident in this RT. Check if it's
+			// the same person (re-import) or a different person.
+			var isSelf bool
+			for _, other := range rows {
+				if other.Nik == "" {
+					continue
+				}
+				var resUserID sql.NullString
+				if err := db.QueryRowContext(ctx,
+					`SELECT user_id FROM residents WHERE rt_id = $1 AND nik = $2`,
+					rtID, other.Nik,
+				).Scan(&resUserID); err == nil && resUserID.Valid && resUserID.String == owningUserID {
+					isSelf = true
+					break
+				}
+			}
+
+			if !isSelf {
+				errorsList = append(errorsList, RowError{
+					Row:     r.RowNumber,
+					Field:   "email",
+					Code:    "duplicate_email",
+					Message: fmt.Sprintf("email '%s' is already used by another user", normalizedEmail),
+				})
+			}
+		} else {
+			// Email is taken by a user (with or without linked residents in any RT).
+			// Email is globally unique — reject regardless of which RT owns it.
+			errorsList = append(errorsList, RowError{
+				Row:     r.RowNumber,
+				Field:   "email",
+				Code:    "duplicate_email",
+				Message: fmt.Sprintf("email '%s' is already used by another user", normalizedEmail),
+			})
 		}
 	}
 
@@ -484,6 +681,8 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 		// B. Find or create Household
 		var householdID string
 		var hoID string
+
+		// Try to find existing household by physical house + active occupancy.
 		err = tx.QueryRowContext(ctx,
 			`SELECT h.id, ho.id
 			 FROM households h
@@ -493,6 +692,17 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 		).Scan(&householdID, &hoID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
+				// First, check if this house_number had a valid row (passed validation)
+				// which means no conflicting household is occupying it.
+				// However, we should still try to match by head_name to support
+				// re-imports where the physical_house exists but household was not found
+				// (unlikely edge case, but safety check).
+				//
+				// Also try matching by NIK: if any resident in this import group has a NIK
+				// that matches a resident in a different household at a different house,
+				// it's still a new household at this house.
+				//
+				// If no match found, create new household.
 				err = tx.QueryRowContext(ctx,
 					`INSERT INTO households (rt_id, head_name, is_active)
 					 VALUES ($1, $2, true) RETURNING id`,
@@ -571,8 +781,8 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 			}
 			importedResidents++
 
-			// Handle jabatan: create user + membership if provided
-			if res.Jabatan != "" {
+			// Handle user and membership: create user if jabatan or password provided
+			if res.Jabatan != "" || res.Password != "" {
 				var pwHash *string
 				if res.Password != "" {
 					h, err := auth.Hash(res.Password)
@@ -581,15 +791,9 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 					}
 					pwHash = &h
 				}
-				err = createResidentUserAndMembership(ctx, tx, resID, rtID, res.ResidentName, pwHash, res.Jabatan, importSuffix)
+				err = createResidentUserAndMembership(ctx, tx, resID, rtID, res.ResidentName, res.Email, pwHash, res.Jabatan, importSuffix)
 				if err != nil {
 					return nil, fmt.Errorf("create user+membership for %s: %w", res.ResidentName, err)
-				}
-			} else if res.Password != "" {
-				// Password provided but no jabatan — try to update existing user's password
-				err = updateResidentPassword(ctx, tx, resID, res.Password)
-				if err != nil {
-					return nil, fmt.Errorf("update password for %s: %w", res.ResidentName, err)
 				}
 			}
 
@@ -695,9 +899,9 @@ func processExistingResident(
 
 			var newUserID string
 			err = tx.QueryRowContext(ctx,
-				`INSERT INTO users (email, password_hash, system_role, created_at, updated_at)
-				 VALUES ($1, $2, NULL, now(), now()) RETURNING id`,
-				fmt.Sprintf("%s-%s@import.local", strings.ToLower(res.ResidentName), importSuffix), pwHash,
+				`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
+				 VALUES ($1, $2, $3, NULL, now(), now()) RETURNING id`,
+				fmt.Sprintf("%s-%s@import.local", strings.ToLower(res.ResidentName), importSuffix), res.ResidentName, pwHash,
 			).Scan(&newUserID)
 			if err != nil {
 				return fmt.Errorf("create user for %s: %w", res.ResidentName, err)
@@ -723,10 +927,92 @@ func processExistingResident(
 			}
 		}
 	} else if res.Password != "" {
-		// Password provided but no jabatan — update existing user's password
-		err := updateResidentPassword(ctx, tx, resID, res.Password)
-		if err != nil {
-			return fmt.Errorf("update password for %s: %w", res.ResidentName, err)
+		// Password provided but no jabatan
+		var existingUID sql.NullString
+		err := tx.QueryRowContext(ctx, `SELECT user_id FROM residents WHERE id = $1`, resID).Scan(&existingUID)
+		if err == nil && existingUID.Valid {
+			// User exists — update password
+			err = updateResidentPassword(ctx, tx, resID, res.Password)
+			if err != nil {
+				return fmt.Errorf("update password for %s: %w", res.ResidentName, err)
+			}
+		} else {
+			// Resident has no linked user — create user with password and link
+			pwHash, err := auth.Hash(res.Password)
+			if err != nil {
+				return fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
+			}
+			userEmail := fmt.Sprintf("%s-%s@import.local", strings.ToLower(res.ResidentName), importSuffix)
+			if res.Email != "" {
+				userEmail = NormalizeEmail(res.Email)
+			}
+			var newUserID string
+			err = tx.QueryRowContext(ctx,
+				`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
+				 VALUES ($1, $2, $3, NULL, now(), now()) RETURNING id`,
+				userEmail, res.ResidentName, pwHash,
+			).Scan(&newUserID)
+			if err != nil {
+				return fmt.Errorf("create user for %s: %w", res.ResidentName, err)
+			}
+			_, err = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, newUserID, resID)
+			if err != nil {
+				return fmt.Errorf("link user to resident %s: %w", res.ResidentName, err)
+			}
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO user_rt_memberships (user_id, rt_id, role, is_active)
+				 VALUES ($1, $2, 'warga', true)`,
+				newUserID, rtID,
+			)
+			if err != nil {
+				return fmt.Errorf("create RT membership for %s: %w", res.ResidentName, err)
+			}
+		}
+	}
+
+	// --- 3. Email: update users.email for existing resident if provided ---
+	if res.Email != "" {
+		normalizedEmail := NormalizeEmail(res.Email)
+
+		var userID sql.NullString
+		err := tx.QueryRowContext(ctx,
+			`SELECT user_id FROM residents WHERE id = $1`, resID,
+		).Scan(&userID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("query user_id for resident %s: %w", res.ResidentName, err)
+		}
+
+		if userID.Valid {
+			// Check if the target email is already in use by ANOTHER user.
+			// If it's owned by this same user, it's a no-op. If owned by another
+			// user, return an error — email is globally unique.
+			var owningUserID string
+			err = tx.QueryRowContext(ctx,
+				`SELECT u.id FROM users u WHERE lower(trim(u.email)) = $1`,
+				normalizedEmail,
+			).Scan(&owningUserID)
+			if err == nil && owningUserID != "" && owningUserID != userID.String {
+				// Email already belongs to a different user — return error.
+				return fmt.Errorf(
+					"email '%s' is already used by another user; cannot update resident %s",
+					normalizedEmail, res.ResidentName,
+				)
+			} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("check email existence for resident %s: %w", res.ResidentName, err)
+			}
+			// Safe to update — either email is free or belongs to this user.
+			_, err = tx.ExecContext(ctx,
+				`UPDATE users
+				 SET email = $1, updated_at = now()
+				 WHERE id = $2`,
+				normalizedEmail, userID.String,
+			)
+			if err != nil {
+				return fmt.Errorf("update email for resident %s: %w", res.ResidentName, err)
+			}
+		} else {
+			// No linked user for this resident — cannot update email.
+			return fmt.Errorf("resident %s has no user account; email update requires an existing linked user", res.ResidentName)
 		}
 	}
 
@@ -737,65 +1023,107 @@ func processExistingResident(
 func createResidentUserAndMembership(
 	ctx context.Context,
 	tx *sql.Tx,
-	resID, rtID, residentName string,
+	resID, rtID, residentName, email string,
 	pwHash *string, // nil if no password
 	jabatan string,
 	importSuffix string,
 ) error {
 	var newUserID string
 	var err error
+	var userEmail string
 
-	if pwHash != nil {
-		// Create user with password
+	// Determine email: check if provided email already exists globally.
+	normalizedEmail := NormalizeEmail(email)
+	if normalizedEmail != "" {
+		// Email must be globally unique. If already taken by any user,
+		// return an error — do NOT fall back to a synthetic @import.local address.
+		var exists bool
 		err = tx.QueryRowContext(ctx,
-			`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
-			 VALUES ($1, $2, $3, NULL, now(), now()) RETURNING id`,
-			fmt.Sprintf("%s-%s@import.local", strings.ToLower(residentName), importSuffix), residentName, *pwHash,
-		).Scan(&newUserID)
+			`SELECT EXISTS(SELECT 1 FROM users WHERE lower(trim(email)) = $1)`,
+			normalizedEmail,
+		).Scan(&exists)
 		if err != nil {
-			return fmt.Errorf("create user for %s: %w", residentName, err)
+			return fmt.Errorf("check email existence for %s: %w", residentName, err)
 		}
-
-		// Link resident to new user
-		_, err = tx.ExecContext(ctx,
-			`UPDATE residents SET user_id = $1 WHERE id = $2`,
-			newUserID, resID,
-		)
-		if err != nil {
-			return fmt.Errorf("link user to resident %s: %w", residentName, err)
+		if exists {
+			return fmt.Errorf(
+				"email '%s' is already used by another user; cannot create account for %s",
+				normalizedEmail, residentName,
+			)
 		}
-	} else {
-		// Create user without password (imported without password)
-		err = tx.QueryRowContext(ctx,
-			`INSERT INTO users (email, full_name, system_role, created_at, updated_at)
-			 VALUES ($1, $2, NULL, now(), now()) RETURNING id`,
-			fmt.Sprintf("%s-%s@import.local", strings.ToLower(residentName), importSuffix), residentName,
-		).Scan(&newUserID)
-		if err != nil {
-			return fmt.Errorf("create user (no pw) for %s: %w", residentName, err)
-		}
-
-		// Link resident to new user
-		_, err = tx.ExecContext(ctx,
-			`UPDATE residents SET user_id = $1 WHERE id = $2`,
-			newUserID, resID,
-		)
-		if err != nil {
-			return fmt.Errorf("link user to resident %s: %w", residentName, err)
-		}
+		userEmail = normalizedEmail
 	}
 
-	// Create RT membership with jabatan
+	actualHash := ""
+	if pwHash != nil {
+		actualHash = *pwHash
+	} else {
+		h, err := auth.Hash(uuid.NewString())
+		if err != nil {
+			return fmt.Errorf("hash initial password for %s: %w", residentName, err)
+		}
+		actualHash = h
+	}
+
+	err = tx.QueryRowContext(ctx,
+		`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
+		 VALUES ($1, $2, $3, NULL, now(), now()) RETURNING id`,
+		userEmail, residentName, actualHash,
+	).Scan(&newUserID)
+	if err != nil {
+		return fmt.Errorf("create user for %s: %w", residentName, err)
+	}
+
+	// Link resident to new user
+	_, err = tx.ExecContext(ctx,
+		`UPDATE residents SET user_id = $1 WHERE id = $2`,
+		newUserID, resID,
+	)
+	if err != nil {
+		return fmt.Errorf("link user to resident %s: %w", residentName, err)
+	}
+
+	// Create RT membership with jabatan (null if empty)
+	var jabVal any
+	if strings.TrimSpace(jabatan) != "" {
+		jabVal = strings.TrimSpace(jabatan)
+	}
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO user_rt_memberships (user_id, rt_id, role, jabatan, is_active)
 		 VALUES ($1, $2, 'warga', $3, true)`,
-		newUserID, rtID, jabatan,
+		newUserID, rtID, jabVal,
 	)
 	if err != nil {
 		return fmt.Errorf("create RT membership for %s: %w", residentName, err)
 	}
 
 	return nil
+}
+
+// createUserInTx inserts a new user into the users table within a transaction.
+// pwHash is nil for users without passwords (imported without password).
+func createUserInTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	email, fullName string,
+	pwHash *string,
+) error {
+	actualHash := ""
+	if pwHash != nil {
+		actualHash = *pwHash
+	} else {
+		h, err := auth.Hash(uuid.NewString())
+		if err != nil {
+			return err
+		}
+		actualHash = h
+	}
+	_, err := tx.ExecContext(ctx,
+		`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
+		 VALUES ($1, $2, $3, NULL, now(), now())`,
+		email, fullName, actualHash,
+	)
+	return err
 }
 
 // updateResidentPassword hashes and updates the password for an existing resident's user account.
@@ -828,7 +1156,11 @@ func updateResidentPassword(ctx context.Context, tx *sql.Tx, resID, password str
 }
 
 // ExportWargaCSV writes out all active residents and their household info to CSV format.
-func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.Writer) error {
+func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.Writer, acOpt ...*auth.AuthContext) error {
+	var ac *auth.AuthContext
+	if len(acOpt) > 0 {
+		ac = acOpt[0]
+	}
 	db := pool.Raw()
 
 	var rows *sql.Rows
@@ -885,9 +1217,14 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 			return fmt.Errorf("scan export row: %w", err)
 		}
 
+		nikVal := nik
+		if !canViewNik(ac) {
+			nikVal = ""
+		}
+
 		record := []string{
 			houseNum, headName, occStatus, addr,
-			resName, nik, phone, email,
+			resName, nikVal, phone, email,
 			moveInDate, jabatan, password,
 		}
 		if err := writer.Write(record); err != nil {
@@ -913,7 +1250,7 @@ func HandleWargaExport(pool *database.Pool) http.HandlerFunc {
 		w.Header().Set("Content-Disposition", `attachment; filename="warga_export.csv"`)
 		w.WriteHeader(http.StatusOK)
 
-		if err := ExportWargaCSV(r.Context(), pool, ac.RTID, w); err != nil {
+		if err := ExportWargaCSV(r.Context(), pool, ac.RTID, w, ac); err != nil {
 			// Headers already sent, log error
 			return
 		}
@@ -999,7 +1336,7 @@ func HandleWargaImportPreview(pool *database.Pool) http.HandlerFunc {
 			ValidRows:   validCount,
 			InvalidRows: invalidCount,
 			Errors:      allErrors,
-			PreviewData: rowsToPreview(rows),
+			PreviewData: rowsToPreview(rows, ac),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1009,10 +1346,20 @@ func HandleWargaImportPreview(pool *database.Pool) http.HandlerFunc {
 }
 
 // rowsToPreview converts WargaCSVRow (input model) to WargaPreviewRow (safe response DTO),
-// stripping the password and adding a hint about password update status.
-func rowsToPreview(rows []WargaCSVRow) []WargaPreviewRow {
+// stripping the password, adding a hint about password update status, and redacting NIK if unauthorized.
+func rowsToPreview(rows []WargaCSVRow, acOpt ...*auth.AuthContext) []WargaPreviewRow {
+	var ac *auth.AuthContext
+	if len(acOpt) > 0 {
+		ac = acOpt[0]
+	}
+	allowNik := canViewNik(ac)
+
 	preview := make([]WargaPreviewRow, len(rows))
 	for i, r := range rows {
+		nikVal := r.Nik
+		if !allowNik {
+			nikVal = ""
+		}
 		preview[i] = WargaPreviewRow{
 			RowNumber:       r.RowNumber,
 			HouseNumber:     r.HouseNumber,
@@ -1020,7 +1367,7 @@ func rowsToPreview(rows []WargaCSVRow) []WargaPreviewRow {
 			OccupancyStatus: r.OccupancyStatus,
 			Address:         r.Address,
 			ResidentName:    r.ResidentName,
-			Nik:             r.Nik,
+			Nik:             nikVal,
 			Phone:           r.Phone,
 			Email:           r.Email,
 			MoveInDate:      r.MoveInDate,

@@ -310,7 +310,7 @@ Widget _buildApp({
     key: ValueKey('iuran-payment-save-test-${DateTime.now().millisecondsSinceEpoch}'),
     overrides: [
       iuranRepositoryProvider.overrideWithValue(repository),
-      billDetailProvider.overrideWith((ref, billId) => AsyncData<IuranBill?>(bill)),
+      billDetailProvider.overrideWith((ref, billId) async => bill),
     ],
     child: MaterialApp.router(
       routerConfig: GoRouter(

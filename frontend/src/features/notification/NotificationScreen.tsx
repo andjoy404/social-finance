@@ -48,6 +48,10 @@ import {
 } from '@/app/api'
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
 import { renderNotificationBody } from './notificationUrl'
+import {
+  isFixedSystemEvent,
+  getNotificationBadgeVariant,
+} from './notificationSeverity'
 
 function getDeliveryStatusDisplay(status: string | null | undefined, isAdmin = false) {
   // Warga (non-admin): always hide internal delivery status, show TERKIRIM for everything.
@@ -181,6 +185,19 @@ export function NotificationScreen() {
     manual_push: 'Pengumuman Pengurus',
     waste_truck_arrival: 'Truk Sampah Tiba',
   }
+
+  const customizableSystemTypes = useMemo(
+    () => systemTypes.filter((st) => !isFixedSystemEvent(st.event_type)),
+    [systemTypes]
+  )
+  const schedulableSystemTypes = useMemo(
+    () => systemTypes.filter((st) => !isFixedSystemEvent(st.event_type)),
+    [systemTypes]
+  )
+  const customTemplates = useMemo(
+    () => templates.filter((t) => !isFixedSystemEvent(t.event_type)),
+    [templates]
+  )
 
   // Load Data
   const loadData = useCallback(async () => {
@@ -412,7 +429,7 @@ export function NotificationScreen() {
   // Open Create Modal
   const handleOpenCreate = (presetEventType?: string) => {
     setFormError(null)
-    const ev = presetEventType || systemTypes[0]?.event_type || 'iuran_bill_created'
+    const ev = presetEventType || customizableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
     const found = systemTypes.find((t) => t.event_type === ev)
     setCreateForm({
       name: found ? `Template ${found.name}` : '',
@@ -422,6 +439,23 @@ export function NotificationScreen() {
       image_url: '',
     })
     setShowCreateModal(true)
+  }
+
+  // Open Schedule Create Modal
+  const handleOpenScheduleCreate = () => {
+    setEditingSchedule(null)
+    const defaultEv = schedulableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
+    setScheduleForm({
+      name: '',
+      event_type: defaultEv,
+      template_id: '',
+      send_days: [],
+      send_hour: 8,
+      send_minute: 0,
+      timezone: 'Asia/Jakarta',
+      is_active: true,
+    })
+    setShowScheduleModal(true)
   }
 
   // Handle Create Submit
@@ -662,13 +696,22 @@ export function NotificationScreen() {
           >
             <ReloadOutlined style={{ marginRight: 6 }} /> Segarkan
           </button>
-          {isAdmin && (
+          {isAdmin && (activeTab === 'templates' || activeTab === 'system') && (
             <button
               type="button"
               className="sf-btn-primary"
               onClick={() => handleOpenCreate()}
             >
               <PlusOutlined style={{ marginRight: 6 }} /> Tambah Template
+            </button>
+          )}
+          {isAdmin && activeTab === 'schedules' && (
+            <button
+              type="button"
+              className="sf-btn-primary"
+              onClick={handleOpenScheduleCreate}
+            >
+              <PlusOutlined style={{ marginRight: 6 }} /> Tambah Jadwal
             </button>
           )}
         </div>
@@ -729,7 +772,7 @@ export function NotificationScreen() {
             <div style={{ display: 'flex', gap: 16, padding: '8px 12px', borderBottom: '1px solid var(--sf-border)' }}>
               {[
                 { key: 'system', label: `Notifikasi Sistem (${systemTypes.length})`, icon: <AppstoreOutlined /> },
-                { key: 'templates', label: `Template Kustom (${templates.length})`, icon: <BellOutlined /> },
+                { key: 'templates', label: `Template Kustom (${customTemplates.length})`, icon: <BellOutlined /> },
                 { key: 'schedules', label: `Penjadwalan (${schedules.length})`, icon: <ScheduleOutlined /> },
               ].map((tab) => (
                 <button
@@ -891,7 +934,26 @@ export function NotificationScreen() {
           {/* TAB 2: TEMPLATE KUSTOM */}
           {activeTab === 'templates' && (
             <div>
-              {templates.length === 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--sf-text)' }}>
+                    Template Notifikasi ({customTemplates.length})
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
+                    Kelola template pesan kustom untuk notifikasi push RT.
+                  </div>
+                </div>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    onClick={() => handleOpenCreate()}
+                  >
+                    <PlusOutlined style={{ marginRight: 6 }} /> Tambah Template
+                  </button>
+                )}
+              </div>
+              {customTemplates.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--sf-card-bg)', border: '1px dashed var(--sf-border)', borderRadius: 8 }}>
                   <BellOutlined style={{ fontSize: 36, color: 'var(--sf-text-muted)', marginBottom: 12 }} />
                   <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-text)', marginBottom: 4 }}>
@@ -921,13 +983,13 @@ export function NotificationScreen() {
                       </tr>
                     </thead>
                     <tbody>
-                      {templates.map((t) => (
+                      {customTemplates.map((t) => (
                         <tr key={t.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
                           <td style={{ padding: '14px 16px', fontWeight: 600, color: 'var(--sf-text)' }}>
                             {t.name}
                           </td>
                           <td style={{ padding: '14px 16px' }}>
-                            <Badge variant="blue">
+                            <Badge variant={getNotificationBadgeVariant(t.event_type)}>
                               {systemTypes.find((st) => st.event_type === t.event_type)?.name || t.event_type}
                             </Badge>
                           </td>
@@ -1023,6 +1085,25 @@ export function NotificationScreen() {
           {/* TAB 4: PENJADWALAN NOTIFIKASI */}
           {activeTab === 'schedules' && (
             <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--sf-text)' }}>
+                    Jadwal Notifikasi ({schedules.length})
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--sf-text-muted)' }}>
+                    Atur jadwal pengiriman notifikasi pengingat secara otomatis.
+                  </div>
+                </div>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="sf-btn-primary"
+                    onClick={handleOpenScheduleCreate}
+                  >
+                    <PlusOutlined style={{ marginRight: 6 }} /> Tambah Jadwal
+                  </button>
+                )}
+              </div>
               {schedulesLoading ? (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--sf-text-muted)' }}>
                   Memuat jadwal notifikasi...
@@ -1052,9 +1133,10 @@ export function NotificationScreen() {
                     className="sf-btn-primary"
                     onClick={() => {
                       setEditingSchedule(null)
+                      const defaultEv = schedulableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
                       setScheduleForm({
                         name: '',
-                        event_type: '',
+                        event_type: defaultEv,
                         template_id: '',
                         send_days: [],
                         send_hour: 8,
@@ -1096,7 +1178,7 @@ export function NotificationScreen() {
                         return (
                           <tr key={s.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
                             <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text)' }}>{s.name}</td>
-                            <td style={{ padding: '12px 16px' }}><Badge variant="blue">{eventName}</Badge></td>
+                            <td style={{ padding: '12px 16px' }}><Badge variant={getNotificationBadgeVariant(s.event_type)}>{eventName}</Badge></td>
                             <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--sf-text-muted)' }}>{templateName}</td>
                             <td style={{ padding: '12px 16px', fontSize: 12 }}>{days}</td>
                             <td style={{ padding: '12px 16px', fontSize: 12 }}>{timeStr}</td>
@@ -1400,7 +1482,7 @@ export function NotificationScreen() {
                             {formatJakartaDateTime(l.created_at)}
                           </td>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                            <Badge variant="gray">
+                            <Badge variant={getNotificationBadgeVariant(l.event_type)}>
                               {systemTypes.find((st) => st.event_type === l.event_type)?.name || knownEventNames[l.event_type] || l.event_type}
                             </Badge>
                           </td>
@@ -1525,7 +1607,7 @@ export function NotificationScreen() {
                   }}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
                 >
-                  {systemTypes.map((st) => (
+                  {customizableSystemTypes.map((st) => (
                     <option key={st.event_type} value={st.event_type}>
                       {st.name} ({st.event_type})
                     </option>
@@ -2057,7 +2139,7 @@ export function NotificationScreen() {
                   }}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
                 >
-                  {systemTypes.map((st) => (
+                  {schedulableSystemTypes.map((st) => (
                     <option key={st.event_type} value={st.event_type}>
                       {st.name} ({st.event_type})
                     </option>

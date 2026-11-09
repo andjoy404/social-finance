@@ -734,7 +734,8 @@ class OverdueWarningSummaryNotifier
         final u = authAsync?.valueOrNull;
         if (!isPlainWargaUser(u)) return '';
         final id = (u?['id'] ?? '').toString();
-        final rtId = (u?['rt_id'] ?? u?['rt']?['id'] ?? '').toString();
+        final rawRt = u?['rt'];
+        final rtId = (u?['rt_id'] ?? (rawRt is Map ? rawRt['id'] : rawRt) ?? '').toString();
         return '$id:$rtId';
       }),
     );

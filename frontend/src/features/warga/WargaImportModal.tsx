@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
-import { useAuth } from '@/app/AuthContext'
+import { useAuth, ALLOWED_RT_CODES, ALLOWED_RT_IDS } from '@/app/AuthContext'
 import {
   getSessionPair,
   apiDownloadWargaTemplate,
@@ -30,6 +30,26 @@ export interface WargaImportModalProps {
 }
 
 type Step = 'upload' | 'preview' | 'success'
+
+// Resolve an RT UUID (or super-admin chosen RT id) to a human-readable label.
+function resolveRtLabel(rtId: string | undefined, rtCode?: string | null): string {
+  if (!rtId) return ''
+  // Direct match against known RT codes
+  const codeMap = new Map<string, string>()
+  for (const pair of ALLOWED_RT_IDS) {
+    const idx = ALLOWED_RT_IDS.indexOf(pair)
+    const code = ALLOWED_RT_CODES[idx]
+    if (code) {
+      codeMap.set(pair, code)
+    }
+  }
+  const code = codeMap.get(rtId)
+  if (code) return `RT ${code}`
+  // Fallback: use rtCode from auth context
+  if (rtCode) return `RT ${rtCode}`
+  // Last fallback: truncate UUID for readability
+  return `RT ${rtId.slice(0, 8)}`
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B'
@@ -399,7 +419,7 @@ export function WargaImportModal({
                 }}
               >
                 <EnvironmentOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
-                <span>RT dipilih: <strong style={{ color: 'var(--sf-text)' }}>{targetRtId}</strong></span>
+                <span>RT dipilih: <strong style={{ color: 'var(--sf-text)' }}>{resolveRtLabel(targetRtId, user?.rtCode)}</strong></span>
               </div>
             )}
 
@@ -556,14 +576,14 @@ export function WargaImportModal({
                 {previewResult.preview_data && previewResult.preview_data.length > 0 && (
                   <div
                     style={{
-                      maxHeight: 220,
+                      maxHeight: 400,
                       overflowY: 'auto',
                       border: '1px solid var(--sf-border)',
                       borderRadius: '8px',
                     }}
                   >
-                    <table className="sf-table" style={{ width: '100%', fontSize: 12 }}>
-                      <thead>
+                    <table className="sf-table" style={{ width: '100%', fontSize: 12, tableLayout: 'fixed' }}>
+                      <thead style={{ position: 'sticky', top: 0, background: 'var(--sf-bg-surface, var(--sf-bg))', zIndex: 1 }}>
                         <tr>
                           <th style={{ width: 80 }}>No. Rumah</th>
                           <th>Nama</th>
@@ -572,7 +592,7 @@ export function WargaImportModal({
                         </tr>
                       </thead>
                       <tbody>
-                        {previewResult.preview_data.slice(0, 10).map((row, idx) => (
+                        {previewResult.preview_data.map((row, idx) => (
                           <tr key={idx}>
                             <td style={{ fontFamily: 'monospace' }}>{row.house_number}</td>
                             <td>{row.resident_name}</td>
@@ -586,11 +606,6 @@ export function WargaImportModal({
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                )}
-                {previewResult.preview_data && previewResult.preview_data.length > 10 && (
-                  <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', textAlign: 'center' }}>
-                    Menampilkan 10 dari {previewResult.preview_data.length} baris pratinjau
                   </div>
                 )}
               </div>

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,8 @@ import (
 	"social-finance/internal/notification"
 	httpx "social-finance/internal/http"
 )
+
+var threeDigitRegex = regexp.MustCompile(`^[0-9]{3}$`)
 
 // Handler handles RT HTTP endpoints.
 type Handler struct {
@@ -54,19 +57,21 @@ type UpdateRequest struct {
 
 // CreateRWRequest is the body of a Create RW POST request.
 type CreateRWRequest struct {
-	RWNumber int     `json:"rw_number"`
-	Name     string  `json:"name"`
-	HeadName *string `json:"head_name,omitempty"`
-	Address  *string `json:"address,omitempty"`
+	RawRWNumber json.RawMessage `json:"rw_number"`
+	RWNumber    int             `json:"-"`
+	Name        string          `json:"name"`
+	HeadName    *string         `json:"head_name,omitempty"`
+	Address     *string         `json:"address,omitempty"`
 }
 
 // UpdateRWRequest is the body of an Update RW PATCH request.
 type UpdateRWRequest struct {
-	RWNumber *int    `json:"rw_number,omitempty"`
-	Name     *string `json:"name,omitempty"`
-	HeadName *string `json:"head_name,omitempty"`
-	Address  *string `json:"address,omitempty"`
-	IsActive *bool   `json:"is_active,omitempty"`
+	RawRWNumber *json.RawMessage `json:"rw_number,omitempty"`
+	RWNumber    *int             `json:"-"`
+	Name        *string          `json:"name,omitempty"`
+	HeadName    *string          `json:"head_name,omitempty"`
+	Address     *string          `json:"address,omitempty"`
+	IsActive    *bool            `json:"is_active,omitempty"`
 }
 
 type setJabatanRequest struct {
@@ -383,10 +388,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteValidationError(w, "rw must be >= 0", nil)
 		return
 	}
-	if strings.TrimSpace(req.RT) == "" {
-		httpx.WriteValidationError(w, "rt name is required", nil)
+	trimmedRT := strings.TrimSpace(req.RT)
+	if !threeDigitRegex.MatchString(trimmedRT) {
+		httpx.WriteValidationError(w, "nomor rt harus tepat 3 digit angka (contoh: 002)", nil)
 		return
 	}
+	req.RT = trimmedRT
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -591,6 +598,15 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.RT != nil {
+		trimmedRT := strings.TrimSpace(*req.RT)
+		if !threeDigitRegex.MatchString(trimmedRT) {
+			httpx.WriteValidationError(w, "nomor rt harus tepat 3 digit angka (contoh: 002)", nil)
+			return
+		}
+		req.RT = &trimmedRT
+	}
+
 	updateInput := &UpdateRTInput{
 		Name:     req.Name,
 		RWID:     req.RWID,
@@ -696,6 +712,13 @@ func (h *Handler) CreateRW(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
 		return
 	}
+	rawStr := strings.Trim(strings.TrimSpace(string(req.RawRWNumber)), "\"")
+	if !threeDigitRegex.MatchString(rawStr) {
+		httpx.WriteValidationError(w, "nomor rw harus tepat 3 digit angka (contoh: 016)", nil)
+		return
+	}
+	num, _ := strconv.Atoi(rawStr)
+	req.RWNumber = num
 	if req.RWNumber <= 0 {
 		httpx.WriteValidationError(w, "rw_number must be > 0", nil)
 		return
@@ -853,6 +876,15 @@ func (h *Handler) UpdateRW(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "validation_error", "invalid request body")
 		return
+	}
+	if req.RawRWNumber != nil {
+		rawStr := strings.Trim(strings.TrimSpace(string(*req.RawRWNumber)), "\"")
+		if !threeDigitRegex.MatchString(rawStr) {
+			httpx.WriteValidationError(w, "nomor rw harus tepat 3 digit angka (contoh: 016)", nil)
+			return
+		}
+		num, _ := strconv.Atoi(rawStr)
+		req.RWNumber = &num
 	}
 	if req.RWNumber != nil && *req.RWNumber <= 0 {
 		httpx.WriteValidationError(w, "rw_number must be > 0", nil)

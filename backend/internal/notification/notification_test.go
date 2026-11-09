@@ -329,6 +329,54 @@ func (r *inMemoryRepo) DeleteTemplate(ctx context.Context, rtID, id string) erro
 	return nil
 }
 
+// RW-scoped template methods
+
+func (r *inMemoryRepo) ListRWTemplates(ctx context.Context, rwID, eventType string, isActive *bool) ([]notification.NotificationTemplate, error) {
+	return []notification.NotificationTemplate{}, nil
+}
+
+func (r *inMemoryRepo) GetRWTemplateByID(ctx context.Context, rwID, id string) (*notification.NotificationTemplate, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) CreateRWTemplate(ctx context.Context, rwID string, in notification.CreateTemplateInput, allowedVars []string) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:       "rw-tmpl-1",
+		RWID:     rwID,
+		Name:     in.Name,
+		EventType: in.EventType,
+		Channel:   in.Channel,
+		Title:     in.Title,
+		Body:      in.Body,
+		IsActive:  true,
+		Variables: allowedVars,
+	}, nil
+}
+
+func (r *inMemoryRepo) UpdateRWTemplate(ctx context.Context, rwID, id string, in notification.UpdateTemplateInput) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:       id,
+		RWID:     rwID,
+		Name:     in.Name,
+		Title:    in.Title,
+		Body:     in.Body,
+		IsActive: true,
+	}, nil
+}
+
+func (r *inMemoryRepo) ToggleRWTemplateActive(ctx context.Context, rwID, id string) (*notification.NotificationTemplate, error) {
+	return &notification.NotificationTemplate{
+		ID:       id,
+		RWID:     rwID,
+		IsActive: false,
+	}, nil
+}
+
+func (r *inMemoryRepo) DeleteRWTemplate(ctx context.Context, rwID, id string) error {
+	return nil
+}
+
+
 func (r *inMemoryRepo) ListLogs(ctx context.Context, rtID, userID, eventType, status string, isOfficer bool, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
 	return []notification.NotificationLogEntry{}, 0, nil
 }
@@ -672,6 +720,22 @@ func (r *inMemoryRepo) GetSchedulerRecipientDetail(ctx context.Context, rtID, sc
 
 	// Return empty for in-memory repo
 	return []*notification.NotificationSchedulerRecipientDetail{}, nil
+}
+
+func (r *inMemoryRepo) GetRWPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) GetRWAndRTPengurusUserIDs(ctx context.Context, rwID string) ([]string, error) {
+	return nil, nil
+}
+
+func (r *inMemoryRepo) RecordRWDedup(ctx context.Context, rwID, userID, eventType, dedupKey, title, body string, payload map[string]string, senderUserID *string) (bool, error) {
+	return true, nil
+}
+
+func (r *inMemoryRepo) ListRWLogs(ctx context.Context, rwID, eventType string, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
+	return nil, 0, nil
 }
 
 func TestDeviceRegistrationLifecycle(t *testing.T) {

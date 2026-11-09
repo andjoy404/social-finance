@@ -141,9 +141,14 @@ export function RwDetailModal({
   const handleUpdateRw = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!rw || editLock.current) return
-    const number = Number(rwNumber)
-    if (!rwNumber || !Number.isInteger(number) || number <= 0) {
-      setEditError('Nomor RW harus angka bulat positif.')
+    const trimmed = rwNumber.trim()
+    if (!trimmed || !/^[0-9]{3}$/.test(trimmed)) {
+      setEditError('Nomor RW harus tepat 3 digit angka (contoh: 016).')
+      return
+    }
+    const number = Number(trimmed)
+    if (number <= 0) {
+      setEditError('Nomor RW harus lebih dari 0.')
       return
     }
     const session = getSessionPair()
@@ -158,8 +163,8 @@ export function RwDetailModal({
     setEditSuccess(null)
     try {
       const updatedRw = await apiUpdateRW(session.accessToken, rw.id, {
-        rw_number: number,
-        name: rwName.trim() || `RW ${String(number).padStart(3, '0')}`,
+        rw_number: trimmed,
+        name: rwName.trim() || `RW ${trimmed}`,
         head_name: rwHead.trim() || null,
         address: rwAddress.trim() || null,
       })

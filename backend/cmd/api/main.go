@@ -109,13 +109,6 @@ func main() {
 
 	slog.Info("database connected", "host", cfg.DBHost, "database", cfg.DBName)
 
-	if cfg.AppEnv != "production" {
-		if err := runBootstrap(); err != nil {
-			slog.Error("bootstrap failed", "error", err)
-			return
-		}
-	}
-
 	// Initialize auth module.
 	if cfg.JWTSecret != "" {
 		auth.SigningSecret = []byte(cfg.JWTSecret)
@@ -812,7 +805,8 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 
 	rwRepo := rw.NewRepository(pool.Raw())
 	rwSvc := rw.NewService(pool, rwRepo, scopingCfg)
-	rwHandler := rw.NewHandler(pool, rwSvc, store)
+	rwSvc.SetNotifier(notifSvc)
+	rwHandler := rw.NewHandler(pool, rwSvc, notifSvc, store)
 
 	// RW operational endpoints
 	// Requires RW membership via RequireRWScope (from scoping.go)
@@ -820,9 +814,23 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRWScope(pool, *scopingCfg))
 		r.Get("/api/v1/rw/{rwId}/dashboard", rwHandler.GetDashboard)
+		r.Get("/api/v1/rw/{rwId}/notifications", rwHandler.ListNotifications)
+		r.Post("/api/v1/rw/{rwId}/notifications/manual", rwHandler.SendManualPush)
+		r.Get("/api/v1/rw/{rwId}/notifications/templates", rwHandler.ListRWTemplates)
+		r.Get("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.GetRWTemplateByID)
+		r.Get("/api/v1/rw/{rwId}/notifications/templates/{id}/preview", rwHandler.PreviewRWTemplate)
+		r.Post("/api/v1/rw/{rwId}/notifications/templates/{id}/preview", rwHandler.PreviewRWTemplate)
+		r.Post("/api/v1/rw/{rwId}/notifications/templates/preview", rwHandler.PreviewRWTemplateDirect)
+		r.Post("/api/v1/rw/{rwId}/notifications/templates/{id}/send", rwHandler.SendRWTemplateNotification)
+		r.Post("/api/v1/rw/{rwId}/notifications/templates", rwHandler.CreateRWTemplate)
+		r.Put("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.UpdateRWTemplate)
+		r.Patch("/api/v1/rw/{rwId}/notifications/templates/{id}/toggle", rwHandler.ToggleRWTemplateActive)
+		r.Delete("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.DeleteRWTemplate)
 		r.Get("/api/v1/rw/{rwId}/kas", rwHandler.GetKAS)
 		r.Post("/api/v1/rw/{rwId}/kas", rwHandler.CreateKASTransaction)
+		r.Get("/api/v1/rw/{rwId}/rts", rwHandler.GetRTRs)
 		r.Post("/api/v1/rw/{rwId}/opening-balance", rwHandler.UpdateOpeningBalance)
+		r.Post("/api/v1/rw/{rwId}/locations/{id}/opening-balance", rwHandler.AllocateOpeningBalance)
 		r.Get("/api/v1/rw/{rwId}/kas/transactions", rwHandler.GetKASTransactions)
 		r.Post("/api/v1/rw/{rwId}/kas/transactions", rwHandler.CreateKASTransaction)
 		r.Get("/api/v1/rw/{rwId}/kas/transactions/{id}", rwHandler.GetKASTransactionByID)
@@ -915,13 +923,21 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/notifications/schedules/{schedule_id}/recipients", notifH.GetSchedulerRecipientDetail)
 	})
 
-	// Kebersihan monitoring: read-only list of households with 3+ month overdue
-	// obligatory bills, field notes, and export. Access-controlled with
-	// rw.monitoring.read / rw.monitoring.notes.write / rw.monitoring.export
-	// permissions.
+	// Kebersihan monitoring: RT-scoped list of households with 3+ month overdue
+	// obligatory bills, field notes, and export. The path uses a legacy
+	// /api/v1/rw/{rwId}/... shape for client compatibility, but the feature is
+	// RT-scoped: handlers resolve tenant RT via authenticated context/header and
+	// do not use {rwId} as authorization scope. Cross-RT access is prevented by
+	// RequireAllowedRT + handler tenant resolution.
+	//
+	// Access: SUPER_ADMIN bypass; jabatan kebersihan with the corresponding
+	// rw.monitoring.* position permission. RequireAccess blocks role-based users
+	// without the allowed jabatan (including role-only users who would otherwise
+	// pass RequirePermission's role-based pass-through on stacked routes).
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKebersihan}))
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequirePermission(pool, "rw.monitoring.read"))
 			r.Get("/api/v1/rw/{rwId}/monitoring", notifH.ListMonitoringHouseholds)

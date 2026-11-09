@@ -50,11 +50,11 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 	if summary1.PositionMembershipsCount != 18 {
 		t.Errorf("expected 18 position memberships, got %d", summary1.PositionMembershipsCount)
 	}
-	if summary1.PermissionTypesCount != 12 {
-		t.Errorf("expected 12 permission types, got %d", summary1.PermissionTypesCount)
+	if summary1.PermissionTypesCount != 14 {
+		t.Errorf("expected 14 permission types, got %d", summary1.PermissionTypesCount)
 	}
-	if summary1.PositionPermissionsCount != 45 {
-		t.Errorf("expected 45 position permissions, got %d", summary1.PositionPermissionsCount)
+	if summary1.PositionPermissionsCount != 50 {
+		t.Errorf("expected 50 position permissions, got %d", summary1.PositionPermissionsCount)
 	}
 	if summary1.BillsCount != 0 {
 		t.Errorf("expected 0 bills, got %d", summary1.BillsCount)

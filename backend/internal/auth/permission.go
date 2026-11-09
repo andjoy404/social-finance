@@ -32,10 +32,12 @@ func (pr *PermissionResolver) HasPermission(ctx context.Context, tx *sql.Tx, ac 
 		return true, nil
 	}
 
-	// 2. Role-based users (no jabatan) pass through without DB query.
-	// Existing role-based authorization is preserved via RequireRole middleware.
+	// 2. Role-based users (no jabatan) do NOT get automatic permission.
+	//    Access for role-based users is enforced by RequireRole middleware
+	//    on each route. HasPermission must never return true for them,
+	//    otherwise they would bypass authorization entirely.
 	if ac.Jabatan == "" {
-		return true, nil
+		return false, nil
 	}
 
 	// 3. jabatan-based user: verify membership exists in current RT, then check permissions.

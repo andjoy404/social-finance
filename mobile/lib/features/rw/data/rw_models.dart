@@ -331,19 +331,76 @@ class RwFundLocation {
       }
     }
 
-    return RwFundLocation(
+      return RwFundLocation(
+        id: json['id'] as String? ?? '',
+        rwId: json['rw_id'] as String? ?? '',
+        rtId: json['rt_id'] as String? ?? '',
+        rtName: json['rt_name'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        category: json['category'] as String? ?? '',
+        bankName: json['bank_name'] as String?,
+        accountNumber: json['account_number'] as String?,
+        accountHolder: json['account_holder'] as String?,
+        isActive: json['is_active'] as bool? ?? false,
+        currentBalance: json['current_balance'] as String? ?? '0.00',
+        createdAt: parseDate(json['created_at'] as String?),
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RT Info — RT di bawah RW untuk dropdown Setoran RT
+// ---------------------------------------------------------------------------
+
+class RwRtInfo {
+  final String id;
+  final String name;
+  final String rt;
+  final int rwNumber;
+  final String label;
+
+  const RwRtInfo({
+    required this.id,
+    required this.name,
+    required this.rt,
+    required this.rwNumber,
+    required this.label,
+  });
+
+  factory RwRtInfo.fromJson(Map<String, dynamic> json) {
+    return RwRtInfo(
       id: json['id'] as String? ?? '',
-      rwId: json['rw_id'] as String? ?? '',
-      rtId: json['rt_id'] as String? ?? '',
-      rtName: json['rt_name'] as String? ?? '',
       name: json['name'] as String? ?? '',
-      category: json['category'] as String? ?? '',
-      bankName: json['bank_name'] as String?,
-      accountNumber: json['account_number'] as String?,
-      accountHolder: json['account_holder'] as String?,
-      isActive: json['is_active'] as bool? ?? false,
-      currentBalance: json['current_balance'] as String? ?? '0.00',
-      createdAt: parseDate(json['created_at'] as String?),
+      rt: json['rt'] as String? ?? '',
+      rwNumber: (json['rw_number'] as num?)?.toInt() ?? 0,
+      label: json['label'] as String? ?? '',
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Category — kategori keuangan (expense/income) dari /categories
+// ---------------------------------------------------------------------------
+
+class RwFinancialCategory {
+  final String id;
+  final String name;
+  final String type; // 'income' | 'expense'
+  final bool isActive;
+
+  const RwFinancialCategory({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.isActive,
+  });
+
+  factory RwFinancialCategory.fromJson(Map<String, dynamic> json) {
+    return RwFinancialCategory(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      type: json['type'] as String? ?? '',
+      isActive: json['is_active'] as bool? ?? true,
     );
   }
 }
@@ -498,6 +555,10 @@ class RwReconciliationReport {
   final String totalLocationBalances;
   final bool isReconciled;
   final String discrepancy;
+  final String unallocatedBalance;
+  final double allocatedPercentage;
+  final String status;
+  final String statusLabel;
   final List<RwCategorySummary> categoryBreakdown;
 
   const RwReconciliationReport({
@@ -508,6 +569,10 @@ class RwReconciliationReport {
     required this.totalLocationBalances,
     required this.isReconciled,
     required this.discrepancy,
+    required this.unallocatedBalance,
+    required this.allocatedPercentage,
+    required this.status,
+    required this.statusLabel,
     required this.categoryBreakdown,
   });
 
@@ -534,7 +599,152 @@ class RwReconciliationReport {
       totalLocationBalances: totalAllocated,
       isReconciled: isReconciled,
       discrepancy: json['discrepancy'] as String? ?? '0.00',
+      unallocatedBalance: json['unallocated_balance'] as String? ?? '0.00',
+      allocatedPercentage: (json['allocated_percentage'] as num?)?.toDouble() ?? 0.0,
+      status: status,
+      statusLabel: json['status_label'] as String? ?? '',
       categoryBreakdown: categories,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RW Notifications (PR: Android Data RW Notifikasi)
+// ---------------------------------------------------------------------------
+
+class RwNotificationLog {
+  final String id;
+  final String? rwId;
+  final String? rtId;
+  final String eventType;
+  final String? title;
+  final String? body;
+  final String? status;
+  final String? triggeredBy;
+  final DateTime? createdAt;
+
+  const RwNotificationLog({
+    required this.id,
+    this.rwId,
+    this.rtId,
+    required this.eventType,
+    this.title,
+    this.body,
+    this.status,
+    this.triggeredBy,
+    this.createdAt,
+  });
+
+  factory RwNotificationLog.fromJson(Map<String, dynamic> json) {
+    DateTime? parseDate(dynamic v) {
+      if (v == null) return null;
+      if (v is DateTime) return v;
+      if (v is String && v.isNotEmpty) {
+        try { return DateTime.parse(v); } catch (_) {}
+      }
+      return null;
+    }
+    return RwNotificationLog(
+      id: (json['id'] ?? '').toString(),
+      rwId: json['rw_id']?.toString(),
+      rtId: json['rt_id']?.toString(),
+      eventType: (json['event_type'] ?? json['type'] ?? '').toString(),
+      title: json['title']?.toString(),
+      body: (json['body'] ?? json['message'])?.toString(),
+      status: json['status']?.toString(),
+      triggeredBy: (json['triggered_by'] ?? json['created_by'])?.toString(),
+      createdAt: parseDate(json['created_at']),
+    );
+  }
+}
+
+class RwNotificationLogsPage {
+  final List<RwNotificationLog> items;
+  final int page;
+  final int pageSize;
+  final int total;
+  final int totalPages;
+
+  const RwNotificationLogsPage({
+    required this.items,
+    required this.page,
+    required this.pageSize,
+    required this.total,
+    required this.totalPages,
+  });
+
+  factory RwNotificationLogsPage.fromJson(Map<String, dynamic> json) {
+    final data = (json['data'] as List?) ?? const [];
+    final items = data
+        .whereType<Map>()
+        .map((e) => RwNotificationLog.fromJson(e.cast<String, dynamic>()))
+        .toList();
+    final p = (json['pagination'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return RwNotificationLogsPage(
+      items: items,
+      page: (p['page'] as num?)?.toInt() ?? 1,
+      pageSize: (p['per_page'] as num?)?.toInt() ?? (p['page_size'] as num?)?.toInt() ?? 20,
+      total: (p['total'] as num?)?.toInt() ?? items.length,
+      totalPages: (p['total_pages'] as num?)?.toInt() ?? 1,
+    );
+  }
+}
+
+class RwNotificationTemplate {
+  final String id;
+  final String rwId;
+  final String name;
+  final String eventType;
+  final String channel;
+  final String title;
+  final String body;
+  final String? imageUrl;
+  final bool isActive;
+  final List<String> variables;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  const RwNotificationTemplate({
+    required this.id,
+    required this.rwId,
+    required this.name,
+    required this.eventType,
+    required this.channel,
+    required this.title,
+    required this.body,
+    this.imageUrl,
+    required this.isActive,
+    this.variables = const [],
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory RwNotificationTemplate.fromJson(Map<String, dynamic> json) {
+    DateTime? parseDate(dynamic v) {
+      if (v == null) return null;
+      if (v is DateTime) return v;
+      if (v is String && v.isNotEmpty) {
+        try { return DateTime.parse(v); } catch (_) {}
+      }
+      return null;
+    }
+    final varsRaw = json['variables'];
+    final vars = varsRaw is List
+        ? varsRaw.map((e) => e.toString()).toList()
+        : <String>[];
+    return RwNotificationTemplate(
+      id: (json['id'] ?? '').toString(),
+      rwId: (json['rw_id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      eventType: (json['event_type'] ?? '').toString(),
+      channel: (json['channel'] ?? 'push').toString(),
+      title: (json['title'] ?? '').toString(),
+      body: (json['body'] ?? '').toString(),
+      imageUrl: json['image_url']?.toString(),
+      isActive: json['is_active'] == true,
+      variables: vars,
+      createdAt: parseDate(json['created_at']),
+      updatedAt: parseDate(json['updated_at']),
     );
   }
 }

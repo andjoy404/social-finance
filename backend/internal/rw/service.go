@@ -2,13 +2,24 @@ package rw
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	"social-finance/internal/finance"
+	"social-finance/internal/notification"
 	"social-finance/internal/storage"
 )
+
+// RWNotifier defines the notification operations for the RW domain.
+type RWNotifier interface {
+	NotifyRWCashIn(ctx context.Context, rwID, txID, amount, description, locationName string)
+	NotifyRWCashOut(ctx context.Context, rwID, txID, amount, description, category, locationName string)
+	SendRWManualPush(ctx context.Context, rwID, senderUserID, title, body string, target ...string) (int, error)
+	ListRWLogs(ctx context.Context, rwID, eventType string, page, pageSize int) ([]notification.NotificationLogEntry, int, error)
+}
 
 // Service provides RW-scoped operations with authorization enforcement.
 // Every public method validates that the user has active RW membership
@@ -17,6 +28,7 @@ type Service struct {
 	pool       *database.Pool
 	repo       *Repository
 	scopingCfg *auth.ScopingConfig
+	notifier   RWNotifier
 }
 
 func NewService(pool *database.Pool, repo *Repository, scopingCfg *auth.ScopingConfig) *Service {
@@ -25,6 +37,16 @@ func NewService(pool *database.Pool, repo *Repository, scopingCfg *auth.ScopingC
 		repo:       repo,
 		scopingCfg: scopingCfg,
 	}
+}
+
+// SetNotifier sets the RWNotifier instance.
+func (s *Service) SetNotifier(n RWNotifier) {
+	s.notifier = n
+}
+
+// GetNotifier returns the RWNotifier instance.
+func (s *Service) GetNotifier() RWNotifier {
+	return s.notifier
 }
 
 // checkRWAccess verifies the AuthContext has authorization to access the given rwID.
@@ -81,13 +103,18 @@ func (s *Service) requirePermission(ctx context.Context, ac *auth.AuthContext, r
 	return s.checkRWPermission(ac, rwID, permissionCode)
 }
 
+// RequirePermission checks whether the AuthContext has the required permission code for the given rwID.
+func (s *Service) RequirePermission(ctx context.Context, ac *auth.AuthContext, rwID string, permissionCode string) error {
+	return s.requirePermission(ctx, ac, rwID, permissionCode)
+}
+
 // =========================================================================
 // Dashboard & KAS Reports
 // =========================================================================
 
 // GetDashboard returns an aggregated financial overview for the RW.
 func (s *Service) GetDashboard(ctx context.Context, ac *auth.AuthContext, rwID string) (*DashboardSummary, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.dashboard.read"); err != nil {
 		return nil, err
 	}
 
@@ -111,7 +138,7 @@ func (s *Service) GetDashboard(ctx context.Context, ac *auth.AuthContext, rwID s
 
 // GetKASReport returns the KAS report (opening/income/expense) for the RW.
 func (s *Service) GetKASReport(ctx context.Context, ac *auth.AuthContext, rwID, period string) (*KASReport, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.read"); err != nil {
 		return nil, err
 	}
 
@@ -135,7 +162,7 @@ func (s *Service) GetKASReport(ctx context.Context, ac *auth.AuthContext, rwID, 
 
 // SetOpeningBalance sets or updates the RW opening balance.
 func (s *Service) SetOpeningBalance(ctx context.Context, ac *auth.AuthContext, rwID, amount string) error {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.create"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.write"); err != nil {
 		return err
 	}
 	cents, _, err := ParseMoney(amount)
@@ -156,11 +183,42 @@ func (s *Service) SetOpeningBalance(ctx context.Context, ac *auth.AuthContext, r
 	return tx.Commit()
 }
 
+// AllocateOpeningBalance allocates opening balance from unallocated cash (U)
+// to a specific RW fund location. It does not create a Kas Masuk transaction
+// and does not change the total Kas RW (K).
+func (s *Service) AllocateOpeningBalance(ctx context.Context, ac *auth.AuthContext, rwID string, in AllocateOpeningBalanceInput) (*LocationSummary, error) {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.write"); err != nil {
+		return nil, err
+	}
+
+	amtCents, _, err := ParseMoney(in.Amount)
+	if err != nil || amtCents <= 0 {
+		return nil, fmt.Errorf("invalid amount: %w", ErrInvalidAmount)
+	}
+
+	tx, err := s.pool.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	loc, err := s.repo.AllocateOpeningBalance(ctx, tx, rwID, in.LocationID, amtCents, in.Notes, ac.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return loc, nil
+}
+
 // GetTransactions returns a paginated list of posted transactions from RW's independent ledger.
 func (s *Service) GetTransactions(ctx context.Context, ac *auth.AuthContext, rwID string,
 	period string, page, pageSize int, startDate, endDate string, search string,
 ) ([]*TransactionEntry, int, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.read"); err != nil {
 		return nil, 0, err
 	}
 
@@ -187,7 +245,7 @@ func (s *Service) GetTransactions(ctx context.Context, ac *auth.AuthContext, rwI
 
 // GetTransactionByID returns a single transaction by ID.
 func (s *Service) GetTransactionByID(ctx context.Context, ac *auth.AuthContext, rwID, id string) (*TransactionEntry, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.read"); err != nil {
 		return nil, err
 	}
 
@@ -211,7 +269,7 @@ func (s *Service) GetTransactionByID(ctx context.Context, ac *auth.AuthContext, 
 
 // CreateTransaction creates a new KAS Masuk or KAS Keluar transaction linked to an RW fund location.
 func (s *Service) CreateTransaction(ctx context.Context, ac *auth.AuthContext, rwID string, in CreateTransactionInput) (*TransactionEntry, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.create"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.write"); err != nil {
 		return nil, err
 	}
 
@@ -230,12 +288,60 @@ func (s *Service) CreateTransaction(ctx context.Context, ac *auth.AuthContext, r
 		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
+	if s.notifier != nil {
+		if entry.Type == "income" {
+			locName := ""
+			if entry.LocationName != nil {
+				locName = *entry.LocationName
+			}
+			s.notifier.NotifyRWCashIn(ctx, rwID, entry.ID, entry.Amount, entry.Description, locName)
+		} else if entry.Type == "expense" {
+			locName := ""
+			if entry.LocationName != nil {
+				locName = *entry.LocationName
+			}
+			cat := ""
+			if entry.ExpenseCategory != nil {
+				cat = *entry.ExpenseCategory
+			}
+			s.notifier.NotifyRWCashOut(ctx, rwID, entry.ID, entry.Amount, entry.Description, cat, locName)
+		}
+	}
+
 	return entry, nil
+}
+
+// SendManualPush broadcasts a manual push notification to RW officials and RT officials under the RW.
+func (s *Service) SendManualPush(ctx context.Context, ac *auth.AuthContext, rwID, title, body string, target ...string) (int, error) {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.notification.write"); err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(title) == "" {
+		return 0, errors.New("judul notifikasi wajib diisi")
+	}
+	if strings.TrimSpace(body) == "" {
+		return 0, errors.New("isi pesan notifikasi wajib diisi")
+	}
+	if s.notifier == nil {
+		return 0, nil
+	}
+	return s.notifier.SendRWManualPush(ctx, rwID, ac.UserID, title, body, target...)
+}
+
+// ListNotifications returns notification logs for the RW.
+func (s *Service) ListNotifications(ctx context.Context, ac *auth.AuthContext, rwID, eventType string, page, pageSize int) ([]notification.NotificationLogEntry, int, error) {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.notification.read"); err != nil {
+		return nil, 0, err
+	}
+	if s.notifier == nil {
+		return nil, 0, nil
+	}
+	return s.notifier.ListRWLogs(ctx, rwID, eventType, page, pageSize)
 }
 
 // AttachTransactionProof saves the uploaded proof metadata for an RW transaction.
 func (s *Service) AttachTransactionProof(ctx context.Context, ac *auth.AuthContext, rwID, txID string, meta *storage.ObjectMetadata) error {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.create"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.write"); err != nil {
 		return err
 	}
 
@@ -254,7 +360,7 @@ func (s *Service) AttachTransactionProof(ctx context.Context, ac *auth.AuthConte
 
 // GetTransactionProofInfo returns the proof path and mime type for an RW transaction.
 func (s *Service) GetTransactionProofInfo(ctx context.Context, ac *auth.AuthContext, rwID, txID string) (proofPath, mimeType string, err error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.read"); err != nil {
 		return "", "", err
 	}
 
@@ -282,7 +388,7 @@ func (s *Service) GetTransactionProofInfo(ctx context.Context, ac *auth.AuthCont
 
 // GetLocations returns all RW fund locations with current balances.
 func (s *Service) GetLocations(ctx context.Context, ac *auth.AuthContext, rwID string, isActive *bool) ([]*LocationSummary, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.read"); err != nil {
 		return nil, err
 	}
 
@@ -309,7 +415,7 @@ func (s *Service) GetLocations(ctx context.Context, ac *auth.AuthContext, rwID s
 
 // GetLocationByID returns details of a single RW fund location.
 func (s *Service) GetLocationByID(ctx context.Context, ac *auth.AuthContext, rwID, locID string) (*LocationSummary, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.read"); err != nil {
 		return nil, err
 	}
 
@@ -331,9 +437,9 @@ func (s *Service) GetLocationByID(ctx context.Context, ac *auth.AuthContext, rwI
 	return loc, nil
 }
 
-// CreateLocation creates a new RW fund location (requires finance.create).
+// CreateLocation creates a new RW fund location (requires rw.fund_location.write).
 func (s *Service) CreateLocation(ctx context.Context, ac *auth.AuthContext, rwID string, in CreateRWFundLocationInput) (*LocationSummary, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.create"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.write"); err != nil {
 		return nil, err
 	}
 
@@ -355,9 +461,9 @@ func (s *Service) CreateLocation(ctx context.Context, ac *auth.AuthContext, rwID
 	return loc, nil
 }
 
-// UpdateLocation updates an existing RW fund location (requires finance.update).
+// UpdateLocation updates an existing RW fund location (requires rw.fund_location.write).
 func (s *Service) UpdateLocation(ctx context.Context, ac *auth.AuthContext, rwID, locID string, in UpdateRWFundLocationInput) (*LocationSummary, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.update"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.write"); err != nil {
 		return nil, err
 	}
 
@@ -379,9 +485,9 @@ func (s *Service) UpdateLocation(ctx context.Context, ac *auth.AuthContext, rwID
 	return loc, nil
 }
 
-// ToggleLocationStatus activates or deactivates an RW fund location (requires finance.update).
+// ToggleLocationStatus activates or deactivates an RW fund location (requires rw.fund_location.write).
 func (s *Service) ToggleLocationStatus(ctx context.Context, ac *auth.AuthContext, rwID, locID string, isActive bool) (*LocationSummary, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.update"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.write"); err != nil {
 		return nil, err
 	}
 
@@ -405,7 +511,7 @@ func (s *Service) ToggleLocationStatus(ctx context.Context, ac *auth.AuthContext
 
 // GetLocationMutations returns paginated balance changes for a location.
 func (s *Service) GetLocationMutations(ctx context.Context, ac *auth.AuthContext, rwID, locID string, page, pageSize int) ([]LocationBalanceChange, int, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.read"); err != nil {
 		return nil, 0, err
 	}
 
@@ -429,7 +535,7 @@ func (s *Service) GetLocationMutations(ctx context.Context, ac *auth.AuthContext
 
 // GetReconciliation returns reconciliation report between KAS and fund locations.
 func (s *Service) GetReconciliation(ctx context.Context, ac *auth.AuthContext, rwID string) (*ReconciliationReport, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.read"); err != nil {
 		return nil, err
 	}
 
@@ -455,9 +561,9 @@ func (s *Service) GetReconciliation(ctx context.Context, ac *auth.AuthContext, r
 // RW Fund Transfers
 // =========================================================================
 
-// CreateTransfer executes a transfer between two locations within the same RW (requires finance.update).
+// CreateTransfer executes a transfer between two locations within the same RW (requires rw.fund_location.write).
 func (s *Service) CreateTransfer(ctx context.Context, ac *auth.AuthContext, rwID string, in CreateFundTransferInput) (*FundTransfer, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.update"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.write"); err != nil {
 		return nil, err
 	}
 
@@ -479,9 +585,9 @@ func (s *Service) CreateTransfer(ctx context.Context, ac *auth.AuthContext, rwID
 	return tr, nil
 }
 
-// ReverseTransfer reverses a completed transfer within the same RW (requires finance.update).
+// ReverseTransfer reverses a completed transfer within the same RW (requires rw.fund_location.write).
 func (s *Service) ReverseTransfer(ctx context.Context, ac *auth.AuthContext, rwID, transferID, reason string) (*FundTransfer, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.update"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.write"); err != nil {
 		return nil, err
 	}
 
@@ -505,7 +611,7 @@ func (s *Service) ReverseTransfer(ctx context.Context, ac *auth.AuthContext, rwI
 
 // GetTransfers returns transfer history for an RW.
 func (s *Service) GetTransfers(ctx context.Context, ac *auth.AuthContext, rwID string, page, pageSize int) ([]FundTransfer, int, error) {
-	if err := s.requirePermission(ctx, ac, rwID, "finance.read"); err != nil {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.fund_location.read"); err != nil {
 		return nil, 0, err
 	}
 

@@ -161,11 +161,11 @@ export function ResidentList() {
 
   const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
   const isPengurus = user.role === 'pengurus'
-  const isSecurity = (user.jabatan ?? '').trim().toLowerCase() === 'keamanan'
+  const isKetua = (user.jabatan ?? '').trim().toLowerCase() === 'ketua' || (user.jabatan ?? '').trim().toLowerCase() === 'ketua_rt'
   const canWrite = hasWargaWriteAccess(user)
   const canImport = hasWargaImportAccess(user)
   const canExport = hasWargaExportAccess(user)
-  const showNik = (isPengurus || isSuperAdmin) && !isSecurity
+  const showNik = isKetua || isSuperAdmin
 
   // Warga can see phone only from residents whose jabatan is 'keamanan'.
   // Warga can NEVER see email — only pengurus/bendahara/super_admin.

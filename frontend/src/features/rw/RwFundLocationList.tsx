@@ -39,6 +39,7 @@ import {
   apiReverseRWTransfer,
   apiGetRWLocationMutations,
   apiGetRWReconciliation,
+  apiAllocateRWOpeningBalance,
   type ApiRWLocation,
   type ApiRWFundTransfer,
   type ApiRWLocationMutation,
@@ -48,17 +49,14 @@ import {
 export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const { user } = useAuth()
 
-  const isSuperAdmin = user?.systemRole === 'super_admin' || user?.role === 'super_admin'
   const rwMemberships = (user as any)?.rw_memberships || (user as any)?.rwMemberships || []
-  const currentRw = rwMemberships.find((m: any) => m.rw_id === rwId)
   const displayRwLabel = resolveRwLabel(rwId, rwMemberships, rwName)
-  const jabatan = (currentRw?.jabatan || user?.jabatan || '').toLowerCase()
 
-  // Source-aware write permission: RT inferred users see read-only UI.
-  // Checks the membership for the current RW only.
+  // Source-aware write permission: Only Ketua RW and Bendahara RW have write access.
+  // Pengurus RW (wakil_ketua, sekretaris) and Pengurus RT get read-only.
   const canWrite = hasRwWriteAccess(user, rwId)
-  const canCreate = isSuperAdmin || (canWrite && ['ketua', 'bendahara', 'wakil_ketua'].includes(jabatan))
-  const canUpdate = isSuperAdmin || (canWrite && ['ketua', 'bendahara'].includes(jabatan))
+  const canCreate = canWrite
+  const canUpdate = canWrite
   const isReadOnly = !canCreate && !canUpdate
 
   const [locations, setLocations] = useState<ApiRWLocation[]>([])
@@ -75,6 +73,7 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
   const [editingLocation, setEditingLocation] = useState<ApiRWLocation | null>(null)
   const [showTransferModal, setShowTransferModal] = useState(false)
   const [showReconcileModal, setShowReconcileModal] = useState(false)
+  const [showAllocateModal, setShowAllocateModal] = useState(false)
   const [historyLocation, setHistoryLocation] = useState<ApiRWLocation | null>(null)
   const [historyData, setHistoryData] = useState<ApiRWLocationMutation[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -117,6 +116,19 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
     amount: '',
     notes: '',
   })
+
+  const [allocateForm, setAllocateForm] = useState<{
+    location_id: string
+    amount: string
+    notes: string
+  }>({
+    location_id: '',
+    amount: '',
+    notes: '',
+  })
+
+  const [allocateError, setAllocateError] = useState<string | null>(null)
+  const [submittingAllocate, setSubmittingAllocate] = useState(false)
 
   const [actionError, setActionError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -338,6 +350,61 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
       setActionError(err?.message || 'Gagal melakukan transfer dana')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const openAllocationModal = () => {
+    setAllocateForm({
+      location_id: activeLocations.length > 0 ? activeLocations[0].id : '',
+      amount: '',
+      notes: '',
+    })
+    setAllocateError(null)
+    setShowAllocateModal(true)
+  }
+
+  const handleAllocateOpeningBalance = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+
+    if (!allocateForm.location_id) {
+      setAllocateError('Pilih lokasi tujuan alokasi')
+      return
+    }
+    const amt = parseFloat(allocateForm.amount) || 0
+    if (amt <= 0) {
+      setAllocateError('Nominal alokasi harus lebih dari 0')
+      return
+    }
+
+    // Validate against unallocated balance from reconciliation data
+    const unallocated = parseFloat(reconcileData?.unallocated_balance || '0') || 0
+    if (amt > unallocated) {
+      setAllocateError(`Nominal alokasi melebihi saldo kas belum teralokasi (${formatRupiah(unallocated)})`)
+      return
+    }
+
+    setSubmittingAllocate(true)
+    setAllocateError(null)
+    try {
+      await apiAllocateRWOpeningBalance(token, rwId, allocateForm.location_id, {
+        amount: `${amt.toFixed(2)}`,
+        notes: allocateForm.notes.trim() || undefined,
+      })
+      setShowAllocateModal(false)
+      setAllocateForm({
+        location_id: activeLocations.length > 0 ? activeLocations[0].id : '',
+        amount: '',
+        notes: '',
+      })
+      loadData()
+      // Refresh reconciliation data to show updated unallocated balance
+      openReconciliation()
+    } catch (err: any) {
+      setAllocateError(err?.message || 'Gagal melakukan alokasi saldo awal')
+    } finally {
+      setSubmittingAllocate(false)
     }
   }
 
@@ -645,6 +712,16 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
               >
                 <BankOutlined /> Rekonsiliasi
               </button>
+              {canUpdate && activeLocations.length > 0 && (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  onClick={openAllocationModal}
+                  style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <WalletOutlined /> Alokasi Saldo Awal
+                </button>
+              )}
             </div>
         </div>
 
@@ -1016,6 +1093,78 @@ export function RwFundLocationList({ rwId, rwName }: { rwId: string; rwName?: st
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Alokasi Saldo Awal */}
+      {showAllocateModal && (
+        <div className="sf-modal-overlay">
+          <div className="sf-modal" style={{ maxWidth: 480 }}>
+            <div className="sf-modal-header">
+              <h3>Alokasi Saldo Awal Kas Historis</h3>
+              <button type="button" className="sf-modal-close" onClick={() => setShowAllocateModal(false)}>✕</button>
+            </div>
+            <div className="sf-modal-body">
+              <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginBottom: 12 }}>
+                Saldo awal adalah alokasi dari sisa saldo kas historis yang belum terpetakan ke instrumen mana pun.
+                Alokasi ini tidak menambah pemasukan baru, melainkan mendistribusikan kas yang sudah ada ke lokasi dana tujuan.
+              </div>
+              {allocateError && <div className="sf-error-banner" style={{ marginBottom: 12 }}>{allocateError}</div>}
+              <div className="sf-form-group">
+                <label>Saldo Kas Belum Teralokasi Saat Ini</label>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--sf-text)', fontFamily: 'monospace', marginTop: 4 }}>
+                  {formatRupiah(parseFloat(reconcileData?.unallocated_balance || '0') || 0)}
+                </div>
+              </div>
+              <form onSubmit={handleAllocateOpeningBalance}>
+                <div className="sf-form-group">
+                  <label>Lokasi Tujuan Alokasi *</label>
+                  <select
+                    className="sf-form-select"
+                    value={allocateForm.location_id}
+                    onChange={(e) => setAllocateForm({ ...allocateForm, location_id: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Pilih Lokasi Dana Tujuan --</option>
+                    {activeLocations.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name} ({formatRupiah(parseFloat(l.current_balance) || 0)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sf-form-group">
+                  <label>Nominal Alokasi (Rp) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    className="sf-form-input"
+                    value={allocateForm.amount}
+                    onChange={(e) => setAllocateForm({ ...allocateForm, amount: e.target.value })}
+                    placeholder="Contoh: 1000000"
+                    required
+                  />
+                </div>
+                <div className="sf-form-group">
+                  <label>Catatan (Opsional)</label>
+                  <input
+                    type="text"
+                    className="sf-form-input"
+                    value={allocateForm.notes}
+                    onChange={(e) => setAllocateForm({ ...allocateForm, notes: e.target.value })}
+                    placeholder="Contoh: Saldo awal pembukaan rekening"
+                  />
+                </div>
+              </form>
+            </div>
+            <div className="sf-modal-footer">
+              <button type="button" className="sf-btn sf-btn-outline" onClick={() => setShowAllocateModal(false)}>Batal</button>
+              <button type="submit" className="sf-btn sf-btn-primary" disabled={submittingAllocate}>
+                {submittingAllocate ? 'Memproses...' : 'Simpan Alokasi'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -236,11 +236,12 @@ class RwBadgeStyle {
 
 /// Helper untuk mengecek apakah user memiliki akses tulis (write) ke RW tertentu.
 ///
-/// Berdasarkan membership RW yang dipilih:
+/// Berdasarkan Final Hak Akses Matrix:
 /// - Super Admin selalu dapat write.
-/// - Membership dengan source === 'explicit' → write access.
-/// - Membership dengan source === 'rt_inferred' → read-only.
-/// - Tidak ada membership → read-only.
+/// - Membership dengan source === 'explicit' AND jabatan in ('ketua', 'bendahara') → write access.
+/// - Pengurus RW lain (wakil_ketua, sekretaris) → read-only.
+/// - Membership dengan source === 'rt_inferred' → read-only (dashboard only).
+/// - Tidak ada membership → no access.
 bool rwMembershipHasWriteAccess(
   Map<String, dynamic>? user,
   String rwId, {
@@ -260,6 +261,32 @@ bool rwMembershipHasWriteAccess(
 
   if (currentMembership == null) return false;
 
+  final source = currentMembership['source'] as String?;
+  if (source != 'explicit') return false;
+
+  final jabatan = (currentMembership['jabatan'] as String? ?? '').toLowerCase();
+  return jabatan == 'ketua' || jabatan == 'bendahara';
+}
+
+/// Helper untuk mengecek apakah user memiliki akses fitur RW (KAS, Lokasi Dana) - explicit members only.
+bool rwMembershipHasFeatureAccess(
+  Map<String, dynamic>? user,
+  String rwId, {
+  List<Map<String, dynamic>>? rwMemberships,
+}) {
+  if (user == null) return false;
+  if (user['role'] == 'super_admin' || user['system_role'] == 'super_admin') return true;
+
+  final memberships = rwMemberships ??
+      ((user['rw_memberships'] as List?)
+          ?.whereType<Map<String, dynamic>>()
+          .toList() ?? []);
+
+  final currentMembership = memberships
+      .where((m) => m['rw_id'] == rwId)
+      .firstOrNull;
+
+  if (currentMembership == null) return false;
   final source = currentMembership['source'] as String?;
   return source == 'explicit';
 }

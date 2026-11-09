@@ -141,6 +141,14 @@ export interface ApiRWReconciliation {
   is_reconciled: boolean
   discrepancy: string
   category_breakdown: ApiRWCategorySummary[]
+  // K = total Kas RW (sumber distribusi)
+  kas_balance: string
+  // L = total allocated to locations
+  total_allocated_balance: string
+  // U = unallocated balance (K - L)
+  unallocated_balance: string
+  // Persentase teralokasi
+  allocated_percentage: number
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +452,81 @@ export async function apiUpdateRWOpeningBalance(
   return body as { message: string }
 }
 
+/** POST /api/v1/rw/{rwId}/locations/{id}/opening-balance */
+export async function apiAllocateRWOpeningBalance(
+  token: string,
+  rwId: string,
+  locationId: string,
+  data: {
+    amount: string
+    notes?: string
+  },
+): Promise<ApiRWLocation> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/locations/${encodeURIComponent(locationId)}/opening-balance`
+  const res = await authenticatedFetch(url, token, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  const body = await res.json()
+  return body.data as ApiRWLocation
+}
+
+/** GET /api/v1/rw/{rwId}/rts — list RTs under an RW */
+export async function apiListRWRTRs(token: string, rwId: string): Promise<Array<{
+  id: string
+  name: string
+  rt: string
+  rw_number: number
+  label: string
+}>> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/rts`
+  const res = await authenticatedFetch(url, token)
+  const body = await res.json()
+  return body.data as Array<{
+    id: string
+    name: string
+    rt: string
+    rw_number: number
+    label: string
+  }>
+}
+
+/** GET /api/v1/rw/{rwId}/notifications — list notification logs for an RW */
+export async function apiGetRWNotifications(
+  token: string,
+  rwId: string,
+  page?: number,
+  pageSize?: number,
+  eventType?: string,
+): Promise<{ data: any[]; pagination: { page: number; page_size: number; total: number; total_pages: number } }> {
+  const params = new URLSearchParams()
+  params.set('page', String(page ?? 1))
+  params.set('page_size', String(pageSize ?? 20))
+  if (eventType) params.set('event_type', eventType)
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications?${params.toString()}`
+  const res = await authenticatedFetch(url, token)
+  const body = await res.json()
+  return {
+    data: body.data ?? [],
+    pagination: body.pagination ?? { page: 1, page_size: 20, total: 0, total_pages: 0 },
+  }
+}
+
+/** POST /api/v1/rw/{rwId}/notifications/manual — send manual push notification */
+export async function apiSendRWManualPush(
+  token: string,
+  rwId: string,
+  data: { title: string; body: string },
+): Promise<{ sent_count: number }> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/manual`
+  const res = await authenticatedFetch(url, token, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  const body = await res.json()
+  return body.data as { sent_count: number }
+}
+
 // ---------------------------------------------------------------------------
 // Adapter: Map RW dashboard/KAS data into RT-compatible formats
 // ---------------------------------------------------------------------------
@@ -467,7 +550,7 @@ export function mapRWDashboardToRTFormat(
     transfer_count: number
     cash_count: number
   }
-  recent_transactions: ApiTransaction[]
+    recent_transactions: ApiTransaction[]
 } {
   return {
     balance: rwData.total_balance || '0.00',
@@ -487,4 +570,175 @@ export function mapRWDashboardToRTFormat(
     },
     recent_transactions: [],
   }
+}
+
+/** GET /api/v1/rw/{rwId}/notifications/templates — list RW notification templates */
+export async function apiListRWNotificationTemplates(
+  token: string,
+  rwId: string,
+  eventType?: string,
+): Promise<ApiRWNotificationTemplate[]> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/templates${
+    eventType ? `?event_type=${encodeURIComponent(eventType)}` : ''
+  }`
+  const res = await authenticatedFetch(url, token)
+  const body = await res.json()
+  return body.data as ApiRWNotificationTemplate[]
+}
+
+/** GET /api/v1/rw/{rwId}/notifications/templates/{id} — get template by ID */
+export async function apiGetRWNotificationTemplate(
+  token: string,
+  rwId: string,
+  templateId: string,
+): Promise<ApiRWNotificationTemplate> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/templates/${encodeURIComponent(templateId)}`
+  const res = await authenticatedFetch(url, token)
+  const body = await res.json()
+  return body.data as ApiRWNotificationTemplate
+}
+
+/** POST /api/v1/rw/{rwId}/notifications/templates — create template */
+export async function apiCreateRWNotificationTemplate(
+  token: string,
+  rwId: string,
+  data: {
+    name: string
+    event_type: string
+    channel?: string
+    title: string
+    body: string
+    image_url?: string
+  },
+): Promise<ApiRWNotificationTemplate> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/templates`
+  const res = await authenticatedFetch(url, token, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+  const body = await res.json()
+  return body.data as ApiRWNotificationTemplate
+}
+
+/** PUT /api/v1/rw/{rwId}/notifications/templates/{id} — update template */
+export async function apiUpdateRWNotificationTemplate(
+  token: string,
+  rwId: string,
+  templateId: string,
+  data: {
+    name?: string
+    title?: string
+    body?: string
+    image_url?: string
+    is_active?: boolean
+  },
+): Promise<ApiRWNotificationTemplate> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/templates/${encodeURIComponent(templateId)}`
+  const res = await authenticatedFetch(url, token, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+  const body = await res.json()
+  return body.data as ApiRWNotificationTemplate
+}
+
+/** PATCH /api/v1/rw/{rwId}/notifications/templates/{id}/toggle — toggle active */
+export async function apiToggleRWNotificationTemplate(
+  token: string,
+  rwId: string,
+  templateId: string,
+): Promise<ApiRWNotificationTemplate> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/templates/${encodeURIComponent(templateId)}/toggle`
+  const res = await authenticatedFetch(url, token, {
+    method: 'PATCH',
+  })
+  const body = await res.json()
+  return body.data as ApiRWNotificationTemplate
+}
+
+/** DELETE /api/v1/rw/{rwId}/notifications/templates/{id} — delete template */
+export async function apiDeleteRWNotificationTemplate(
+  token: string,
+  rwId: string,
+  templateId: string,
+): Promise<{ message: string }> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/templates/${encodeURIComponent(templateId)}`
+  const res = await authenticatedFetch(url, token, {
+    method: 'DELETE',
+  })
+  const body = await res.json()
+  return body as { message: string }
+}
+
+/** Interface for RW notification template */
+export interface ApiRWNotificationTemplate {
+  id: string
+  rw_id: string
+  name: string
+  event_type: string
+  channel: string
+  title: string
+  body: string
+  image_url?: string
+  is_active: boolean
+  variables: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiRWTemplatePreviewResponse {
+  template_id?: string
+  name?: string
+  event_type?: string
+  original_title: string
+  original_body: string
+  rendered_title: string
+  rendered_body: string
+  placeholders: string[]
+  sample_data: Record<string, string>
+  is_active?: boolean
+}
+
+/** POST /api/v1/rw/{rwId}/notifications/templates/{id}/preview — preview template */
+export async function apiPreviewRWTemplate(
+  token: string,
+  rwId: string,
+  templateId: string,
+  variables?: Record<string, string>,
+): Promise<ApiRWTemplatePreviewResponse> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/templates/${encodeURIComponent(templateId)}/preview`
+  const res = await authenticatedFetch(url, token, {
+    method: 'POST',
+    body: JSON.stringify({ variables: variables || {} }),
+  })
+  const body = await res.json()
+  return body.data as ApiRWTemplatePreviewResponse
+}
+
+/** POST /api/v1/rw/{rwId}/notifications/templates/{id}/send — send notification from template */
+export async function apiSendRWTemplate(
+  token: string,
+  rwId: string,
+  templateId: string,
+  data?: {
+    target?: string
+    variables?: Record<string, string>
+    title?: string
+    body?: string
+  },
+): Promise<{
+  sent_count: number
+  template_id: string
+  template_name?: string
+  title: string
+  body: string
+  target?: string
+}> {
+  const url = `${BASE}/rw/${encodeURIComponent(rwId)}/notifications/templates/${encodeURIComponent(templateId)}/send`
+  const res = await authenticatedFetch(url, token, {
+    method: 'POST',
+    body: JSON.stringify(data || {}),
+  })
+  const body = await res.json()
+  return body.data
 }

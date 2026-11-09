@@ -73,9 +73,14 @@ function RwManageModal({
   const handleSaveRw = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
-    const num = Number(rwNumber)
-    if (!rwNumber || !Number.isInteger(num) || num <= 0) {
-      setErrorMsg('Nomor RW harus angka bulat positif.')
+    const trimmed = rwNumber.trim()
+    if (!trimmed || !/^[0-9]{3}$/.test(trimmed)) {
+      setErrorMsg('Nomor RW harus tepat 3 digit angka (contoh: 016).')
+      return
+    }
+    const num = Number(trimmed)
+    if (num <= 0) {
+      setErrorMsg('Nomor RW harus lebih dari 0.')
       return
     }
     const pair = getSessionPair()
@@ -85,15 +90,15 @@ function RwManageModal({
     try {
       if (editingRw) {
         await apiUpdateRW(pair.accessToken, editingRw.id, {
-          rw_number: num,
-          name: rwName.trim() || `RW ${String(num).padStart(3, '0')}`,
+          rw_number: trimmed,
+          name: rwName.trim() || `RW ${trimmed}`,
           head_name: rwHead.trim() || null,
           address: rwAddress.trim() || null,
         })
       } else {
         await apiCreateRW(pair.accessToken, {
-          rw_number: num,
-          name: rwName.trim() || `RW ${String(num).padStart(3, '0')}`,
+          rw_number: trimmed,
+          name: rwName.trim() || `RW ${trimmed}`,
           head_name: rwHead.trim() || null,
           address: rwAddress.trim() || null,
         })

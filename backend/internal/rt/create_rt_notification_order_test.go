@@ -102,7 +102,7 @@ func TestCreateRT_CommittedBeforeNotificationSeed(t *testing.T) {
 
 	suffix := time.Now().UnixNano() % 1000000
 	rtName := fmt.Sprintf("OrderTest RT %d", suffix)
-	rtCode := fmt.Sprintf("OR%d", suffix%1000)
+	rtCode := fmt.Sprintf("%03d", suffix%1000)
 
 	body := bytes.NewBufferString(fmt.Sprintf(`{"name":%q,"rw":%d,"rt":%q}`, rtName, int(suffix%1000), rtCode))
 	req := httptest.NewRequest("POST", "/api/v1/rts", body)
@@ -146,7 +146,7 @@ func TestCreateRT_NotificationSeedFailureDoesNotRollbackRT(t *testing.T) {
 
 	suffix := time.Now().UnixNano() % 1000000
 	rtName := fmt.Sprintf("FailNotif RT %d", suffix)
-	rtCode := fmt.Sprintf("FN%d", suffix%1000)
+	rtCode := fmt.Sprintf("%03d", suffix%1000)
 
 	body := bytes.NewBufferString(fmt.Sprintf(`{"name":%q,"rw":%d,"rt":%q}`, rtName, int(suffix%1000), rtCode))
 	req := httptest.NewRequest("POST", "/api/v1/rts", body)
@@ -194,7 +194,7 @@ func TestCreateRT_AuditLogFailureRollsBackRT(t *testing.T) {
 
 	suffix := time.Now().UnixNano() % 1000000
 	rtName := fmt.Sprintf("AuditFail RT %d", suffix)
-	rtCode := fmt.Sprintf("AF%d", suffix%1000)
+	rtCode := fmt.Sprintf("%03d", suffix%1000)
 
 	body := bytes.NewBufferString(fmt.Sprintf(`{"name":%q,"rw":%d,"rt":%q}`, rtName, int(suffix%1000), rtCode))
 	req := httptest.NewRequest("POST", "/api/v1/rts", body)
@@ -277,7 +277,7 @@ func TestCreateRT_WithRealNotificationService(t *testing.T) {
 
 	suffix := time.Now().UnixNano() % 1000000
 	rtName := fmt.Sprintf("RealNotif RT %d", suffix)
-	rtCode := fmt.Sprintf("RN%d", suffix%1000)
+	rtCode := fmt.Sprintf("%03d", suffix%1000)
 
 	body := bytes.NewBufferString(fmt.Sprintf(`{"name":%q,"rw":%d,"rt":%q}`, rtName, int(suffix%1000), rtCode))
 	req := httptest.NewRequest("POST", "/api/v1/rts", body)

@@ -23,6 +23,10 @@ const (
 	EventUpcomingDue3Months = "iuran_upcoming_due_3_months"
 	// EventOverdue3Months is the auto reminder sent when an obligatory bill is > 3 calendar months past due_date (and monthly thereafter).
 	EventOverdue3Months = "iuran_overdue_3_months"
+
+	// RW notification event types
+	EventRWCashIn  = "rw_cash_in"
+	EventRWCashOut = "rw_cash_out"
 )
 
 const (
@@ -155,7 +159,8 @@ type SystemNotificationType struct {
 // NotificationTemplate represents a configurable template row in database.
 type NotificationTemplate struct {
 	ID        string    `json:"id"`
-	RTID      string    `json:"rt_id"`
+	RTID      string    `json:"rt_id,omitempty"`
+	RWID      string    `json:"rw_id,omitempty"`
 	Name      string    `json:"name"`
 	EventType string    `json:"event_type"`
 	Channel   string    `json:"channel"`
@@ -190,7 +195,8 @@ type UpdateTemplateInput struct {
 // NotificationLogEntry represents a delivery log row.
 type NotificationLogEntry struct {
 	ID                      string         `json:"id"`
-	RTID                    string         `json:"rt_id"`
+	RTID                    string         `json:"rt_id,omitempty"`
+	RWID                    *string        `json:"rw_id,omitempty"`
 	UserID                  *string        `json:"user_id,omitempty"`
 	SenderUserID            *string        `json:"-"`
 	EventType               string         `json:"event_type"`

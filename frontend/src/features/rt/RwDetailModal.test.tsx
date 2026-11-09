@@ -113,7 +113,7 @@ describe('RwDetailModal', () => {
     expect(await screen.findByText('Tetapkan Jabatan RW')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: 'UBAH' }))
-    fireEvent.change(screen.getByLabelText('Nomor RW *'), { target: { value: '17' } })
+    fireEvent.change(screen.getByLabelText('Nomor RW *'), { target: { value: '017' } })
     fireEvent.change(screen.getByLabelText('Nama RW'), { target: { value: 'RW Melati' } })
     fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }))
 
@@ -123,7 +123,7 @@ describe('RwDetailModal', () => {
     expect(updateInit).toEqual(expect.objectContaining({
       method: 'PATCH',
       body: JSON.stringify({
-        rw_number: 17,
+        rw_number: '017',
         name: 'RW Melati',
         head_name: 'Ketua RW',
         address: 'Jl. Melati',

@@ -434,7 +434,7 @@ func HandleWargaExportXLSX(pool *database.Pool) http.HandlerFunc {
 			return
 		}
 
-		f, err := exportWargaToXLSX(r.Context(), pool, targetRT)
+		f, err := exportWargaToXLSX(r.Context(), pool, targetRT, ac)
 		if err != nil {
 			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", err.Error())
 			return
@@ -602,7 +602,11 @@ func HandleWargaImportCommitXLSX(pool *database.Pool) http.HandlerFunc {
 
 // exportWargaToXLSX queries tenant residents and writes them to a new .xlsx file.
 // If rtID is empty (super_admin export all), it queries all active residents across all RTs.
-func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*excelize.File, error) {
+func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string, acOpt ...*auth.AuthContext) (*excelize.File, error) {
+	var ac *auth.AuthContext
+	if len(acOpt) > 0 {
+		ac = acOpt[0]
+	}
 	db := pool.Raw()
 
 	var rows *sql.Rows
@@ -693,10 +697,15 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 			return nil, fmt.Errorf("scan export row: %w", err)
 		}
 
+		nikVal := nik
+		if !canViewNik(ac) {
+			nikVal = ""
+		}
+
 		var cell string
 		for ci, val := range []string{
 			houseNum, headName, occStatus, addr,
-			resName, nik, phone, email,
+			resName, nikVal, phone, email,
 			moveInDate, jabatan, password,
 		} {
 			cell, _ = excelize.CoordinatesToCellName(ci+1, rowNum)
@@ -722,7 +731,89 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string) (*
 		}
 	}
 
+	// Add jabatan dropdown to exported data (same range as template).
+	if rowNum > 2 {
+		if err := addJabatanValidation(f, "Warga", 2, rowNum - 1); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("add jabatan validation to export: %w", err)
+		}
+	}
+
 	return f, nil
+}
+
+// jabatanDropdownOptions lists the display labels shown in the jabatan dropdown,
+// in the same order as canonical jabatan values.
+var jabatanDropdownOptions = []string{
+	"Ketua",
+	"Wakil Ketua",
+	"Sekretaris",
+	"Bendahara",
+	"Keamanan",
+	"Sosial",
+	"Operasional",
+	"Kebersihan",
+	"Anggota",
+}
+
+// addJabatanValidation adds an Excel data-validation dropdown to column J (jabatan)
+// for rows startRow..endRow (inclusive) on the given sheet. Options come from a
+// hidden worksheet called "_jabatan_options" referenced through a named range
+// "JabatanList" to avoid Excel formula-length limits and ensure compatibility
+// with Excel and LibreOffice.
+func addJabatanValidation(f *excelize.File, sheetName string, startRow, endRow int) error {
+	if endRow < startRow {
+		return nil // no rows to apply
+	}
+
+	optsSheet := "_jabatan_options"
+
+	// Create hidden sheet if it doesn't already exist.
+	existingSheets := f.GetSheetList()
+	found := false
+	for _, s := range existingSheets {
+		if s == optsSheet {
+			found = true
+			break
+		}
+	}
+	if !found {
+		if _, err := f.NewSheet(optsSheet); err != nil {
+			return fmt.Errorf("create hidden jabatan sheet: %w", err)
+		}
+	}
+	// Always ensure hidden.
+	if err := f.SetSheetVisible(optsSheet, false); err != nil {
+		return fmt.Errorf("hide jabatan sheet: %w", err)
+	}
+
+	// Write jabatan labels into the hidden sheet starting at A1.
+	for i, label := range jabatanDropdownOptions {
+		cell, _ := excelize.CoordinatesToCellName(1, i+1)
+		if err := f.SetCellValue(optsSheet, cell, label); err != nil {
+			return fmt.Errorf("set jabatan label: %w", err)
+		}
+	}
+
+	// Apply data validation to column J cells using a direct cell reference
+	// to the hidden options sheet. Using a direct reference (rather than a
+	// named range) maximizes compatibility with Excel, LibreOffice and
+	// ONLYOFFICE.
+	jCol, _ := excelize.CoordinatesToCellName(10, startRow) // column J
+	jColEnd, _ := excelize.CoordinatesToCellName(10, endRow)
+	optsRangeEnd, _ := excelize.CoordinatesToCellName(1, len(jabatanDropdownOptions))
+
+	dv := excelize.NewDataValidation(false)
+	dv.Sqref = fmt.Sprintf("%s:%s", jCol, jColEnd)
+	dv.ShowDropDown = false
+	dv.Type = "list"
+	dv.Formula1 = fmt.Sprintf("'%s'!$A$1:%s", optsSheet, optsRangeEnd)
+	dv.AllowBlank = true
+	if err := f.AddDataValidation(sheetName, dv); err != nil {
+		return fmt.Errorf("add data validation: %w", err)
+	}
+
+	return nil
 }
 
 // buildTemplateXLSX creates a blank Excel file with the canonical warga headers.
@@ -751,6 +842,12 @@ func buildTemplateXLSX() (*excelize.File, error) {
 		if i < len(widths) {
 			f.SetColWidth("Template", col, col, widths[i])
 		}
+	}
+
+	// Add jabatan dropdown to column J for rows 2..1000 (reasonable default range).
+	if err := addJabatanValidation(f, "Template", 2, 1000); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("add jabatan validation to template: %w", err)
 	}
 
 	return f, nil

@@ -1098,6 +1098,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 final initialTab = switch (tabParam) {
                   'kas' => 1,
                   'lokasi' => 2,
+                  'notifikasi' => 3, // best-effort; RwKeuanganScreen clamps to visible tabs
                   _ => 0,
                 };
                 return RwKeuanganScreen(rwId: rwId, initialTab: initialTab);

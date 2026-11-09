@@ -22,6 +22,7 @@ func setupWargaImportExportRouter(pool *database.Pool) http.Handler {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRole(auth.RoleWarga, auth.RoleBendahara, auth.RolePengurus))
 		r.Get("/api/v1/warga/export", HandleWargaExport(pool))
+		r.Get("/api/v1/warga/export/xlsx", HandleWargaExportXLSX(pool))
 	})
 
 	r.Group(func(r chi.Router) {
@@ -389,11 +390,12 @@ func TestImportPasswordWithoutJabatan(t *testing.T) {
 	suffix := uuid.NewString()
 	houseNum := "H-PNJ-" + suffix
 	rinaEmail := fmt.Sprintf("rina-pnj-%s@test.com", suffix)
+	nik := fmt.Sprintf("317101%010d", time.Now().UnixNano()%10000000000)
 
 	// Import resident WITHOUT jabatan and WITHOUT password
 	csvNoJabatan := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email
-%s,Rina,OWNER,Jl. Test,Rina,3171010000002001,0811000020,%s
-`, houseNum, rinaEmail)
+%s,Rina,OWNER,Jl. Test,Rina,%s,0811000020,%s
+`, houseNum, nik, rinaEmail)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/warga/import/commit", strings.NewReader(csvNoJabatan))
 	req.Header.Set("Authorization", "Bearer "+tokenPengurus)
@@ -405,15 +407,15 @@ func TestImportPasswordWithoutJabatan(t *testing.T) {
 	}
 
 	var resID string
-	pool.Raw().QueryRow(`SELECT id FROM residents WHERE rt_id = $1 AND nik = $2`, rtID, "3171010000002001").Scan(&resID)
+	pool.Raw().QueryRow(`SELECT id FROM residents WHERE rt_id = $1 AND nik = $2`, rtID, nik).Scan(&resID)
 	if resID == "" {
 		t.Fatal("Rina not created")
 	}
 
 	// Now import with password but no jabatan
 	csvWithPw := fmt.Sprintf(`house_number,head_name,occupancy_status,address,resident_name,nik,phone,email,password
-%s,Rina,OWNER,Jl. Test,Rina,3171010000002001,0811000020,%s,RinaNewPass1!
-`, houseNum, rinaEmail)
+%s,Rina,OWNER,Jl. Test,Rina,%s,0811000020,%s,RinaNewPass1!
+`, houseNum, nik, rinaEmail)
 
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/warga/import/commit", strings.NewReader(csvWithPw))
 	req.Header.Set("Authorization", "Bearer "+tokenPengurus)

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { RwKasList } from './RwKasList'
 import * as rwApi from './rw-api'
@@ -22,9 +22,13 @@ vi.mock('@/app/AuthContext', async (importOriginal) => {
 
 vi.mock('@/app/api', () => ({
   getSessionPair: () => ({ accessToken: 'test-token' }),
+  apiListCategories: vi.fn().mockResolvedValue([]),
 }))
 
 describe('RwKasList', () => {
+  beforeEach(() => {
+    vi.spyOn(rwApi, 'apiListRWRTRs').mockResolvedValue([])
+  })
   it('renders KAS summary cards and action buttons for authorized officer', async () => {
     vi.spyOn(rwApi, 'apiGetRWKAS').mockResolvedValue({
       opening_balance: '1000000.00',
@@ -63,7 +67,7 @@ describe('RwKasList', () => {
     render(<RwKasList rwId="rw-002" />)
 
     await waitFor(() => {
-      expect(screen.getByText('KAS RW — rw-002')).toBeInTheDocument()
+      expect(screen.getByText('Penerimaan Iuran RT 01')).toBeInTheDocument()
     })
 
     // Header actions
@@ -76,7 +80,6 @@ describe('RwKasList', () => {
     expect(screen.getByText('Saldo Bersih')).toBeInTheDocument()
 
     // Table should render transaction
-    expect(screen.getByText('Penerimaan Iuran RT 01')).toBeInTheDocument()
     expect(screen.getByText('Rekening BCA Operasional RW')).toBeInTheDocument()
   })
 

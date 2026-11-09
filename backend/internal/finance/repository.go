@@ -63,7 +63,7 @@ func CategoryList(ctx context.Context, tx *sql.Tx, rtID string, isActive *bool) 
 	}
 	defer rows.Close()
 
-	var list []*FinancialCategory
+	list := make([]*FinancialCategory, 0)
 	for rows.Next() {
 		var c FinancialCategory
 		if err := rows.Scan(&c.ID, &c.RTID, &c.Name, &c.Type, &c.IsActive, &c.CreatedAt, &c.UpdatedAt); err != nil {

@@ -39,6 +39,10 @@ vi.mock('@/app/api', async () => {
     apiMarkNotificationAsRead: vi.fn().mockResolvedValue(undefined),
     apiMarkAllNotificationsAsRead: vi.fn().mockResolvedValue({ marked: 1 }),
     apiGetNotificationUnreadCount: vi.fn().mockResolvedValue({ unread_count: 1 }),
+    apiGetNotificationSchedules: vi.fn().mockResolvedValue({
+      data: [{ id: 'sched-1', name: 'Jadwal Tagihan', event_type: 'iuran_payment_reminder', is_active: true, send_days: [1], send_hour: 8, send_minute: 0, timezone: 'Asia/Jakarta' }],
+      pagination: { page: 1, page_size: 15, total: 1, total_pages: 1 },
+    }),
     getSessionPair: vi.fn().mockReturnValue({ accessToken: 'mock-token' }),
   }
 })
@@ -73,7 +77,7 @@ describe('NotificationScreen', () => {
     {
       id: 'tmpl-1',
       rt_id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
-      event_type: 'iuran_bill_created',
+      event_type: 'iuran_payment_reminder',
       name: 'Tagihan Bulanan RT 02',
       channel: 'push',
       title: 'Halo Warga, Tagihan Terbit',
@@ -581,6 +585,71 @@ describe('NotificationScreen', () => {
     // 6. Non-HTTP/HTTPS schemes and malformed URLs MUST NOT become links; only the 2 valid manual links exist
     const allLinks = screen.getAllByRole('link')
     expect(allLinks).toHaveLength(2)
+  })
+
+  it('strictly separates Tambah Template and Tambah Jadwal buttons per tab', async () => {
+    vi.mocked(AuthModule.useAuth).mockReturnValue({
+      user: {
+        id: 'usr-admin-1',
+        name: 'Ketua RT',
+        email: 'ketua@local.com',
+        systemRole: 'super_admin',
+        jabatan: 'ketua',
+        permissions: ['notification.manage'],
+      } as any,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: async () => {},
+      logout: () => {},
+    })
+
+    render(
+      <MemoryRouter>
+        <NotificationScreen />
+      </MemoryRouter>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Kedatangan Mobil Sampah')).toBeInTheDocument()
+    })
+
+    // 1. Navigate to Template Kustom tab
+    const templateTabBtn = screen.getByRole('button', { name: /Template Kustom/i })
+    fireEvent.click(templateTabBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('Tagihan Bulanan RT 02')).toBeInTheDocument()
+    })
+
+    // On tab Template: "Tambah Template" MUST be present, "Tambah Jadwal" MUST NOT be present
+    expect(screen.getAllByRole('button', { name: /Tambah Template/i }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /Tambah Jadwal/i })).not.toBeInTheDocument()
+
+    // Clicking Tambah Template opens template creation modal
+    const addTemplateBtn = screen.getAllByRole('button', { name: /Tambah Template/i })[0]
+    fireEvent.click(addTemplateBtn)
+    expect(screen.getByText('Tambah Template Notifikasi')).toBeInTheDocument()
+
+    // Close template modal
+    const cancelBtn = screen.getByRole('button', { name: /Batal/i })
+    fireEvent.click(cancelBtn)
+
+    // 2. Navigate to Penjadwalan tab
+    const scheduleTabBtn = screen.getByRole('button', { name: /Penjadwalan/i })
+    fireEvent.click(scheduleTabBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('Jadwal Tagihan')).toBeInTheDocument()
+    })
+
+    // On tab Penjadwalan: "Tambah Jadwal" MUST be present, "Tambah Template" MUST NOT be present
+    expect(screen.getAllByRole('button', { name: /Tambah Jadwal/i }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /Tambah Template/i })).not.toBeInTheDocument()
+
+    // Clicking Tambah Jadwal opens schedule creation modal
+    const addScheduleBtn = screen.getAllByRole('button', { name: /Tambah Jadwal/i })[0]
+    fireEvent.click(addScheduleBtn)
+    expect(screen.getByText('Buat Jadwal Baru')).toBeInTheDocument()
   })
 })
 

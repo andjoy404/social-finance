@@ -54,19 +54,24 @@ const Set<String> kWargaWriteJabatans = {
 ///    ([kWargaWriteRoles]).
 bool _hasWargaWriteAccess(WidgetRef ref) {
   final authState = ref.read(authRepositoryProvider);
-  final systemRole = authState?.valueOrNull?['system_role'] as String?;
+  final user = authState?.valueOrNull;
+  final systemRole = user?['system_role']?.toString();
 
   // 1. SUPER_ADMIN always has write access.
   if (systemRole == 'super_admin') return true;
 
   // 2. Check jabatan-based authorization first.
-  final jabatan = authState?.valueOrNull?['jabatan'] as String?;
-  if (jabatan != null && jabatan.isNotEmpty) {
+  final jabatan = (user?['jabatan'] as String? ?? '').trim().toLowerCase();
+  if (jabatan.isNotEmpty) {
     return kWargaWriteJabatans.contains(jabatan);
   }
 
   // 3. Fallback: role-based authorization (empty/null jabatan).
-  final role = authState?.valueOrNull?['role'] as AppRole?;
+  final role = user?['role'] is AppRole
+      ? user!['role'] as AppRole
+      : (user?['role'] is String
+          ? mapStringToAppRole(user!['role'] as String, systemRoleStr: systemRole)
+          : null);
   return (role != null && kWargaWriteRoles.contains(role));
 }
 
@@ -134,8 +139,14 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
     final canWrite = _hasWargaWriteAccess(ref);
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
-    final systemRole = user?['system_role'] as String?;
+    final systemRole = user?['system_role']?.toString();
     final isSuperAdmin = systemRole == 'super_admin';
+    final userRole = user?['role'] is AppRole
+        ? user!['role'] as AppRole
+        : (user?['role'] is String
+            ? mapStringToAppRole(user!['role'] as String, systemRoleStr: systemRole)
+            : null);
+    final isWarga = userRole == AppRole.warga;
 
     final errorMessage = switch (wargaState) {
       AsyncError(:final error) =>
@@ -529,22 +540,28 @@ class _ResidentCard extends ConsumerWidget {
     // Warga can NEVER see email — only pengurus/bendahara/super_admin.
     final authData = ref.read(authRepositoryProvider);
     final user = authData?.valueOrNull;
+    final userRole = user?['role'] is AppRole
+        ? user!['role'] as AppRole
+        : (user?['role'] is String
+            ? mapStringToAppRole(user!['role'] as String, systemRoleStr: user['system_role']?.toString())
+            : null);
+    final userJabatan = (user?['jabatan'] as String? ?? '').trim().toLowerCase();
+    final systemRole = user?['system_role']?.toString();
+    final isSuperAdmin = systemRole == 'super_admin';
+    final isPengurus = userRole == AppRole.pengurus ||
+        userRole == AppRole.bendahara ||
+        kWargaWriteJabatans.contains(userJabatan);
+
     final showPhone = (() {
       if (user == null) return false;
-      final role = user['role'] as AppRole?;
-      if (role == AppRole.pengurus || role == AppRole.bendahara) return true;
-      final systemRole = user['system_role'] as String?;
-      if (systemRole == 'super_admin') return true;
-      final jabatan = resident.jabatan ?? '';
-      return jabatan.trim().toLowerCase() == 'keamanan';
+      if (isSuperAdmin || isPengurus) return true;
+      final jabatan = (resident.jabatan ?? '').trim().toLowerCase();
+      return jabatan == 'keamanan';
     })();
     // Warga can NEVER see email — only pengurus/bendahara/super_admin.
     final showEmail = (() {
       if (user == null) return false;
-      final role = user['role'] as AppRole?;
-      if (role == AppRole.pengurus || role == AppRole.bendahara) return true;
-      final systemRole = user['system_role'] as String?;
-      if (systemRole == 'super_admin') return true;
+      if (isSuperAdmin || isPengurus) return true;
       return false;
     })();
 

@@ -123,8 +123,9 @@ describe('RwFundLocationList', () => {
       expect(screen.getByText('Lokasi Dana RW — rw-123')).toBeInTheDocument()
     })
 
-    // wakil_ketua has finance.create -> CAN see "Tambah Lokasi"
-    expect(screen.getByText('Tambah Lokasi')).toBeInTheDocument()
+    // wakil_ketua is read-only per Final Hak Akses Matrix -> CANNOT see "Tambah Lokasi"
+    expect(screen.queryByText('Tambah Lokasi')).not.toBeInTheDocument()
+    expect(screen.getAllByText(/Mode Read-Only/i).length).toBeGreaterThan(0)
 
     // wakil_ketua lacks finance.update -> CANNOT see "Transfer Antar-Lokasi"
     expect(screen.queryByText('Transfer Antar-Lokasi')).not.toBeInTheDocument()
