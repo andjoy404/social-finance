@@ -67,7 +67,15 @@ export function Sidebar() {
     : [{ to: '/', label: 'Beranda', icon: <DashboardOutlined />, id: 'dashboard' }]
 
   if (isSecurityOfficer) {
-    items.push({ to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' })
+    items.push(
+      { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
+      {
+        to: '/monitoring',
+        label: 'Monitoring',
+        icon: <ScheduleOutlined />,
+        id: 'monitoring',
+      },
+    )
   } else if (isCleaningOfficer) {
     items.push({
       to: '/monitoring',
@@ -93,6 +101,14 @@ export function Sidebar() {
     items.push(
         { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
     )
+    if (jabatan === 'ketua') {
+      items.push({
+        to: '/monitoring',
+        label: 'Monitoring',
+        icon: <ScheduleOutlined />,
+        id: 'monitoring',
+      })
+    }
 }
 
   const canAccessNotifikasi =

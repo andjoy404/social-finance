@@ -13,10 +13,71 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:social_finance/core/api/client.dart';
 import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
+import 'package:social_finance/features/warga/data/warga_repository.dart';
 import 'package:social_finance/features/warga/presentation/screens/household_edit_screen.dart';
+
+// ─── Mocks ───────────────────────────────────────────────────────────────
+
+class _FakeWargaRepository extends WargaRepository {
+  _FakeWargaRepository() : super(client: ApiClient(baseUrl: 'http://test.local'));
+
+  @override
+  Future<PaginatedResponse<MappedResident>> fetchResidentsWithHouseholds({
+    int page = 1,
+    int pageSize = 100,
+    String? search,
+  }) async {
+    return const PaginatedResponse<MappedResident>(
+      data: [
+        MappedResident(
+          id: 'res-1',
+          name: 'Budi Santoso',
+          houseNumber: '001',
+          householdId: 'mock-household',
+          isActive: true,
+          startDate: '2026-01-01',
+        ),
+      ],
+      pagination: PaginationInfo(page: 1, pageSize: 100, total: 1, totalPages: 1),
+    );
+  }
+
+  @override
+  Future<Map<String, BackendHousehold>> fetchHouseholds({
+    int page = 1,
+    int pageSize = 100,
+    String? search,
+    String? status,
+    bool? isActive,
+  }) async => {
+    'mock-household': const BackendHousehold(
+      id: 'mock-household',
+      rtId: 'mock-rt',
+      houseNumber: '001',
+      headName: 'Budi Santoso',
+      startDate: '2026-01-01',
+      isActive: true,
+    ),
+  };
+
+  @override
+  Future<void> updateHousehold(
+    String id, {
+    required UpdateHouseholdRequest request,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchRts({
+    int page = 1,
+    int pageSize = 100,
+  }) async => [];
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -30,6 +91,7 @@ Widget _buildApp({
   return ProviderScope(
     key: ValueKey('household-edit-save-test-${DateTime.now().millisecondsSinceEpoch}'),
     overrides: [
+      wargaRepositoryProvider.overrideWithValue(_FakeWargaRepository()),
       wargaListProvider.overrideWith(
         () => _StaticWargaListNotifier(),
       ),
@@ -82,7 +144,7 @@ void main() {
         final simpanFinder = find.text('Simpan Perubahan');
         expect(simpanFinder, findsOneWidget);
         await tester.tap(simpanFinder);
-        await tester.pumpAndSettle();
+        await tester.pump();
 
         // Spinner muncul saat menyimpan
         expect(find.byType(CircularProgressIndicator), findsOneWidget);

@@ -31,6 +31,7 @@ interface SpecialResidentFormState {
   nik: string
   phone: string
   email: string
+  password: string
   jabatan: JabatanValue
   is_active: boolean
 }
@@ -75,6 +76,7 @@ export function SpecialResidentEdit() {
     nik: '',
     phone: '',
     email: '',
+    password: '',  // optional: kosong = pertahankan password lama
     jabatan: 'keamanan',
     is_active: true,
   })
@@ -101,6 +103,7 @@ export function SpecialResidentEdit() {
           nik: data.nik ?? '',
           phone: data.phone ?? '',
           email: data.email ?? '',
+          password: '',
           jabatan: data.jabatan as JabatanValue,
           is_active: data.is_active,
         })
@@ -167,13 +170,17 @@ export function SpecialResidentEdit() {
       const pair = getSessionPair()
       if (!pair?.accessToken) { handleClose(); return }
 
-      const body = {
+      // Only include password if it's been provided (non-empty)
+      const body: any = {
         full_name: form.full_name.trim(),
         nik: form.nik.trim(),
         phone: form.phone.trim(),
         email: form.email.trim(),
         jabatan: form.jabatan,
         is_active: form.is_active,
+      }
+      if (form.password.trim()) {
+        body.password = form.password.trim()
       }
 
       await updateSpecialResident(pair.accessToken, id, body)

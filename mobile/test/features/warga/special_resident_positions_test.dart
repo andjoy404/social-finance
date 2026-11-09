@@ -13,7 +13,11 @@ void main() {
       expect(kPetugasKhususJabatan.contains('kebersihan_pembangunan'), isFalse);
     });
 
-    test('MappedResident.displayJabatan and jabatanColor map keamanan, operasional, and kebersihan', () {
+    test('MappedResident.displayJabatan and jabatanColor normalize jabatan badges correctly', () {
+      const ketua = MappedResident(id: 'k', name: 'Ketua', jabatan: 'ketua');
+      const wakil = MappedResident(id: 'w', name: 'Wakil', jabatan: 'wakil_ketua');
+      const sekretaris = MappedResident(id: 's', name: 'Sekretaris', jabatan: 'sekretaris');
+      const bendahara = MappedResident(id: 'b', name: 'Bendahara', jabatan: 'bendahara');
       const keamanan = MappedResident(
         id: '1',
         name: 'Petugas Keamanan',
@@ -29,10 +33,17 @@ void main() {
         name: 'Petugas Kebersihan',
         jabatan: 'kebersihan',
       );
+      const sosial = MappedResident(id: '4', name: 'Seksi Sosial', jabatan: 'sosial');
 
-      expect(keamanan.displayJabatan, equals('Seksi Keamanan'));
+      // Ketua RT retains 'Ketua RT'; other RT positions have 'RT' stripped
+      expect(ketua.displayJabatan, equals('Ketua RT'));
+      expect(wakil.displayJabatan, equals('Wakil Ketua'));
+      expect(sekretaris.displayJabatan, equals('Sekretaris'));
+      expect(bendahara.displayJabatan, equals('Bendahara'));
+      expect(keamanan.displayJabatan, equals('Keamanan'));
       expect(operasional.displayJabatan, equals('Operasional'));
       expect(kebersihan.displayJabatan, equals('Kebersihan'));
+      expect(sosial.displayJabatan, equals('Seksi Sosial'));
 
       expect(keamanan.jabatanColor, equals(AppColors.danger));
       expect(operasional.jabatanColor, equals(AppColors.info));

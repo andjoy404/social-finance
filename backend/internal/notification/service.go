@@ -793,7 +793,7 @@ var SystemNotificationTypes = []SystemNotificationType{
 		Name:             "Tagihan Iuran Baru",
 		Trigger:          "Penerbitan tagihan iuran baru bulanan/tahunan",
 		Channel:          "push",
-		RecipientsRule:   "Warga yang menempati KK terkait tagihan",
+		RecipientsRule:   "Warga yang menempati rumah tangga terkait tagihan",
 		DefaultTitle:     "Tagihan Iuran Baru",
 		DefaultBody:      "Tagihan iuran baru telah tersedia. Silakan periksa rincian tagihan Anda.",
 		AllowedVariables: []string{"bill_id"},
@@ -892,6 +892,10 @@ var SystemNotificationTypes = []SystemNotificationType{
 		SupportsImage:    false,
 		SupportsTest:     false,
 	},
+}
+
+// RWSystemNotificationTypes lists system notification types specific to RW level.
+var RWSystemNotificationTypes = []SystemNotificationType{
 	{
 		EventType:        EventRWCashIn,
 		Name:             "Kas Masuk RW",
@@ -1004,6 +1008,9 @@ func (s *service) GetTemplate(ctx context.Context, rtID, id string) (*Notificati
 func (s *service) CreateTemplate(ctx context.Context, rtID string, in CreateTemplateInput) (*NotificationTemplate, error) {
 	if IsFixedSystemEvent(in.EventType) {
 		return nil, errors.New("event ini merupakan notifikasi sistem tetap dan tidak dapat dibuat sebagai template kustom")
+	}
+	if in.EventType == EventRWCashIn || in.EventType == EventRWCashOut {
+		return nil, errors.New("event kas RW tidak dapat digunakan pada template notifikasi tingkat RT")
 	}
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, errors.New("nama template wajib diisi")
@@ -1410,6 +1417,9 @@ func (s *service) GetSchedule(ctx context.Context, rtID, id string) (*Notificati
 func (s *service) CreateSchedule(ctx context.Context, rtID, userID string, in CreateScheduleInput) (*NotificationSchedule, error) {
 	if IsFixedSystemEvent(in.EventType) {
 		return nil, errors.New("event ini merupakan notifikasi sistem tetap dan tidak dapat dijadwalkan")
+	}
+	if in.EventType == EventRWCashIn || in.EventType == EventRWCashOut {
+		return nil, errors.New("event kas RW tidak dapat digunakan pada jadwal notifikasi tingkat RT")
 	}
 	if strings.TrimSpace(in.EventType) == "" {
 		return nil, errors.New("jenis event wajib diisi")

@@ -150,22 +150,22 @@ void main() {
       );
     });
 
-    test('Normalization converts 08 and 628 to canonical +628 format', () {
+    test('Normalization converts 08, 628, and +628 to local 08 format', () {
       expect(
         PhoneUtils.normalizePhone('081298918220'),
-        equals('+6281298918220'),
+        equals('081298918220'),
       );
       expect(
         PhoneUtils.normalizePhone('6281298918220'),
-        equals('+6281298918220'),
+        equals('081298918220'),
       );
       expect(
         PhoneUtils.normalizePhone('+6281298918220'),
-        equals('+6281298918220'),
+        equals('081298918220'),
       );
       expect(
         PhoneUtils.normalizePhone('0812-9891-8220'),
-        equals('+6281298918220'),
+        equals('081298918220'),
       );
     });
   });
@@ -338,7 +338,7 @@ void main() {
         await repo.login('', 'pass123', phone: '081298918220');
 
         expect(receivedBody, isNotNull);
-        expect(receivedBody!['phone'], equals('+6281298918220'));
+        expect(receivedBody!['phone'], equals('081298918220'));
         expect(receivedBody!['password'], equals('pass123'));
         expect(receivedBody!.containsKey('email'), isFalse);
         expect(repo.currentUser?['name'], equals('Budi Phone'));
@@ -1280,7 +1280,7 @@ void main() {
           expect(await secureStorage.hasSession(), isFalse);
           expect(
             (await secureStorage.getLoginCredentials())?.password,
-            equals('remembered-password'),
+            isNull,
           );
           expect(repo.state, isNull);
 

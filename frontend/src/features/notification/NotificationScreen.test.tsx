@@ -54,7 +54,7 @@ describe('NotificationScreen', () => {
       name: 'Penerbitan Tagihan Iuran',
       trigger: 'Diterbitkan saat bendahara men-generate tagihan iuran baru',
       channel: 'push',
-      recipients_rule: 'Warga kepala keluarga dan anggota KK yang bersangkutan',
+      recipients_rule: 'Warga yang menempati rumah tangga terkait tagihan',
       default_title: 'Tagihan Iuran Baru Tersedia',
       default_body: 'Tagihan iuran Anda untuk periode terkait telah diterbitkan.',
       allowed_variables: ['bill_id'],
@@ -385,7 +385,11 @@ describe('NotificationScreen', () => {
     expect(screen.getByRole('button', { name: /Riwayat Sistem/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Riwayat Saya/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Kirim Notifikasi/i })).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /Tambah Template/i }).length).toBeGreaterThan(0)
+    // Top-right toolbar buttons removed; inside "Template Kustom" tab, the button is present
+    fireEvent.click(screen.getByRole('button', { name: /Template Kustom/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Tambah Template/i })).toBeInTheDocument()
+    })
     // SuperAdmin-only test push button must NOT be shown to Ketua RT
     expect(screen.queryByRole('button', { name: /Test Notifikasi/i })).not.toBeInTheDocument()
   })

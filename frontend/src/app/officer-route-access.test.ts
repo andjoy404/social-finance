@@ -10,10 +10,11 @@ describe('special officer route access', () => {
     expect(getOfficerRouteDestination('kebersihan', '/monitoring')).toBeNull()
   })
 
-  it('restricts security officers to Warga and Notifikasi', () => {
+  it('restricts security officers to Warga, Notifikasi, and Monitoring', () => {
     expect(getOfficerRouteDestination('keamanan', '/')).toBe('/warga')
     expect(getOfficerRouteDestination('keamanan', '/kas')).toBe('/warga')
     expect(getOfficerRouteDestination('keamanan', '/notifikasi')).toBeNull()
+    expect(getOfficerRouteDestination('keamanan', '/monitoring')).toBeNull()
     expect(getOfficerRouteDestination('keamanan', '/warga')).toBeNull()
     expect(getOfficerRouteDestination('keamanan', '/warga/resident-1')).toBeNull()
   })

@@ -26,7 +26,7 @@ class FakeNotificationRepository extends NotificationRepository {
         eventType: 'iuran_bill_created',
         name: 'Penerbitan Tagihan Iuran',
         trigger: 'Diterbitkan saat bendahara men-generate tagihan iuran baru',
-        recipientsRule: 'Warga kepala keluarga',
+        recipientsRule: 'Warga yang menempati rumah tangga',
         defaultTitle: 'Tagihan Iuran Baru Tersedia',
         defaultBody:
             'Tagihan iuran Anda untuk periode terkait telah diterbitkan.',

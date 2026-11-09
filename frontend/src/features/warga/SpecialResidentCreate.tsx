@@ -33,6 +33,7 @@ interface SpecialResidentFormState {
   nik: string
   phone: string
   email: string
+  password: string
   is_active: boolean
 }
 
@@ -42,6 +43,7 @@ const emptyForm: SpecialResidentFormState = {
   nik: '',
   phone: '',
   email: '',
+  password: '',
   is_active: true,
 }
 
@@ -150,6 +152,8 @@ export function SpecialResidentCreate() {
       errs.push('Format email tidak valid.')
     }
     if (adminMode && !selectedRtId) errs.push('RT Tujuan harus dipilih.')
+    // Password wajib diisi saat menambah petugas baru
+    if (!form.password.trim()) errs.push('Kata sandi harus diisi.')
     if (errs.length > 0) { setValidationErrors(errs); return }
 
     setLoading(true)
@@ -164,6 +168,7 @@ export function SpecialResidentCreate() {
         nik: form.nik.trim(),
         phone: form.phone.trim(),
         email: form.email.trim(),
+        password: form.password.trim(),
       }
 
       await createSpecialResident(pair.accessToken, body)
@@ -346,6 +351,24 @@ export function SpecialResidentCreate() {
               <option value="true">Aktif</option>
               <option value="false">Tidak Aktif</option>
             </select>
+          </div>
+
+          {/* Kata Sandi */}
+          <div className="sf-form-field">
+            <label className="sf-form-label" htmlFor="sr-password">
+              Kata Sandi <span style={{ color: 'var(--sf-danger)' }}>*</span>
+            </label>
+            <input
+              id="sr-password"
+              className="sf-form-input"
+              type="password"
+              value={form.password}
+              onChange={(e) => handleChange('password', e.target.value)}
+              placeholder="Masukkan kata sandi untuk petugas ini"
+              required
+              disabled={loading}
+              autoFocus
+            />
           </div>
         </ModalBody>
         <ModalFooter>

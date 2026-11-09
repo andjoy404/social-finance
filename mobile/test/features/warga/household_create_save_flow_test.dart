@@ -206,6 +206,7 @@ class _FakeWargaRepository extends WargaRepository {
     required CreateHouseholdRequest request,
     String? rtId,
   }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
     return 'household-created-id';
   }
 
@@ -334,12 +335,12 @@ void main() {
 
         // Fill minimal fields
         await _fillByLabel(tester, label: 'Nomor Rumah', value: '001');
-        await _fillByLabel(tester, label: 'Nama Kepala Keluarga', value: 'Budi Santoso');
+        await _fillByLabel(tester, label: 'Nama Lengkap Warga', value: 'Budi Santoso');
 
         // Tap Simpan button
         expect(_simpanButton(), findsOneWidget);
         await tester.tap(_simpanButton());
-        await tester.pumpAndSettle();
+        await tester.pump();
 
         // Spinner muncul saat menyimpan
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -366,7 +367,7 @@ void main() {
 
         // Fill fields
         await _fillByLabel(tester, label: 'Nomor Rumah', value: '001');
-        await _fillByLabel(tester, label: 'Nama Kepala Keluarga', value: 'Budi Santoso');
+        await _fillByLabel(tester, label: 'Nama Lengkap Warga', value: 'Budi Santoso');
 
         // Tap Simpan
         await tester.tap(_simpanButton());
@@ -390,7 +391,7 @@ void main() {
 
         // Fill fields
         await _fillByLabel(tester, label: 'Nomor Rumah', value: '001');
-        await _fillByLabel(tester, label: 'Nama Kepala Keluarga', value: 'Budi Santoso');
+        await _fillByLabel(tester, label: 'Nama Lengkap Warga', value: 'Budi Santoso');
 
         // Save fails
         await tester.tap(_simpanButton());

@@ -147,9 +147,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
 
     // Security officers retain their read-only Warga and dispatch menus,
-    // with Profile always available for account and logout actions.
+    // plus Monitoring, with Profile always available for account and logout actions.
     if (jabatan == 'keamanan') {
-      return [_wargaTab, _notifikasiTab, _profileTab];
+      return [_wargaTab, _monitoringTab, _notifikasiTab, _profileTab];
     }
 
     // Kebersihan keeps Monitoring and also has Profile/logout access.
@@ -161,12 +161,14 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final rwMemberships = _getValidRWMemberships(user);
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
+      final canMonitoring = jabatan == 'kebersihan' || jabatan == 'keamanan' || jabatan == 'ketua';
       return [
         _homeTab,
         _kasTab,
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
         _wargaTab,
+        if (canMonitoring) _monitoringTab,
         if (rwMemberships.isNotEmpty) _rwDataTab,
         if (canNotifikasi) _notifikasiTab,
         _profileTab,

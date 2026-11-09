@@ -305,7 +305,7 @@ func TestFL_WargaDeniedCreateTransfer(t *testing.T) {
 
 	w := doJSON(router, http.MethodPost, "/api/v1/fund-transfers", token,
 		map[string]any{"from_location_id": "00000000-0000-0000-0000-000000000001", "to_location_id": "00000000-0000-0000-0000-000000000002", "amount": "100000.00"})
-	requireFLDeniedNoChange(t, pool, flRTUrena, beforeLoc, beforeTr, beforeLBC, beforeAudit, w, "warga create transfer")
+	requireFLDeniedNoChangeTransfer(t, pool, flRTUrena, beforeLoc, beforeTr, beforeLBC, beforeAudit, w, "warga create transfer")
 }
 
 func TestFL_WargaDeniedReverseTransfer(t *testing.T) {
@@ -320,7 +320,7 @@ func TestFL_WargaDeniedReverseTransfer(t *testing.T) {
 
 	w := doJSON(router, http.MethodPost, "/api/v1/fund-transfers/00000000-0000-0000-0000-000000000001/reverse", token,
 		map[string]any{"reason": "coba"})
-	requireFLDeniedNoChange(t, pool, flRTUrena, beforeLoc, beforeTr, beforeLBC, beforeAudit, w, "warga reverse transfer")
+	requireFLDeniedNoChangeTransfer(t, pool, flRTUrena, beforeLoc, beforeTr, beforeLBC, beforeAudit, w, "warga reverse transfer")
 }
 
 // Req 3: Cross-RT tidak dapat membaca atau mengubah data di luar scope.
@@ -403,8 +403,9 @@ func TestFL_BendaharaAllowedCreateLocation(t *testing.T) {
 	_, router := setupFLRouter(t, []string{flRTUrena})
 	_, tokenBend := createRTUser(t, pool, flRTUrena, auth.RoleBendahara, "")
 	beforeLoc := countFLLocations(t, pool, flRTUrena)
+	locName := fmt.Sprintf("Brankas Bendahara %d", time.Now().UnixNano())
 	w := doJSON(router, http.MethodPost, "/api/v1/fund-locations", tokenBend,
-		map[string]any{"name": "Brankas Bendahara", "category": "brankas"})
+		map[string]any{"name": locName, "category": "brankas"})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("bendahara create location: expected 201, got %d body=%s", w.Code, w.Body.String())
 	}
@@ -418,8 +419,9 @@ func TestFL_PengurusAllowedCreateLocation(t *testing.T) {
 	_, router := setupFLRouter(t, []string{flRTUrena})
 	_, tokenPeng := createRTUser(t, pool, flRTUrena, auth.RolePengurus, "")
 	beforeLoc := countFLLocations(t, pool, flRTUrena)
+	locName := fmt.Sprintf("Rekening Pengurus %d", time.Now().UnixNano())
 	w := doJSON(router, http.MethodPost, "/api/v1/fund-locations", tokenPeng,
-		map[string]any{"name": "Rekening Pengurus", "category": "rekening", "bank_name": "BCA"})
+		map[string]any{"name": locName, "category": "rekening", "bank_name": "BCA"})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("pengurus create location: expected 201, got %d body=%s", w.Code, w.Body.String())
 	}
@@ -434,8 +436,9 @@ func TestFL_SuperAdminBypass(t *testing.T) {
 	_, router := setupFLRouter(t, []string{flRTUrena})
 	saToken := createSATokenWithRT(t, pool, flRTUrena)
 	beforeLoc := countFLLocations(t, pool, flRTUrena)
+	locName := fmt.Sprintf("Brankas SA %d", time.Now().UnixNano())
 	w := doJSON(router, http.MethodPost, "/api/v1/fund-locations", saToken,
-		map[string]any{"name": "Brankas SA", "category": "brankas"})
+		map[string]any{"name": locName, "category": "brankas"})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("SA create location: expected 201, got %d body=%s", w.Code, w.Body.String())
 	}

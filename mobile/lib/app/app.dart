@@ -757,9 +757,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               return '/home/iuran';
             }
           }
-          // Monitoring hanya untuk petugas kebersihan.
+          // Monitoring untuk petugas kebersihan, keamanan, dan ketua RT.
           if (loc == '/home/monitoring') {
-            if (jabatan != 'kebersihan') {
+            if (jabatan != 'kebersihan' && jabatan != 'keamanan' && jabatan != 'ketua') {
               return '/home';
             }
           }

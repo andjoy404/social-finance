@@ -140,21 +140,14 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       errors.add('Nomor rumah harus diisi.');
     }
     if (_headNameCtrl.text.trim().isEmpty) {
-      errors.add('Nama kepala keluarga harus diisi.');
+      errors.add('Nama lengkap warga harus diisi.');
     }
-    if (_nikCtrl.text.trim().isEmpty) {
-      errors.add('NIK harus diisi.');
-    } else if (!RegExp(r'^[0-9]{16}$').hasMatch(_nikCtrl.text.trim())) {
+    if (_nikCtrl.text.trim().isNotEmpty &&
+        !RegExp(r'^[0-9]{16}$').hasMatch(_nikCtrl.text.trim())) {
       errors.add('NIK harus berupa 16 digit angka.');
     }
-    if (_phoneCtrl.text.trim().isEmpty) {
-      errors.add('Nomor telepon harus diisi.');
-    }
-    if (_emailCtrl.text.trim().isEmpty) {
-      errors.add('Email harus diisi.');
-    } else if (!RegExp(
-      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-    ).hasMatch(_emailCtrl.text.trim())) {
+    if (_emailCtrl.text.trim().isNotEmpty &&
+        !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
     if (_endDate != null &&
@@ -455,10 +448,10 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Nama Kepala Keluarga
+              // Nama Lengkap Warga
               AppTextField(
                 controller: _headNameCtrl,
-                label: 'Nama Kepala Keluarga',
+                label: 'Nama Lengkap Warga',
                 hintText: 'Nama lengkap',
               ),
               const SizedBox(height: AppSpacing.lg),

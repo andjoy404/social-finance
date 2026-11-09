@@ -37,8 +37,8 @@ func TestResidentUpdateSyncsToUserProfile(t *testing.T) {
 		wargaUserID = "22220001-0000-4000-8000-000000000001" // warga.rt01@local.com
 		wargaEmail  = "warga.rt01@local.com"
 		wargaPass   = devseed.DefaultSeedPassword
-		oldPhone    = "+6281300000030"
-		newPhone    = "+6281399999999"
+		oldPhone    = "081300000030"
+		newPhone    = "081399999999"
 	)
 
 	residentID := toUUID("test-resident-profile-sync")

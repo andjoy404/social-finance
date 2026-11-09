@@ -1827,10 +1827,33 @@ func ResidentUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Update
 	// Mirrors UpdateUserProfile (auth/repository.go) which syncs users -> residents.
 	if in.FullName != nil || in.Phone != nil || in.Email != nil {
 		var userID sql.NullString
-		if err := tx.QueryRowContext(ctx,
+		_ = tx.QueryRowContext(ctx,
 			`SELECT user_id FROM residents WHERE id = $1 AND rt_id = $2`,
 			id, rtID,
-		).Scan(&userID); err == nil && userID.Valid && userID.String != "" {
+		).Scan(&userID)
+
+		if !userID.Valid || userID.String == "" {
+			// If not yet linked, search by email or phone within active RT memberships
+			var foundID string
+			if in.Email != nil && strings.TrimSpace(*in.Email) != "" {
+				_ = tx.QueryRowContext(ctx,
+					`SELECT u.id FROM users u JOIN user_rt_memberships m ON m.user_id = u.id WHERE m.rt_id = $1 AND m.is_active = true AND lower(u.email) = lower($2) LIMIT 1`,
+					rtID, strings.TrimSpace(*in.Email),
+				).Scan(&foundID)
+			}
+			if foundID == "" && in.Phone != nil && strings.TrimSpace(*in.Phone) != "" {
+				_ = tx.QueryRowContext(ctx,
+					`SELECT u.id FROM users u JOIN user_rt_memberships m ON m.user_id = u.id WHERE m.rt_id = $1 AND m.is_active = true AND u.phone = $2 LIMIT 1`,
+					rtID, strings.TrimSpace(*in.Phone),
+				).Scan(&foundID)
+			}
+			if foundID != "" {
+				_, _ = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, foundID, id)
+				userID = sql.NullString{String: foundID, Valid: true}
+			}
+		}
+
+		if userID.Valid && userID.String != "" {
 			var fullName *string
 			if in.FullName != nil {
 				fullName = in.FullName

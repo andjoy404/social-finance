@@ -64,7 +64,8 @@ export function getOfficerRouteDestination(
   const allowed = normalized === 'keamanan'
     ? pathname === '/warga' ||
       pathname.startsWith('/warga/') ||
-      pathname === '/notifikasi'
+      pathname === '/notifikasi' ||
+      pathname === '/monitoring'
     : pathname === '/monitoring'
   return allowed ? null : defaultPath
 }

@@ -103,25 +103,18 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
       errors.add('Nomor rumah harus diisi.');
     }
     if (_headNameCtrl.text.trim().isEmpty) {
-      errors.add('Nama kepala keluarga harus diisi.');
+      errors.add('Nama lengkap warga harus diisi.');
     }
-    if (_nikCtrl.text.trim().isEmpty) {
-      errors.add('NIK harus diisi.');
-    } else if (!RegExp(r'^[0-9]{16}$').hasMatch(_nikCtrl.text.trim())) {
+    if (_nikCtrl.text.trim().isNotEmpty &&
+        !RegExp(r'^[0-9]{16}$').hasMatch(_nikCtrl.text.trim())) {
       errors.add('NIK harus berupa 16 digit angka.');
     }
-    if (_phoneCtrl.text.trim().isEmpty) {
-      errors.add('Nomor telepon harus diisi.');
-    }
-    if (_emailCtrl.text.trim().isEmpty) {
-      errors.add('Email harus diisi.');
-    } else if (!RegExp(
-      r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
-    ).hasMatch(_emailCtrl.text.trim())) {
+    if (_emailCtrl.text.trim().isNotEmpty &&
+        !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
     if (_startDate.isEmpty) {
-      errors.add('Tanggal mulai hunian harus diisi.');
+      _startDate = DateTime.now().toLocal().toString().split(' ')[0];
     }
     if (_endDate != null && _endDate!.isNotEmpty && _startDate.isNotEmpty) {
       final start = DateTime.tryParse(_startDate);
@@ -452,10 +445,10 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Nama Kepala Keluarga
+              // Nama Lengkap Warga
               AppTextField(
                 controller: _headNameCtrl,
-                label: 'Nama Kepala Keluarga',
+                label: 'Nama Lengkap Warga',
                 hintText: 'Nama lengkap',
               ),
               const SizedBox(height: AppSpacing.lg),

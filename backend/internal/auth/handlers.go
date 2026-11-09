@@ -177,19 +177,23 @@ func (h *Handler) handleResetPasswordWithCode(w http.ResponseWriter, r *http.Req
 	}
 	defer tx.Rollback()
 
-	// Normalize identifier: lower for email or normalized phone
+	// Normalize identifier: lower for email or normalized phone (supports local 08... and legacy +62...)
 	lowerEmail := strings.ToLower(identifier)
-	canonPhone := ""
-	if cp, err := NormalizePhone(identifier); err == nil {
-		canonPhone = cp
+	phoneLocal := ""
+	phoneCanon := ""
+	if cp, err := NormalizePhone(identifier); err == nil && cp != "" {
+		phoneLocal = cp
+		if strings.HasPrefix(cp, "0") {
+			phoneCanon = "+62" + cp[1:]
+		}
 	}
 
 	var userID string
 	err = tx.QueryRowContext(ctx, `
 		SELECT id FROM users
-		WHERE (lower(email) = $1 OR ($2 != '' AND phone = $2)) AND is_active = true
+		WHERE (lower(email) = $1 OR ($2 != '' AND (phone = $2 OR phone = $3))) AND is_active = true
 		LIMIT 1
-	`, lowerEmail, canonPhone).Scan(&userID)
+	`, lowerEmail, phoneLocal, phoneCanon).Scan(&userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		httpx.ErrorJSON(w, http.StatusBadRequest, "invalid_identity", "identitas akun atau kode tidak cocok")
 		return
@@ -364,16 +368,20 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 			trimmedPass := strings.TrimSpace(req.Password)
 			if len(trimmedPass) == 4 && regexp.MustCompile(`^[0-9]{4}$`).MatchString(trimmedPass) {
 				lowerIdent := strings.ToLower(strings.TrimSpace(identifier))
-				canonPhone := ""
-				if cp, err := NormalizePhone(identifier); err == nil {
-					canonPhone = cp
+				phoneLocal := ""
+				phoneCanon := ""
+				if cp, err := NormalizePhone(identifier); err == nil && cp != "" {
+					phoneLocal = cp
+					if strings.HasPrefix(cp, "0") {
+						phoneCanon = "+62" + cp[1:]
+					}
 				}
 				var uID string
 				_ = tx.QueryRowContext(ctx, `
 					SELECT id FROM users
-					WHERE (lower(email) = $1 OR ($2 != '' AND phone = $2)) AND is_active = true
+					WHERE (lower(email) = $1 OR ($2 != '' AND (phone = $2 OR phone = $3))) AND is_active = true
 					LIMIT 1
-				`, lowerIdent, canonPhone).Scan(&uID)
+				`, lowerIdent, phoneLocal, phoneCanon).Scan(&uID)
 				if uID != "" {
 					var cHash string
 					var expAt time.Time

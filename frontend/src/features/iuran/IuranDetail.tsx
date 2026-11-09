@@ -717,7 +717,7 @@ function DetailContent({
           </div>
           <InfoRow
             icon={<UserOutlined />}
-            label="Kepala Keluarga"
+            label="Penanggung Jawab"
             value={bill.householdName}
           />
           <div style={{ marginTop: '10px' }}>

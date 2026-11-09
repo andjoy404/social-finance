@@ -30,6 +30,7 @@ class _SpecialResidentEditScreenState
   final _nikCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
 
   String _jabatan = '';
   bool _hasJabatan = false;
@@ -136,6 +137,11 @@ class _SpecialResidentEditScreenState
       r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
     ).hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
+    }
+
+    // Password opsional pada edit: kosong = pertahankan password lama
+    if (_passwordCtrl.text.trim() != '') {
+      // Password diisi, lega
     }
 
     setState(() => _validationErrors = errors);
@@ -463,6 +469,15 @@ class _SpecialResidentEditScreenState
                 label: 'Email',
                 hintText: 'nama@email.com',
                 keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Kata Sandi
+              AppTextField(
+                controller: _passwordCtrl,
+                label: 'Kata Sandi',
+                hintText: 'minimal 6 karakter',
+                obscureText: true,
               ),
               const SizedBox(height: AppSpacing.lg),
 

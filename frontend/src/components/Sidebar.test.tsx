@@ -185,14 +185,22 @@ describe('Sidebar — AndJoy visual language', () => {
     expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
   })
 
-  it('shows only Warga and Notifikasi for a security officer', () => {
+  it('shows Warga, Monitoring, and Notifikasi for a security officer', () => {
     renderSidebar(mockSecurityUser)
     expect(screen.getByText('Warga')).toBeInTheDocument()
+    expect(screen.getByText('Monitoring')).toBeInTheDocument()
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
     expect(screen.queryByText('Beranda')).not.toBeInTheDocument()
     expect(screen.queryByText('Kas')).not.toBeInTheDocument()
     expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
     expect(screen.queryByText('Lokasi Dana')).not.toBeInTheDocument()
+  })
+
+  it('shows Monitoring for Ketua RT alongside normal RT nav items', () => {
+    renderSidebar(mockKetuaRTUser)
+    expect(screen.getByText('Monitoring')).toBeInTheDocument()
+    expect(screen.getByText('Beranda')).toBeInTheDocument()
+    expect(screen.getByText('Warga')).toBeInTheDocument()
   })
 
   it('shows Notifikasi for Pengurus without granting notification management', () => {

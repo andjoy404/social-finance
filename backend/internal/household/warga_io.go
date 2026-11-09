@@ -172,7 +172,7 @@ func ParseWargaCSV(r io.Reader) ([]WargaCSVRow, []RowError, error) {
 		row := WargaCSVRow{
 			RowNumber:          rowNum,
 			HouseNumber:        getVal(record, "house_number", "nomor_rumah"),
-			HeadName:           getVal(record, "head_name", "nama_kepala_keluarga", "nama_warga"),
+			HeadName:           getVal(record, "head_name", "nama_warga", "nama_penanggung_jawab"),
 			OccupancyStatus:    normStatus,
 			Address:            getVal(record, "address", "alamat"),
 			ResidentName:       getVal(record, "resident_name", "nama_anggota"),
@@ -1218,13 +1218,23 @@ func ExportWargaCSV(ctx context.Context, pool *database.Pool, rtID string, w io.
 		}
 
 		nikVal := nik
-		if !canViewNik(ac) {
+		if !canViewNik(ac, rtID) {
 			nikVal = ""
+		}
+		phoneVal := phone
+		emailVal := email
+		if !canViewContact(ac, rtID) {
+			phoneVal = ""
+			emailVal = ""
+		} else if phoneVal != "" {
+			if norm, err := NormalizePhone(phoneVal); err == nil {
+				phoneVal = norm
+			}
 		}
 
 		record := []string{
 			houseNum, headName, occStatus, addr,
-			resName, nikVal, phone, email,
+			resName, nikVal, phoneVal, emailVal,
 			moveInDate, jabatan, password,
 		}
 		if err := writer.Write(record); err != nil {
@@ -1352,7 +1362,7 @@ func rowsToPreview(rows []WargaCSVRow, acOpt ...*auth.AuthContext) []WargaPrevie
 	if len(acOpt) > 0 {
 		ac = acOpt[0]
 	}
-	allowNik := canViewNik(ac)
+	allowNik := canViewNik(ac, "")
 
 	preview := make([]WargaPreviewRow, len(rows))
 	for i, r := range rows {

@@ -29,6 +29,7 @@ class _SpecialResidentCreateScreenState
   final _nikCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
 
   String _jabatan = 'keamanan';
   bool _isActive = true;
@@ -412,6 +413,15 @@ class _SpecialResidentCreateScreenState
                 label: 'Email',
                 hintText: 'nama@email.com',
                 keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Kata Sandi
+              AppTextField(
+                controller: _passwordCtrl,
+                label: 'Kata Sandi',
+                hintText: 'minimal 6 karakter',
+                obscureText: true,
               ),
               const SizedBox(height: AppSpacing.lg),
 

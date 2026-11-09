@@ -1,5 +1,7 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:social_finance/core/utils/url_launcher_utils.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
 import 'package:social_finance/features/rw/data/rw_providers.dart';
@@ -22,6 +24,62 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
   int _page = 1;
   bool _sending = false;
   bool _templateBusy = false;
+
+  Widget _buildBodyWithLinks(String body) {
+    final segments = UrlDetector.parseSegments(body);
+    if (segments.isEmpty || segments.every((s) => !s.isLink)) {
+      return Text(
+        body,
+        style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, height: 1.4),
+      );
+    }
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, height: 1.4),
+        children: segments.map((seg) {
+          if (seg.isLink) {
+            return TextSpan(
+              text: seg.text,
+              style: const TextStyle(
+                color: Color(0xFFA970FF),
+                decoration: TextDecoration.underline,
+              ),
+              recognizer: TapGestureRecognizer()..onTap = () => UrlDetector.openUrl(seg.url!),
+            );
+          }
+          return TextSpan(text: seg.text);
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildBodyWithLinksDialog(String body) {
+    final segments = UrlDetector.parseSegments(body);
+    if (segments.isEmpty || segments.every((s) => !s.isLink)) {
+      return Text(
+        body,
+        style: const TextStyle(fontSize: 12, color: Colors.black87),
+      );
+    }
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(fontSize: 12, color: Colors.black87),
+        children: segments.map((seg) {
+          if (seg.isLink) {
+            return TextSpan(
+              text: seg.text,
+              style: const TextStyle(
+                color: Color(0xFFA970FF),
+                decoration: TextDecoration.underline,
+              ),
+              recognizer: TapGestureRecognizer()..onTap = () => UrlDetector.openUrl(seg.url!),
+            );
+          }
+          return TextSpan(text: seg.text);
+        }).toList(),
+      ),
+    );
+  }
 
   bool _canWrite(Map<String, dynamic>? user) {
     if (user == null) return false;
@@ -280,10 +338,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
                           style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          renderedBody,
-                          style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 12, height: 1.4),
-                        ),
+                        _buildBodyWithLinks(renderedBody),
                       ],
                     ),
                   ),
@@ -354,7 +409,7 @@ class _RwNotificationScreenState extends ConsumerState<RwNotificationScreen> {
                   children: [
                     Text(t.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     const SizedBox(height: 4),
-                    Text(t.body, style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                    _buildBodyWithLinksDialog(t.body),
                   ],
                 ),
               ),

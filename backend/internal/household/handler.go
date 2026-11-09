@@ -365,7 +365,7 @@ func (h *Handler) CreateHousehold(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(redactHouseholdNik(result, ac))
+	json.NewEncoder(w).Encode(redactHouseholdNik(result, ac, ac.RTID))
 }
 
 // ListHouseholds handles GET /api/v1/households — all tenant roles, system read for SUPER_ADMIN.
@@ -417,7 +417,7 @@ func (h *Handler) ListHouseholds(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac), page, pageSize, total)
+			writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac, ac.RTID), page, pageSize, total)
 			return
 		}
 
@@ -438,7 +438,7 @@ func (h *Handler) ListHouseholds(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac), page, pageSize, total)
+		writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac, ac.RTID), page, pageSize, total)
 		return
 	}
 
@@ -465,7 +465,7 @@ func (h *Handler) ListHouseholds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac), page, pageSize, total)
+	writePaginated(w, http.StatusOK, redactHouseholdsNik(households, ac, ac.RTID), page, pageSize, total)
 }
 
 // GetHousehold handles GET /api/v1/households/{id} — all tenant roles, system read for SUPER_ADMIN.
@@ -515,7 +515,7 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac))
+			writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac, ac.RTID))
 			return
 		}
 
@@ -534,7 +534,7 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac))
+		writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac, ac.RTID))
 		return
 	}
 
@@ -559,7 +559,7 @@ func (h *Handler) GetHousehold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac))
+	writeJSON(w, http.StatusOK, redactHouseholdNik(household, ac, ac.RTID))
 }
 
 // UpdateHousehold handles PATCH /api/v1/households/{id} — pengurus only,
@@ -719,7 +719,7 @@ func (h *Handler) UpdateHousehold(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, redactHouseholdNik(result, ac))
+	writeJSON(w, http.StatusOK, redactHouseholdNik(result, ac, ac.RTID))
 }
 
 // MoveHousehold handles POST /api/v1/households/{id}/move — pengurus only,
@@ -1030,7 +1030,7 @@ func (h *Handler) CreateResident(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(redactResidentNik(resident, ac))
+	json.NewEncoder(w).Encode(redactResidentNik(resident, ac, ac.RTID))
 }
 
 // ListResidents handles GET /api/v1/residents — all tenant roles, system read for SUPER_ADMIN.
@@ -1083,7 +1083,7 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac), page, pageSize, total)
+			writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac, ac.RTID), page, pageSize, total)
 			return
 		}
 
@@ -1104,7 +1104,7 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac), page, pageSize, total)
+		writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac, ac.RTID), page, pageSize, total)
 		return
 	}
 
@@ -1130,7 +1130,7 @@ func (h *Handler) ListResidents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac), page, pageSize, total)
+	writePaginated(w, http.StatusOK, redactResidentsNik(residents, ac, ac.RTID), page, pageSize, total)
 }
 
 // GetResident handles GET /api/v1/residents/{id} — all tenant roles & super_admin.
@@ -1180,7 +1180,7 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			writeJSON(w, http.StatusOK, redactResidentNik(resident, ac))
+			writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, ac.RTID))
 			return
 		}
 
@@ -1199,7 +1199,7 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, redactResidentNik(resident, ac))
+		writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, ac.RTID))
 		return
 	}
 
@@ -1223,7 +1223,7 @@ func (h *Handler) GetResident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, redactResidentNik(resident, ac))
+	writeJSON(w, http.StatusOK, redactResidentNik(resident, ac, ac.RTID))
 }
 
 // UpdateResident handles PATCH /api/v1/residents/{id} — pengurus only.
@@ -1353,7 +1353,7 @@ func (h *Handler) UpdateResident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, redactResidentNik(result, ac))
+	writeJSON(w, http.StatusOK, redactResidentNik(result, ac, ac.RTID))
 }
 
 // MoveResident handles POST /api/v1/residents/{id}/move — pengurus only.
@@ -1660,7 +1660,7 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(redactResidentNik(&resident, ac))
+	json.NewEncoder(w).Encode(redactResidentNik(&resident, ac, ac.RTID))
 }
 
 // SpecialResidentUpdateRequest is the body for PATCH /api/v1/residents/special/:id.
@@ -1934,7 +1934,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(redactResidentNik(&resident, ac))
+	json.NewEncoder(w).Encode(redactResidentNik(&resident, ac, ac.RTID))
 }
 
 // isResetPasswordOfficer checks whether the auth context corresponds to an authorized officer or Super Admin.
@@ -2112,24 +2112,79 @@ func (h *Handler) GenerateResetPasswordCode(w http.ResponseWriter, r *http.Reque
 // canViewNik returns true only if the requester is Ketua RT in the active context, or Super Admin.
 // Non-ketua pengurus (e.g. Sekretaris, Bendahara, Keamanan), regular warga, and RW officers
 // MUST NOT see unmasked NIK.
-func canViewNik(ac *auth.AuthContext) bool {
+//
+// If rtID is provided, the function checks whether the user is Ketua RT specifically
+// within that RT's membership. If rtID is empty, it falls back to checking the user's
+// jabatan claim (for backward compatibility with endpoints that don't pass rt_id).
+//
+// IMPORTANT: Super Admin must NOT see NIK — strict Ketua RT-only access, regardless of rtID provided.
+func canViewNik(ac *auth.AuthContext, rtID string) bool {
 	if ac == nil {
 		return false
 	}
+	// Super Admin never sees NIK — strict Ketua RT-only access
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
-		return true
+		return false
 	}
+	// If rtID is provided, check membership specifically
+	if rtID != "" {
+		// Check if user has an active membership in this RT with ketua jabatan
+		if ac.TenantRole == auth.RolePengurus {
+			j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+			if j == "ketua" || j == "ketua_rt" || j == "ketua rt" {
+				return true
+			}
+		}
+		return false
+	}
+	// rtID not provided: fall back to jabatan claim check (existing behavior)
 	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
 	if j == "ketua" || j == "ketua_rt" || j == "ketua rt" {
 		return true
 	}
-	// Fallback: If tenant role is pengurus and no jabatan is explicitly set (e.g. in older unit tests),
-	// allow only if explicitly ketua.
 	return false
 }
 
-func redactResidentsNik(residents []*Resident, ac *auth.AuthContext) []*Resident {
-	if canViewNik(ac) {
+// canViewContact returns true only if the requester is Ketua RT in the active context.
+// Non-ketua pengurus (e.g. Sekretaris, Bendahara, Keamanan), regular warga, and RW officers
+// MUST NOT see unmasked contact data (phone, email).
+//
+// If rtID is provided, the function checks whether the user is Ketua RT specifically
+// within that RT's membership. If rtID is empty, it falls back to checking the user's
+// jabatan claim (for backward compatibility with endpoints that don't pass rt_id).
+//
+// IMPORTANT: Super Admin must NOT see contact data — strict Ketua RT-only access,
+// regardless of rtID provided.
+func canViewContact(ac *auth.AuthContext, rtID string) bool {
+	if ac == nil {
+		return false
+	}
+	// Super Admin never sees contact data — strict Ketua RT-only access
+	if ac.SystemRole == auth.SystemRoleSuperAdmin {
+		return false
+	}
+	// If rtID is provided, check membership specifically
+	if rtID != "" {
+		// Check if user has an active membership in this RT with ketua jabatan
+		if ac.TenantRole == auth.RolePengurus {
+			j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+			if j == "ketua" || j == "ketua_rt" || j == "ketua rt" {
+				return true
+			}
+		}
+		return false
+	}
+	// rtID not provided: fall back to jabatan claim check (existing behavior)
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	if j == "ketua" || j == "ketua_rt" || j == "ketua rt" {
+		return true
+	}
+	return false
+}
+
+
+func redactResidentsNik(residents []*Resident, ac *auth.AuthContext, rtID string) []*Resident {
+	if canViewNik(ac, rtID) {
 		return residents
 	}
 	for _, r := range residents {
@@ -2140,16 +2195,16 @@ func redactResidentsNik(residents []*Resident, ac *auth.AuthContext) []*Resident
 	return residents
 }
 
-func redactResidentNik(resident *Resident, ac *auth.AuthContext) *Resident {
-	if resident == nil || canViewNik(ac) {
+func redactResidentNik(resident *Resident, ac *auth.AuthContext, rtID string) *Resident {
+	if resident == nil || canViewNik(ac, rtID) {
 		return resident
 	}
 	resident.Nik = nil
 	return resident
 }
 
-func redactHouseholdsNik(households []*Household, ac *auth.AuthContext) []*Household {
-	if canViewNik(ac) {
+func redactHouseholdsNik(households []*Household, ac *auth.AuthContext, rtID string) []*Household {
+	if canViewNik(ac, rtID) {
 		return households
 	}
 	for _, h := range households {
@@ -2163,8 +2218,8 @@ func redactHouseholdsNik(households []*Household, ac *auth.AuthContext) []*House
 	return households
 }
 
-func redactHouseholdNik(household *Household, ac *auth.AuthContext) *Household {
-	if household == nil || canViewNik(ac) {
+func redactHouseholdNik(household *Household, ac *auth.AuthContext, rtID string) *Household {
+	if household == nil || canViewNik(ac, rtID) {
 		return household
 	}
 	household.Nik = nil

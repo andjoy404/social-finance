@@ -111,7 +111,7 @@ describe('W4.3 — HouseholdEdit form rendering', () => {
       expect(screen.getByLabelText(/KTP \/ NIK\s*\*/i)).toHaveValue('3201011234560001')
     })
     await waitFor(() => {
-      expect(screen.getByLabelText(/Nama Kepala Keluarga\s*\*/i)).toHaveValue('Budi Santoso')
+      expect(screen.getByLabelText(/Nama Lengkap Warga\s*\*/i)).toHaveValue('Budi Santoso')
     })
   })
 
@@ -245,7 +245,7 @@ describe('W4.3 — HouseholdEdit form rendering', () => {
     renderHouseholdEdit()
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/Nama Kepala Keluarga\s*\*/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/Nama Lengkap Warga\s*\*/i)).toBeInTheDocument()
     })
 
     await tickForReact()

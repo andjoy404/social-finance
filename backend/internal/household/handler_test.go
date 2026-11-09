@@ -329,8 +329,8 @@ func TestCreateHousehold(t *testing.T) {
 		if result.Nik == nil || *result.Nik != "3171010101010001" {
 			t.Errorf("expected nik '3171010101010001', got %v", result.Nik)
 		}
-		if result.Phone == nil || *result.Phone != "+6281234567890" {
-			t.Errorf("expected phone '+6281234567890', got %v", result.Phone)
+		if result.Phone == nil || *result.Phone != "081234567890" {
+			t.Errorf("expected phone '081234567890', got %v", result.Phone)
 		}
 		if result.Email == nil || *result.Email != "john@example.com" {
 			t.Errorf("expected email 'john@example.com', got %v", result.Email)
@@ -370,7 +370,7 @@ func TestCreateHousehold(t *testing.T) {
 
 	t.Run("with optional address", func(t *testing.T) {
 		addr := "Jl. Test No. 123"
-		phone := "+6281234567893"
+		phone := "081234567893"
 		nik := fmt.Sprintf("317101%010d", time.Now().UnixNano()%10000000000)
 		body := fmt.Sprintf(`{"head_name":"Jane Doe","house_number":"A12","address":"Jl. Test No. 123","phone":"081234567893","email":"jane@example.com","nik":"%s","occupancy_status":"TENANT"}`, nik)
 		req := httptest.NewRequest("POST", "/api/v1/households", bytes.NewBufferString(body))

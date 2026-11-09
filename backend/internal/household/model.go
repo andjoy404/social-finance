@@ -200,36 +200,33 @@ func ValidateEmail(email string) error {
 	return nil
 }
 
-// NormalizePhone converts Indonesian phone input to canonical +62 format.
-// Accepts: 081234567890, 6281234567890, +6281234567890
-// Returns: +6281234567890
+// NormalizePhone converts Indonesian phone input to standard local 08 format.
+// Accepts: 081234567890, 6281234567890, +6281234567890 (with optional spaces/dashes)
+// Returns: 081234567890
 func NormalizePhone(phone string) (string, error) {
 	trimmed := strings.TrimSpace(phone)
 	if trimmed == "" {
 		return "", fmt.Errorf("phone is required")
 	}
-	canon := trimmed
-	if strings.HasPrefix(canon, "+62") {
-		// Strip leading +0 if present
-		if len(canon) > 3 && canon[3] == '0' {
-			canon = "+62" + canon[4:]
-		}
-	} else if strings.HasPrefix(canon, "08") {
-		canon = "+62" + canon[1:]
-	} else if strings.HasPrefix(canon, "62") {
-		canon = "+" + canon
-	} else {
-		return "", fmt.Errorf("phone number format is invalid")
-	}
-	// Strip any internal dashes or spaces that may remain
 	var sb strings.Builder
-	for _, c := range canon {
+	for _, c := range trimmed {
 		if (c >= '0' && c <= '9') || c == '+' {
 			sb.WriteByte(byte(c))
 		}
 	}
-	canon = sb.String()
-	return canon, nil
+	cleaned := sb.String()
+	if strings.HasPrefix(cleaned, "+62") {
+		cleaned = cleaned[3:]
+	} else if strings.HasPrefix(cleaned, "62") {
+		cleaned = cleaned[2:]
+	}
+	if !strings.HasPrefix(cleaned, "0") {
+		cleaned = "0" + cleaned
+	}
+	if !strings.HasPrefix(cleaned, "08") {
+		return "", fmt.Errorf("phone number format is invalid")
+	}
+	return cleaned, nil
 }
 
 // NormalizeEmail trims whitespace and lowercases the email.

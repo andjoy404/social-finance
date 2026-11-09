@@ -189,16 +189,16 @@ var CanonicalOccupancies = []HouseholdOccupancySeed{
 
 // CanonicalResidents contains the residents for RT 002 and RT 001.
 var CanonicalResidents = []ResidentSeed{
-	{ID: "1e0f80e4-6cbc-4b64-960e-4c4419c819d4", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Andriyan", Phone: "+6281200000001", IsActive: true, NIK: strPtr("3175000000000001"), Email: strPtr("andriyan@local.com")},
-	{ID: "6c2a10a1-5afb-4eee-b457-69d18eddbea5", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Mety Fitriani", Phone: "+6281200000002", IsActive: true, NIK: strPtr("3175000000000002"), Email: strPtr("mety.fitriani@local.com")},
-	{ID: "aaaa0002-0001-4f66-8000-000000000001", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Aqueen Alsava Khaylila", Phone: "+6281200000003", IsActive: true, NIK: strPtr("3175000000000003"), Email: strPtr("aqueen.alsava@local.com")},
-	{ID: "aaaa0002-0002-4f66-8000-000000000002", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Muhamad Azis", Phone: "+6281200000004", IsActive: true, NIK: strPtr("3175000000000004"), Email: strPtr("muhamad.azis@local.com")},
-	{ID: "aaaa0002-0003-4f66-8000-000000000003", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Namah", Phone: "+6281200000005", IsActive: true, NIK: strPtr("3175000000000005"), Email: nil},
-	{ID: "eeee0001-0001-4f66-8000-000000000001", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Hartana Wibowo", Phone: "+628130000101", IsActive: true, NIK: strPtr("3173160301730001"), Email: strPtr("hartana.wibowo@local.com")},
-	{ID: "eeee0001-0003-4f66-8000-000000000003", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Dedi Kurniawan", Phone: "+628130000103", IsActive: true, NIK: strPtr("3173160301730003"), Email: strPtr("dedi.kurniawan@local.com")},
-	{ID: "eeee0001-0004-4f66-8000-000000000004", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Nurhaliza Sari", Phone: "+628130000104", IsActive: true, NIK: strPtr("3173160301730004"), Email: strPtr("nurhaliza.sari@local.com")},
-	{ID: "eeee0001-0005-4f66-8000-000000000005", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Bambang Sutrisno", Phone: "+628130000105", IsActive: true, NIK: strPtr("3173160301730005"), Email: strPtr("")},
-	{ID: "eeee0001-0006-4f66-8000-000000000006", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Sri Mulyani", Phone: "+628130000106", IsActive: true, NIK: strPtr("3173160301730006"), Email: strPtr("sri.mulyani@local.com")},
+	{ID: "1e0f80e4-6cbc-4b64-960e-4c4419c819d4", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Andriyan", Phone: "081200000001", IsActive: true, NIK: strPtr("3175000000000001"), Email: strPtr("andriyan@local.com")},
+	{ID: "6c2a10a1-5afb-4eee-b457-69d18eddbea5", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Mety Fitriani", Phone: "081200000002", IsActive: true, NIK: strPtr("3175000000000002"), Email: strPtr("mety.fitriani@local.com")},
+	{ID: "aaaa0002-0001-4f66-8000-000000000001", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Aqueen Alsava Khaylila", Phone: "081200000003", IsActive: true, NIK: strPtr("3175000000000003"), Email: strPtr("aqueen.alsava@local.com")},
+	{ID: "aaaa0002-0002-4f66-8000-000000000002", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Muhamad Azis", Phone: "081200000004", IsActive: true, NIK: strPtr("3175000000000004"), Email: strPtr("muhamad.azis@local.com")},
+	{ID: "aaaa0002-0003-4f66-8000-000000000003", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", FullName: "Namah", Phone: "081200000005", IsActive: true, NIK: strPtr("3175000000000005"), Email: nil},
+	{ID: "eeee0001-0001-4f66-8000-000000000001", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Hartana Wibowo", Phone: "08130000101", IsActive: true, NIK: strPtr("3173160301730001"), Email: strPtr("hartana.wibowo@local.com")},
+	{ID: "eeee0001-0003-4f66-8000-000000000003", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Dedi Kurniawan", Phone: "08130000103", IsActive: true, NIK: strPtr("3173160301730003"), Email: strPtr("dedi.kurniawan@local.com")},
+	{ID: "eeee0001-0004-4f66-8000-000000000004", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Nurhaliza Sari", Phone: "08130000104", IsActive: true, NIK: strPtr("3173160301730004"), Email: strPtr("nurhaliza.sari@local.com")},
+	{ID: "eeee0001-0005-4f66-8000-000000000005", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Bambang Sutrisno", Phone: "08130000105", IsActive: true, NIK: strPtr("3173160301730005"), Email: strPtr("")},
+	{ID: "eeee0001-0006-4f66-8000-000000000006", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155", FullName: "Sri Mulyani", Phone: "08130000106", IsActive: true, NIK: strPtr("3173160301730006"), Email: strPtr("sri.mulyani@local.com")},
 }
 
 // CanonicalResidencyPeriods contains the current + historical residency periods for RT 002 and RT 001.
@@ -223,18 +223,18 @@ var CanonicalResidencyPeriods = []ResidencyPeriodSeed{
 // NEVER include Super Admin here.
 var CanonicalUsers = []UserSeed{
 	// Dedicated Warga account for RT 01
-	{ID: "22220001-0000-4000-8000-000000000001", Email: "warga.rt01@local.com", Phone: "+6281300000030", FullName: "Warga RT 01", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
+	{ID: "22220001-0000-4000-8000-000000000001", Email: "warga.rt01@local.com", Phone: "081300000030", FullName: "Warga RT 01", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
 
 	// Resident Warga accounts (RT 01)
-	{ID: "22220001-0001-4000-8000-000000000001", Email: "hartana.wibowo@local.com", Phone: "+628130000101", FullName: "Hartana Wibowo", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
-	{ID: "22220001-0003-4000-8000-000000000001", Email: "dedi.kurniawan@local.com", Phone: "+628130000103", FullName: "Dedi Kurniawan", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
-	{ID: "22220001-0004-4000-8000-000000000001", Email: "nurhaliza.sari@local.com", Phone: "+628130000104", FullName: "Nurhaliza Sari", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
-	{ID: "22220001-0006-4000-8000-000000000001", Email: "sri.mulyani@local.com", Phone: "+628130000106", FullName: "Sri Mulyani", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
+	{ID: "22220001-0001-4000-8000-000000000001", Email: "hartana.wibowo@local.com", Phone: "08130000101", FullName: "Hartana Wibowo", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
+	{ID: "22220001-0003-4000-8000-000000000001", Email: "dedi.kurniawan@local.com", Phone: "08130000103", FullName: "Dedi Kurniawan", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
+	{ID: "22220001-0004-4000-8000-000000000001", Email: "nurhaliza.sari@local.com", Phone: "08130000104", FullName: "Nurhaliza Sari", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
+	{ID: "22220001-0006-4000-8000-000000000001", Email: "sri.mulyani@local.com", Phone: "08130000106", FullName: "Sri Mulyani", Role: "warga", RTID: "8dfa1e36-6727-45be-8fea-24d958efc155"},
 
 	// RT 002 (Urena) accounts
-	{ID: "22220000-0001-4000-8000-000000000001", Email: "andriyan@local.com", Phone: "+6281200000001", FullName: "Andriyan", Role: "warga", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
-	{ID: "22220000-0002-4000-8000-000000000001", Email: "mety.fitriani@local.com", Phone: "+6281200000002", FullName: "Mety Fitriani", Role: "warga", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
-	{ID: "22220000-0003-4000-8000-000000000001", Email: "aqueen.alsava@local.com", Phone: "+6281200000003", FullName: "Aqueen Alsava Khaylila", Role: "warga", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+	{ID: "22220000-0001-4000-8000-000000000001", Email: "andriyan@local.com", Phone: "081200000001", FullName: "Andriyan", Role: "warga", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+	{ID: "22220000-0002-4000-8000-000000000001", Email: "mety.fitriani@local.com", Phone: "081200000002", FullName: "Mety Fitriani", Role: "warga", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
+	{ID: "22220000-0003-4000-8000-000000000001", Email: "aqueen.alsava@local.com", Phone: "081200000003", FullName: "Aqueen Alsava Khaylila", Role: "warga", RTID: "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
 }
 
 // SuperAdminRT002User seeds a system-level SUPER_ADMIN who is also a member
@@ -249,7 +249,7 @@ var SuperAdminRT002User = struct {
 }{
 	ID:       "f0000000-0000-4000-8000-000000000001",
 	Email:    "superadmin@social-finance.local",
-	Phone:    "+6281200000099",
+	Phone:    "081200000099",
 	FullName: "Super Admin RT 002",
 	Jabatan:  "ketua",
 	RTID:     "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b",
@@ -371,7 +371,7 @@ func init() {
 			suffix := nikNum % 100000000
 			nik := base + fmt.Sprintf("%08d", suffix)
 
-			phone := fmt.Sprintf("+628%d%d%06d", 13+rtIdx, posIdx, 100+seedIdx)
+			phone := fmt.Sprintf("08%d%d%06d", 13+rtIdx, posIdx, 100+seedIdx)
 			if !eligiblePositions[pos] {
 				phone = ""
 			}

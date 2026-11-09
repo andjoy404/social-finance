@@ -421,7 +421,7 @@ export function HouseholdDetail() {
                 textTransform: 'uppercase',
                 letterSpacing: '0.03em',
               }}>
-                Kepala Keluarga
+                Penanggung Jawab
               </div>
               <div style={{
                 fontSize: '13px',

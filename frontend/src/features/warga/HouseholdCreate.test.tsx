@@ -81,7 +81,7 @@ async function fillValidForm(overrides?: {
   occupancyStatus?: string
 }) {
   const houseInput = screen.getByLabelText(/Nomor Rumah\s*\*/i) as HTMLInputElement
-  const headInput = screen.getByLabelText(/Nama Kepala Keluarga\s*\*/i) as HTMLInputElement
+  const headInput = screen.getByLabelText(/Nama Lengkap Warga\s*\*/i) as HTMLInputElement
   const nikInput = screen.getByLabelText(/KTP \/ NIK\s*\*/i) as HTMLInputElement
   const phoneInput = screen.getByLabelText(/Nomor Telepon\s*\*/i) as HTMLInputElement
   const emailInput = screen.getByLabelText(/Email\s*\*/i) as HTMLInputElement
@@ -132,7 +132,7 @@ describe('W4.3 — HouseholdCreate form rendering', () => {
   it('renders form with all required fields', () => {
     renderHouseholdCreate()
     expect(screen.getByLabelText(/Nomor Rumah\s*\*/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/Nama Kepala Keluarga\s*\*/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Nama Lengkap Warga\s*\*/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/KTP \/ NIK\s*\*/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Nomor Telepon\s*\*/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/Email\s*\*/i)).toBeInTheDocument()
@@ -159,7 +159,7 @@ describe('W4.3 — HouseholdCreate form rendering', () => {
     const form = document.querySelector('form')! as HTMLFormElement
     fireEvent.submit(form)
     expect(screen.getByText(/Nomor rumah harus diisi/i)).toBeInTheDocument()
-    expect(screen.getByText(/Nama kepala keluarga harus diisi/i)).toBeInTheDocument()
+    expect(screen.getByText(/Nama lengkap warga harus diisi/i)).toBeInTheDocument()
     expect(screen.getByText(/KTP \/ NIK harus diisi/i)).toBeInTheDocument()
     expect(screen.getByText(/Nomor telepon harus diisi/i)).toBeInTheDocument()
     expect(screen.getByText(/Email harus diisi/i)).toBeInTheDocument()

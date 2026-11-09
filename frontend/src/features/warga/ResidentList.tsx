@@ -91,22 +91,34 @@ function formatOccupancyStatus(status: 'OWNER' | 'TENANT' | null | undefined): {
 
 function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPurple' | 'lightPurple' | 'amber' | 'green' | 'red' | 'blue' | 'gray' | 'default' {
   if (!jabatan || jabatan.trim() === '') return 'default'
-  switch (jabatan) {
+  const key = jabatan.trim().toLowerCase().replace(/\s+/g, '_')
+  switch (key) {
     case 'ketua':
+    case 'ketua_rt':
       return 'violet'
     case 'wakil_ketua':
+    case 'wakil_ketua_rt':
       return 'blue'
     case 'sekretaris':
+    case 'sekretaris_rt':
       return 'green'
     case 'bendahara':
+    case 'bendahara_rt':
       return 'amber'
     case 'sosial':
+    case 'sosial_rt':
+    case 'seksi_sosial':
       return 'gray'
     case 'keamanan':
+    case 'keamanan_rt':
+    case 'seksi_keamanan':
+    case 'seksi_keamanan_rt':
       return 'red'
     case 'operasional':
+    case 'operasional_rt':
       return 'blue'
     case 'kebersihan':
+    case 'kebersihan_rt':
       return 'green'
     default:
       return 'default'
@@ -115,22 +127,34 @@ function getJabatanColor(jabatan: string | null | undefined): 'violet' | 'deepPu
 
 function getJabatanLabel(jabatan: string | null | undefined): string {
   if (!jabatan || jabatan.trim() === '') return '\u2014'
-  switch (jabatan) {
+  const key = jabatan.trim().toLowerCase().replace(/\s+/g, '_')
+  switch (key) {
     case 'ketua':
+    case 'ketua_rt':
       return 'Ketua RT'
     case 'wakil_ketua':
-      return 'Wakil Ketua RT'
+    case 'wakil_ketua_rt':
+      return 'Wakil Ketua'
     case 'sekretaris':
-      return 'Sekretaris RT'
+    case 'sekretaris_rt':
+      return 'Sekretaris'
     case 'bendahara':
-      return 'Bendahara RT'
+    case 'bendahara_rt':
+      return 'Bendahara'
     case 'sosial':
+    case 'sosial_rt':
+    case 'seksi_sosial':
       return 'Seksi Sosial'
     case 'keamanan':
+    case 'keamanan_rt':
+    case 'seksi_keamanan':
+    case 'seksi_keamanan_rt':
       return 'Keamanan'
     case 'operasional':
+    case 'operasional_rt':
       return 'Operasional'
     case 'kebersihan':
+    case 'kebersihan_rt':
       return 'Kebersihan'
     default:
       return jabatan
@@ -160,21 +184,14 @@ export function ResidentList() {
   if (!user) return null
 
   const isSuperAdmin = user.systemRole === 'super_admin' || user.role === 'super_admin'
-  const isPengurus = user.role === 'pengurus'
   const isKetua = (user.jabatan ?? '').trim().toLowerCase() === 'ketua' || (user.jabatan ?? '').trim().toLowerCase() === 'ketua_rt'
   const canWrite = hasWargaWriteAccess(user)
   const canImport = hasWargaImportAccess(user)
   const canExport = hasWargaExportAccess(user)
-  const showNik = isKetua || isSuperAdmin
-
-  // Warga can see phone only from residents whose jabatan is 'keamanan'.
-  // Warga can NEVER see email — only pengurus/bendahara/super_admin.
-  // Pengurus/Bendahara/Super Admin can see all phones and emails.
-  const canSeeSecurityPhone = (res: ApiResident): boolean => {
-    if (isPengurus || isSuperAdmin) return true
-    return (res.jabatan ?? '').trim().toLowerCase() === 'keamanan'
-  }
-  const canSeeEmail = isPengurus || isSuperAdmin
+  // Sensitive resident data (NIK, phone, email) is strictly viewable by Ketua RT only.
+  const showNik = isKetua
+  const canSeePhone = isKetua
+  const canSeeEmail = isKetua
 
   const [choiceOpen, setChoiceOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -513,7 +530,7 @@ export function ResidentList() {
           <div className="sf-page-header-copy">
             <div className="sf-page-header-title-text">Daftar Warga</div>
             <div className="sf-page-header-subtitle">
-              {user.rt?.name ? `Manajemen warga dan kepala keluarga \u2014 ${user.rt.name}` : 'Manajemen warga dan kepala keluarga'}
+              {user.rt?.name ? `Manajemen data warga \u2014 ${user.rt.name}` : 'Manajemen data warga'}
             </div>
           </div>
         </div>
@@ -781,7 +798,7 @@ export function ResidentList() {
                     onDetail={handleDetail}
                     onEdit={handleEdit}
                     onEditSpecial={handleEditSpecial}
-                    canSeeSecurityPhone={canSeeSecurityPhone}
+                    canSeePhone={canSeePhone}
                     canSeeEmail={canSeeEmail}
                   />
                 ))}
@@ -814,11 +831,11 @@ interface ResidentRowProps {
   onDetail: (id: string) => void
   onEdit: (id: string) => void
   onEditSpecial: (id: string) => void
-  canSeeSecurityPhone: (res: ApiResident) => boolean
+  canSeePhone: boolean
   canSeeEmail: boolean
 }
 
-function ResidentRow({ resident, showNik, onDetail, canSeeSecurityPhone, canSeeEmail }: ResidentRowProps) {
+function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail }: ResidentRowProps) {
   const startDate = formatStrictDate(resident.start_date)
   const endDate = formatStrictDate(resident.end_date)
 
@@ -879,7 +896,7 @@ function ResidentRow({ resident, showNik, onDetail, canSeeSecurityPhone, canSeeE
 
       {/* 6. TELEPON */}
       <td className="col-phone" style={colStyles.phone}>
-        {canSeeSecurityPhone(resident) ? formatPhoneDisplay(resident.phone) : '\u2014'}
+        {canSeePhone ? formatPhoneDisplay(resident.phone) : '\u2014'}
       </td>
 
       {/* 7. EMAIL */}

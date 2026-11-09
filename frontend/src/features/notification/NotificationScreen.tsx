@@ -696,24 +696,6 @@ export function NotificationScreen() {
           >
             <ReloadOutlined style={{ marginRight: 6 }} /> Segarkan
           </button>
-          {isAdmin && (activeTab === 'templates' || activeTab === 'system') && (
-            <button
-              type="button"
-              className="sf-btn-primary"
-              onClick={() => handleOpenCreate()}
-            >
-              <PlusOutlined style={{ marginRight: 6 }} /> Tambah Template
-            </button>
-          )}
-          {isAdmin && activeTab === 'schedules' && (
-            <button
-              type="button"
-              className="sf-btn-primary"
-              onClick={handleOpenScheduleCreate}
-            >
-              <PlusOutlined style={{ marginRight: 6 }} /> Tambah Jadwal
-            </button>
-          )}
         </div>
       </div>
 

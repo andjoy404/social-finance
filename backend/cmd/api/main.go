@@ -35,10 +35,30 @@ import (
 func main() {
 	// Check for --bootstrap flag first.
 	if len(os.Args) > 1 && os.Args[1] == "--bootstrap" {
-		if err := runBootstrap(); err != nil {
+		cfg, err := config.Load()
+		if err != nil {
+			slog.Error("configuration error", "error", err)
+			os.Exit(1)
+		}
+		auth.SigningSecret = []byte(cfg.JWTSecret)
+		if cfg.JWTExpiry > 0 {
+			auth.DefaultAccessTokenLifetime = time.Duration(cfg.JWTExpiry) * time.Second
+		}
+		pool, err := database.NewPool(context.Background(), cfg)
+		if err != nil {
+			slog.Error("database connection", "error", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+		if err := runAutoProvision(context.Background(), pool); err != nil {
+			slog.Error("auto-provision failed", "error", err)
+			os.Exit(1)
+		}
+		if err := runBootstrapWithPool(context.Background(), pool); err != nil {
 			slog.Error("bootstrap failed", "error", err)
 			os.Exit(1)
 		}
+		slog.Info("bootstrap completed successfully")
 		os.Exit(0)
 	}
 
@@ -124,6 +144,18 @@ func main() {
 	})
 	authHandler := auth.NewHandler(pool, authSvc)
 
+	// Run automatic provisioning (idempotent) before bootstrap.
+	if err := runAutoProvision(ctx, pool); err != nil {
+		slog.Error("auto-provision failed", "error", err)
+		os.Exit(1)
+	}
+
+	// Run bootstrap after provisioning.
+	if err := runBootstrapWithPool(ctx, pool); err != nil {
+		slog.Error("bootstrap failed", "error", err)
+		os.Exit(1)
+	}
+
 	s3Storage, err := storage.NewS3Storage(storage.S3Config{
 		Endpoint:        cfg.RustFSEndpoint,
 		AccessKeyID:     cfg.RustFSAccessKey,
@@ -198,55 +230,97 @@ func main() {
 	slog.Info("server stopped")
 }
 
+// runAutoProvision creates RW 016 and RT 002 (Urena) if they don't exist,
+// and sets SCOPED_RT_IDS from the resulting UUID.
+func runAutoProvision(ctx context.Context, pool *database.Pool) error {
+	var rtID string
+	err := pool.Raw().QueryRowContext(ctx,
+		`SELECT id FROM rts WHERE rt = '002' AND rw = 16 AND is_active = true LIMIT 1`).Scan(&rtID)
+	if err == nil && rtID != "" {
+		if err := os.Setenv("SCOPED_RT_IDS", rtID); err != nil {
+			return fmt.Errorf("set SCOPED_RT_IDS: %w", err)
+		}
+		slog.Info("auto-provision: RT 002 already exists, using canonical ID", "rt_id", rtID)
+		return nil
+	}
+
+	tx, err := pool.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin provision tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var rwID string
+	err = tx.QueryRowContext(ctx,
+		`INSERT INTO rws (id, rw_number, name, is_active, created_at, updated_at)
+		 VALUES (gen_random_uuid(), 16, 'RW 016', true, now(), now())
+		 ON CONFLICT (rw_number) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+		 RETURNING id`).Scan(&rwID)
+	if err != nil {
+		err = tx.QueryRowContext(ctx, `SELECT id FROM rws WHERE rw_number = 16 AND is_active = true LIMIT 1`).Scan(&rwID)
+		if err != nil {
+			return fmt.Errorf("insert/resolve RW 016: %w", err)
+		}
+	}
+
+	rtUUID := devseed.CanonicalUrenaRTID
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO rts (id, name, rw, rt, address, head_name, is_active, rw_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
+			rw = EXCLUDED.rw,
+			rt = EXCLUDED.rt,
+			address = EXCLUDED.address,
+			head_name = EXCLUDED.head_name,
+			is_active = EXCLUDED.is_active,
+			rw_id = EXCLUDED.rw_id,
+			updated_at = now()`,
+		rtUUID, "Urena", 16, "002", "GNI Urena", "Atom", true, rwID)
+	if err != nil {
+		return fmt.Errorf("create RT 002: %w", err)
+	}
+
+	if err := os.Setenv("SCOPED_RT_IDS", rtUUID); err != nil {
+		return fmt.Errorf("set SCOPED_RT_IDS: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit provision tx: %w", err)
+	}
+
+	slog.Info("auto-provision: RW 016 and RT 002 provisioned successfully", "rt_id", rtUUID)
+	return nil
+}
+
 // runBootstrap creates a default SUPER_ADMIN user based on system_role.
-
 // It reads configuration from environment variables:
-
 //   - BOOTSTRAP_EMAIL: email for the super admin (required)
-
 //   - BOOTSTRAP_PASSWORD: password for the super admin (required)
-
 //   - BOOTSTRAP_NAME: full name for the super admin (default "Super Admin")
-
 //
-
 // This endpoint is NOT publicly exposed. It is run via:
-
 //   docker compose run --rm backend /tmp/build/api --bootstrap
-
 func runBootstrap() error {
-
 	cfg, err := config.Load()
-
 	if err != nil {
-
 		return fmt.Errorf("load config: %w", err)
-
 	}
-
-	// Initialize auth module for hashing.
-
 	if cfg.JWTSecret != "" {
-
 		auth.SigningSecret = []byte(cfg.JWTSecret)
-
 	}
-
 	if cfg.JWTExpiry > 0 {
-
 		auth.DefaultAccessTokenLifetime = time.Duration(cfg.JWTExpiry) * time.Second
-
 	}
-
 	pool, err := database.NewPool(context.Background(), cfg)
-
 	if err != nil {
-
 		return fmt.Errorf("database connection: %w", err)
-
 	}
-
 	defer pool.Close()
+	return runBootstrapWithPool(context.Background(), pool)
+}
+
+func runBootstrapWithPool(ctx context.Context, pool *database.Pool) error {
 
 	// Read and normalize bootstrap variables.
 
@@ -923,21 +997,21 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Get("/api/v1/notifications/schedules/{schedule_id}/recipients", notifH.GetSchedulerRecipientDetail)
 	})
 
-	// Kebersihan monitoring: RT-scoped list of households with 3+ month overdue
+	// RT-scoped list of households with 3+ month overdue
 	// obligatory bills, field notes, and export. The path uses a legacy
 	// /api/v1/rw/{rwId}/... shape for client compatibility, but the feature is
 	// RT-scoped: handlers resolve tenant RT via authenticated context/header and
 	// do not use {rwId} as authorization scope. Cross-RT access is prevented by
 	// RequireAllowedRT + handler tenant resolution.
 	//
-	// Access: SUPER_ADMIN bypass; jabatan kebersihan with the corresponding
-	// rw.monitoring.* position permission. RequireAccess blocks role-based users
-	// without the allowed jabatan (including role-only users who would otherwise
-	// pass RequirePermission's role-based pass-through on stacked routes).
+	// Access: SUPER_ADMIN bypass; jabatan kebersihan, keamanan, or ketua with the
+	// corresponding rw.monitoring.* position permission. RequireAccess blocks
+	// role-based users without the allowed jabatan (including role-only users who
+	// would otherwise pass RequirePermission's role-based pass-through on stacked routes).
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool))
-		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKebersihan}))
+		r.Use(auth.RequireAccess(nil, []auth.Jabatan{auth.JabatanKebersihan, auth.JabatanKeamanan, auth.JabatanKetua}))
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequirePermission(pool, "rw.monitoring.read"))
 			r.Get("/api/v1/rw/{rwId}/monitoring", notifH.ListMonitoringHouseholds)

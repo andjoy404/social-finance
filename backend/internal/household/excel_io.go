@@ -137,7 +137,7 @@ func parseExcelRows(f *excelize.File) ([]WargaCSVRow, []RowError, error) {
 		row := WargaCSVRow{
 			RowNumber:          rowNum,
 			HouseNumber:        getVal(record, "house_number", "nomor_rumah"),
-			HeadName:           getVal(record, "head_name", "nama_kepala_keluarga", "nama_warga"),
+			HeadName:           getVal(record, "head_name", "nama_warga", "nama_penanggung_jawab"),
 			OccupancyStatus:    normStatus,
 			Address:            getVal(record, "address", "alamat"),
 			ResidentName:       getVal(record, "resident_name", "nama_anggota"),
@@ -698,18 +698,28 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string, ac
 		}
 
 		nikVal := nik
-		if !canViewNik(ac) {
+		if !canViewNik(ac, rtID) {
 			nikVal = ""
+		}
+		phoneVal := phone
+		emailVal := email
+		if !canViewContact(ac, rtID) {
+			phoneVal = ""
+			emailVal = ""
+		} else if phoneVal != "" {
+			if norm, err := NormalizePhone(phoneVal); err == nil {
+				phoneVal = norm
+			}
 		}
 
 		var cell string
 		for ci, val := range []string{
 			houseNum, headName, occStatus, addr,
-			resName, nikVal, phone, email,
+			resName, nikVal, phoneVal, emailVal,
 			moveInDate, jabatan, password,
 		} {
 			cell, _ = excelize.CoordinatesToCellName(ci+1, rowNum)
-			if err := f.SetCellValue("Warga", cell, val); err != nil {
+			if err := f.SetCellStr("Warga", cell, val); err != nil {
 				f.Close()
 				return nil, fmt.Errorf("set export cell %s: %w", cell, err)
 			}

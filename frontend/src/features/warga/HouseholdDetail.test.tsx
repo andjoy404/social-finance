@@ -105,7 +105,7 @@ describe('W4.2C — HouseholdDetail rendering', () => {
       expect(screen.getByText('081234567890')).toBeInTheDocument()
     })
     await waitFor(() => {
-      const label = screen.getByText('Kepala Keluarga')
+      const label = screen.getByText('Penanggung Jawab')
       const container = label.parentElement
       expect(container?.querySelector('div:nth-child(2)')?.textContent).toBe('Budi Santoso')
     })

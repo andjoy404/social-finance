@@ -2,6 +2,11 @@ FROM golang:1.25-bookworm AS base
 
 ENV TZ=Asia/Jakarta
 
+# Ensure IPv4 precedence to avoid "network is unreachable" on environments without IPv6 routing
+RUN sed -i 's/^#precedence ::ffff:0:0\/96  100/precedence ::ffff:0:0\/96  100/' /etc/gai.conf 2>/dev/null || echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf
+
+ENV GOPROXY=https://proxy.golang.org,https://goproxy.io,direct
+
 WORKDIR /app
 
 COPY go.mod go.sum ./

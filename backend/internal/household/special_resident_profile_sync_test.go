@@ -102,7 +102,7 @@ func TestUpdateSpecialResidentSynchronizesAccountProfile(t *testing.T) {
 		t.Fatalf("read updated account profile: %v", err)
 	}
 	if updatedUser.FullName != "Updated Security Officer" ||
-		updatedUser.Phone != "+6281277788899" ||
+		updatedUser.Phone != "081277788899" ||
 		updatedUser.Email != updatedEmail {
 		t.Fatalf("account profile was not synchronized: %+v", updatedUser)
 	}

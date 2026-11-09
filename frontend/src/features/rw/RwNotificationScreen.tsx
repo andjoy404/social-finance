@@ -46,6 +46,7 @@ import {
   type ApiRWNotificationTemplate,
   type ApiRWTemplatePreviewResponse,
 } from './rw-api'
+import { renderNotificationBody } from './url-utils'
 
 const { Text } = Typography
 
@@ -367,51 +368,6 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
       <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
         <div style={{ flex: 1, border: '1px solid var(--sf-border)', borderRadius: 'var(--sf-radius-md)', overflow: 'hidden' }}>
           <div style={{ padding: '12px 16px', background: 'var(--sf-surface)', borderBottom: '1px solid var(--sf-border)' }}>
-            <Text style={{ fontWeight: 600 }}>Riwayat Notifikasi</Text>
-          </div>
-          <div style={{ borderTop: '1px solid var(--sf-border)' }}>
-            {logs.length === 0 ? (
-              <div style={{ padding: 32, textAlign: 'center', color: 'var(--sf-text-muted)' }}>
-                <Text>Belum ada notifikasi untuk RW ini.</Text>
-              </div>
-            ) : (
-              <Table
-                dataSource={logs}
-                rowKey="id"
-                columns={[
-                  {
-                    title: 'Waktu',
-                    dataIndex: 'created_at',
-                    width: 180,
-                  },
-                  {
-                    title: 'Judul',
-                    dataIndex: 'title',
-                  },
-                  {
-                    title: 'Isi',
-                    dataIndex: 'body',
-                  },
-                  {
-                    title: 'Status',
-                    dataIndex: 'status',
-                    render: (text: string) => statusBadge(text),
-                  },
-                ]}
-                pagination={{
-                  current: page,
-                  pageSize,
-                  total,
-                  onChange: (p) => setPage(p),
-                }}
-                loading={loading}
-              />
-            )}
-          </div>
-        </div>
-
-        <div style={{ flex: 1, border: '1px solid var(--sf-border)', borderRadius: 'var(--sf-radius-md)', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 16px', background: 'var(--sf-surface)', borderBottom: '1px solid var(--sf-border)' }}>
             <Text style={{ fontWeight: 600 }}>
               Template Notifikasi{canManage ? ' (Kelola)' : ''}
             </Text>
@@ -521,6 +477,52 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ flex: 1, border: '1px solid var(--sf-border)', borderRadius: 'var(--sf-radius-md)', overflow: 'hidden' }}>
+          <div style={{ padding: '12px 16px', background: 'var(--sf-surface)', borderBottom: '1px solid var(--sf-border)' }}>
+            <Text style={{ fontWeight: 600 }}>Riwayat Notifikasi</Text>
+          </div>
+          <div style={{ borderTop: '1px solid var(--sf-border)' }}>
+            {logs.length === 0 ? (
+              <div style={{ padding: 32, textAlign: 'center', color: 'var(--sf-text-muted)' }}>
+                <Text>Belum ada notifikasi untuk RW ini.</Text>
+              </div>
+            ) : (
+              <Table
+                dataSource={logs}
+                rowKey="id"
+                columns={[
+                  {
+                    title: 'Waktu',
+                    dataIndex: 'created_at',
+                    width: 180,
+                  },
+                  {
+                    title: 'Judul',
+                    dataIndex: 'title',
+                  },
+                  {
+                    title: 'Isi',
+                    dataIndex: 'body',
+                    render: (body: string) => renderNotificationBody(body),
+                  },
+                  {
+                    title: 'Status',
+                    dataIndex: 'status',
+                    render: (text: string) => statusBadge(text),
+                  },
+                ]}
+                pagination={{
+                  current: page,
+                  pageSize,
+                  total,
+                  onChange: (p) => setPage(p),
+                }}
+                loading={loading}
+              />
             )}
           </div>
         </div>
@@ -712,7 +714,7 @@ export function RwNotificationScreen({ rwId, rwName }: RwNotificationScreenProps
                   {previewData?.rendered_title || previewTemplate.title}
                 </div>
                 <div style={{ fontSize: 13, color: '#CBD5E1', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                  {previewData?.rendered_body || previewTemplate.body}
+                  {renderNotificationBody(previewData?.rendered_body || previewTemplate.body || '')}
                 </div>
               </div>
 

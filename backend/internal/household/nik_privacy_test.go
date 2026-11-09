@@ -117,8 +117,8 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 		require.Equal(t, secretNik, *res.Nik)
 	})
 
-	// 2. Super Admin can see NIK in GET /api/v1/residents/:id?rt_id=...
-	t.Run("Super Admin can read NIK", func(t *testing.T) {
+	// 2. Super Admin receives nil NIK (strict Ketua RT-only access, NO Super Admin exception)
+	t.Run("Super Admin receives nil NIK", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/residents/"+residentID+"?rt_id="+rtID, nil)
 		req.Header.Set("Authorization", "Bearer "+superAdminTok)
 		rec := httptest.NewRecorder()
@@ -127,8 +127,7 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 
 		var res Resident
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
-		require.NotNil(t, res.Nik, "Super Admin must receive NIK")
-		require.Equal(t, secretNik, *res.Nik)
+		require.Nil(t, res.Nik, "Super Admin must have NIK redacted to nil")
 	})
 
 	// 3. Sekretaris cannot see NIK (redacted to nil)

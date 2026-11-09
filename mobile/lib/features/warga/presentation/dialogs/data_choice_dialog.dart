@@ -45,7 +45,7 @@ class DataChoiceDialog extends StatelessWidget {
             _ChoiceCard(
               icon: Icons.person_add,
               title: 'Warga',
-              subtitle: 'Tambahkan kepala keluarga atau anggota keluarga baru',
+              subtitle: 'Tambahkan warga utama atau anggota keluarga baru',
               color: AppColors.accent,
               isDark: isDark,
               onTap: () => onChoice('warga'),

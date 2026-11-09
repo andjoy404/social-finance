@@ -72,37 +72,37 @@ func UsersFindByEmail(ctx context.Context, tx *sql.Tx, email string) (*UserWithH
 	return &u, nil
 }
 
-// NormalizePhone converts Indonesian phone input to canonical +62 format.
-// Accepts: 081234567890, 6281234567890, +6281234567890
-// Returns: +6281234567890
+// NormalizePhone converts Indonesian phone input to standard local 08 format.
+// Accepts: 081234567890, 6281234567890, +6281234567890 (with optional spaces/dashes)
+// Returns: 081234567890
 func NormalizePhone(phone string) (string, error) {
 	trimmed := strings.TrimSpace(phone)
 	if trimmed == "" {
 		return "", fmt.Errorf("phone is required")
 	}
-	canon := trimmed
-	if strings.HasPrefix(canon, "+62") {
-		if len(canon) > 3 && canon[3] == '0' {
-			canon = "+62" + canon[4:]
-		}
-	} else if strings.HasPrefix(canon, "08") {
-		canon = "+62" + canon[1:]
-	} else if strings.HasPrefix(canon, "62") {
-		canon = "+" + canon
-	} else {
-		return "", fmt.Errorf("phone number format is invalid")
-	}
 	var sb strings.Builder
-	for _, c := range canon {
+	for _, c := range trimmed {
 		if (c >= '0' && c <= '9') || c == '+' {
 			sb.WriteByte(byte(c))
 		}
 	}
-	return sb.String(), nil
+	cleaned := sb.String()
+	if strings.HasPrefix(cleaned, "+62") {
+		cleaned = cleaned[3:]
+	} else if strings.HasPrefix(cleaned, "62") {
+		cleaned = cleaned[2:]
+	}
+	if !strings.HasPrefix(cleaned, "0") {
+		cleaned = "0" + cleaned
+	}
+	if !strings.HasPrefix(cleaned, "08") {
+		return "", fmt.Errorf("phone number format is invalid")
+	}
+	return cleaned, nil
 }
 
 // UsersFindByPhone finds a user by phone number.
-// Supports both canonical (+62...) and standard local (08...) formats.
+// Supports both standard local (08...) and legacy canonical (+62...) formats.
 func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithHash, error) {
 	trimmed := strings.TrimSpace(phone)
 	if trimmed == "" {
@@ -110,13 +110,12 @@ func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithH
 	}
 
 	variants := []string{trimmed}
-	if canon, err := NormalizePhone(trimmed); err == nil && canon != "" {
-		if canon != trimmed {
-			variants = append(variants, canon)
+	if norm, err := NormalizePhone(trimmed); err == nil && norm != "" {
+		if norm != trimmed {
+			variants = append(variants, norm)
 		}
-		if strings.HasPrefix(canon, "+62") && len(canon) > 3 {
-			local := "0" + canon[3:]
-			variants = append(variants, local)
+		if strings.HasPrefix(norm, "0") {
+			variants = append(variants, "+62"+norm[1:], "62"+norm[1:])
 		}
 	}
 
@@ -622,7 +621,26 @@ func UpdateUserProfile(ctx context.Context, tx *sql.Tx, userID, fullName string,
 		    updated_at = NOW()
 		WHERE user_id = $1 AND is_active = true
 	`
-	_, _ = tx.ExecContext(ctx, syncQuery, userID, strings.TrimSpace(fullName), phone, email)
+	resSync, _ := tx.ExecContext(ctx, syncQuery, userID, strings.TrimSpace(fullName), phone, email)
+	if rows, _ := resSync.RowsAffected(); rows == 0 {
+		// If no resident record is directly linked by user_id, link and update unlinked resident in active RT
+		linkQuery := `
+			UPDATE residents r
+			SET user_id = $1,
+			    full_name = CASE WHEN $2 != '' THEN $2 ELSE r.full_name END,
+			    phone = COALESCE($3, r.phone),
+			    email = COALESCE(NULLIF($4, ''), r.email),
+			    updated_at = NOW()
+			FROM user_rt_memberships m
+			WHERE m.user_id = $1 AND m.is_active = true
+			  AND r.rt_id = m.rt_id AND r.user_id IS NULL AND r.is_active = true
+			  AND (
+			      (r.phone IS NOT NULL AND $3 IS NOT NULL AND r.phone = $3)
+			      OR (r.email IS NOT NULL AND $4 IS NOT NULL AND lower(r.email) = lower($4))
+			  )
+		`
+		_, _ = tx.ExecContext(ctx, linkQuery, userID, strings.TrimSpace(fullName), phone, email)
+	}
 
 	return nil
 }

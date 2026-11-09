@@ -276,26 +276,135 @@ var rwMonSeq uint64 = uint64(time.Now().UnixNano()%1000000 + 8000000)
 const rwMonRTUrena = "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b" // rt=002, whitelisted in scoping config
 
 func insertKebersihanMonitoringPerms(t *testing.T, pool *database.Pool, codes ...string) {
+	insertJabatanMonitoringPerms(t, pool, "kebersihan", codes...)
+}
+
+func insertJabatanMonitoringPerms(t *testing.T, pool *database.Pool, position string, codes ...string) {
 	t.Helper()
 	for _, code := range codes {
 		_, err := pool.Raw().ExecContext(context.Background(), `
 			INSERT INTO position_permissions (position, permission_id)
-			SELECT 'kebersihan', id FROM permission_types WHERE code = $1
+			SELECT $1, id FROM permission_types WHERE code = $2
 			ON CONFLICT (position, permission_id) DO NOTHING
-		`, code)
+		`, position, code)
 		if err != nil {
-			t.Fatalf("insert position_permission kebersihan -> %s: %v", code, err)
+			t.Fatalf("insert position_permission %s -> %s: %v", position, code, err)
 		}
 	}
 	t.Cleanup(func() {
 		for _, code := range codes {
 			_, _ = pool.Raw().ExecContext(context.Background(), `
 				DELETE FROM position_permissions
-				WHERE position = 'kebersihan'
-				AND permission_id = (SELECT id FROM permission_types WHERE code = $1)
-			`, code)
+				WHERE position = $1
+				AND permission_id = (SELECT id FROM permission_types WHERE code = $2)
+			`, position, code)
 		}
 	})
+}
+
+func createRTKeamananUser(t *testing.T, pool *database.Pool, rtID string) (string, string) {
+	t.Helper()
+	var userID string
+	email := fmt.Sprintf("rtkeam-%d@test.com", atomic.AddUint64(&rwMonSeq, 1))
+	if err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
+		 VALUES (gen_random_uuid(), $1, 'hash', 'RT Keamanan User', NULL, true) RETURNING id`,
+		email).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	var mid string
+	if err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		 VALUES (gen_random_uuid(), $1, $2, $3, $4, true) RETURNING id`,
+		userID, rtID, string(auth.RolePengurus), string(auth.JabatanKeamanan)).Scan(&mid); err != nil {
+		t.Fatalf("create rt membership: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE id = $1`, mid)
+		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	})
+	token, err := auth.GenerateAccessToken(auth.TokenClaims{
+		UserID:  userID,
+		MID:     mid,
+		RTID:    rtID,
+		Role:    string(auth.RolePengurus),
+		Jabatan: string(auth.JabatanKeamanan),
+	})
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	return userID, token
+}
+
+func createRTKetuaUser(t *testing.T, pool *database.Pool, rtID string) (string, string) {
+	t.Helper()
+	var userID string
+	email := fmt.Sprintf("rtketua-%d@test.com", atomic.AddUint64(&rwMonSeq, 1))
+	if err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
+		 VALUES (gen_random_uuid(), $1, 'hash', 'RT Ketua User', NULL, true) RETURNING id`,
+		email).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	var mid string
+	if err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		 VALUES (gen_random_uuid(), $1, $2, $3, $4, true) RETURNING id`,
+		userID, rtID, string(auth.RolePengurus), string(auth.JabatanKetua)).Scan(&mid); err != nil {
+		t.Fatalf("create rt membership: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE id = $1`, mid)
+		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	})
+	token, err := auth.GenerateAccessToken(auth.TokenClaims{
+		UserID:  userID,
+		MID:     mid,
+		RTID:    rtID,
+		Role:    string(auth.RolePengurus),
+		Jabatan: string(auth.JabatanKetua),
+	})
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	return userID, token
+}
+
+func createRTBendaharaUser(t *testing.T, pool *database.Pool, rtID string) (string, string) {
+	t.Helper()
+	var userID string
+	email := fmt.Sprintf("rtbend-%d@test.com", atomic.AddUint64(&rwMonSeq, 1))
+	if err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO users (id, email, password_hash, full_name, system_role, is_active)
+		 VALUES (gen_random_uuid(), $1, 'hash', 'RT Bendahara User', NULL, true) RETURNING id`,
+		email).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	var mid string
+	if err := pool.Raw().QueryRowContext(context.Background(),
+		`INSERT INTO user_rt_memberships (id, user_id, rt_id, role, jabatan, is_active)
+		 VALUES (gen_random_uuid(), $1, $2, $3, $4, true) RETURNING id`,
+		userID, rtID, string(auth.RoleBendahara), string(auth.JabatanBendahara)).Scan(&mid); err != nil {
+		t.Fatalf("create rt membership: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE id = $1`, mid)
+		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	})
+	token, err := auth.GenerateAccessToken(auth.TokenClaims{
+		UserID:  userID,
+		MID:     mid,
+		RTID:    rtID,
+		Role:    string(auth.RoleBendahara),
+		Jabatan: string(auth.JabatanBendahara),
+	})
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	return userID, token
 }
 
 func createRTKebersihanUser(t *testing.T, pool *database.Pool, rtID string) (string, string) {
@@ -723,3 +832,84 @@ func TestRWMonitoring_SuperAdminBypass(t *testing.T) {
 
 // Req 8 (subset): Every denied mutation includes before/after DB snapshot.
 // Covered in TestRWMonitoring_KebersihanWithoutWritePermDenied and TestRWMonitoring_CrossRTWriteDeniedDBUnchanged.
+
+// TestRWMonitoring_KeamananAccess verifies Keamanan with permissions can access monitoring.
+func TestRWMonitoring_KeamananAccess(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	rwID := createRWForNotifTest(t, pool)
+	_, router := setupRWNotifRouter(t, []string{rwID})
+
+	insertJabatanMonitoringPerms(t, pool, "keamanan", "rw.monitoring.read", "rw.monitoring.notes.write", "rw.monitoring.export")
+
+	userID, token := createRTKeamananUser(t, pool, rwMonRTUrena)
+	occupancyID := setupMonitoringData(t, pool, rwMonRTUrena, userID)
+
+	// 1. Read list
+	w := doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/monitoring", token, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("keamanan read monitoring: expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// 2. Write note
+	w = doJSON(router, http.MethodPost,
+		"/api/v1/rw/"+rwID+"/monitoring/notes/"+occupancyID,
+		token, map[string]any{"note": "Catatan Keamanan"})
+	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
+		t.Fatalf("keamanan post note: expected 200/201, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// 3. Export
+	w = doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/monitoring/export/excel", token, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("keamanan export excel: expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestRWMonitoring_KetuaAccess verifies Ketua RT with permissions can access monitoring.
+func TestRWMonitoring_KetuaAccess(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	rwID := createRWForNotifTest(t, pool)
+	_, router := setupRWNotifRouter(t, []string{rwID})
+
+	insertJabatanMonitoringPerms(t, pool, "ketua", "rw.monitoring.read", "rw.monitoring.notes.write", "rw.monitoring.export")
+
+	userID, token := createRTKetuaUser(t, pool, rwMonRTUrena)
+	occupancyID := setupMonitoringData(t, pool, rwMonRTUrena, userID)
+
+	// 1. Read list
+	w := doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/monitoring", token, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ketua read monitoring: expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// 2. Write note
+	w = doJSON(router, http.MethodPost,
+		"/api/v1/rw/"+rwID+"/monitoring/notes/"+occupancyID,
+		token, map[string]any{"note": "Catatan Ketua RT"})
+	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
+		t.Fatalf("ketua post note: expected 200/201, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// 3. Export
+	w = doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/monitoring/export/excel", token, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ketua export excel: expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// TestRWMonitoring_BendaharaDenied verifies non-permitted positions like Bendahara cannot access monitoring.
+func TestRWMonitoring_BendaharaDenied(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	rwID := createRWForNotifTest(t, pool)
+	_, router := setupRWNotifRouter(t, []string{rwID})
+
+	// Even if position_permissions had the code injected, RequireAccess blocks Bendahara
+	insertJabatanMonitoringPerms(t, pool, "bendahara", "rw.monitoring.read")
+
+	_, token := createRTBendaharaUser(t, pool, rwMonRTUrena)
+
+	w := doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/monitoring", token, nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("bendahara read monitoring: expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
