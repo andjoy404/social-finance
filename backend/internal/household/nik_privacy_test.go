@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"social-finance/internal/auth"
@@ -29,6 +28,8 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 
 	// Create test resident with known NIK, household, physical house, and residency period
 	const secretNik = "3171098765432109"
+	const secretPhone = "081299991111"
+	const secretEmail = "warga-rahasia@test.com"
 	var phID string
 	err := db.QueryRowContext(ctx, `
 		INSERT INTO physical_houses (id, rt_id, house_number, is_active)
@@ -55,10 +56,10 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 
 	var residentID string
 	err = db.QueryRowContext(ctx, `
-		INSERT INTO residents (id, rt_id, full_name, phone, nik, is_active)
-		VALUES (gen_random_uuid(), $1, 'Warga Rahasia', '081299991111', $2, true)
+		INSERT INTO residents (id, rt_id, full_name, phone, nik, email, is_active)
+		VALUES (gen_random_uuid(), $1, 'Warga Rahasia', $3, $2, $4, true)
 		RETURNING id
-	`, rtID, secretNik).Scan(&residentID)
+	`, rtID, secretNik, secretPhone, secretEmail).Scan(&residentID)
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, `
@@ -96,10 +97,14 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 		})
 	}
 
-	ketuaToken := makeTokenWithJabatan("user-ketua-nik", "ketua", auth.RolePengurus)
+	// Ketua RT in production has role=warga + jabatan=ketua (see migration 031).
+	// The export privacy check must rely on jabatan, not on TenantRole==pengurus.
+	ketuaToken := makeTokenWithJabatan("user-ketua-nik", "ketua", auth.RoleWarga)
+	wakilKetuaToken := makeTokenWithJabatan("user-wakil-nik", "wakil_ketua", auth.RolePengurus)
 	sekretarisToken := makeTokenWithJabatan("user-sekretaris-nik", "sekretaris", auth.RolePengurus)
 	bendaharaToken := makeTokenWithJabatan("user-bendahara-nik", "bendahara", auth.RolePengurus)
-	keamananToken := makeTokenWithJabatan("user-keamanan-nik", "keamanan", auth.RolePengurus)
+	keamananToken := makeTokenWithJabatan("user-keamanan-nik", "keamanan", auth.RoleWarga)
+	kebersihanToken := makeTokenWithJabatan("user-kebersihan-nik", "kebersihan", auth.RoleWarga)
 	wargaToken := makeTokenWithJabatan("user-warga-nik", "", auth.RoleWarga)
 	superAdminTok := makeSuperAdminToken(t)
 
@@ -186,30 +191,44 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 		}
 	})
 
-	// 7. Non-ketua export XLSX does not contain raw NIK
-	t.Run("Non-ketua export XLSX redacts NIK", func(t *testing.T) {
-		exportRouter := setupWargaImportExportRouter(pool)
-		req := httptest.NewRequest("GET", "/api/v1/warga/export/xlsx", nil)
-		req.Header.Set("Authorization", "Bearer "+bendaharaToken)
-		rec := httptest.NewRecorder()
-		exportRouter.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
+	// 7. Non-ketua export XLSX does not contain raw NIK, phone, or email
+	nonKetuaExports := map[string]string{
+		"Bendahara":   bendaharaToken,
+		"Sekretaris":  sekretarisToken,
+		"Wakil Ketua": wakilKetuaToken,
+		"Keamanan":    keamananToken,
+		"Kebersihan":  kebersihanToken,
+		"Warga":       wargaToken,
+		"Super Admin": superAdminTok,
+	}
+	for name, tok := range nonKetuaExports {
+		t.Run("Non-ketua export XLSX redacts NIK phone email/"+name, func(t *testing.T) {
+			exportRouter := setupWargaImportExportRouter(pool)
+			req := httptest.NewRequest("GET", "/api/v1/warga/export/xlsx", nil)
+			req.Header.Set("Authorization", "Bearer "+tok)
+			rec := httptest.NewRecorder()
+			exportRouter.ServeHTTP(rec, req)
+			// Super Admin export may return 200 with redacted data; tenant roles must be 200 too.
+			require.Equal(t, http.StatusOK, rec.Code, "export for %s failed: %s", name, rec.Body.String())
 
-		f, err := excelize.OpenReader(bytes.NewReader(rec.Body.Bytes()))
-		require.NoError(t, err)
-		defer f.Close()
+			f, err := excelize.OpenReader(bytes.NewReader(rec.Body.Bytes()))
+			require.NoError(t, err)
+			defer f.Close()
 
-		rows, err := f.GetRows("Warga")
-		require.NoError(t, err)
-		for _, row := range rows {
-			for _, cell := range row {
-				require.False(t, strings.Contains(cell, secretNik), "Export must NOT leak secret NIK to bendahara")
+			rows, err := f.GetRows("Warga")
+			require.NoError(t, err)
+			for _, row := range rows {
+				for _, cell := range row {
+					require.NotContains(t, cell, secretNik, "Export must NOT leak secret NIK to %s", name)
+					require.NotContains(t, cell, secretPhone, "Export must NOT leak secret phone to %s", name)
+					require.NotContains(t, cell, secretEmail, "Export must NOT leak secret email to %s", name)
+				}
 			}
-		}
-	})
+		})
+	}
 
-	// 8. Ketua export XLSX retains NIK
-	t.Run("Ketua export XLSX includes NIK", func(t *testing.T) {
+	// 8. Ketua export XLSX retains NIK, phone, and email (role=warga + jabatan=ketua, as in production)
+	t.Run("Ketua export XLSX includes NIK phone email", func(t *testing.T) {
 		exportRouter := setupWargaImportExportRouter(pool)
 		req := httptest.NewRequest("GET", "/api/v1/warga/export/xlsx", nil)
 		req.Header.Set("Authorization", "Bearer "+ketuaToken)
@@ -223,14 +242,22 @@ func TestNIKPrivacy_RBAC(t *testing.T) {
 
 		rows, err := f.GetRows("Warga")
 		require.NoError(t, err)
-		var found bool
+		var foundNik, foundPhone, foundEmail bool
 		for _, row := range rows {
 			for _, cell := range row {
 				if cell == secretNik {
-					found = true
+					foundNik = true
+				}
+				if cell == secretPhone {
+					foundPhone = true
+				}
+				if cell == secretEmail {
+					foundEmail = true
 				}
 			}
 		}
-		require.True(t, found, "Export for Ketua RT must include NIK")
+		require.True(t, foundNik, "Export for Ketua RT must include NIK")
+		require.True(t, foundPhone, "Export for Ketua RT must include phone")
+		require.True(t, foundEmail, "Export for Ketua RT must include email")
 	})
 }

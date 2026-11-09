@@ -852,6 +852,8 @@ func processExistingResident(
 		if err != nil {
 			return fmt.Errorf("update residency start_date for %s: %w", res.ResidentName, err)
 		}
+		// Trigger bill recalculation since start_date has changed
+		triggerSyncBills(ctx, tx, rtID, hoID)
 	}
 
 	// --- 2. Jabatan: upsert membership if provided, do nothing if empty ---

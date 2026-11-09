@@ -2109,13 +2109,16 @@ func (h *Handler) GenerateResetPasswordCode(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// canViewNik returns true only if the requester is Ketua RT in the active context, or Super Admin.
+// canViewNik returns true only if the requester is Ketua RT in the active context.
 // Non-ketua pengurus (e.g. Sekretaris, Bendahara, Keamanan), regular warga, and RW officers
 // MUST NOT see unmasked NIK.
 //
-// If rtID is provided, the function checks whether the user is Ketua RT specifically
-// within that RT's membership. If rtID is empty, it falls back to checking the user's
-// jabatan claim (for backward compatibility with endpoints that don't pass rt_id).
+// Ketua RT in production has role=warga with jabatan=ketua (see migration 031),
+// so the check must NOT require TenantRole==pengurus — it must rely on jabatan
+// plus RT isolation: the user's active RT (ac.RTID) must match the requested rtID.
+//
+// If rtID is provided, the user's active RT must equal rtID and jabatan must be ketua.
+// If rtID is empty, it falls back to checking the jabatan claim only.
 //
 // IMPORTANT: Super Admin must NOT see NIK — strict Ketua RT-only access, regardless of rtID provided.
 func canViewNik(ac *auth.AuthContext, rtID string) bool {
@@ -2126,32 +2129,29 @@ func canViewNik(ac *auth.AuthContext, rtID string) bool {
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
 		return false
 	}
-	// If rtID is provided, check membership specifically
-	if rtID != "" {
-		// Check if user has an active membership in this RT with ketua jabatan
-		if ac.TenantRole == auth.RolePengurus {
-			j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
-			if j == "ketua" || j == "ketua_rt" || j == "ketua rt" {
-				return true
-			}
-		}
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	isKetua := j == "ketua" || j == "ketua_rt" || j == "ketua rt"
+	if !isKetua {
 		return false
 	}
-	// rtID not provided: fall back to jabatan claim check (existing behavior)
-	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
-	if j == "ketua" || j == "ketua_rt" || j == "ketua rt" {
-		return true
+	// If rtID is provided, enforce RT isolation: ketua only in their own active RT.
+	if rtID != "" {
+		if ac.RTID == "" || ac.RTID != rtID {
+			return false
+		}
 	}
-	return false
+	return true
 }
 
 // canViewContact returns true only if the requester is Ketua RT in the active context.
 // Non-ketua pengurus (e.g. Sekretaris, Bendahara, Keamanan), regular warga, and RW officers
 // MUST NOT see unmasked contact data (phone, email).
 //
-// If rtID is provided, the function checks whether the user is Ketua RT specifically
-// within that RT's membership. If rtID is empty, it falls back to checking the user's
-// jabatan claim (for backward compatibility with endpoints that don't pass rt_id).
+// Like canViewNik, this must not require TenantRole==pengurus because the real
+// Ketua RT has role=warga with jabatan=ketua. RT isolation is enforced by
+// requiring ac.RTID == rtID when rtID is provided.
+//
+// If rtID is empty, it falls back to checking the jabatan claim only.
 //
 // IMPORTANT: Super Admin must NOT see contact data — strict Ketua RT-only access,
 // regardless of rtID provided.
@@ -2163,23 +2163,17 @@ func canViewContact(ac *auth.AuthContext, rtID string) bool {
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
 		return false
 	}
-	// If rtID is provided, check membership specifically
-	if rtID != "" {
-		// Check if user has an active membership in this RT with ketua jabatan
-		if ac.TenantRole == auth.RolePengurus {
-			j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
-			if j == "ketua" || j == "ketua_rt" || j == "ketua rt" {
-				return true
-			}
-		}
+	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
+	isKetua := j == "ketua" || j == "ketua_rt" || j == "ketua rt"
+	if !isKetua {
 		return false
 	}
-	// rtID not provided: fall back to jabatan claim check (existing behavior)
-	j := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
-	if j == "ketua" || j == "ketua_rt" || j == "ketua rt" {
-		return true
+	if rtID != "" {
+		if ac.RTID == "" || ac.RTID != rtID {
+			return false
+		}
 	}
-	return false
+	return true
 }
 
 
