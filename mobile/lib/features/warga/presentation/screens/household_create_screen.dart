@@ -11,6 +11,7 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
 import '../../data/warga_providers.dart';
+import '../../../iuran/data/iuran_providers.dart';
 
 /// Screen for creating a new household (adding a warga/head of family).
 class HouseholdCreateScreen extends ConsumerStatefulWidget {
@@ -169,6 +170,9 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
 
       // Refresh warga list so the new household appears immediately
       await ref.read(wargaListProvider.notifier).refresh();
+
+      // Refresh overdue warning summary
+      ref.read(overdueWarningSummaryProvider.notifier).refresh();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

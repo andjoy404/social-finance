@@ -248,6 +248,7 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final name = _userName ?? '';
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;

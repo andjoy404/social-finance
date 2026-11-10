@@ -781,7 +781,7 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 			FROM household_occupancies ho
 			WHERE b.household_occupancy_id = ho.id
 			  AND ho.id = $1
-			  AND b.status = 'unpaid'
+			  AND b.status IN ('unpaid', 'partial')
 		`, hoID.String)
 		triggerSyncBills(ctx, tx, rtID, hoID.String)
 	}

@@ -233,11 +233,11 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Monitoring Screen'), findsOneWidget);
-        expect(find.text('Monitoring'), findsOneWidget);
+        expect(find.text('Sampah'), findsOneWidget);
         expect(find.text('Profil'), findsOneWidget);
         expect(find.text('Beranda'), findsNothing);
         expect(
-          tester.getCenter(find.byKey(const Key('nav-item-monitoring'))).dx,
+          tester.getCenter(find.byKey(const Key('nav-item-sampah'))).dx,
           lessThan(
             tester.getCenter(find.byKey(const Key('nav-item-profil'))).dx,
           ),

@@ -40,6 +40,16 @@ input { font-family: inherit; }
   box-sizing: border-box;
 }
 
+/* ── Standard card surface ────────────────────────────────────────────── */
+.sf-card {
+  background: var(--sf-surface);
+  background-color: var(--sf-surface);
+  border: 1px solid var(--sf-border);
+  border-radius: var(--sf-radius-lg);
+  color: var(--sf-text);
+  box-sizing: border-box;
+}
+
 /* ── Global header — floating rounded surface ────────────────────────── */
 
 .sf-header {
@@ -1803,7 +1813,7 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
 
 @media (max-width: 768px) {
   .sf-shell-layout {
-    padding: 8px;
+    padding: 8px 8px 8px 68px; /* keep content clear of the 56px sidebar */
     gap: 8px;
   }
 

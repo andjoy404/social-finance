@@ -122,6 +122,43 @@ class _AnnouncementDetailScreenState
     }
   }
 
+  void _openImageViewer(BuildContext context, String imageRef, String title) {
+    showDialog<void>(
+      context: context,
+      useSafeArea: false,
+      builder: (dialogCtx) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black.withValues(alpha: 0.7),
+          foregroundColor: Colors.white,
+          title: Text(
+            title,
+            style: const TextStyle(fontSize: 16, color: Colors.white),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Tutup',
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+          ),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            panEnabled: true,
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: CommunityImage(
+              imageRef: imageRef,
+              fit: BoxFit.contain,
+              alt: title,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -139,75 +176,130 @@ class _AnnouncementDetailScreenState
         a != null && (a.status == 'active' || a.status == 'scheduled');
     final canDelete = a != null && a.status == 'draft';
 
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: false,
-        title: const MenuAppBarTitle(title: 'Detail Pengumuman'),
-        actions: [
-          if (a != null && canManage)
-            IconButton(
-              tooltip: 'Ubah pengumuman',
-              icon: const Icon(Icons.edit_outlined),
-              onPressed: () async {
-                final changed = await context.push<bool>(
-                  '/home/pengumuman/${a.id}/edit',
-                );
-                if (changed == true && mounted) {
-                  await _load();
-                }
-              },
-            ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator.adaptive())
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.base),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 40,
-                      color: AppColors.danger,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Pengumuman tidak dapat dibuka',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(_error!, textAlign: TextAlign.center),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _load,
-                      child: const Text('Coba Lagi'),
-                    ),
-                  ],
-                ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/home/pengumuman');
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Detail Pengumuman'),
+          leading: BackButton(
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/home/pengumuman');
+              }
+            },
+          ),
+          actions: [
+            if (a != null && canManage)
+              IconButton(
+                tooltip: 'Ubah pengumuman',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () async {
+                  final changed = await context.push<bool>(
+                    '/home/pengumuman/${a.id}/edit',
+                  );
+                  if (changed == true && mounted) {
+                    await _load();
+                  }
+                },
               ),
-            )
-          : a == null
-          ? const SizedBox.shrink()
-          : ListView(
-              padding: const EdgeInsets.all(AppSpacing.base),
-              children: [
-                if (a.imageUrl != null && a.imageUrl!.isNotEmpty) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    child: CommunityImage(
-                      imageRef: a.imageUrl!,
-                      width: double.infinity,
-                      height: 180,
-                      fit: BoxFit.cover,
-                      alt: 'Gambar pengumuman ${a.title}',
-                    ),
+          ],
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator.adaptive())
+            : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.base),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: 40,
+                        color: AppColors.danger,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Pengumuman tidak dapat dibuka',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(_error!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _load,
+                        child: const Text('Coba Lagi'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: AppSpacing.base),
-                ],
+                ),
+              )
+            : a == null
+            ? const SizedBox.shrink()
+            : ListView(
+                padding: const EdgeInsets.all(AppSpacing.base),
+                children: [
+                  if (a.imageUrl != null && a.imageUrl!.isNotEmpty) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: InkWell(
+                        onTap: () => _openImageViewer(
+                          context,
+                          a.imageUrl!,
+                          a.title,
+                        ),
+                        child: Container(
+                          width: double.infinity,
+                          height: 200,
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? AppColors.darkSurface
+                              : AppColors.lightSurfaceSubtle,
+                          alignment: Alignment.center,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CommunityImage(
+                                imageRef: a.imageUrl!,
+                                width: double.infinity,
+                                height: 200,
+                                fit: BoxFit.contain,
+                                alt: 'Gambar pengumuman ${a.title}',
+                              ),
+                              Positioned(
+                                right: 8,
+                                bottom: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.5),
+                                    borderRadius: BorderRadius.circular(AppRadius.xs),
+                                  ),
+                                  child: const Icon(
+                                    Icons.fullscreen,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.base),
+                  ],
                 Row(
                   children: [
                     announcementStatusBadge(a.status),
@@ -369,6 +461,7 @@ class _AnnouncementDetailScreenState
                 ),
               ],
             ),
+      ),
     );
   }
 }

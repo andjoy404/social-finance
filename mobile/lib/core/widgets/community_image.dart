@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/data/mock_auth_repository.dart';
 import '../api/client.dart';
+import '../api/config.dart';
 import '../utils/permissions.dart';
 
 /// Renders a community image that lives behind the authorized image endpoint.
@@ -94,7 +95,7 @@ class _CommunityImageState extends ConsumerState<CommunityImage> {
   void _evictCurrentProvider() {
     final provider = _result?.provider;
     if (provider != null) {
-      PaintingBinding.instance.imageCache?.evict(provider);
+      PaintingBinding.instance.imageCache.evict(provider);
     }
   }
 
@@ -108,7 +109,7 @@ class _CommunityImageState extends ConsumerState<CommunityImage> {
       if (!mounted || gen != _generation) {
         // Stale result for an older asset/scope: discard eagerly.
         if (result?.provider != null) {
-          PaintingBinding.instance.imageCache?.evict(result!.provider!);
+          PaintingBinding.instance.imageCache.evict(result!.provider!);
         }
         return;
       }
@@ -142,7 +143,17 @@ class _CommunityImageState extends ConsumerState<CommunityImage> {
       final data = response.data;
       if (data is Map && data['url'] is String) {
         final url = (data['url'] as String).trim();
-        if (url.isNotEmpty) return _ImageResult.network(url);
+        if (url.isNotEmpty) {
+          String fullUrl = url;
+          if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+            final base = apiClient.baseUrl.isNotEmpty
+                ? apiClient.baseUrl.replaceAll(RegExp(r'/+$'), '')
+                : ApiConfig.normalizedBaseUrl.replaceAll(RegExp(r'/+$'), '');
+            final path = fullUrl.startsWith('/') ? fullUrl : '/$fullUrl';
+            fullUrl = '$base$path';
+          }
+          return _ImageResult.network(fullUrl);
+        }
       }
     } catch (_) {
       // fall through to Bearer fallback for managers
@@ -152,6 +163,7 @@ class _CommunityImageState extends ConsumerState<CommunityImage> {
     final user = _scopeUser(ref.read(authRepositoryProvider));
     final canManage = canManageActivities(user) || canManageAnnouncements(user);
     if (!canManage) return null;
+
     try {
       final response = await apiClient.dio.get<List<int>>(
         '/api/v1/community/images/$key',
@@ -190,7 +202,7 @@ class _CommunityImageState extends ConsumerState<CommunityImage> {
       height: widget.height,
       fit: widget.fit,
       semanticLabel: widget.alt,
-      errorBuilder: (_, __, ___) => placeholder,
+      errorBuilder: (_, _, _) => placeholder,
     );
   }
 }

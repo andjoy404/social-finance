@@ -9,6 +9,8 @@ import {
   EnvironmentOutlined,
   UserOutlined,
   ArrowLeftOutlined,
+  FullscreenOutlined,
+  CloseOutlined,
 } from '@ant-design/icons'
 import {
   CommunityActivity,
@@ -37,6 +39,7 @@ export function ActivityDetail() {
   const [activity, setActivity] = useState<CommunityActivity | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
 
   const load = useCallback(() => {
     const session = getSessionPair()
@@ -103,12 +106,96 @@ export function ActivityDetail() {
       />
 
       {activity.poster_url && (
-        <div className="sf-card" style={{ padding: 0, overflow: 'hidden', borderRadius: 12 }}>
+        <div
+          className="sf-card"
+          onClick={() => setLightboxOpen(true)}
+          style={{
+            padding: 0,
+            overflow: 'hidden',
+            borderRadius: 12,
+            cursor: 'pointer',
+            position: 'relative',
+            background: 'var(--sf-surface-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            maxHeight: 360,
+          }}
+        >
           <CommunityImage
             src={activity.poster_url}
             alt={`Poster kegiatan ${activity.title}`}
-            style={{ width: '100%', maxHeight: 360, objectFit: 'cover' }}
+            style={{ width: '100%', maxHeight: 360, objectFit: 'contain' }}
           />
+          <div
+            style={{
+              position: 'absolute',
+              right: 12,
+              bottom: 12,
+              padding: '6px 10px',
+              borderRadius: 6,
+              background: 'rgba(0, 0, 0, 0.65)',
+              color: '#fff',
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <FullscreenOutlined />
+            <span>Lihat Ukuran Penuh</span>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal */}
+      {lightboxOpen && activity.poster_url && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1050,
+            padding: 16,
+          }}
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(false)}
+            aria-label="Tutup"
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: 'none',
+              borderRadius: '50%',
+              width: 40,
+              height: 40,
+              color: '#fff',
+              fontSize: 20,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <CloseOutlined />
+          </button>
+          <div
+            style={{ maxWidth: '90vw', maxHeight: '90vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CommunityImage
+              src={activity.poster_url}
+              alt={`Poster kegiatan ${activity.title}`}
+              style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 8 }}
+            />
+          </div>
         </div>
       )}
 

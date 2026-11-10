@@ -686,6 +686,22 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		{"reports.read", "reports", "read"},
 		{"rt.settings.read", "rt.settings", "read"},
 		{"rt.settings.manage", "rt.settings", "manage"},
+		{"activities.read", "community", "read"},
+		{"activities.create", "community", "create"},
+		{"activities.update", "community", "update"},
+		{"activities.publish", "community", "publish"},
+		{"activities.cancel", "community", "cancel"},
+		{"activities.delete", "community", "delete"},
+		{"announcements.read", "community", "read"},
+		{"announcements.create", "community", "create"},
+		{"announcements.update", "community", "update"},
+		{"announcements.publish", "community", "publish"},
+		{"announcements.archive", "community", "archive"},
+		{"announcements.delete", "community", "delete"},
+		{"banner_templates.read", "community", "read"},
+		{"banner_templates.manage", "community", "manage"},
+		{"organization.read", "community", "read"},
+		{"organization.contact.read", "community", "read"},
 	}
 
 	for _, pc := range permissionCodes {
@@ -704,15 +720,32 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 
 	// 10. Position Permissions — resolve permission_id by code, then insert
 	positionPermissions := map[string][]string{
-		"ketua":       {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "notification.read", "notification.manage", "reports.read", "rt.settings.read", "rt.settings.manage"},
-		"wakil_ketua": {"warga.read", "warga.create", "warga.update", "finance.read", "notification.read", "reports.read", "rt.settings.read"},
-		"sekretaris":  {"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "notification.read", "reports.read", "rt.settings.read"},
-		"bendahara":   {"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "notification.read", "reports.read"},
-		"keamanan":    {"warga.read", "reports.read"},
-		"sosial":      {"warga.read", "reports.read"},
-		"operasional": {"warga.read", "reports.read"},
-		"kebersihan":  {"warga.read", "reports.read"},
-		"anggota":     {"warga.read", "reports.read"},
+		"ketua": {
+			"warga.read", "warga.create", "warga.update", "warga.import", "warga.export",
+			"finance.read", "finance.create", "finance.update", "finance.approve",
+			"notification.read", "notification.manage", "reports.read", "rt.settings.read", "rt.settings.manage",
+			"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
+			"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
+			"banner_templates.read", "banner_templates.manage",
+			"organization.read", "organization.contact.read",
+		},
+		"wakil_ketua": {
+			"warga.read", "warga.create", "warga.update", "finance.read", "notification.read", "reports.read", "rt.settings.read",
+			"activities.read", "announcements.read", "banner_templates.read", "organization.read",
+		},
+		"sekretaris": {
+			"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "notification.read", "reports.read", "rt.settings.read",
+			"activities.read", "announcements.read", "banner_templates.read", "organization.read", "organization.contact.read",
+		},
+		"bendahara": {
+			"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "notification.read", "reports.read",
+			"activities.read", "announcements.read", "banner_templates.read", "organization.read",
+		},
+		"keamanan":    {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},
+		"sosial":      {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},
+		"operasional": {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},
+		"kebersihan":  {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},
+		"anggota":     {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},
 	}
 
 	for position, codes := range positionPermissions {

@@ -200,11 +200,13 @@ class DashboardSummary {
       final normalized = name.trim().toLowerCase();
       if (normalized.contains('operasional')) return KasCategory.operasionalRT;
       if (normalized.contains('iuran warga') ||
-          normalized.contains('iuranwarga'))
+          normalized.contains('iuranwarga')) {
         return KasCategory.iuranWarga;
+      }
       if (normalized.contains('iuran paksa') ||
-          normalized.contains('iuranpaksa'))
+          normalized.contains('iuranpaksa')) {
         return KasCategory.iuranPaksa;
+      }
       if (normalized.contains('perlengkapan')) return KasCategory.perlengkapan;
       if (normalized.contains('konsumsi')) return KasCategory.konsumsi;
       if (normalized.contains('perbaikan')) return KasCategory.perbaikan;

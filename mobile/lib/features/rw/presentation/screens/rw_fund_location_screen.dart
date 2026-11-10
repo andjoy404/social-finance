@@ -53,7 +53,7 @@ class _RwFundLocationScreenState
         .toList() ?? <Map<String, dynamic>>[];
     final currentMembership = rwMemberships
         .where((m) => m['rw_id'] == widget.rwId)
-        .firstOrNull as Map<String, dynamic>?;
+        .firstOrNull;
     final jabatan = (currentMembership?['jabatan'] ?? '').toLowerCase();
     return jabatan == 'bendahara' || jabatan == 'ketua';
   }
@@ -69,7 +69,7 @@ class _RwFundLocationScreenState
         .toList() ?? <Map<String, dynamic>>[];
     final currentMembership = rwMemberships
         .where((m) => m['rw_id'] == widget.rwId)
-        .firstOrNull as Map<String, dynamic>?;
+        .firstOrNull;
     final jabatan = (currentMembership?['jabatan'] ?? '').toLowerCase();
     return jabatan == 'bendahara' || jabatan == 'ketua';
   }
@@ -154,6 +154,7 @@ class _RwFundLocationScreenState
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final canCreate = _canCreateRw(user);

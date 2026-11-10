@@ -212,6 +212,11 @@ void main() {
           matching: find.text('Notifikasi'),
         );
         expect(notifTab, findsOneWidget);
+        // The bottom nav scrolls horizontally when it has more than four
+        // tabs (e.g. when the Keuangan/Kegiatan/Pengumuman tabs are visible).
+        // Make sure the target tab is scrolled into view before tapping it.
+        await tester.ensureVisible(notifTab);
+        await tester.pumpAndSettle();
 
         await tester.tap(notifTab);
         await tester.pumpAndSettle();
@@ -249,6 +254,11 @@ void main() {
           matching: find.text('Notifikasi'),
         );
         expect(notifTab, findsOneWidget);
+        // The bottom nav scrolls horizontally when it has more than four
+        // tabs (e.g. when the Keuangan/Kegiatan/Pengumuman tabs are visible).
+        // Make sure the target tab is scrolled into view before tapping it.
+        await tester.ensureVisible(notifTab);
+        await tester.pumpAndSettle();
 
         await tester.tap(notifTab);
         await tester.pumpAndSettle();
@@ -288,6 +298,11 @@ void main() {
           matching: find.text('Notifikasi'),
         );
         expect(notifTab, findsOneWidget);
+        // The bottom nav scrolls horizontally when it has more than four
+        // tabs (e.g. when the Keuangan/Kegiatan/Pengumuman tabs are visible).
+        // Make sure the target tab is scrolled into view before tapping it.
+        await tester.ensureVisible(notifTab);
+        await tester.pumpAndSettle();
 
         await tester.tap(notifTab);
         await tester.pumpAndSettle();

@@ -980,6 +980,13 @@ class _NotificationManagementScreenState
                                       return;
                                     }
                                     final bytes = await picked.readAsBytes();
+                                    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+                                      setSheetState(() {
+                                        imageUploadError = 'Ukuran gambar maksimal 5 MB';
+                                        isUploadingImage = false;
+                                      });
+                                      return;
+                                    }
                                     final repo = ref.read(
                                       notificationRepositoryProvider,
                                     );
@@ -1057,6 +1064,13 @@ class _NotificationManagementScreenState
                                       return;
                                     }
                                     final bytes = await picked.readAsBytes();
+                                    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+                                      setSheetState(() {
+                                        imageUploadError = 'Ukuran gambar maksimal 5 MB';
+                                        isUploadingImage = false;
+                                      });
+                                      return;
+                                    }
                                     final repo = ref.read(
                                       notificationRepositoryProvider,
                                     );
@@ -1113,6 +1127,13 @@ class _NotificationManagementScreenState
                                         return;
                                       }
                                       final bytes = await picked.readAsBytes();
+                                    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+                                      setSheetState(() {
+                                        imageUploadError = 'Ukuran gambar maksimal 5 MB';
+                                        isUploadingImage = false;
+                                      });
+                                      return;
+                                    }
                                       final repo = ref.read(
                                         notificationRepositoryProvider,
                                       );
@@ -1165,6 +1186,13 @@ class _NotificationManagementScreenState
                                         return;
                                       }
                                       final bytes = await picked.readAsBytes();
+                                    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+                                      setSheetState(() {
+                                        imageUploadError = 'Ukuran gambar maksimal 5 MB';
+                                        isUploadingImage = false;
+                                      });
+                                      return;
+                                    }
                                       final repo = ref.read(
                                         notificationRepositoryProvider,
                                       );

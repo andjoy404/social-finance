@@ -55,24 +55,50 @@ func TestMeReturnsEffectiveFinancePermissions(t *testing.T) {
 			email:       "ketua-001@local.com",
 			wantRole:    "pengurus",
 			wantJabatan: "ketua",
-			want:        []string{"finance.read", "finance.create", "finance.update", "finance.approve", "notification.manage", "notification.read"},
+			want: []string{
+				"finance.read", "finance.create", "finance.update", "finance.approve",
+				"notification.manage", "notification.read",
+				"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
+				"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
+				"banner_templates.read", "banner_templates.manage",
+				"organization.read", "organization.contact.read",
+			},
 		},
 		{
 			email:       "wakil-ketua-001@local.com",
 			wantRole:    "pengurus",
 			wantJabatan: "wakil_ketua",
-			want:        []string{"finance.read", "finance.create", "finance.update", "finance.approve", "notification.read"},
+			want: []string{
+				"finance.read", "finance.create", "finance.update", "finance.approve",
+				"notification.read",
+				"activities.read", "announcements.read", "banner_templates.read", "organization.read",
+			},
 		},
 		{
 			email:       "sekretaris-001@local.com",
 			wantRole:    "pengurus",
 			wantJabatan: "sekretaris",
-			want:        []string{"finance.read", "finance.create", "notification.read"},
+			want: []string{
+				"finance.read", "finance.create", "notification.read",
+				"activities.read", "announcements.read", "banner_templates.read", "organization.read", "organization.contact.read",
+			},
+		},
+		{
+			email:       "bendahara-001@local.com",
+			wantRole:    "pengurus",
+			wantJabatan: "bendahara",
+			want: []string{
+				"finance.read", "finance.create", "finance.update", "finance.approve",
+				"notification.read",
+				"activities.read", "announcements.read", "banner_templates.read", "organization.read",
+			},
 		},
 		{
 			email:    "warga.rt01@local.com",
 			wantRole: "warga",
-			want:     []string{"finance.read"},
+			want: []string{
+				"finance.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read",
+			},
 		},
 	}
 
@@ -232,7 +258,14 @@ func TestMeSystemSuperAdminUsesExistingPermissionBypass(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &profile); err != nil {
 		t.Fatalf("decode /auth/me response: %v", err)
 	}
-	want := []string{"finance.read", "finance.create", "finance.update", "finance.approve", "notification.manage", "notification.read"}
+	want := []string{
+		"finance.read", "finance.create", "finance.update", "finance.approve",
+		"notification.manage", "notification.read",
+		"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
+		"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
+		"banner_templates.read", "banner_templates.manage",
+		"organization.read", "organization.contact.read",
+	}
 	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
 		t.Fatalf("super admin effective_permissions = %v, want %v", profile.EffectivePermissions, want)
 	}
@@ -290,7 +323,14 @@ func TestMeKetuaWithWargaRoleGetsEffectiveFinancePermissions(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &profile); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	want := []string{"finance.read", "finance.create", "finance.update", "finance.approve", "notification.manage", "notification.read"}
+	want := []string{
+		"finance.read", "finance.create", "finance.update", "finance.approve",
+		"notification.manage", "notification.read",
+		"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
+		"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
+		"banner_templates.read", "banner_templates.manage",
+		"organization.read", "organization.contact.read",
+	}
 	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
 		t.Fatalf("effective_permissions = %v, want %v", profile.EffectivePermissions, want)
 	}

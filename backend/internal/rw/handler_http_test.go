@@ -1,11 +1,19 @@
 package rw
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
+
+	"social-finance/internal/auth"
+	"social-finance/internal/storage"
 )
 
 // --- Test handleError: ErrRWAccessDenied → HTTP 403 ---
@@ -231,4 +239,39 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// --- Test UploadProof: oversized multipart rejected before service/DB ---
+
+func TestUploadProofRejectsOversizedFile(t *testing.T) {
+	h := &Handler{storage: storage.NewMockStorage()}
+	r := chi.NewRouter()
+	r.Post("/api/v1/rw/{rwId}/kas/transactions/{id}/proof", h.UploadProof)
+
+	payload := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 5*1024*1024)...)
+	t.Logf("payload bytes = %d", len(payload))
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	fw, err := mw.CreateFormFile("file", "big.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rw/rw-1/kas/transactions/tx-1/proof", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	ac := &auth.AuthContext{UserID: "test-rw-user", TenantRole: auth.RolePengurus}
+	req = req.WithContext(context.WithValue(req.Context(), auth.AuthContextKey, ac))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for 5 MiB+1 file, got %d: %s", rec.Code, rec.Body.String())
+	}
 }

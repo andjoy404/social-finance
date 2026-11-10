@@ -15,6 +15,7 @@ import {
   LinkOutlined,
   ThunderboltOutlined,
   ReloadOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import {
   CommunityAnnouncement,
@@ -51,6 +52,7 @@ export function AnnouncementManagement() {
   const [showModal, setShowModal] = useState(false)
   const [editingAnnouncement, setEditingAnnouncement] = useState<CommunityAnnouncement | null>(null)
   const [selectedTemplateForCreate, setSelectedTemplateForCreate] = useState<BannerTemplate | null>(null)
+  const [viewingAnnouncement, setViewingAnnouncement] = useState<CommunityAnnouncement | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
   const [total, setTotal] = useState(0)
@@ -180,7 +182,7 @@ export function AnnouncementManagement() {
       <PageHeader
         surface
         icon={<NotificationOutlined />}
-        title="Pengumuman & Banner RT"
+        title="Pengumuman"
         subtitle="Publikasikan pengumuman warga dan kelola banner informasi di Beranda"
         actions={
           canManage ? (
@@ -325,82 +327,107 @@ export function AnnouncementManagement() {
                     </div>
 
                     {ann.image_url && (
-                      <CommunityImage
-                        src={ann.image_url}
-                        alt={`Gambar pengumuman ${ann.title}`}
-                        style={{ width: 80, height: 60, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
-                      />
+                      <div
+                        style={{
+                          width: 90,
+                          height: 65,
+                          borderRadius: 8,
+                          overflow: 'hidden',
+                          background: 'var(--sf-surface-subtle)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          border: '1px solid var(--sf-border-subtle)',
+                        }}
+                      >
+                        <CommunityImage
+                          src={ann.image_url}
+                          alt={`Gambar pengumuman ${ann.title}`}
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
+                      </div>
                     )}
                   </div>
 
-                  {/* Actions Bar (managers only) */}
-                  {canManage && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: 8,
-                        paddingTop: 12,
-                        borderTop: '1px solid var(--sf-border)',
-                        justifyContent: 'flex-end',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                      }}
+                  {/* Actions Bar */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 8,
+                      paddingTop: 12,
+                      borderTop: '1px solid var(--sf-border)',
+                      justifyContent: 'flex-end',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="sf-btn sf-btn-outline"
+                      onClick={() => setViewingAnnouncement(ann)}
+                      style={{ padding: '4px 10px', fontSize: 12 }}
                     >
-                      {isDraft && (
+                      <EyeOutlined /> Lihat Detail
+                    </button>
+                    {canManage && (
+                      <>
+                        {isDraft && (
+                          <button
+                            type="button"
+                            className="sf-btn sf-btn-outline"
+                            onClick={() => handlePublish(ann.id, false)}
+                            style={{ padding: '4px 10px', fontSize: 12 }}
+                          >
+                            <CheckOutlined /> Publikasikan
+                          </button>
+                        )}
+                        {canRepublish && (
+                          <button
+                            type="button"
+                            className="sf-btn sf-btn-outline"
+                            onClick={() => handlePublish(ann.id, true)}
+                            style={{ padding: '4px 10px', fontSize: 12 }}
+                            title="Terbitkan ulang (perbarui snapshot konten & banner)"
+                          >
+                            <CheckOutlined /> Terbitkan Ulang
+                          </button>
+                        )}
+                        {(ann.status === 'active' || ann.status === 'scheduled') && (
+                          <button
+                            type="button"
+                            className="sf-btn sf-btn-outline"
+                            onClick={() => handleArchive(ann.id)}
+                            style={{ padding: '4px 10px', fontSize: 12 }}
+                          >
+                            <InboxOutlined /> Arsipkan
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="sf-btn sf-btn-outline"
-                          onClick={() => handlePublish(ann.id, false)}
+                          onClick={() => {
+                            setEditingAnnouncement(ann)
+                            setSelectedTemplateForCreate(null)
+                            setShowModal(true)
+                          }}
                           style={{ padding: '4px 10px', fontSize: 12 }}
                         >
-                          <CheckOutlined /> Publikasikan
+                          <EditOutlined /> Ubah
                         </button>
-                      )}
-                      {canRepublish && (
-                        <button
-                          type="button"
-                          className="sf-btn sf-btn-outline"
-                          onClick={() => handlePublish(ann.id, true)}
-                          style={{ padding: '4px 10px', fontSize: 12 }}
-                          title="Terbitkan ulang (perbarui snapshot konten & banner)"
-                        >
-                          <CheckOutlined /> Terbitkan Ulang
-                        </button>
-                      )}
-                      {(ann.status === 'active' || ann.status === 'scheduled') && (
-                        <button
-                          type="button"
-                          className="sf-btn sf-btn-outline"
-                          onClick={() => handleArchive(ann.id)}
-                          style={{ padding: '4px 10px', fontSize: 12 }}
-                        >
-                          <InboxOutlined /> Arsipkan
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="sf-btn sf-btn-outline"
-                        onClick={() => {
-                          setEditingAnnouncement(ann)
-                          setSelectedTemplateForCreate(null)
-                          setShowModal(true)
-                        }}
-                        style={{ padding: '4px 10px', fontSize: 12 }}
-                      >
-                        <EditOutlined /> Ubah
-                      </button>
-                      {isDraft && (
-                        <button
-                          type="button"
-                          className="sf-btn sf-btn-outline"
-                          onClick={() => handleDelete(ann.id)}
-                          style={{ padding: '4px 10px', fontSize: 12, color: 'var(--sf-danger)' }}
-                        >
-                          <DeleteOutlined /> Hapus
-                        </button>
-                      )}
-                    </div>
-                  )}
+                        {isDraft && (
+                          <button
+                            type="button"
+                            className="sf-btn sf-btn-outline"
+                            onClick={() => handleDelete(ann.id)}
+                            style={{ padding: '4px 10px', fontSize: 12, color: 'var(--sf-danger)' }}
+                          >
+                            <DeleteOutlined /> Hapus
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
                 )
               })}
@@ -434,7 +461,7 @@ export function AnnouncementManagement() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))',
             gap: 20,
           }}
         >
@@ -524,6 +551,116 @@ export function AnnouncementManagement() {
             else loadData()
           }}
         />
+      )}
+
+      {/* Detail Modal */}
+      {viewingAnnouncement && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16,
+          }}
+          onClick={() => setViewingAnnouncement(null)}
+        >
+          <div
+            className="sf-card"
+            style={{
+              width: '100%',
+              maxWidth: 600,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: 24,
+              borderRadius: 12,
+              background: 'var(--sf-surface)',
+              backgroundColor: 'var(--sf-surface)',
+              color: 'var(--sf-text)',
+              border: '1px solid var(--sf-border)',
+              boxShadow: 'var(--sf-shadow-md)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  {getStatusBadge(viewingAnnouncement.status)}
+                  <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                    Prioritas {viewingAnnouncement.priority}
+                  </span>
+                </div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--sf-text)' }}>
+                  {viewingAnnouncement.title}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingAnnouncement(null)}
+                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--sf-text-muted)' }}
+              >
+                ×
+              </button>
+            </div>
+
+            {viewingAnnouncement.image_url && (
+              <div
+                style={{
+                  width: '100%',
+                  maxHeight: 280,
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  background: 'var(--sf-surface-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                  border: '1px solid var(--sf-border-subtle)',
+                }}
+              >
+                <CommunityImage
+                  src={viewingAnnouncement.image_url}
+                  alt={viewingAnnouncement.title}
+                  style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }}
+                />
+              </div>
+            )}
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sf-text-muted)', marginBottom: 4 }}>
+                ISI PENGUMUMAN
+              </div>
+              <p style={{ margin: 0, fontSize: 14, color: 'var(--sf-text)', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+                {viewingAnnouncement.body}
+              </p>
+            </div>
+
+            {formatScheduleWindow(viewingAnnouncement.scheduled_start, viewingAnnouncement.scheduled_end) && (
+              <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginBottom: 12 }}>
+                <strong>Jadwal Tayang:</strong> {formatScheduleWindow(viewingAnnouncement.scheduled_start, viewingAnnouncement.scheduled_end)}
+              </div>
+            )}
+
+            {viewingAnnouncement.deep_link && (
+              <div style={{ fontSize: 12, color: 'var(--sf-accent)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <LinkOutlined /> Menuju menu: <strong>{viewingAnnouncement.deep_link}</strong>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 16, borderTop: '1px solid var(--sf-border)' }}>
+              <button
+                type="button"
+                className="sf-btn sf-btn-outline"
+                onClick={() => setViewingAnnouncement(null)}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

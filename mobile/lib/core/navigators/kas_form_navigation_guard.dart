@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 
 /// One navigation guard shared by form back/pop and shell navigation.
@@ -26,6 +25,7 @@ class KasFormNavigationGuard {
     '/home/iuran/pembayaran',
     '/home/warga/baru',
     '/home/warga/baru/petugas',
+    '/home/warga/edit',
     '/home/warga/edit/household',
     '/home/warga/edit/petugas',
   };

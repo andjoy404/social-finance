@@ -889,7 +889,19 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          // Navigate to Profile tab -> open "Kelola Notifikasi"
+          // Navigate to Profile tab -> open "Kelola Notifikasi".
+          // The bottom nav is horizontally scrollable with 8+ tabs; the
+          // Profil item is off-screen until scrolled into view.
+          final bottomNavScrollable = find.descendant(
+            of: find.byType(BottomAppBar),
+            matching: find.byType(Scrollable),
+          ).first;
+          await tester.scrollUntilVisible(
+            find.byKey(const Key('nav-item-profil')),
+            200,
+            scrollable: bottomNavScrollable,
+          );
+          await tester.pumpAndSettle();
           await tester.tap(find.byKey(const Key('nav-item-profil')));
           await tester.pumpAndSettle();
 

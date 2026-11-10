@@ -30,6 +30,10 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Ukuran file maksimal 5 MB')
+      return
+    }
     const session = getSessionPair()
     if (!session?.accessToken) return
 
@@ -107,6 +111,11 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
           overflowY: 'auto',
           padding: 24,
           borderRadius: 12,
+          background: 'var(--sf-surface)',
+          backgroundColor: 'var(--sf-surface)',
+          color: 'var(--sf-text)',
+          border: '1px solid var(--sf-border)',
+          boxShadow: 'var(--sf-shadow-md)',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>

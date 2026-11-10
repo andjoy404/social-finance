@@ -50,11 +50,13 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 	if summary1.PositionMembershipsCount != 18 {
 		t.Errorf("expected 18 position memberships, got %d", summary1.PositionMembershipsCount)
 	}
-	if summary1.PermissionTypesCount != 14 {
-		t.Errorf("expected 14 permission types, got %d", summary1.PermissionTypesCount)
+	// Expected counts after the community permission expansion
+	// (migration 068/070 add community permissions; seed expands accordingly).
+	if summary1.PermissionTypesCount != 30 {
+		t.Errorf("expected 30 permission types, got %d", summary1.PermissionTypesCount)
 	}
-	if summary1.PositionPermissionsCount != 50 {
-		t.Errorf("expected 50 position permissions, got %d", summary1.PositionPermissionsCount)
+	if summary1.PositionPermissionsCount != 99 {
+		t.Errorf("expected 99 position permissions, got %d", summary1.PositionPermissionsCount)
 	}
 	if summary1.BillsCount != 0 {
 		t.Errorf("expected 0 bills, got %d", summary1.BillsCount)
@@ -157,21 +159,21 @@ func TestDevSeed_RestoredRT002Residents(t *testing.T) {
 		{
 			ID:       "aaaa0002-0001-4f66-8000-000000000001",
 			FullName: "Aqueen Alsava Khaylila",
-			Phone:    "+6281200000003",
+			Phone:    "081200000003",
 			NIK:      "3175000000000003",
 			Email:    strPtr("aqueen.alsava@local.com"),
 		},
 		{
 			ID:       "aaaa0002-0002-4f66-8000-000000000002",
 			FullName: "Muhamad Azis",
-			Phone:    "+6281200000004",
+			Phone:    "081200000004",
 			NIK:      "3175000000000004",
 			Email:    strPtr("muhamad.azis@local.com"),
 		},
 		{
 			ID:       "aaaa0002-0003-4f66-8000-000000000003",
 			FullName: "Namah",
-			Phone:    "+6281200000005",
+			Phone:    "081200000005",
 			NIK:      "3175000000000005",
 			Email:    nil,
 		},

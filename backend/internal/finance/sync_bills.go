@@ -129,7 +129,7 @@ func SyncHouseholdOccupancyBills(ctx context.Context, tx *sql.Tx, rtID, occupanc
 					VALUES ($1, $2, $3, $4, $5, $6, 'unpaid', true, $7)
 					ON CONFLICT (household_occupancy_id, due_id, period) DO UPDATE
 					SET is_obligatory = EXCLUDED.is_obligatory
-					WHERE bills.status = 'unpaid'
+					WHERE bills.status IN ('unpaid', 'partial')
 					RETURNING (xmax = 0)
 				`, rtID, occID, d.id, d.amount, period, monthDueDate, isObligatory).Scan(&isInserted)
 				if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -184,7 +184,7 @@ func SyncHouseholdOccupancyBills(ctx context.Context, tx *sql.Tx, rtID, occupanc
 					VALUES ($1, $2, $3, $4, $5, $6, 'unpaid', true, $7)
 					ON CONFLICT (household_occupancy_id, due_id, period) DO UPDATE
 					SET is_obligatory = EXCLUDED.is_obligatory
-					WHERE bills.status = 'unpaid'
+					WHERE bills.status IN ('unpaid', 'partial')
 					RETURNING (xmax = 0)
 				`, rtID, occID, d.id, d.amount, pi.period, pi.dueDate, isObligatory).Scan(&isInserted)
 				if err != nil && !errors.Is(err, sql.ErrNoRows) {

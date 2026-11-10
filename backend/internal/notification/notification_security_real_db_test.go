@@ -51,8 +51,13 @@ func setupNotificationTestPool(t *testing.T) *database.Pool {
 	_, _ = pool.Raw().Exec(`DELETE FROM user_devices`)
 	_, _ = pool.Raw().Exec(`DELETE FROM user_rt_memberships`)
 	_, _ = pool.Raw().Exec(`DELETE FROM users WHERE email LIKE '%@local.com'`)
-	_, _ = pool.Raw().Exec(`DELETE FROM rts WHERE name LIKE 'Notif Int%'`)
-	_, _ = pool.Raw().Exec(`DELETE FROM rws WHERE name LIKE 'RW Test%'`)
+	// Residual test RTs may reference other tables (e.g. households),
+	// which blocks hard delete. Deactivate instead of deleting so the
+	// (rw, rt) partial unique index isn't hit by future runs.
+	_, _ = pool.Raw().Exec(`UPDATE rts SET is_active = false WHERE name LIKE 'Notif Int%' AND is_active = true`)
+	_, _ = pool.Raw().Exec(`DELETE FROM rts WHERE name LIKE 'Notif Int%' AND is_active = false`)
+	_, _ = pool.Raw().Exec(`UPDATE rws SET is_active = false WHERE name LIKE 'RW Test%' AND is_active = true`)
+	_, _ = pool.Raw().Exec(`DELETE FROM rws WHERE name LIKE 'RW Test%' AND is_active = false`)
 
 	t.Cleanup(func() {
 		// Full cleanup after test
@@ -61,8 +66,10 @@ func setupNotificationTestPool(t *testing.T) *database.Pool {
 		_, _ = pool.Raw().Exec(`DELETE FROM user_devices`)
 		_, _ = pool.Raw().Exec(`DELETE FROM user_rt_memberships`)
 		_, _ = pool.Raw().Exec(`DELETE FROM users WHERE email LIKE '%@local.com'`)
-		_, _ = pool.Raw().Exec(`DELETE FROM rts WHERE name LIKE 'Notif Int%'`)
-		_, _ = pool.Raw().Exec(`DELETE FROM rws WHERE name LIKE 'RW Test%'`)
+		_, _ = pool.Raw().Exec(`UPDATE rts SET is_active = false WHERE name LIKE 'Notif Int%' AND is_active = true`)
+		_, _ = pool.Raw().Exec(`DELETE FROM rts WHERE name LIKE 'Notif Int%' AND is_active = false`)
+		_, _ = pool.Raw().Exec(`UPDATE rws SET is_active = false WHERE name LIKE 'RW Test%' AND is_active = true`)
+		_, _ = pool.Raw().Exec(`DELETE FROM rws WHERE name LIKE 'RW Test%' AND is_active = false`)
 	})
 
 	return pool

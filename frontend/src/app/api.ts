@@ -786,6 +786,7 @@ export async function updateHousehold(token: string, id: string, body: ApiUpdate
   })
   const data = await json<ApiHousehold>(res)
   if (!data) throw new ApiError('unexpected', 'Response data missing')
+  notifyIuranDataUpdated()
   return data
 }
 

@@ -14,6 +14,8 @@ import {
   ClockCircleOutlined,
   EnvironmentOutlined,
   AlertOutlined,
+  CloseOutlined,
+  LinkOutlined,
 } from '@ant-design/icons'
 import {
   apiGetHomeDashboard,
@@ -30,6 +32,7 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [activeBannerIdx, setActiveBannerIdx] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [selectedAnnouncementBanner, setSelectedAnnouncementBanner] = useState<CommunityBanner | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -81,6 +84,27 @@ export function Dashboard() {
   const security = data?.security_on_duty
 
   const handleBannerClick = (b: CommunityBanner) => {
+    const title = (b.title ?? '').trim()
+    if (title === 'Pengingat Iuran Warga' || b.source_type === 'iuran_reminder') {
+      navigate('/iuran')
+      return
+    }
+    if (b.source_type === 'activity') {
+      if (b.source_id) {
+        navigate(`/kegiatan/${b.source_id}`)
+        return
+      }
+      if (b.deep_link) {
+        navigate(b.deep_link)
+        return
+      }
+      navigate('/kegiatan')
+      return
+    }
+    if (b.source_type === 'announcement') {
+      setSelectedAnnouncementBanner(b)
+      return
+    }
     if (b.deep_link) {
       navigate(b.deep_link)
     }
@@ -169,11 +193,11 @@ export function Dashboard() {
                 }}
               >
                 {banner.image_url && (
-                  <div style={{ flex: '0 0 auto', width: 120, height: 80, borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.18)' }}>
+                  <div style={{ flex: '0 0 auto', width: 120, height: 80, borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.18)', background: 'var(--sf-surface-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <CommunityImage
                       src={banner.image_url}
                       alt={bannerAlt}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
                   </div>
                 )}
@@ -536,22 +560,67 @@ export function Dashboard() {
         </div>
 
         {orgNodes.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, alignItems: 'center' }}>
-            {/* Group nodes by level — render every level the backend provides */}
-            {[...new Set(orgNodes.map((n) => n.level))].sort((a, b) => a - b).map((lvl) => {
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+            <style>{`
+              @keyframes sfOrgFlowDash {
+                to { stroke-dashoffset: -16; }
+              }
+              .sf-org-connector-line {
+                animation: sfOrgFlowDash 1.2s linear infinite;
+              }
+              @media (prefers-reduced-motion: reduce) {
+                .sf-org-connector-line {
+                  animation: none !important;
+                }
+              }
+            `}</style>
+            {/* Group nodes by level — render every level the backend provides with animated connectors */}
+            {[...new Set(orgNodes.map((n) => n.level))].sort((a, b) => a - b).map((lvl, idx) => {
               const nodesAtLevel = orgNodes.filter((n) => n.level === lvl)
               if (nodesAtLevel.length === 0) return null
               return (
-                <div
-                  key={lvl}
-                  style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    justifyContent: 'center',
-                    gap: 16,
-                    width: '100%',
-                  }}
-                >
+                <div key={lvl} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  {idx > 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        margin: '2px 0 10px 0',
+                        width: '100%',
+                        maxWidth: 240,
+                      }}
+                    >
+                      <svg
+                        width="100%"
+                        height="26"
+                        viewBox="0 0 100 26"
+                        preserveAspectRatio="none"
+                        style={{ overflow: 'visible' }}
+                      >
+                        <line
+                          x1="50"
+                          y1="0"
+                          x2="50"
+                          y2="20"
+                          stroke="var(--sf-accent)"
+                          strokeWidth="2"
+                          strokeDasharray="4 4"
+                          className="sf-org-connector-line"
+                        />
+                        <polygon points="46,20 54,20 50,26" fill="var(--sf-accent)" />
+                      </svg>
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      justifyContent: 'center',
+                      gap: 16,
+                      width: '100%',
+                    }}
+                  >
                   {nodesAtLevel.map((node) => (
                     <div
                       key={node.position}
@@ -608,8 +677,9 @@ export function Dashboard() {
                     </div>
                   ))}
                 </div>
-              )
-            })}
+              </div>
+            )
+          })}
           </div>
         ) : (
           <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--sf-text-muted)' }}>
@@ -617,6 +687,122 @@ export function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Announcement Detail Modal from Banner */}
+      {selectedAnnouncementBanner && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 16,
+          }}
+          onClick={() => setSelectedAnnouncementBanner(null)}
+        >
+          <div
+            className="sf-card"
+            style={{
+              width: '100%',
+              maxWidth: 600,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: 24,
+              borderRadius: 12,
+              background: 'var(--sf-surface)',
+              backgroundColor: 'var(--sf-surface)',
+              color: 'var(--sf-text)',
+              border: '1px solid var(--sf-border)',
+              boxShadow: 'var(--sf-shadow-md)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <Badge variant="blue">PENGUMUMAN</Badge>
+                  {selectedAnnouncementBanner.is_pinned && <Badge variant="amber">PENTING</Badge>}
+                </div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--sf-text)' }}>
+                  {selectedAnnouncementBanner.title}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedAnnouncementBanner(null)}
+                style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--sf-text-muted)' }}
+              >
+                <CloseOutlined style={{ fontSize: 18 }} />
+              </button>
+            </div>
+
+            {selectedAnnouncementBanner.image_url && (
+              <div
+                style={{
+                  width: '100%',
+                  maxHeight: 280,
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  background: 'var(--sf-surface-subtle)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                  border: '1px solid var(--sf-border-subtle)',
+                }}
+              >
+                <CommunityImage
+                  src={selectedAnnouncementBanner.image_url}
+                  alt={selectedAnnouncementBanner.title}
+                  style={{ width: '100%', maxHeight: 280, objectFit: 'contain' }}
+                />
+              </div>
+            )}
+
+            {selectedAnnouncementBanner.body && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--sf-text-muted)', marginBottom: 4 }}>
+                  ISI PENGUMUMAN
+                </div>
+                <p style={{ margin: 0, fontSize: 14, color: 'var(--sf-text)', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+                  {selectedAnnouncementBanner.body}
+                </p>
+              </div>
+            )}
+
+            {selectedAnnouncementBanner.deep_link && selectedAnnouncementBanner.deep_link !== '/pengumuman' && (
+              <div style={{ fontSize: 13, marginBottom: 16 }}>
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  onClick={() => {
+                    const link = selectedAnnouncementBanner.deep_link!
+                    setSelectedAnnouncementBanner(null)
+                    navigate(link)
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <LinkOutlined />
+                  <span>Buka Menu Terkait</span>
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 16, borderTop: '1px solid var(--sf-border)' }}>
+              <button
+                type="button"
+                className="sf-btn sf-btn-outline"
+                onClick={() => setSelectedAnnouncementBanner(null)}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

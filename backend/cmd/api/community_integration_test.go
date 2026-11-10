@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -48,6 +49,7 @@ func setupCommunityRouter(t *testing.T, rtIDs []string) (*database.Pool, http.Ha
 	applyCommunityMigration([]string{
 		"068_community_activities_announcements_banners.up.sql",
 		"069_community_banner_dedup_and_idempotency.up.sql",
+		"070_community_delete_permissions.up.sql",
 	})
 
 	auth.SigningSecret = []byte("test-secret-key-32-chars-long-ok!!")
@@ -328,5 +330,217 @@ func TestCommunity_IuranReminderBanner(t *testing.T) {
 				t.Errorf("expected non-empty title and body for iuran reminder banner")
 			}
 		}
+	}
+}
+
+func TestCommunity_KetuaRTFullCRUDAndRBAC(t *testing.T) {
+	pool, router := setupCommunityRouter(t, []string{commRTUrena})
+	rtID := commRTUrena
+
+	// 1. Ketua RT user (role: pengurus, jabatan: ketua)
+	_, ketuaToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKetua)
+	// 2. Regular Warga user (role: warga, no jabatan)
+	_, wargaToken := createCommunityTestUser(t, pool, rtID, auth.RoleWarga, "")
+
+	// Verify /api/v1/auth/me returns activities.* and announcements.* in effective_permissions
+	meReq := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	meReq.Header.Set("Authorization", "Bearer "+ketuaToken)
+	meRec := httptest.NewRecorder()
+	router.ServeHTTP(meRec, meReq)
+	if meRec.Code != http.StatusOK {
+		t.Fatalf("ketua /auth/me failed with status %d: %s", meRec.Code, meRec.Body.String())
+	}
+	var meResp struct {
+		EffectivePermissions []string `json:"effective_permissions"`
+	}
+	if err := json.Unmarshal(meRec.Body.Bytes(), &meResp); err != nil {
+		t.Fatalf("unmarshal /auth/me resp: %v", err)
+	}
+	permMap := make(map[string]bool)
+	for _, p := range meResp.EffectivePermissions {
+		permMap[p] = true
+	}
+	expectedPerms := []string{
+		"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
+		"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
+		"banner_templates.read", "banner_templates.manage", "organization.read",
+	}
+	for _, exp := range expectedPerms {
+		if !permMap[exp] {
+			t.Errorf("ketua missing expected effective_permission: %s", exp)
+		}
+	}
+
+	// ----------------------------------------------------
+	// Kegiatan (Activity) Full Lifecycle by Ketua RT
+	// ----------------------------------------------------
+	// A. Create Draft Activity
+	actPayload := map[string]any{
+		"title":       "Rapat RT Bulanan",
+		"description": "Pembahasan iuran dan kebersihan",
+		"starts_at":   time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		"location":    "Balai Warga",
+	}
+	actJSON, _ := json.Marshal(actPayload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/activities", bytes.NewReader(actJSON))
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("ketua create activity failed: %d: %s", rec.Code, rec.Body.String())
+	}
+	var actCreated map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &actCreated)
+	actID, ok := actCreated["id"].(string)
+	if !ok || actID == "" {
+		t.Fatalf("created activity missing id: %v", actCreated)
+	}
+
+	// B. Warga cannot update activity (Forbidden 403)
+	updatePayload := map[string]any{
+		"title":     "Rapat RT Diubah Warga",
+		"starts_at": time.Now().Add(30 * time.Hour).Format(time.RFC3339),
+	}
+	updJSON, _ := json.Marshal(updatePayload)
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/activities/"+actID, bytes.NewReader(updJSON))
+	req.Header.Set("Authorization", "Bearer "+wargaToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when warga updates activity, got %d", rec.Code)
+	}
+
+	// C. Ketua RT updates activity
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/activities/"+actID, bytes.NewReader(updJSON))
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ketua update activity failed: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// D. Ketua RT reads activity detail
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/activities/"+actID, nil)
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ketua get activity detail failed: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// E. Warga cannot delete activity (Forbidden 403)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/activities/"+actID, nil)
+	req.Header.Set("Authorization", "Bearer "+wargaToken)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when warga deletes activity, got %d", rec.Code)
+	}
+
+	// F. Ketua RT deletes draft activity (No Content 204)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/activities/"+actID, nil)
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("ketua delete draft activity failed: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// ----------------------------------------------------
+	// Pengumuman (Announcement) Full Lifecycle by Ketua RT
+	// ----------------------------------------------------
+	// A. Create Draft Announcement
+	annPayload := map[string]any{
+		"title": "Pengumuman Kerja Bakti",
+		"body":  "Mohon seluruh warga hadir di lapangan RW",
+	}
+	annJSON, _ := json.Marshal(annPayload)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/announcements", bytes.NewReader(annJSON))
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("ketua create announcement failed: %d: %s", rec.Code, rec.Body.String())
+	}
+	var annCreated map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &annCreated)
+	annID, ok := annCreated["id"].(string)
+	if !ok || annID == "" {
+		t.Fatalf("created announcement missing id: %v", annCreated)
+	}
+
+	// B. Warga cannot delete announcement (Forbidden 403)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/announcements/"+annID, nil)
+	req.Header.Set("Authorization", "Bearer "+wargaToken)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when warga deletes announcement, got %d", rec.Code)
+	}
+
+	// C. Ketua RT updates announcement
+	annUpdate := map[string]any{
+		"title": "Pengumuman Kerja Bakti Diperbarui",
+		"body":  "Dimulai pukul 07.00 WIB",
+	}
+	annUpdJSON, _ := json.Marshal(annUpdate)
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/announcements/"+annID, bytes.NewReader(annUpdJSON))
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ketua update announcement failed: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// D. Ketua RT reads announcement detail
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/announcements/"+annID, nil)
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ketua get announcement detail failed: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// E. Ketua RT deletes draft announcement (No Content 204)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/announcements/"+annID, nil)
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("ketua delete draft announcement failed: %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCommunity_UploadImageSizeValidation(t *testing.T) {
+	pool, router := setupCommunityRouter(t, []string{commRTUrena})
+	rtID := commRTUrena
+	_, ketuaToken := createCommunityTestUser(t, pool, rtID, auth.RolePengurus, auth.JabatanKetua)
+
+	// Create a payload larger than 5MB
+	largeBody := bytes.Repeat([]byte("A"), 5*1024*1024+100)
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+	part, err := w.CreateFormFile("file", "large.jpg")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	_, _ = part.Write(largeBody)
+	_ = w.WriteField("category", "activity")
+	_ = w.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/community/upload", &b)
+	req.Header.Set("Authorization", "Bearer "+ketuaToken)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Expect validation error (400) or file size limit error
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 validation error for >5MB file, got status %d: %s", rec.Code, rec.Body.String())
 	}
 }

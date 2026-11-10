@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'package:social_finance/core/widgets/app_badge.dart';
-import 'package:social_finance/features/dashboard/data/models/community_models.dart';
 
 const _statusLabels = {
   'active': 'Aktif',

@@ -1339,8 +1339,8 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	var uploadedKey string
 
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+		if err := r.ParseMultipartForm(5 << 20); err != nil {
 			httpx.WriteValidationError(targetW, "invalid multipart form or file too large (max 5MB)", nil)
 			return
 		}
@@ -1487,8 +1487,8 @@ func (h *Handler) CreateMultiPeriodPayment(w http.ResponseWriter, r *http.Reques
 	var uploadedKey string
 
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+		if err := r.ParseMultipartForm(5 << 20); err != nil {
 			httpx.WriteValidationError(targetW, "invalid multipart form or file too large (max 5MB)", nil)
 			return
 		}
@@ -1596,8 +1596,8 @@ func (h *Handler) UploadPaymentProof(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
 		httpx.WriteValidationError(w, "invalid multipart form or file too large (max 5MB)", nil)
 		return
 	}

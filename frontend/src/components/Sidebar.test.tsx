@@ -185,10 +185,10 @@ describe('Sidebar — AndJoy visual language', () => {
     expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
   })
 
-  it('shows Warga, Monitoring, and Notifikasi for a security officer', () => {
+  it('shows Warga, Monitoring (Sampah), and Notifikasi for a security officer', () => {
     renderSidebar(mockSecurityUser)
     expect(screen.getByText('Warga')).toBeInTheDocument()
-    expect(screen.getByText('Monitoring')).toBeInTheDocument()
+    expect(screen.getByText('Sampah')).toBeInTheDocument()
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
     expect(screen.queryByText('Beranda')).not.toBeInTheDocument()
     expect(screen.queryByText('Kas')).not.toBeInTheDocument()
@@ -196,9 +196,9 @@ describe('Sidebar — AndJoy visual language', () => {
     expect(screen.queryByText('Lokasi Dana')).not.toBeInTheDocument()
   })
 
-  it('shows Monitoring for Ketua RT alongside normal RT nav items', () => {
+  it('shows Sampah for Ketua RT alongside normal RT nav items', () => {
     renderSidebar(mockKetuaRTUser)
-    expect(screen.getByText('Monitoring')).toBeInTheDocument()
+    expect(screen.getByText('Sampah')).toBeInTheDocument()
     expect(screen.getByText('Beranda')).toBeInTheDocument()
     expect(screen.getByText('Warga')).toBeInTheDocument()
   })
@@ -215,9 +215,9 @@ describe('Sidebar — AndJoy visual language', () => {
     expect(screen.getByRole('link', { name: /Notifikasi/ })).toBeInTheDocument()
   })
 
-  it('shows only Monitoring for a cleaning officer', () => {
+  it('shows only Sampah for a cleaning officer', () => {
     renderSidebar(mockCleaningUser)
-    expect(screen.getByText('Monitoring')).toBeInTheDocument()
+    expect(screen.getByText('Sampah')).toBeInTheDocument()
     expect(screen.queryByText('Beranda')).not.toBeInTheDocument()
     expect(screen.queryByText('Kas')).not.toBeInTheDocument()
     expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
@@ -313,12 +313,12 @@ describe('Sidebar — navigation items', () => {
     expect(buttons.length).toBe(1) // pin toggle
   })
 
-  it('has nav items for SuperAdmin including Keuangan, Kegiatan, Kelola Pengumuman, and Notifikasi', () => {
+  it('has nav items for SuperAdmin including Keuangan, Kegiatan, Pengumuman, and Notifikasi', () => {
     renderSidebar(mockSuperAdminUser)
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(11) // Beranda, Keuangan, Kegiatan, Kelola Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Notifikasi, Kelola RT, Kelola RW
+    expect(links.length).toBe(11) // Beranda, Keuangan, Kegiatan, Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Notifikasi, Kelola RT, Kelola RW
     expect(buttons.length).toBe(1) // pin toggle
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
   })

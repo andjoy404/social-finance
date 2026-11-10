@@ -115,10 +115,7 @@ class _AnnouncementFormScreenState
     super.dispose();
   }
 
-  Future<DateTime?> _pickDateTime(
-    BuildContext context,
-    DateTime? initial,
-  ) async {
+  Future<DateTime?> _pickDateTime(DateTime? initial) async {
     final now = DateTime.now();
     final base = initial ?? now.add(const Duration(days: 1));
     final date = await showDatePicker(
@@ -145,6 +142,17 @@ class _AnnouncementFormScreenState
     );
     if (picked == null || !mounted) return;
 
+    final file = File(picked.path);
+    final size = await file.length();
+    if (size > 5 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ukuran gambar maksimal 5 MB')),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _isUploadingImage = true;
       _error = null;
@@ -152,7 +160,7 @@ class _AnnouncementFormScreenState
     try {
       final repo = ref.read(communityRepositoryProvider);
       final res = await repo.uploadCommunityImage(
-        File(picked.path),
+        file,
         'announcement',
       );
       final url = res['image_url'];
@@ -412,12 +420,10 @@ class _AnnouncementFormScreenState
                   label: 'Mulai tayang',
                   value: _scheduledStart,
                   onPick: () async {
-                    final picked = await _pickDateTime(
-                      context,
-                      _scheduledStart,
-                    );
-                    if (picked != null)
+                    final picked = await _pickDateTime(_scheduledStart);
+                    if (picked != null) {
                       setState(() => _scheduledStart = picked);
+                    }
                   },
                   onClear: () => setState(() => _scheduledStart = null),
                 ),
@@ -426,8 +432,10 @@ class _AnnouncementFormScreenState
                   label: 'Berakhir tayang',
                   value: _scheduledEnd,
                   onPick: () async {
-                    final picked = await _pickDateTime(context, _scheduledEnd);
-                    if (picked != null) setState(() => _scheduledEnd = picked);
+                    final picked = await _pickDateTime(_scheduledEnd);
+                    if (picked != null) {
+                      setState(() => _scheduledEnd = picked);
+                    }
                   },
                   onClear: () => setState(() => _scheduledEnd = null),
                 ),

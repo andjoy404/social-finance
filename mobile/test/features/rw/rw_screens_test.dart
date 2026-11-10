@@ -515,7 +515,7 @@ void main() {
       expect(scaffold.drawer, isNotNull);
 
       // Verify each item inside BottomAppBar is wrapped in Expanded (equal width division)
-      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(3));
+      expect(find.descendant(of: find.byType(BottomAppBar), matching: find.byType(Expanded)), findsNWidgets(4));
 
       // Open drawer via ScaffoldState and verify drawer contents
       final scaffoldState = tester.state<ScaffoldState>(find.byType(Scaffold));

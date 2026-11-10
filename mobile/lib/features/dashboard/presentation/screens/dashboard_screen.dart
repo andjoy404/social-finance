@@ -235,22 +235,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
               return InkWell(
                 onTap: () {
+                  final title = banner.title.trim();
+                  if (title == 'Pengingat Iuran Warga' || isIuran) {
+                    context.push('/home/iuran');
+                    return;
+                  }
+                  if (banner.sourceType == 'announcement' &&
+                      banner.sourceId != null &&
+                      banner.sourceId!.isNotEmpty) {
+                    context.push('/home/pengumuman/${banner.sourceId}');
+                    return;
+                  }
+                  if (banner.sourceType == 'activity' &&
+                      banner.sourceId != null &&
+                      banner.sourceId!.isNotEmpty) {
+                    context.push('/home/kegiatan/${banner.sourceId}');
+                    return;
+                  }
                   final action = banner.actionUrl;
                   if (action != null && action.isNotEmpty) {
                     final target = action.startsWith('/home')
                         ? action
                         : '/home$action';
                     context.push(target);
-                  } else if (banner.sourceType == 'announcement' &&
-                      banner.sourceId != null &&
-                      banner.sourceId!.isNotEmpty) {
-                    context.push('/home/pengumuman/${banner.sourceId}');
-                  } else if (banner.sourceType == 'activity' &&
-                      banner.sourceId != null &&
-                      banner.sourceId!.isNotEmpty) {
-                    context.push('/home/kegiatan/${banner.sourceId}');
-                  } else if (isIuran) {
-                    context.push('/home/keuangan');
                   }
                 },
                 borderRadius: BorderRadius.circular(AppRadius.base),
@@ -374,14 +381,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             const SizedBox(width: 12),
                             ClipRRect(
                               borderRadius: BorderRadius.circular(AppRadius.sm),
-                              child: CommunityImage(
-                                imageRef: banner.imageUrl!,
+                              child: Container(
                                 width: 92,
                                 height: 92,
-                                fit: BoxFit.cover,
-                                alt: banner.sourceType == 'activity'
-                                    ? 'Banner kegiatan'
-                                    : 'Banner pengumuman',
+                                color: isDark
+                                    ? AppColors.darkSurface
+                                    : AppColors.lightSurfaceSubtle,
+                                alignment: Alignment.center,
+                                child: CommunityImage(
+                                  imageRef: banner.imageUrl!,
+                                  width: 92,
+                                  height: 92,
+                                  fit: BoxFit.contain,
+                                  alt: banner.sourceType == 'activity'
+                                      ? 'Banner kegiatan'
+                                      : 'Banner pengumuman',
+                                ),
                               ),
                             ),
                           ],
@@ -664,12 +679,30 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 for (final lvl in sortedLevels) ...[
                   if (lvl > sortedLevels.first) ...[
                     Center(
-                      child: Container(
-                        width: 2,
-                        height: 16,
-                        color: isDark
-                            ? Colors.grey.shade700
-                            : Colors.grey.shade300,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 2,
+                              height: 12,
+                              color: AppColors.accent.withValues(alpha: 0.6),
+                            ),
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: AppColors.accent,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            Container(
+                              width: 2,
+                              height: 12,
+                              color: AppColors.accent.withValues(alpha: 0.6),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -743,6 +776,167 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
+  Color _getJabatanColor(String jabatan) {
+    final normalized = jabatan
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), '_');
+    switch (normalized) {
+      case 'ketua':
+      case 'ketua_rt':
+        return AppColors.accent;
+      case 'wakil_ketua':
+      case 'wakil_ketua_rt':
+        return AppColors.info;
+      case 'sekretaris':
+      case 'sekretaris_rt':
+        return AppColors.success;
+      case 'bendahara':
+      case 'bendahara_rt':
+        return AppColors.warning;
+      case 'keamanan':
+      case 'keamanan_rt':
+      case 'seksi_keamanan':
+      case 'seksi_keamanan_rt':
+        return AppColors.danger;
+      case 'operasional':
+      case 'operasional_rt':
+        return AppColors.info;
+      case 'kebersihan':
+      case 'kebersihan_rt':
+        return AppColors.success;
+      case 'sosial':
+      case 'sosial_rt':
+      case 'seksi_sosial':
+        return AppColors.warning;
+      default:
+        return AppColors.accent;
+    }
+  }
+
+  void _showOrgMemberDetail({
+    required BuildContext context,
+    required String name,
+    required String jabatan,
+    required String? phone,
+    required Color color,
+    required bool isDark,
+  }) {
+    final jNorm = jabatan.trim().toLowerCase();
+    final isKetua = jNorm == 'ketua' || jNorm == 'ketua rt' || jNorm == 'ketua_rt';
+    final safePhone = isKetua ? phone : null;
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: color.withValues(alpha: 0.15),
+                      child: Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                            ),
+                            child: Text(
+                              jabatan.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: color,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            name,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (safePhone != null && safePhone.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.phone_outlined,
+                        size: 20,
+                        color: AppColors.accent,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        safePhone,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Tutup'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildOrgMemberChip({
     required String name,
     required String jabatan,
@@ -750,68 +944,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required ThemeData theme,
     required bool isDark,
   }) {
-    final maxChipWidth = (MediaQuery.of(context).size.width - 96).clamp(
-      120.0,
-      260.0,
-    );
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxChipWidth),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark
-              ? AppColors.darkSurfaceHover
-              : AppColors.lightSurfaceHover,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-          border: Border.all(
-            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-          ),
+    final color = _getJabatanColor(jabatan);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        onTap: () => _showOrgMemberDetail(
+          context: context,
+          name: name,
+          jabatan: jabatan,
+          phone: phone,
+          color: color,
+          isDark: isDark,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircleAvatar(
-              radius: 14,
-              backgroundColor: AppColors.accent.withValues(alpha: 0.15),
-              child: Text(
-                name.isNotEmpty ? name[0].toUpperCase() : '?',
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.accent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: isDark ? 0.18 : 0.12),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(
+              color: color.withValues(alpha: isDark ? 0.45 : 0.35),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 11.5,
-                  ),
+              const SizedBox(width: 6),
+              Text(
+                jabatan.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: color,
                 ),
-                Text(
-                  jabatan.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textMutedColor(context),
-                  ),
-                ),
-                if (phone != null && phone.isNotEmpty)
-                  Text(
-                    phone,
-                    style: TextStyle(fontSize: 9, color: AppColors.accent),
-                  ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );

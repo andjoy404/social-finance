@@ -221,7 +221,7 @@ export function ActivityList() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))',
             gap: 20,
           }}
         >
@@ -251,16 +251,21 @@ export function ActivityList() {
                   cursor: 'pointer',
                 }}
               >
-                {/* Poster / Image header if available */}
-                {act.poster_url && (
-                  <div style={{ height: 160, overflow: 'hidden', position: 'relative' }}>
+                {/* Poster / Image header with consistent height & placeholder */}
+                <div style={{ height: 180, overflow: 'hidden', position: 'relative', background: 'var(--sf-surface-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--sf-border-subtle, rgba(0,0,0,0.06))' }}>
+                  {act.poster_url ? (
                     <CommunityImage
                       src={act.poster_url}
                       alt={`Poster kegiatan ${act.title}`}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
-                  </div>
-                )}
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: 'var(--sf-text-muted)', opacity: 0.6 }}>
+                      <CalendarOutlined style={{ fontSize: 36 }} />
+                      <span style={{ fontSize: 11, fontWeight: 500 }}>Kegiatan RT</span>
+                    </div>
+                  )}
+                </div>
 
                 <div style={{ padding: 20, display: 'flex', flexDirection: 'column', flex: 1, gap: 12 }}>
                   {/* Status Badges */}

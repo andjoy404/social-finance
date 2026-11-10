@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
@@ -10,6 +12,7 @@ import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
+import 'package:social_finance/core/widgets/community_image.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/dashboard/data/community_repository.dart';
@@ -271,7 +274,10 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
       padding: const EdgeInsets.only(bottom: 12),
       child: AppCard(
         child: InkWell(
-          onTap: () => _showDetailSheet(act, canManage),
+          onTap: () async {
+            await context.push('/home/kegiatan/${act.id}');
+            if (mounted) _loadActivities();
+          },
           borderRadius: BorderRadius.circular(AppRadius.base),
           child: Padding(
             padding: const EdgeInsets.all(14),
@@ -348,6 +354,27 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                     _buildStatusBadge(act),
                   ],
                 ),
+                if (act.posterUrl != null && act.posterUrl!.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    child: Container(
+                      width: double.infinity,
+                      height: 140,
+                      color: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurfaceSubtle,
+                      alignment: Alignment.center,
+                      child: CommunityImage(
+                        imageRef: act.posterUrl!,
+                        width: double.infinity,
+                        height: 140,
+                        fit: BoxFit.contain,
+                        alt: 'Poster kegiatan ${act.title}',
+                      ),
+                    ),
+                  ),
+                ],
                 if (act.description.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -386,6 +413,44 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                           color: AppColors.accent,
                         ),
                       ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Divider(height: 1),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => context.push('/home/kegiatan/${act.id}'),
+                      icon: const Icon(Icons.visibility_outlined, size: 16),
+                      label: const Text('Detail', style: TextStyle(fontSize: 12)),
+                    ),
+                    if (canManage) ...[
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () => _showEditActivityDialog(context, act),
+                        icon: const Icon(Icons.edit_outlined, size: 16),
+                        label: const Text('Ubah', style: TextStyle(fontSize: 12)),
+                      ),
+                      if (act.publicationStatus == 'draft') ...[
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            foregroundColor: AppColors.danger,
+                          ),
+                          onPressed: () =>
+                              _showDeleteConfirmationDialog(context, act),
+                          icon: const Icon(Icons.delete_outline, size: 16),
+                          label: const Text('Hapus', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
                     ],
                   ],
                 ),
@@ -603,6 +668,8 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
     final budgetCtrl = TextEditingController();
     DateTime startDate = DateTime.now().add(const Duration(days: 3));
     bool showOnBanner = false;
+    String? posterUrl;
+    bool isUploadingImage = false;
 
     showModalBottomSheet(
       context: context,
@@ -612,6 +679,44 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) {
+          Future<void> pickImage() async {
+            final picker = ImagePicker();
+            final picked = await picker.pickImage(
+              source: ImageSource.gallery,
+              imageQuality: 85,
+              maxWidth: 1600,
+            );
+            if (picked == null) return;
+            final file = File(picked.path);
+            final size = await file.length();
+            if (size > 5 * 1024 * 1024) {
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Ukuran gambar maksimal 5 MB')),
+                );
+              }
+              return;
+            }
+
+            setModalState(() => isUploadingImage = true);
+            try {
+              final repo = ref.read(communityRepositoryProvider);
+              final res = await repo.uploadCommunityImage(file, 'activity');
+              final url = res['image_url'];
+              if (url is String && url.isNotEmpty) {
+                setModalState(() => posterUrl = url);
+              }
+            } catch (e) {
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(content: Text('Gagal unggah gambar: $e')),
+                );
+              }
+            } finally {
+              setModalState(() => isUploadingImage = false);
+            }
+          }
+
           return Padding(
             padding: EdgeInsets.fromLTRB(
               AppSpacing.base,
@@ -671,6 +776,36 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  // Poster picker button and preview
+                  OutlinedButton.icon(
+                    onPressed: isUploadingImage ? null : pickImage,
+                    icon: isUploadingImage
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.image_outlined),
+                    label: Text(
+                      posterUrl != null ? 'Ganti Poster' : 'Unggah Poster (Maks 5 MB)',
+                    ),
+                  ),
+                  if (posterUrl != null) ...[
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: Container(
+                        width: double.infinity,
+                        height: 120,
+                        color: Colors.grey.withValues(alpha: 0.1),
+                        child: CommunityImage(
+                          imageRef: posterUrl!,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
                   SwitchListTile(
                     title: const Text('Tampilkan di Banner Beranda'),
                     value: showOnBanner,
@@ -708,6 +843,7 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                                 'start_date': startDate.toIso8601String(),
                                 'show_on_banner': showOnBanner,
                                 'publication_status': 'draft',
+                                if (posterUrl != null) 'poster_url': posterUrl,
                               });
                           _loadActivities();
                         } catch (e) {
@@ -728,6 +864,253 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  void _showEditActivityDialog(BuildContext context, CommunityActivity act) {
+    final titleCtrl = TextEditingController(text: act.title);
+    final descCtrl = TextEditingController(text: act.description);
+    final locationCtrl = TextEditingController(text: act.location);
+    final picNameCtrl = TextEditingController(text: act.picName ?? '');
+    final budgetCtrl = TextEditingController(text: act.budgetPlanned ?? '');
+    DateTime startDate = act.startDate;
+    bool showOnBanner = act.showOnBanner;
+    String? posterUrl = act.posterUrl;
+    bool isUploadingImage = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          Future<void> pickImage() async {
+            final picker = ImagePicker();
+            final picked = await picker.pickImage(
+              source: ImageSource.gallery,
+              imageQuality: 85,
+              maxWidth: 1600,
+            );
+            if (picked == null) return;
+            final file = File(picked.path);
+            final size = await file.length();
+            if (size > 5 * 1024 * 1024) {
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Ukuran gambar maksimal 5 MB')),
+                );
+              }
+              return;
+            }
+
+            setModalState(() => isUploadingImage = true);
+            try {
+              final repo = ref.read(communityRepositoryProvider);
+              final res = await repo.uploadCommunityImage(file, 'activity');
+              final url = res['image_url'];
+              if (url is String && url.isNotEmpty) {
+                setModalState(() => posterUrl = url);
+              }
+            } catch (e) {
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  SnackBar(content: Text('Gagal unggah gambar: $e')),
+                );
+              }
+            } finally {
+              setModalState(() => isUploadingImage = false);
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.base,
+              AppSpacing.base,
+              AppSpacing.base,
+              MediaQuery.of(ctx).viewInsets.bottom + AppSpacing.base,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Ubah Kegiatan',
+                    style: Theme.of(ctx).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: titleCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Judul Kegiatan *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: locationCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Lokasi *',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: descCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Deskripsi',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: picNameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama Penanggung Jawab (PIC)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: budgetCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Rencana Anggaran (Rp)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: isUploadingImage ? null : pickImage,
+                    icon: isUploadingImage
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.image_outlined),
+                    label: Text(
+                      posterUrl != null ? 'Ganti Poster' : 'Unggah Poster (Maks 5 MB)',
+                    ),
+                  ),
+                  if (posterUrl != null) ...[
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: Container(
+                        width: double.infinity,
+                        height: 120,
+                        color: Colors.grey.withValues(alpha: 0.1),
+                        child: CommunityImage(
+                          imageRef: posterUrl!,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    title: const Text('Tampilkan di Banner Beranda'),
+                    value: showOnBanner,
+                    onChanged: (val) {
+                      setModalState(() {
+                        showOnBanner = val;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        if (titleCtrl.text.trim().isEmpty ||
+                            locationCtrl.text.trim().isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Judul dan lokasi wajib diisi'),
+                            ),
+                          );
+                          return;
+                        }
+                        final messenger = ScaffoldMessenger.of(context);
+                        Navigator.pop(ctx);
+                        try {
+                          await ref
+                              .read(communityRepositoryProvider)
+                              .updateActivity(act.id, {
+                                'title': titleCtrl.text.trim(),
+                                'location': locationCtrl.text.trim(),
+                                'description': descCtrl.text.trim(),
+                                'pic_name': picNameCtrl.text.trim(),
+                                'budget_planned': budgetCtrl.text.trim(),
+                                'start_date': startDate.toIso8601String(),
+                                'show_on_banner': showOnBanner,
+                                if (posterUrl != null) 'poster_url': posterUrl,
+                              });
+                          _loadActivities();
+                        } catch (e) {
+                          if (mounted) {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text('Gagal memperbarui kegiatan: $e'),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      child: const Text('Simpan Perubahan'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showDeleteConfirmationDialog(
+    BuildContext context,
+    CommunityActivity act,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Kegiatan?'),
+        content: Text(
+          'Apakah Anda yakin ingin menghapus kegiatan "${act.title}"? Tindakan ini tidak dapat dibatalkan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(ctx);
+              try {
+                await ref
+                    .read(communityRepositoryProvider)
+                    .deleteActivity(act.id);
+                _loadActivities();
+              } catch (e) {
+                if (mounted) {
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Gagal menghapus kegiatan: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Hapus', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
   }

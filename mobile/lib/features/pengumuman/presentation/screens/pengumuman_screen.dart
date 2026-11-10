@@ -314,12 +314,23 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (a.imageUrl != null && a.imageUrl!.isNotEmpty) ...[
-                  CommunityImage(
-                    imageRef: a.imageUrl!,
-                    width: 72,
-                    height: 72,
-                    fit: BoxFit.cover,
-                    alt: 'Gambar pengumuman ${a.title}',
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    child: Container(
+                      width: 72,
+                      height: 72,
+                      color: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurfaceSubtle,
+                      alignment: Alignment.center,
+                      child: CommunityImage(
+                        imageRef: a.imageUrl!,
+                        width: 72,
+                        height: 72,
+                        fit: BoxFit.contain,
+                        alt: 'Gambar pengumuman ${a.title}',
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 12),
                 ],

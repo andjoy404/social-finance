@@ -65,7 +65,7 @@ func TestKetuaRTCanUpdateResidentWithoutWargaCreate(t *testing.T) {
 		SELECT res.id, r.id
 		FROM residents res
 		JOIN rts r ON r.id = res.rt_id
-		WHERE r.rt IN ('002', '003') AND res.is_active = true
+		WHERE r.rt IN ('002', '003') AND res.is_active = true AND r.is_active = true
 		LIMIT 1
 	`).Scan(&residentID, &rtID)
 	if err != nil {
@@ -324,7 +324,7 @@ func TestKetuaRTCannotUpdateResidentInAnotherRT(t *testing.T) {
 		SELECT res.id, res.rt_id 
 		FROM residents res 
 		JOIN rts r ON r.id = res.rt_id 
-		WHERE r.rt IN ('002', '003') AND res.is_active = true 
+		WHERE r.rt IN ('002', '003') AND res.is_active = true AND r.is_active = true 
 		LIMIT 1
 	`).Scan(&residentID, &residentRTID)
 	if err != nil {

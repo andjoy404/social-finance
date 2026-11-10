@@ -132,6 +132,10 @@ export function SecurityWasteTruckScreen({ canDispatch = true }: { canDispatch?:
       message.error('Pilih file foto dengan format gambar.')
       return
     }
+    if (file.size > 5 * 1024 * 1024) {
+      message.error('Ukuran foto maksimal 5 MB')
+      return
+    }
     setPhoto(file)
   }
 

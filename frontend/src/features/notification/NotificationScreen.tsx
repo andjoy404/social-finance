@@ -555,6 +555,12 @@ export function NotificationScreen() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetForm: 'create' | 'edit') => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadingImage(false)
+      setFormError('Gambar maksimal 5 MB')
+      e.target.value = ''
+      return
+    }
     const token = getSessionPair()?.accessToken
     if (!token) return
 

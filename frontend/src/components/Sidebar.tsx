@@ -40,7 +40,11 @@ export function Sidebar() {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('sf_sidebar_collapsed') === 'true'
+      const stored = localStorage.getItem('sf_sidebar_collapsed')
+      if (stored !== null) return stored === 'true'
+      // Default to collapsed on small screens so the sidebar overlay
+      // does not cover content before the user pins/unpins it.
+      return typeof window !== 'undefined' && window.innerWidth <= 768
     } catch {
       return false
     }
@@ -80,7 +84,7 @@ export function Sidebar() {
       { to: '/warga', label: 'Warga', icon: <UserOutlined />, id: 'warga' },
       {
         to: '/monitoring',
-        label: 'Monitoring',
+        label: 'Sampah',
         icon: <ScheduleOutlined />,
         id: 'monitoring',
       },
@@ -88,7 +92,7 @@ export function Sidebar() {
   } else if (isCleaningOfficer) {
     items.push({
       to: '/monitoring',
-      label: 'Monitoring',
+      label: 'Sampah',
       icon: <ScheduleOutlined />,
       id: 'monitoring',
     })
@@ -100,7 +104,7 @@ export function Sidebar() {
     if (canManageCommunity) {
       items.push({
         to: '/pengumuman',
-        label: 'Kelola Pengumuman',
+        label: 'Pengumuman',
         icon: <NotificationOutlined />,
         id: 'pengumuman',
       })
@@ -125,7 +129,7 @@ export function Sidebar() {
     if (jabatan === 'ketua') {
       items.push({
         to: '/monitoring',
-        label: 'Monitoring',
+        label: 'Sampah',
         icon: <ScheduleOutlined />,
         id: 'monitoring',
       })

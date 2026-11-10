@@ -139,8 +139,8 @@ export function OverdueWarningCard() {
         marginBottom: 16,
         padding: '14px 18px',
         borderRadius: 10,
-        background: 'rgba(245, 158, 11, 0.10)',
-        border: '1px solid rgba(245, 158, 11, 0.45)',
+        background: 'rgba(239, 68, 68, 0.08)',
+        border: '1px solid rgba(239, 68, 68, 0.45)',
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'center',
@@ -154,8 +154,8 @@ export function OverdueWarningCard() {
             width: 36,
             height: 36,
             borderRadius: 8,
-            background: 'rgba(245, 158, 11, 0.18)',
-            color: '#d97706',
+            background: 'rgba(239, 68, 68, 0.16)',
+            color: '#dc2626',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -179,9 +179,9 @@ export function OverdueWarningCard() {
                 borderRadius: 999,
                 fontSize: 11,
                 fontWeight: 600,
-                background: 'rgba(217, 119, 6, 0.16)',
-                color: '#b45309',
-                border: '1px solid rgba(217, 119, 6, 0.32)',
+                background: 'rgba(239, 68, 68, 0.14)',
+                color: '#b91c1c',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
               }}
             >
               Tunggakan 3 Bulan+
@@ -210,7 +210,7 @@ export function OverdueWarningCard() {
           >
             <span style={{ color: 'var(--sf-text-secondary, #4b5563)' }}>
               Total Tunggakan:{' '}
-              <strong style={{ color: '#b45309', fontWeight: 700 }}>
+              <strong style={{ color: '#b91c1c', fontWeight: 700 }}>
                 {formatRupiah(summary.total_outstanding)}
               </strong>
             </span>
@@ -232,8 +232,8 @@ export function OverdueWarningCard() {
             gap: 6,
             padding: '8px 14px',
             borderRadius: 8,
-            border: '1px solid #d97706',
-            background: '#d97706',
+            border: '1px solid #dc2626',
+            background: '#dc2626',
             color: '#ffffff',
             fontWeight: 600,
             fontSize: 13,

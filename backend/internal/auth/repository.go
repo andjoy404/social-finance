@@ -635,8 +635,8 @@ func UpdateUserProfile(ctx context.Context, tx *sql.Tx, userID, fullName string,
 			WHERE m.user_id = $1 AND m.is_active = true
 			  AND r.rt_id = m.rt_id AND r.user_id IS NULL AND r.is_active = true
 			  AND (
-			      (r.phone IS NOT NULL AND $3 IS NOT NULL AND r.phone = $3)
-			      OR (r.email IS NOT NULL AND $4 IS NOT NULL AND lower(r.email) = lower($4))
+			      (r.phone IS NOT NULL AND $3::text IS NOT NULL AND r.phone = $3::text)
+			      OR (r.email IS NOT NULL AND $4::text IS NOT NULL AND lower(r.email) = lower($4::text))
 			  )
 		`
 		_, _ = tx.ExecContext(ctx, linkQuery, userID, strings.TrimSpace(fullName), phone, email)

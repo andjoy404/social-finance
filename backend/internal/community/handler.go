@@ -338,6 +338,11 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.hasPermission(r.Context(), ac, "activities.delete") && !h.hasPermission(r.Context(), ac, "activities.create") {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteValidationError(w, "activity id is required", nil)
@@ -562,6 +567,11 @@ func (h *Handler) DeleteAnnouncement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.hasPermission(r.Context(), ac, "announcements.delete") && !h.hasPermission(r.Context(), ac, "announcements.create") {
+		httpx.WriteError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		return
+	}
+
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httpx.WriteValidationError(w, "announcement id is required", nil)
@@ -676,9 +686,10 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 10MB max memory
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		httpx.WriteValidationError(w, "invalid multipart form", nil)
+	// 5MB max upload limit
+	r.Body = http.MaxBytesReader(w, r.Body, 5<<20+1024)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		httpx.WriteValidationError(w, "invalid multipart form or file exceeds 5MB limit", nil)
 		return
 	}
 
@@ -691,6 +702,11 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+
+	if fileHeader.Size > 5*1024*1024 {
+		httpx.WriteValidationError(w, "file size exceeds 5MB limit", nil)
+		return
+	}
 
 	category := r.FormValue("category")
 	if category == "" {

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
@@ -118,65 +119,157 @@ class _KegiatanDetailScreenState extends ConsumerState<KegiatanDetailScreen> {
     return '$day ${months[d.month - 1]} ${d.year}, $hour:$minute';
   }
 
+  void _openImageViewer(BuildContext context, String imageRef, String title) {
+    showDialog<void>(
+      context: context,
+      useSafeArea: false,
+      builder: (dialogCtx) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black.withValues(alpha: 0.7),
+          foregroundColor: Colors.white,
+          title: Text(
+            title,
+            style: const TextStyle(fontSize: 16, color: Colors.white),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Tutup',
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+          ),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            panEnabled: true,
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: CommunityImage(
+              imageRef: imageRef,
+              fit: BoxFit.contain,
+              alt: title,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final a = _activity;
 
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: false,
-        title: const MenuAppBarTitle(title: 'Detail Kegiatan'),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator.adaptive())
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.base),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 40,
-                      color: AppColors.danger,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Kegiatan tidak dapat dibuka',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(_error!, textAlign: TextAlign.center),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _load,
-                      child: const Text('Coba Lagi'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : a == null
-          ? const SizedBox.shrink()
-          : ListView(
-              padding: const EdgeInsets.all(AppSpacing.base),
-              children: [
-                if (a.posterUrl != null && a.posterUrl!.isNotEmpty) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                    child: CommunityImage(
-                      imageRef: a.posterUrl!,
-                      width: double.infinity,
-                      height: 200,
-                      fit: BoxFit.cover,
-                      alt: 'Poster kegiatan ${a.title}',
-                    ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/home/kegiatan');
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          title: const MenuAppBarTitle(title: 'Detail Kegiatan'),
+          leading: BackButton(
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/home/kegiatan');
+              }
+            },
+          ),
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator.adaptive())
+            : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.base),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: 40,
+                        color: AppColors.danger,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Kegiatan tidak dapat dibuka',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(_error!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _load,
+                        child: const Text('Coba Lagi'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: AppSpacing.base),
-                ],
+                ),
+              )
+            : a == null
+            ? const SizedBox.shrink()
+            : ListView(
+                padding: const EdgeInsets.all(AppSpacing.base),
+                children: [
+                  if (a.posterUrl != null && a.posterUrl!.isNotEmpty) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      child: InkWell(
+                        onTap: () => _openImageViewer(
+                          context,
+                          a.posterUrl!,
+                          a.title,
+                        ),
+                        child: Container(
+                          width: double.infinity,
+                          height: 220,
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? AppColors.darkSurface
+                              : AppColors.lightSurfaceSubtle,
+                          alignment: Alignment.center,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CommunityImage(
+                                imageRef: a.posterUrl!,
+                                width: double.infinity,
+                                height: 220,
+                                fit: BoxFit.contain,
+                                alt: 'Poster kegiatan ${a.title}',
+                              ),
+                              Positioned(
+                                right: 8,
+                                bottom: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.5),
+                                    borderRadius: BorderRadius.circular(AppRadius.xs),
+                                  ),
+                                  child: const Icon(
+                                    Icons.fullscreen,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.base),
+                  ],
                 _statusBadge(a.status),
                 const SizedBox(height: 8),
                 Text(
@@ -222,6 +315,7 @@ class _KegiatanDetailScreenState extends ConsumerState<KegiatanDetailScreen> {
                   ),
               ],
             ),
+      ),
     );
   }
 

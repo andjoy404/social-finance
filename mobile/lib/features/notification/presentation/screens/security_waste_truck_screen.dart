@@ -85,6 +85,19 @@ class _SecurityWasteTruckScreenState
       if (!mounted) return;
 
       if (picked != null) {
+        final file = File(picked.path);
+        final size = await file.length();
+        if (size > 5 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Ukuran foto maksimal 5 MB.'),
+                backgroundColor: AppColors.danger,
+              ),
+            );
+          }
+          return;
+        }
         setState(() {
           _photo = picked;
         });

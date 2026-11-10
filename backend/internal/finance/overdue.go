@@ -233,10 +233,6 @@ func IsBillEligibleForObligation(bill BillEvaluationInput, evalDate time.Time) b
 		if evalNorm.Before(moveInNorm) {
 			return false
 		}
-		// Bill due date is before resident's move-in date.
-		if dueNorm.Before(moveInNorm) {
-			return false
-		}
 		// Check billing period against move-in period.
 		period := strings.TrimSpace(bill.Period)
 		if len(period) == 7 {
@@ -247,6 +243,9 @@ func IsBillEligibleForObligation(bill BillEvaluationInput, evalDate time.Time) b
 			if period < moveInNorm.Format("2006") {
 				return false
 			}
+		} else if dueNorm.Before(moveInNorm) {
+			// Fallback only when period is absent
+			return false
 		}
 	}
 

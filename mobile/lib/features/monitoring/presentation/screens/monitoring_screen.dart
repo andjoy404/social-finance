@@ -330,7 +330,7 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
       appBar: AppBar(
         automaticallyImplyLeading: false,
         centerTitle: false,
-        title: const MenuAppBarTitle(title: 'Monitoring'),
+        title: const MenuAppBarTitle(title: 'Sampah'),
       ),
       body: RefreshIndicator(
         onRefresh: _fetchMonitoring,

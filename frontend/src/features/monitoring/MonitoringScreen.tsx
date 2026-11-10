@@ -198,7 +198,7 @@ export function MonitoringScreen() {
         <div className="monitoring-screen-content">
       <div className="monitoring-header">
         <div>
-          <Typography.Title level={2}>Monitoring</Typography.Title>
+          <Typography.Title level={2}>Sampah</Typography.Title>
           <Typography.Text style={{ color: 'var(--sf-text-muted)' }}>
             {rtLabel}{rwLabel ? ` | ${rwLabel}` : ''}
           </Typography.Text>

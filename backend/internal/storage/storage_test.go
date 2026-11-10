@@ -125,3 +125,70 @@ func TestMockStorage(t *testing.T) {
 		}
 	})
 }
+
+// --- 5 MiB boundary enforcement (shared by all upload endpoints) ---
+
+func TestMockStorageUploadExactFiveMiBAccepted(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockStorage() // MaxFileSize defaults to DefaultMaxFileSize (5 MiB)
+	exact5MiB := append(append([]byte{}, samplePNG...), make([]byte, 5*1024*1024-len(samplePNG))...)
+	if len(exact5MiB) != DefaultMaxFileSize {
+		t.Fatalf("fixture size = %d, want %d", len(exact5MiB), DefaultMaxFileSize)
+	}
+	meta, err := store.UploadProof(ctx, "rt-1", "pay-5mib", "big.png", bytes.NewReader(exact5MiB), int64(len(exact5MiB)))
+	if err != nil {
+		t.Fatalf("exactly 5 MiB image must be accepted, got %v", err)
+	}
+	if meta.Size != DefaultMaxFileSize {
+		t.Errorf("meta.Size = %d, want %d", meta.Size, DefaultMaxFileSize)
+	}
+	if meta.ContentType != "image/png" {
+		t.Errorf("ContentType = %q, want image/png", meta.ContentType)
+	}
+}
+
+func TestMockStorageUploadFiveMiBPlusOneRejected(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockStorage()
+	over5MiB := append(append([]byte{}, samplePNG...), make([]byte, 5*1024*1024-len(samplePNG)+1)...)
+	if len(over5MiB) != DefaultMaxFileSize+1 {
+		t.Fatalf("fixture size = %d, want %d", len(over5MiB), DefaultMaxFileSize+1)
+	}
+	_, err := store.UploadProof(ctx, "rt-1", "pay-5mib1", "bigger.png", bytes.NewReader(over5MiB), int64(len(over5MiB)))
+	if !errors.Is(err, ErrFileTooLarge) {
+		t.Fatalf("5 MiB + 1 byte must be rejected with ErrFileTooLarge, got %v", err)
+	}
+}
+
+func TestMockStorageUploadGifRejected(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockStorage()
+	gif := []byte("GIF89a\x02\x00\x02\x00\x00\x00\x00;")
+	_, err := store.UploadProof(ctx, "rt-1", "pay-gif", "image.gif", bytes.NewReader(gif), int64(len(gif)))
+	if !errors.Is(err, ErrInvalidFormat) {
+		t.Fatalf("GIF must be rejected (not in allowed formats), got %v", err)
+	}
+}
+
+func TestMockStorageUploadCommunityImageExactFiveMiBAccepted(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockStorage()
+	exact5MiB := append(append([]byte{}, samplePNG...), make([]byte, 5*1024*1024-len(samplePNG))...)
+	meta, err := store.UploadCommunityImage(ctx, "rt-1", "announcement", "big.png", bytes.NewReader(exact5MiB), int64(len(exact5MiB)))
+	if err != nil {
+		t.Fatalf("exactly 5 MiB community image must be accepted, got %v", err)
+	}
+	if meta.Size != DefaultMaxFileSize {
+		t.Errorf("meta.Size = %d, want %d", meta.Size, DefaultMaxFileSize)
+	}
+}
+
+func TestMockStorageUploadCommunityImageFiveMiBPlusOneRejected(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockStorage()
+	over5MiB := append(append([]byte{}, samplePNG...), make([]byte, 5*1024*1024-len(samplePNG)+1)...)
+	_, err := store.UploadCommunityImage(ctx, "rt-1", "announcement", "bigger.png", bytes.NewReader(over5MiB), int64(len(over5MiB)))
+	if !errors.Is(err, ErrFileTooLarge) {
+		t.Fatalf("5 MiB + 1 byte community image must be rejected, got %v", err)
+	}
+}

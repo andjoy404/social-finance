@@ -107,10 +107,27 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   );
   static const _monitoringTab = _NavRoute(
     path: '/home/monitoring',
-    label: 'Monitoring',
+    label: 'Sampah',
     icon: Icons.checklist_outlined,
     activeIcon: Icons.checklist,
   );
+
+  bool _canAccessKeuangan(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final systemRole = (user['system_role'] ?? '').toString().toLowerCase();
+    if (systemRole == 'super_admin') return true;
+    final jabatan = (user['jabatan'] ?? '').toString().trim().toLowerCase();
+    if (jabatan == 'keamanan' || jabatan == 'kebersihan') return false;
+    final perms = user['effective_permissions'];
+    if (perms is List) {
+      return perms.contains('finance.read');
+    }
+    final role = (user['role'] ?? '').toString().toLowerCase();
+    return role == 'warga' ||
+        role == 'pengurus' ||
+        role == 'bendahara' ||
+        role == 'perangkat';
+  }
 
   bool _canAccessLokasiDana(Map<String, dynamic>? user) {
     if (user == null) return false;
@@ -176,6 +193,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     }
 
     final canNotifikasi = _canAccessNotifikasi(user);
+    final canKeuangan = _canAccessKeuangan(user);
     final rwMemberships = _getValidRWMemberships(user);
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
@@ -185,9 +203,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
           jabatan == 'ketua';
       return [
         _homeTab,
+        if (canKeuangan) _keuanganTab,
         _kasTab,
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
+        _kegiatanTab,
+        _pengumumanTab,
         _wargaTab,
         if (canMonitoring) _monitoringTab,
         if (rwMemberships.isNotEmpty) _rwDataTab,
@@ -197,6 +218,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     }
     return [
       _homeTab,
+      _kegiatanTab,
       if (rwMemberships.isNotEmpty) _rwDataTab,
       if (canNotifikasi) _notifikasiTab,
       _profileTab,
@@ -216,6 +238,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     }
 
     final canNotifikasi = _canAccessNotifikasi(user);
+    final canKeuangan = _canAccessKeuangan(user);
     final rwMemberships = _getValidRWMemberships(user);
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
@@ -225,7 +248,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
           jabatan == 'ketua';
       return [
         _homeTab,
-        _keuanganTab,
+        if (canKeuangan) _keuanganTab,
         _kasTab,
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
@@ -240,9 +263,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     }
     return [
       _homeTab,
-      _keuanganTab,
       _kegiatanTab,
-      _pengumumanTab,
       if (rwMemberships.isNotEmpty) _rwDataTab,
       if (canNotifikasi) _notifikasiTab,
       _profileTab,

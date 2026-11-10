@@ -57,7 +57,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
         .toList() ?? <Map<String, dynamic>>[];
     final currentMembership = rwMemberships
         .where((m) => m['rw_id'] == widget.rwId)
-        .firstOrNull as Map<String, dynamic>?;
+        .firstOrNull;
     final jabatan = (currentMembership?['jabatan'] ?? '').toLowerCase();
     return jabatan == 'bendahara' || jabatan == 'ketua';
   }
@@ -122,6 +122,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final authState = ref.watch(authRepositoryProvider);
     final user = authState?.valueOrNull;
     final canCreate = _canCreateRw(user);
@@ -131,7 +132,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
         .toList() ?? <Map<String, dynamic>>[];
     final currentMembership = rwMemberships
         .where((m) => m['rw_id'] == widget.rwId)
-        .firstOrNull as Map<String, dynamic>?;
+        .firstOrNull;
     final rwNumberText = currentMembership?['rwNumber'] != null
         ? currentMembership!['rwNumber'].toString().padLeft(3, '0')
         : resolveRwNumber(widget.rwId, rwMemberships);

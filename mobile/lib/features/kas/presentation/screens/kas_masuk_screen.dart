@@ -228,6 +228,19 @@ class _KasMasukScreenState extends ConsumerState<KasMasukScreen> {
         imageQuality: 85,
       );
       if (picked != null && mounted) {
+        final file = File(picked.path);
+        final size = await file.length();
+        if (size > 5 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Ukuran berkas bukti maksimal 5 MB.'),
+                backgroundColor: AppColors.danger,
+              ),
+            );
+          }
+          return;
+        }
         setState(() {
           _proofFile = picked;
           _proofPreviewPath = picked.path;

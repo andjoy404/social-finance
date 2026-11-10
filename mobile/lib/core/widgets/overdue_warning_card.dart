@@ -103,8 +103,8 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
     _dialogOpen = true;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    const amberPrimary = Color(0xFFD97706);
-    const amberDarkText = Color(0xFFB45309);
+    const redPrimary = Color(0xFFDC2626);
+    const redDarkText = Color(0xFFB91C1C);
     try {
       await showDialog<void>(
         context: context,
@@ -138,15 +138,15 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                   decoration: BoxDecoration(
-                    color: amberPrimary.withValues(alpha: 0.16),
+                    color: redPrimary.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: amberPrimary.withValues(alpha: 0.35)),
+                    border: Border.all(color: redPrimary.withValues(alpha: 0.35)),
                   ),
                   child: Text(
                     'Tunggakan 3 Bulan+',
                     style: theme.textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w700,
-                      color: isDark ? AppColors.warning : amberDarkText,
+                      color: isDark ? AppColors.danger : redDarkText,
                     ),
                   ),
                 ),
@@ -159,7 +159,10 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
                 const SizedBox(height: 16),
                 Text(
                   'Total Tunggakan: ${RupiahFormatter.formatIdr(summary.totalOutstanding)}',
-                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? AppColors.danger : redDarkText,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text('Jumlah tagihan: ${summary.overdueBillCount}'),
@@ -169,6 +172,10 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
           actions: [
             FilledButton.icon(
               key: const Key('overdue-warning-action-btn'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white,
+              ),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 context.go('/home/iuran');
@@ -208,8 +215,8 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
 
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    const amberPrimary = Color(0xFFD97706);
-    const amberDarkText = Color(0xFFB45309);
+    const redPrimary = Color(0xFFDC2626);
+    const redDarkText = Color(0xFFB91C1C);
 
     return Material(
       color: Colors.transparent,
@@ -223,13 +230,13 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: isDark
-                ? AppColors.warning.withValues(alpha: 0.14)
-                : const Color(0xFFFFFBEB),
+                ? AppColors.danger.withValues(alpha: 0.14)
+                : const Color(0xFFFEF2F2),
             borderRadius: BorderRadius.circular(AppRadius.base),
             border: Border.all(
               color: isDark
-                  ? AppColors.warning.withValues(alpha: 0.45)
-                  : const Color(0xFFF59E0B).withValues(alpha: 0.55),
+                  ? AppColors.danger.withValues(alpha: 0.45)
+                  : const Color(0xFFEF4444).withValues(alpha: 0.55),
             ),
           ),
           child: Row(
@@ -238,7 +245,7 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
                 Icons.warning_amber_rounded,
                 key: Key('overdue-warning-inline-icon'),
                 size: 20,
-                color: amberPrimary,
+                color: redPrimary,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -257,16 +264,16 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
-                  color: amberPrimary.withValues(alpha: 0.16),
+                  color: redPrimary.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: amberPrimary.withValues(alpha: 0.35)),
+                  border: Border.all(color: redPrimary.withValues(alpha: 0.35)),
                 ),
                 child: Text(
                   'Tunggakan 3 Bulan+',
                   style: theme.textTheme.labelSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     fontSize: 10.5,
-                    color: isDark ? AppColors.warning : amberDarkText,
+                    color: isDark ? AppColors.danger : redDarkText,
                   ),
                 ),
               ),

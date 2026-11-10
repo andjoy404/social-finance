@@ -136,6 +136,17 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       );
       if (pickedFile != null) {
         final bytes = await pickedFile.readAsBytes();
+        if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Ukuran bukti pembayaran maksimal 5 MB'),
+                backgroundColor: AppColors.danger,
+              ),
+            );
+          }
+          return;
+        }
         setState(() {
           _proofBytes = bytes;
           _proofFileName = pickedFile.name;

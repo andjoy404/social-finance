@@ -3034,6 +3034,21 @@ func TestPaymentProofEndpoints(t *testing.T) {
 		}
 	})
 
+	t.Run("reject oversized proof (5 MiB + 1)", func(t *testing.T) {
+		big := append([]byte{}, validPNG...)
+		// pad with zeros after the PNG header to exceed 5 MiB total
+		big = append(big, make([]byte, 5*1024*1024)...)
+		body, ct := createMultipart("file", "big.png", "image/png", big)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/"+payment.ID+"/proof", body)
+		req.Header.Set("Authorization", "Bearer "+wargaToken)
+		req.Header.Set("Content-Type", ct)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for 5 MiB+1 file, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
 	t.Run("get payment proof as warga (owner)", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/payments/"+payment.ID+"/proof", nil)
 		req.Header.Set("Authorization", "Bearer "+wargaToken)

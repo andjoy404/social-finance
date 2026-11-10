@@ -11,6 +11,7 @@ import 'package:social_finance/core/widgets/app_text_field.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
 import '../../data/warga_providers.dart';
+import '../../../iuran/data/iuran_providers.dart';
 
 /// Screen for editing an existing household (warga biasa).
 class HouseholdEditScreen extends ConsumerStatefulWidget {
@@ -204,6 +205,8 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
 
       // Refresh warga list
       await ref.read(wargaListProvider.notifier).refresh();
+
+      // if (mounted) ref.read(overdueWarningSummaryProvider.notifier).refresh();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
