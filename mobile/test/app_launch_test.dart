@@ -11,6 +11,7 @@ import 'package:social_finance/features/dues/presentation/screens/dues_screen.da
 import 'package:social_finance/features/reports/presentation/screens/reports_screen.dart';
 import 'package:social_finance/features/profile/presentation/screens/profile_screen.dart';
 import 'package:social_finance/features/dashboard/presentation/screens/dashboard_screen.dart';
+import 'package:social_finance/features/keuangan/presentation/screens/keuangan_screen.dart';
 import 'package:social_finance/features/dashboard/data/mock_dashboard_data.dart';
 import 'package:social_finance/features/dashboard/presentation/widgets/financial_summary_chart.dart';
 import 'package:social_finance/core/api/auth_service.dart';
@@ -63,6 +64,23 @@ class _MockWargaNotifierForLaunch extends WargaListNotifier {
 }
 
 Widget _dashboardViaMaterialApp() {
+  return rp.ProviderScope(
+    overrides: [
+      authRepositoryProvider.overrideWith(((ref) {
+        return _createTestAuthRepo({
+          'name': 'Heri Prastyo',
+          'role': AppRole.bendahara,
+          'rt': '002',
+          'rw': '016',
+        });
+      })),
+      wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
+    ],
+    child: MaterialApp(home: const KeuanganScreen()),
+  );
+}
+
+Widget _communityDashboardViaMaterialApp() {
   return rp.ProviderScope(
     overrides: [
       authRepositoryProvider.overrideWith(((ref) {
@@ -575,7 +593,7 @@ void main() {
           theme: isDarkTest,
           darkTheme: isDarkTest,
           themeMode: ThemeMode.dark,
-          home: const DashboardScreen(),
+          home: const KeuanganScreen(),
         ),
       ),
     );
@@ -721,7 +739,7 @@ void main() {
             wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
           ],
           child: MaterialApp(
-            home: DashboardScreen(
+            home: KeuanganScreen(
               onRefreshOverride: () async {
                 refreshCalled++;
               },
@@ -879,4 +897,28 @@ void main() {
       expect(find.textContaining('Keluar  Rp 2.175.000'), findsOneWidget);
     },
   );
+
+  // ── Community Hub Beranda ──
+
+  testWidgets('Community Hub Beranda renders greeting, security status, and banners', (tester) async {
+    await tester.pumpWidget(_communityDashboardViaMaterialApp());
+    await tester.pump();
+
+    // Greeting & Identity
+    expect(find.text('Selamat datang,'), findsOneWidget);
+    expect(find.text('Heri Prastyo'), findsOneWidget);
+    expect(find.textContaining('RT 002 / RW 016'), findsOneWidget);
+
+    // Security on-duty card with graceful empty state
+    expect(find.text('Petugas Keamanan Bertugas'), findsOneWidget);
+    expect(find.text('Belum ada petugas aktif / jadwal shift saat ini'), findsOneWidget);
+    expect(find.text('Belum Ada Jadwal'), findsOneWidget);
+
+    // Strictly NO garbage truck or waste collection status on Beranda
+    expect(find.textContaining('Truk Sampah'), findsNothing);
+    expect(find.textContaining('Pengangkutan Sampah'), findsNothing);
+
+    // Community banner / portal warga
+    expect(find.text('Selamat Datang di Portal Warga'), findsOneWidget);
+  });
 }

@@ -22,6 +22,10 @@ import { NotificationScreen } from '@/features/notification/NotificationScreen'
 import { MonitoringScreen } from '@/features/monitoring/MonitoringScreen'
 import { RwDataView } from '@/features/rw/RwDataView'
 import { SecurityWasteTruckScreen } from '@/features/notification/SecurityWasteTruckScreen'
+import { KeuanganScreen } from '@/features/keuangan/KeuanganScreen'
+import { ActivityList } from '@/features/kegiatan/ActivityList'
+import { ActivityDetail } from '@/features/kegiatan/ActivityDetail'
+import { AnnouncementManagement } from '@/features/pengumuman/AnnouncementManagement'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -227,6 +231,38 @@ export function App() {
           element={
             <AllowedRTRoute>
               <MonitoringScreen />
+            </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="keuangan"
+          element={
+            <AllowedRTRoute>
+              <KeuanganScreen />
+            </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="kegiatan"
+          element={
+            <AllowedRTRoute>
+              <ActivityList />
+            </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="kegiatan/:id"
+          element={
+            <AllowedRTRoute>
+              <ActivityDetail />
+            </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="pengumuman"
+          element={
+            <AllowedRTRoute>
+              <AnnouncementManagement />
             </AllowedRTRoute>
           }
         />

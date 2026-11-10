@@ -1359,3 +1359,48 @@ Supports 3 categories: `rekening`, `brankas`, and `coh`. Dana Hibah/Donasi is el
     - `code_expired`: kode reset sudah kedaluwarsa
     - `code_used`: kode reset sudah digunakan
   - Note: Pada endpoint `/api/v1/auth/login`, jika pengguna memasukkan 4-digit kode reset aktif pada input kata sandi biasa, sistem mengembalikan error `reset_code_entered` (HTTP 400) yang mengarahkan pengguna ke dialog "Lupa Kata Sandi?".
+
+## 14. Community Dashboard API (Beranda, Kegiatan, Pengumuman, Banner, Struktur Organisasi)
+
+RT-scoped Community module. Base rules: authentication required (JWT Bearer), plus a valid RT
+context in an allowed RT (`002`, `003`) for every endpoint except the public-signed image route.
+Authorization is permission-driven (single source of truth: `position_permissions` via the
+`PermissionResolver`; Super Admin bypasses). There are no hardcoded jabatan shortcuts.
+
+### 14.1 Read Endpoints (all authenticated RT members)
+- `GET /api/v1/home/dashboard` — greeting, banners (in-window only), upcoming activities (published), organization structure, security on-duty placeholder.
+- `GET /api/v1/activities?page=&page_size=&status=&publication_status=` — paginated. Warga only ever see published activities; status filter uses the dynamic execution status (`upcoming`, `ongoing`, `completed`, `cancelled`). Draft visibility requires `activities.create|update`.
+- `GET /api/v1/activities/{id}` — detail. Draft/non-published returns 404 for non-managers.
+- `GET /api/v1/announcements?page=&page_size=&status=` — paginated. Warga only see announcements inside the tayang window (`scheduled_start <= now < scheduled_end`); managers can filter by status.
+- `GET /api/v1/announcements/{id}` — detail, same visibility rules (404 for out-of-window/draft for Warga).
+- `GET /api/v1/banner-templates` / `GET /api/v1/banner-templates/{id}` — active templates (system or owned by the RT).
+- `GET /api/v1/banners` — active banners in display window, merged with the generic iuran reminder (in stable order: pinned → priority → display_order). No per-resident financial data ever included.
+- `GET /api/v1/organization-structure` — active members per position. Phone/email included only with `organization.contact.read`.
+
+### 14.2 Write Endpoints (permission per operation)
+- `POST /api/v1/community/upload` — multipart `file` + `category` (`activity|announcement|banner|general`). Category-scoped: `activities.create` or `announcements.create` required. Images are stored under `community/{rt_id}/{category}/` with content sniffing; never public-read.
+- `POST /api/v1/activities` (`activities.create`), `PUT /api/v1/activities/{id}` (`activities.update`), `POST /api/v1/activities/{id}/publish` (`activities.publish`), `POST /api/v1/activities/{id}/cancel` (`activities.cancel`), `DELETE /api/v1/activities/{id}` (`activities.create`).
+- `POST /api/v1/announcements` (`announcements.create`), `PUT /api/v1/announcements/{id}` (`announcements.update`), `POST /api/v1/announcements/{id}/publish` (`announcements.publish`), `POST /api/v1/announcements/{id}/archive` (`announcements.archive`), `DELETE /api/v1/announcements/{id}` (`announcements.create`).
+
+Lifecycle rules:
+- Drafts may be edited and hard-deleted.
+- Published content MUST NOT be hard-deleted (`DELETE` returns 400). Published activities are cancelled; published/scheduled announcements are archived; archived is never auto-reactivated (explicit publish only).
+- Publishing/republishing rewrites the announcement snapshot and the banner snapshot atomically in one transaction.
+- Editing published content never mutates the live banner (banners are immutable snapshots taken at publish time).
+
+Schedule rules (announcements): `scheduled_start` / `scheduled_end` must be RFC3339 with explicit timezone; invalid input returns 400; `scheduled_end` must be after `scheduled_start`. Display state is computed at query time — no scheduler/cron involved. Publishing with a future start stores state `scheduled` (never `active`); warga see content only inside the window.
+
+### 14.3 Community Images
+- `GET /api/v1/community/images/{key}` — two authorization modes:
+  1. **Bearer** (`Authorization: Bearer <jwt>`): JWT validated, identity confirmed, caller's RT must be allowed+active; key must live under `community/{caller_rt_id}/`; key must be referenced by content the caller may see (draft content only for managers, published/active in-window content otherwise); unreferenced keys return 404.
+  2. **Signed URL** (`?exp=<unix>&sig=<hmac>`): HMAC-SHA256 signature over `{key}.{exp}.{flags}` with the server signing secret; short-lived (15 minutes). Issued only after the same authorization as the Bearer mode. On read, the content reference is revalidated against the current state with the issuer's privilege class (`{flags}`), so an archived/cancelled/expired piece of content stops serving images immediately, even within the TTL. The signature is a bearer credential and cannot be individually revoked; the TTL plus read-time revalidation is the revocation mechanism.
+- `POST /api/v1/community/images/sign` — authenticated endpoint; body `{"key": "community/<rt>/<category>/<file>"}`. Returns `{ "url": "/api/v1/community/images/...?exp=...&sig=...", "expires_at": <unix> }`. Applies the same content authorization as the Bearer mode. Used by `<img>` tags and Flutter.
+- Keys are strictly validated (`community/<rt_id>/<category>/<file>.<jpg|png|webp>`); traversal, backslashes, NULs, and double encoding are rejected.
+- There is no public listing of the community prefix and no public-read bucket.
+
+### 14.4 Deep Links
+Internal deep-link allowlist: `/keuangan`, `/iuran`, `/kas`, `/kegiatan`, `/pengumuman`, `/warga`, `/notifikasi`, `/profil` (prefix match with `/` boundary). External URLs are rejected with 400.
+
+### 14.5 Pagination Contract
+List endpoints accept `page` (default 1) and `page_size` (default 20, max 100) and return
+`{ "data": [...], "pagination": { "page": n, "per_page": n, "total": n, "total_pages": n } }`.

@@ -1,11 +1,14 @@
 import { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationAdmin, type RWMembership } from '@/app/AuthContext'
+import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationAdmin, hasPermission, type RWMembership } from '@/app/AuthContext'
 import { DownOutlined } from '@ant-design/icons'
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   DashboardOutlined,
+  HomeOutlined,
+  CalendarOutlined,
+  NotificationOutlined,
   UserOutlined,
   ApartmentOutlined,
   AccountBookOutlined,
@@ -62,9 +65,15 @@ export function Sidebar() {
     user?.role.trim().toLowerCase() === 'warga' && !jabatan && allowedRT
   const isPengurus = user?.role.trim().toLowerCase() === 'pengurus' && allowedRT
 
+  // Permission-driven, not role-name driven: only holders of the relevant
+  // management permission (or super admin) see the management entry.
+  const canManageCommunity =
+    hasPermission(user, 'announcements.create') ||
+    hasPermission(user, 'announcements.update')
+
   const items: NavItem[] = isSecurityOfficer || isCleaningOfficer
     ? []
-    : [{ to: '/', label: 'Beranda', icon: <DashboardOutlined />, id: 'dashboard' }]
+    : [{ to: '/', label: 'Beranda', icon: <HomeOutlined />, id: 'dashboard' }]
 
   if (isSecurityOfficer) {
     items.push(
@@ -84,6 +93,18 @@ export function Sidebar() {
       id: 'monitoring',
     })
   } else if (allowedRT) {
+    items.push(
+      { to: '/keuangan', label: 'Keuangan', icon: <DashboardOutlined />, id: 'keuangan' },
+      { to: '/kegiatan', label: 'Kegiatan', icon: <CalendarOutlined />, id: 'kegiatan' },
+    )
+    if (canManageCommunity) {
+      items.push({
+        to: '/pengumuman',
+        label: 'Kelola Pengumuman',
+        icon: <NotificationOutlined />,
+        id: 'pengumuman',
+      })
+    }
     const canAccessLokasiDana =
         user?.role !== 'warga' || (user?.jabatan?.trim() ?? '') !== ''
     items.push(

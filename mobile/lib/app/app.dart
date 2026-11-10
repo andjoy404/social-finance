@@ -20,6 +20,12 @@ import '../features/auth/presentation/screens/login_screen.dart';
 import '../features/cash/presentation/screens/cash_screen.dart';
 import '../features/dues/presentation/screens/dues_screen.dart';
 import '../features/dashboard/presentation/screens/dashboard_screen.dart';
+import '../features/keuangan/presentation/screens/keuangan_screen.dart';
+import '../features/kegiatan/presentation/screens/kegiatan_screen.dart';
+import '../features/kegiatan/presentation/screens/kegiatan_detail_screen.dart';
+import '../features/pengumuman/presentation/screens/pengumuman_screen.dart';
+import '../features/pengumuman/presentation/screens/announcement_detail_screen.dart';
+import '../features/pengumuman/presentation/screens/announcement_form_screen.dart';
 import '../features/profile/presentation/screens/profile_screen.dart';
 import '../features/reports/presentation/screens/reports_screen.dart';
 import '../features/warga/data/warga_providers.dart';
@@ -89,18 +95,21 @@ String normalizeNotificationTarget(
   );
   final title = cleanString(payload?['title'] ?? existingQuery['title']);
   final body = cleanString(payload?['body'] ?? existingQuery['body']);
-  final imageUrl =
-      cleanString(payload?['image_url'] ?? existingQuery['image_url']);
+  final imageUrl = cleanString(
+    payload?['image_url'] ?? existingQuery['image_url'],
+  );
   final sentAt = cleanString(payload?['sent_at'] ?? existingQuery['sent_at']);
 
-  final isPaymentType = type == 'iuran_payment_submitted' ||
+  final isPaymentType =
+      type == 'iuran_payment_submitted' ||
       type == 'iuran_payment_verified' ||
       type == 'iuran_bill_created' ||
       type == 'iuran_payment_reminder' ||
       type == 'iuran_upcoming_due_3_months' ||
       type == 'iuran_overdue_3_months';
 
-  final isDetailNotificationType = type == 'manual_push' ||
+  final isDetailNotificationType =
+      type == 'manual_push' ||
       type == 'waste_truck_arrival' ||
       type == 'test_self';
 
@@ -126,9 +135,11 @@ String normalizeNotificationTarget(
             !queryParams.containsKey('payment_id')) {
           queryParams['payment_id'] = paymentIdFromPayload;
         }
-        if (type == 'iuran_payment_submitted' && !queryParams.containsKey('action')) {
+        if (type == 'iuran_payment_submitted' &&
+            !queryParams.containsKey('action')) {
           queryParams['action'] = 'verify';
-        } else if (type == 'iuran_payment_verified' && !queryParams.containsKey('view')) {
+        } else if (type == 'iuran_payment_verified' &&
+            !queryParams.containsKey('view')) {
           queryParams['view'] = 'status';
         }
         final queryString = queryParams.isNotEmpty
@@ -161,8 +172,9 @@ String normalizeNotificationTarget(
 
   // 3. Notification detail helper
   String buildNotificationDetailUrl({String? explicitId}) {
-    final resolvedId =
-        (explicitId != null && explicitId.isNotEmpty) ? explicitId : notificationId;
+    final resolvedId = (explicitId != null && explicitId.isNotEmpty)
+        ? explicitId
+        : notificationId;
     final basePath = resolvedId.isNotEmpty
         ? '/home/notifikasi/detail/$resolvedId'
         : '/home/notifikasi/detail';
@@ -210,7 +222,13 @@ String normalizeNotificationTarget(
       : (rawLink.startsWith('/') ? '/home$rawLink' : '/home/$rawLink');
   final candidatePath = Uri.tryParse(candidate)?.path ?? candidate;
 
-  final isKnownRoute = candidatePath == '/home' ||
+  final isKnownRoute =
+      candidatePath == '/home' ||
+      candidatePath == '/home/keuangan' ||
+      candidatePath == '/home/kegiatan' ||
+      candidatePath.startsWith('/home/kegiatan/') ||
+      candidatePath == '/home/pengumuman' ||
+      candidatePath.startsWith('/home/pengumuman/') ||
       candidatePath == '/home/cash' ||
       candidatePath == '/home/dues' ||
       candidatePath == '/home/iuran' ||
@@ -313,7 +331,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         ref.read(authRepositoryProvider.notifier).reloadProfile();
       }
       if (isPlainWargaUser(user)) {
-        ref.read(overdueWarningSummaryProvider.notifier).refresh(throttled: true);
+        ref
+            .read(overdueWarningSummaryProvider.notifier)
+            .refresh(throttled: true);
       }
     }
   }
@@ -326,10 +346,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     return canUserAccessNotificationMenu(user);
   }
 
-  String _resolveAuthorizedTarget(
-    String target,
-    Map<String, dynamic>? user,
-  ) {
+  String _resolveAuthorizedTarget(String target, Map<String, dynamic>? user) {
     final uri = Uri.tryParse(target);
     final loc = uri?.path ?? target;
 
@@ -350,7 +367,8 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       final role = user?['role'] as AppRole?;
       final systemRole = user?['system_role'] as String?;
       final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
-      final canAccess = systemRole == 'super_admin' ||
+      final canAccess =
+          systemRole == 'super_admin' ||
           role == AppRole.bendahara ||
           role == AppRole.pengurus ||
           jabatan == 'ketua' ||
@@ -379,25 +397,33 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     if (user == null) return false;
     final systemRole = (user['system_role'] ?? '').toString().toLowerCase();
     final role = (user['role'] ?? '').toString().toLowerCase();
-    final isSuperAdmin = systemRole == 'super_admin' ||
+    final isSuperAdmin =
+        systemRole == 'super_admin' ||
         role == 'super_admin' ||
         role.contains('superadmin');
-    final rawMemberships = (user['rw_memberships'] as List?)
+    final rawMemberships =
+        (user['rw_memberships'] as List?)
             ?.whereType<Map<String, dynamic>>()
             .toList() ??
         <Map<String, dynamic>>[];
     final validMemberships = rawMemberships.where((m) {
       if (isSuperAdmin) return true;
       final jabatan = (m['jabatan'] ?? '').toString().toLowerCase();
-      return ['ketua', 'wakil_ketua', 'sekretaris', 'bendahara'].contains(jabatan);
+      return [
+        'ketua',
+        'wakil_ketua',
+        'sekretaris',
+        'bendahara',
+      ].contains(jabatan);
     }).toList();
 
     if (validMemberships.isEmpty) return false;
     final segments = path.split('/').where((s) => s.isNotEmpty).toList();
     if (segments.length >= 2 && segments[0] == 'rw') {
       final rwId = segments[1];
-      return validMemberships.any((m) =>
-          (m['rw_id'] ?? m['id'] ?? '').toString() == rwId);
+      return validMemberships.any(
+        (m) => (m['rw_id'] ?? m['id'] ?? '').toString() == rwId,
+      );
     }
     return true;
   }
@@ -422,9 +448,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     // URL in the external default browser instead of navigating in-app.
     final externalManualUrl =
         resolveManualNotificationTrayExternalUrl(link, payload: payload) ??
-            resolveManualNotificationTrayExternalUrl(target, payload: payload);
+        resolveManualNotificationTrayExternalUrl(target, payload: payload);
     if (externalManualUrl != null) {
-      ref.read(pushNotificationServiceProvider).openExternalUrl(externalManualUrl);
+      ref
+          .read(pushNotificationServiceProvider)
+          .openExternalUrl(externalManualUrl);
       return;
     }
 
@@ -507,8 +535,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         });
       });
 
-      _nativeTappedSub =
-          notifService.onNativeNotificationPayloadTapped.listen((payload) {
+      _nativeTappedSub = notifService.onNativeNotificationPayloadTapped.listen((
+        payload,
+      ) {
         final deepLink = payload['deep_link'] as String?;
         _navigateToDeepLink(deepLink, payload: payload);
       });
@@ -519,7 +548,8 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             notification?.title ?? message.data['title'] ?? 'Notifikasi Baru';
         final body = notification?.body ?? message.data['body'] ?? '';
         final rawDeepLink = message.data['deep_link'] as String?;
-        final rawImageUrl = (message.data['image_url'] as String?) ??
+        final rawImageUrl =
+            (message.data['image_url'] as String?) ??
             notification?.android?.imageUrl;
         final activeBaseUrl = ref.read(apiClientProvider).baseUrl;
         final imageUrl = ApiConfig.resolveImageUrl(
@@ -549,9 +579,10 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             notificationId: message.data['notification_id'] as String?,
             type: message.data['type'] as String?,
             sentAt: message.data['sent_at'] as String?,
-            id: (message.messageId ??
-                    '${message.data['notification_id'] ?? title}:$body')
-                .hashCode,
+            id:
+                (message.messageId ??
+                        '${message.data['notification_id'] ?? title}:$body')
+                    .hashCode,
           );
           // Avoid showing dual notifications for the same message on Android
         } else {
@@ -705,11 +736,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         if (loggedIn) {
           final user = authState?.valueOrNull;
           final loc = state.matchedLocation;
-          final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
-          final securityLanding = securityOfficerHomeRedirect(
-            jabatan,
-            loc,
-          );
+          final jabatan = (user?['jabatan'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+          final securityLanding = securityOfficerHomeRedirect(jabatan, loc);
           if (securityLanding != null) return securityLanding;
           final cleaningLanding = cleaningOfficerHomeRedirect(jabatan, loc);
           if (cleaningLanding != null) return cleaningLanding;
@@ -734,16 +765,15 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               loc.startsWith('/home/warga');
           final isSecurityWargaPath =
               jabatan == 'keamanan' && loc == '/home/warga';
-          if (isRTOperational &&
-              !isAllowedRT(user) &&
-              !isSecurityWargaPath) {
+          if (isRTOperational && !isAllowedRT(user) && !isSecurityWargaPath) {
             return '/home';
           }
           if (loc.startsWith('/home/lokasi-dana')) {
             final role = user?['role'] as AppRole?;
             final systemRole = user?['system_role'] as String?;
             final jabatan = (user?['jabatan'] ?? '').toString().toLowerCase();
-            final canAccess = systemRole == 'super_admin' ||
+            final canAccess =
+                systemRole == 'super_admin' ||
                 role == AppRole.bendahara ||
                 role == AppRole.pengurus ||
                 jabatan == 'ketua' ||
@@ -759,7 +789,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           }
           // Monitoring untuk petugas kebersihan, keamanan, dan ketua RT.
           if (loc == '/home/monitoring') {
-            if (jabatan != 'kebersihan' && jabatan != 'keamanan' && jabatan != 'ketua') {
+            if (jabatan != 'kebersihan' &&
+                jabatan != 'keamanan' &&
+                jabatan != 'ketua') {
               return '/home';
             }
           }
@@ -779,9 +811,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         return null;
       },
       errorBuilder: (context, state) => Scaffold(
-        appBar: AppBar(
-          title: const Text('Halaman Tidak Ditemukan'),
-        ),
+        appBar: AppBar(title: const Text('Halaman Tidak Ditemukan')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -861,10 +891,56 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
               builder: (context, state) => const DashboardScreen(),
             ),
             GoRoute(
+              path: '/home/keuangan',
+              name: 'keuangan',
+              builder: (context, state) => const KeuanganScreen(),
+            ),
+            GoRoute(
+              path: '/home/kegiatan',
+              name: 'kegiatan',
+              builder: (context, state) => const KegiatanScreen(),
+              routes: [
+                GoRoute(
+                  path: ':id',
+                  name: 'kegiatan_detail',
+                  builder: (context, state) => KegiatanDetailScreen(
+                    activityId: state.pathParameters['id']!,
+                  ),
+                ),
+              ],
+            ),
+            GoRoute(
+              path: '/home/pengumuman',
+              name: 'pengumuman',
+              builder: (context, state) => const PengumumanScreen(),
+              routes: [
+                GoRoute(
+                  path: 'create',
+                  name: 'pengumuman_create',
+                  builder: (context, state) => const AnnouncementFormScreen(),
+                ),
+                GoRoute(
+                  path: ':id',
+                  name: 'pengumuman_detail',
+                  builder: (context, state) => AnnouncementDetailScreen(
+                    announcementId: state.pathParameters['id']!,
+                  ),
+                  routes: [
+                    GoRoute(
+                      path: 'edit',
+                      name: 'pengumuman_edit',
+                      builder: (context, state) => AnnouncementFormScreen(
+                        announcementId: state.pathParameters['id'],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            GoRoute(
               path: '/home/notifikasi',
               name: 'notifikasi',
-              builder: (context, state) =>
-                  const NotificationManagementScreen(),
+              builder: (context, state) => const NotificationManagementScreen(),
               routes: [
                 GoRoute(
                   path: 'detail',
@@ -930,12 +1006,9 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   name: 'iuran_detail',
                   builder: (context, state) {
                     final billId = state.pathParameters['billId']!;
-                    final paymentId =
-                        state.uri.queryParameters['payment_id'];
-                    final action =
-                        state.uri.queryParameters['action'];
-                    final view =
-                        state.uri.queryParameters['view'];
+                    final paymentId = state.uri.queryParameters['payment_id'];
+                    final action = state.uri.queryParameters['action'];
+                    final view = state.uri.queryParameters['view'];
                     return IuranDetailScreen(
                       billId: billId,
                       initialPaymentId: paymentId,
@@ -1034,8 +1107,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   name: 'warga_edit',
                   onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) {
-                    final householdId =
-                        state.pathParameters['householdId']!;
+                    final householdId = state.pathParameters['householdId']!;
                     return HouseholdEditScreen(householdId: householdId);
                   },
                 ),
@@ -1058,9 +1130,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                   onExit: KasFormNavigationGuard.onRouteExit,
                   builder: (context, state) {
                     final residentId = state.pathParameters['residentId']!;
-                    return SpecialResidentEditScreen(
-                      residentId: residentId,
-                    );
+                    return SpecialResidentEditScreen(residentId: residentId);
                   },
                 ),
               ],
@@ -1098,7 +1168,8 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 final initialTab = switch (tabParam) {
                   'kas' => 1,
                   'lokasi' => 2,
-                  'notifikasi' => 3, // best-effort; RwKeuanganScreen clamps to visible tabs
+                  'notifikasi' =>
+                    3, // best-effort; RwKeuanganScreen clamps to visible tabs
                   _ => 0,
                 };
                 return RwKeuanganScreen(rwId: rwId, initialTab: initialTab);

@@ -111,6 +111,18 @@ func (m *mockStorageService) DeleteNotificationImage(ctx context.Context, key st
 	return nil
 }
 
+func (m *mockStorageService) UploadCommunityImage(ctx context.Context, rtID, category, filename string, r io.Reader, size int64) (*storage.ObjectMetadata, error) {
+	return nil, storage.ErrNotFound
+}
+
+func (m *mockStorageService) GetCommunityImage(ctx context.Context, key string) (*storage.ObjectReader, error) {
+	return nil, storage.ErrNotFound
+}
+
+func (m *mockStorageService) DeleteCommunityImage(ctx context.Context, key string) error {
+	return storage.ErrNotFound
+}
+
 func (m *mockStorageService) InitBucket(ctx context.Context) error {
 	return nil
 }

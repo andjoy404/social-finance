@@ -261,3 +261,112 @@ func (m *MockStorage) DeleteNotificationImage(ctx context.Context, key string) e
 	delete(m.metadata, key)
 	return nil
 }
+
+func (m *MockStorage) UploadCommunityImage(ctx context.Context, rtID, category, filename string, r io.Reader, size int64) (*ObjectMetadata, error) {
+	if m.UploadErr != nil {
+		return nil, m.UploadErr
+	}
+	if size <= 0 {
+		return nil, ErrEmptyFile
+	}
+	if size > m.MaxFileSize {
+		return nil, ErrFileTooLarge
+	}
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, ErrEmptyFile
+	}
+
+	headerLen := len(data)
+	if headerLen > 512 {
+		headerLen = 512
+	}
+	contentType := http.DetectContentType(data[:headerLen])
+	if contentType == "application/octet-stream" && len(data) >= 12 {
+		if string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+			contentType = "image/webp"
+		}
+	}
+
+	ext, ok := allowedMimeTypes[contentType]
+	if !ok {
+		return nil, ErrInvalidFormat
+	}
+
+	sanitizedName := filepath.Base(filename)
+	randomBytes := make([]byte, 8)
+	_, _ = rand.Read(randomBytes)
+	randomHex := hex.EncodeToString(randomBytes)
+
+	now := time.Now()
+	if category != "activity" && category != "announcement" && category != "banner" {
+		category = "general"
+	}
+	key := fmt.Sprintf("community/%s/%s/%d_%s%s", rtID, category, now.UnixNano(), randomHex, ext)
+
+	meta := &ObjectMetadata{
+		Key:          key,
+		OriginalName: sanitizedName,
+		ContentType:  contentType,
+		Size:         int64(len(data)),
+		UploadedAt:   now,
+	}
+
+	m.mu.Lock()
+	m.objects[key] = data
+	m.metadata[key] = meta
+	m.mu.Unlock()
+
+	return meta, nil
+}
+
+func (m *MockStorage) GetCommunityImage(ctx context.Context, key string) (*ObjectReader, error) {
+	if m.GetErr != nil {
+		return nil, m.GetErr
+	}
+	if strings.Contains(key, "..") || !strings.HasPrefix(key, "community/") {
+		return nil, ErrNotFound
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	data, ok := m.objects[key]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	meta := m.metadata[key]
+	ct := "application/octet-stream"
+	if meta != nil && meta.ContentType != "" {
+		ct = meta.ContentType
+	}
+
+	return &ObjectReader{
+		Body:        io.NopCloser(bytes.NewReader(data)),
+		ContentType: ct,
+		Size:        int64(len(data)),
+	}, nil
+}
+
+func (m *MockStorage) DeleteCommunityImage(ctx context.Context, key string) error {
+	if m.DeleteErr != nil {
+		return m.DeleteErr
+	}
+	if strings.Contains(key, "..") || !strings.HasPrefix(key, "community/") {
+		return ErrNotFound
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.objects[key]; !ok {
+		return ErrNotFound
+	}
+	delete(m.objects, key)
+	delete(m.metadata, key)
+	return nil
+}

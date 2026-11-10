@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"social-finance/internal/auth"
+	"social-finance/internal/community"
 	"social-finance/internal/config"
 	"social-finance/internal/database"
 	"social-finance/internal/devseed"
@@ -1028,6 +1029,67 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 			r.Get("/api/v1/rw/{rwId}/monitoring/export/pdf", notifH.ExportMonitoringPDF)
 		})
 	})
+
+	// ── Community Module (Beranda, Kegiatan, Pengumuman, Banner) ─────────
+	communityRepo := community.NewRepository(pool)
+	communitySvc := community.NewService(communityRepo, store)
+	communityH := community.NewHandler(communitySvc, pool, store)
+
+	// Public community image streaming. Authorization happens INSIDE the
+	// handler (Bearer JWT for API clients, or short-lived HMAC-signed URLs for
+	// <img> tags): both modes enforce RT prefix ownership and that the key is
+	// referenced by content the caller may see.
+	r.Get("/api/v1/community/images/*", communityH.GetImage)
+
+	// Community read access: all authenticated members within their allowed RT.
+	// Draft content is NOT exposed by these routes — handlers enforce draft
+	// visibility via content-management permissions.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
+		r.Get("/api/v1/home/dashboard", communityH.GetHomeDashboard)
+		r.Get("/api/v1/activities", communityH.ListActivities)
+		r.Get("/api/v1/activities/{id}", communityH.GetActivity)
+		r.Get("/api/v1/announcements", communityH.ListAnnouncements)
+		r.Get("/api/v1/announcements/{id}", communityH.GetAnnouncement)
+		r.Get("/api/v1/banner-templates", communityH.ListBannerTemplates)
+		r.Get("/api/v1/banner-templates/{id}", communityH.GetBannerTemplate)
+		r.Get("/api/v1/banners", communityH.ListBanners)
+		r.Get("/api/v1/organization-structure", communityH.GetOrganizationStructure)
+		// Short-lived signed URLs for community images (for <img> tags and
+		// clients that cannot send Authorization headers). Issues only after
+		// the same content authorization as the Bearer mode of GetImage.
+		r.Post("/api/v1/community/images/sign", communityH.SignImageURL)
+	})
+
+	// Community write endpoints. Authorization model:
+	//   RequireAccess(nil, AllJabatans) — jabatan-PRESENCE gate only: blocks
+	//   role-only users without any jabatan (e.g. pure warga). It is NOT a
+	//   per-operation permission.
+	//   RequirePermission(code) — per-operation check against
+	//   position_permissions (single source of truth; super admin bypass).
+	// Ketua RT (role=warga + jabatan=ketua) passes both; other jabatan holders
+	// pass the presence gate and are then granted/denied per their seeded
+	// position_permissions rows.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAccess(nil, auth.AllJabatans))
+		// Upload is gated per category inside the handler (activities.create /
+		// announcements.create) so read-only users cannot upload posters/banners.
+		r.Post("/api/v1/community/upload", communityH.UploadImage)
+		r.With(auth.RequirePermission(pool, "activities.create")).Post("/api/v1/activities", communityH.CreateActivity)
+		r.With(auth.RequirePermission(pool, "activities.update")).Put("/api/v1/activities/{id}", communityH.UpdateActivity)
+		r.With(auth.RequirePermission(pool, "activities.publish")).Post("/api/v1/activities/{id}/publish", communityH.PublishActivity)
+		r.With(auth.RequirePermission(pool, "activities.cancel")).Post("/api/v1/activities/{id}/cancel", communityH.CancelActivity)
+		r.With(auth.RequirePermission(pool, "activities.create")).Delete("/api/v1/activities/{id}", communityH.DeleteActivity)
+		r.With(auth.RequirePermission(pool, "announcements.create")).Post("/api/v1/announcements", communityH.CreateAnnouncement)
+		r.With(auth.RequirePermission(pool, "announcements.update")).Put("/api/v1/announcements/{id}", communityH.UpdateAnnouncement)
+		r.With(auth.RequirePermission(pool, "announcements.publish")).Post("/api/v1/announcements/{id}/publish", communityH.PublishAnnouncement)
+		r.With(auth.RequirePermission(pool, "announcements.archive")).Post("/api/v1/announcements/{id}/archive", communityH.ArchiveAnnouncement)
+		r.With(auth.RequirePermission(pool, "announcements.create")).Delete("/api/v1/announcements/{id}", communityH.DeleteAnnouncement)
+	})
+
 	return r
 }
 

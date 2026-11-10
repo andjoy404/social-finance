@@ -49,7 +49,7 @@ const mockKetuaRTUser: AuthUser = {
   systemRole: null,
   role: 'pengurus',
   jabatan: 'ketua',
-  effectivePermissions: ['notification.manage'],
+  effectivePermissions: ['notification.manage', 'activities.create', 'activities.update', 'activities.publish', 'activities.cancel', 'announcements.create', 'announcements.update', 'announcements.publish', 'announcements.archive', 'banner_templates.manage', 'organization.contact.read'],
   rt: { id: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', name: 'Urena' },
   rtCode: '002',
   rtId: 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
@@ -304,21 +304,21 @@ describe('Sidebar — navigation items', () => {
     clearSidebarLocalStorage()
   })
 
-  it('has exactly 5 nav items for warga, including Notifikasi', () => {
+  it('has nav items for warga, including Keuangan, Kegiatan, and Notifikasi', () => {
     renderSidebar()
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(5) // Beranda, Warga, Iuran, KAS, Notifikasi
+    expect(links.length).toBe(7) // Beranda, Keuangan, Kegiatan, Kas, Iuran, Warga, Notifikasi
     expect(buttons.length).toBe(1) // pin toggle
   })
 
-  it('has exactly 8 nav items for SuperAdmin: Beranda, Warga, Iuran, KAS, Lokasi Dana, Notifikasi, Kelola RT, Kelola RW', () => {
+  it('has nav items for SuperAdmin including Keuangan, Kegiatan, Kelola Pengumuman, and Notifikasi', () => {
     renderSidebar(mockSuperAdminUser)
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(8) // Beranda, Warga, Iuran, KAS, Lokasi Dana, Notifikasi, Kelola RT, Kelola RW
+    expect(links.length).toBe(11) // Beranda, Keuangan, Kegiatan, Kelola Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Notifikasi, Kelola RT, Kelola RW
     expect(buttons.length).toBe(1) // pin toggle
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
   })

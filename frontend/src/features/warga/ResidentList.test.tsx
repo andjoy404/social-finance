@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ResidentList } from './ResidentList'
-import { Dashboard } from '@/features/dashboard/Dashboard'
+import { KeuanganScreen } from '@/features/keuangan/KeuanganScreen'
 import { KasList } from '@/features/kas/KasList'
 import { IuranList } from '@/features/iuran/IuranList'
 import { RtList } from '@/features/rt/RtList'
@@ -789,14 +789,14 @@ describe('W4.2C — Authorization write action visibility', () => {
     })
     mockFetch(() => mockSuccessResponse({ data: [] }))
     const { container } = render(
-      <MemoryRouter initialEntries={['/dashboard']}>
-        <Dashboard />
+      <MemoryRouter initialEntries={['/keuangan']}>
+        <KeuanganScreen />
       </MemoryRouter>,
     )
     const filterBox = container.querySelector('.sf-list-toolbar') as HTMLElement | null
     expect(filterBox).not.toBeNull()
     expect(container.querySelector('.sf-list-toolbar-left')).not.toBeNull()
-    expect(container.querySelector('.sf-list-toolbar-right')).not.toBeNull()
+    expect(container.querySelectorAll('select').length).toBeGreaterThanOrEqual(2)
     expect(container.textContent).toContain('Semua Periode')
   })
 

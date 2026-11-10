@@ -110,6 +110,29 @@ export function canAccessNotificationMenu(user: AuthUser | null | undefined): bo
   return !!user && (canAccessNotificationAdmin(user) || canAccessNotificationRead(user))
 }
 
+/**
+ * Check whether a user holds a specific permission. Super Admin passes.
+ * Jabatan-based users are evaluated against their effective_permissions
+ * (resolved by the backend from position_permissions — the single source
+ * of truth). Role-only users without a jabatan never gain community
+ * permissions implicitly.
+ */
+export function hasPermission(user: AuthUser | null | undefined, permission: string): boolean {
+  if (!user) return false
+  if (isSuperAdminUser(user)) return true
+  return (user.effectivePermissions ?? []).includes(permission)
+}
+
+/** Activities management: create, update, publish, cancel, or delete drafts. */
+export function canManageActivities(user: AuthUser | null | undefined): boolean {
+  return hasPermission(user, 'activities.create') || hasPermission(user, 'activities.update')
+}
+
+/** Announcements management: create, update, publish, or archive/delete. */
+export function canManageAnnouncements(user: AuthUser | null | undefined): boolean {
+  return hasPermission(user, 'announcements.create') || hasPermission(user, 'announcements.update')
+}
+
 export function isAllowedRT(user: AuthUser | null): boolean {
   if (!user) return false
   if (isSuperAdminUser(user)) return true

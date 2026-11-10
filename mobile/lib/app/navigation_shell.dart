@@ -44,6 +44,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.home_outlined,
     activeIcon: Icons.home,
   );
+  static const _keuanganTab = _NavRoute(
+    path: '/home/keuangan',
+    label: 'Keuangan',
+    icon: Icons.analytics_outlined,
+    activeIcon: Icons.analytics,
+  );
   static const _kasTab = _NavRoute(
     path: '/home/kas',
     label: 'Kas',
@@ -62,6 +68,18 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     icon: Icons.receipt_long_outlined,
     activeIcon: Icons.receipt_long,
     isProminent: true,
+  );
+  static const _kegiatanTab = _NavRoute(
+    path: '/home/kegiatan',
+    label: 'Kegiatan',
+    icon: Icons.event_outlined,
+    activeIcon: Icons.event,
+  );
+  static const _pengumumanTab = _NavRoute(
+    path: '/home/pengumuman',
+    label: 'Pengumuman',
+    icon: Icons.campaign_outlined,
+    activeIcon: Icons.campaign,
   );
   static const _wargaTab = _NavRoute(
     path: '/home/warga',
@@ -161,7 +179,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final rwMemberships = _getValidRWMemberships(user);
     if (isAllowedRT(user)) {
       final canLokasiDana = _canAccessLokasiDana(user);
-      final canMonitoring = jabatan == 'kebersihan' || jabatan == 'keamanan' || jabatan == 'ketua';
+      final canMonitoring =
+          jabatan == 'kebersihan' ||
+          jabatan == 'keamanan' ||
+          jabatan == 'ketua';
       return [
         _homeTab,
         _kasTab,
@@ -176,6 +197,52 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     }
     return [
       _homeTab,
+      if (rwMemberships.isNotEmpty) _rwDataTab,
+      if (canNotifikasi) _notifikasiTab,
+      _profileTab,
+    ];
+  }
+
+  List<_NavRoute> _getDrawerTabs() {
+    final authState = ref.watch(authRepositoryProvider);
+    final user = authState?.valueOrNull;
+    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+
+    if (jabatan == 'keamanan') {
+      return [_wargaTab, _monitoringTab, _notifikasiTab, _profileTab];
+    }
+    if (jabatan == 'kebersihan') {
+      return [_monitoringTab, _profileTab];
+    }
+
+    final canNotifikasi = _canAccessNotifikasi(user);
+    final rwMemberships = _getValidRWMemberships(user);
+    if (isAllowedRT(user)) {
+      final canLokasiDana = _canAccessLokasiDana(user);
+      final canMonitoring =
+          jabatan == 'kebersihan' ||
+          jabatan == 'keamanan' ||
+          jabatan == 'ketua';
+      return [
+        _homeTab,
+        _keuanganTab,
+        _kasTab,
+        if (canLokasiDana) _lokasiTab,
+        _iuranTab,
+        _kegiatanTab,
+        _pengumumanTab,
+        _wargaTab,
+        if (canMonitoring) _monitoringTab,
+        if (rwMemberships.isNotEmpty) _rwDataTab,
+        if (canNotifikasi) _notifikasiTab,
+        _profileTab,
+      ];
+    }
+    return [
+      _homeTab,
+      _keuanganTab,
+      _kegiatanTab,
+      _pengumumanTab,
       if (rwMemberships.isNotEmpty) _rwDataTab,
       if (canNotifikasi) _notifikasiTab,
       _profileTab,
@@ -246,8 +313,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
   @override
   Widget build(BuildContext context) {
     final tabs = _getActiveTabs();
+    final drawerTabs = _getDrawerTabs();
     final location = _currentLocation(context);
     final currentMatch = _resolveCurrentMatch(tabs, location);
+    final drawerMatch = _resolveCurrentMatch(drawerTabs, location);
 
     _currentMatch = currentMatch;
 
@@ -321,10 +390,10 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
           ),
         ),
         drawer: _AppDrawer(
-          tabs: tabs,
-          currentMatch: currentMatch,
+          tabs: drawerTabs,
+          currentMatch: drawerMatch,
           user: user,
-          onSelectTab: (index) => _onTabTapped(tabs, index, context),
+          onSelectTab: (index) => _onTabTapped(drawerTabs, index, context),
         ),
         bottomNavigationBar: BottomAppBar(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
