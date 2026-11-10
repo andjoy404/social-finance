@@ -112,7 +112,21 @@ class DashboardSummary {
       );
     }).toList();
 
-    const monthShortNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    const monthShortNames = [
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
     String formatTxDate(String? dtStr) {
       if (dtStr == null || dtStr.isEmpty) return '';
       final dt = DateTime.tryParse(dtStr);
@@ -121,7 +135,9 @@ class DashboardSummary {
     }
 
     String? extractReference(Map<String, dynamic> tx) {
-      final rawPayNo = (tx['payment_no'] ?? tx['reference_no'])?.toString().trim();
+      final rawPayNo = (tx['payment_no'] ?? tx['reference_no'])
+          ?.toString()
+          .trim();
       if (rawPayNo != null &&
           rawPayNo.isNotEmpty &&
           rawPayNo.toLowerCase() != 'null' &&
@@ -152,26 +168,43 @@ class DashboardSummary {
       final dueName = tx['due_name']?.toString().trim();
       final desc = isInc && dueName != null && dueName.isNotEmpty
           ? (dueName.toUpperCase() == 'IPL'
-              ? (ref ?? 'Tanpa Referensi')
-              : '$dueName · ${ref ?? 'Tanpa Referensi'}')
+                ? (ref ?? 'Tanpa Referensi')
+                : '$dueName · ${ref ?? 'Tanpa Referensi'}')
           : (tx['description']?.toString() ?? '')
-              .replaceAll(RegExp(r'\s*\(Bill:\s*[a-f0-9-]+\)', caseSensitive: false), '')
-              .replaceAll(RegExp(r'Payment for bill [a-f0-9-]+\s*\(Period:\s*([^)]+)\)', caseSensitive: false), 'Pembayaran Iuran (\$1)');
+                .replaceAll(
+                  RegExp(r'\s*\(Bill:\s*[a-f0-9-]+\)', caseSensitive: false),
+                  '',
+                )
+                .replaceAll(
+                  RegExp(
+                    r'Payment for bill [a-f0-9-]+\s*\(Period:\s*([^)]+)\)',
+                    caseSensitive: false,
+                  ),
+                  'Pembayaran Iuran (\$1)',
+                );
       return Transaction(
         id: tx['id']?.toString() ?? '',
         description: desc,
-        category: tx['category_name']?.toString() ?? (isInc ? 'Pemasukan' : 'Pengeluaran'),
+        category:
+            tx['category_name']?.toString() ??
+            (isInc ? 'Pemasukan' : 'Pengeluaran'),
         amount: parseMoney(tx['amount']),
         isIncome: isInc,
-        date: formatTxDate(tx['occurred_at']?.toString() ?? tx['created_at']?.toString()),
+        date: formatTxDate(
+          tx['occurred_at']?.toString() ?? tx['created_at']?.toString(),
+        ),
       );
     }).toList();
 
     KasCategory resolveCategory(String name) {
       final normalized = name.trim().toLowerCase();
       if (normalized.contains('operasional')) return KasCategory.operasionalRT;
-      if (normalized.contains('iuran warga') || normalized.contains('iuranwarga')) return KasCategory.iuranWarga;
-      if (normalized.contains('iuran paksa') || normalized.contains('iuranpaksa')) return KasCategory.iuranPaksa;
+      if (normalized.contains('iuran warga') ||
+          normalized.contains('iuranwarga'))
+        return KasCategory.iuranWarga;
+      if (normalized.contains('iuran paksa') ||
+          normalized.contains('iuranpaksa'))
+        return KasCategory.iuranPaksa;
       if (normalized.contains('perlengkapan')) return KasCategory.perlengkapan;
       if (normalized.contains('konsumsi')) return KasCategory.konsumsi;
       if (normalized.contains('perbaikan')) return KasCategory.perbaikan;
@@ -183,9 +216,15 @@ class DashboardSummary {
     final kasTransactions = txList.map((t) {
       final tx = t as Map<String, dynamic>;
       final isInc = tx['type'] == 'income';
-      final catName = tx['category_name']?.toString() ?? (isInc ? 'Iuran Warga' : 'Operasional RT');
+      final catName =
+          tx['category_name']?.toString() ??
+          (isInc ? 'Iuran Warga' : 'Operasional RT');
       final amountStr = tx['amount']?.toString() ?? '0';
-      final dt = DateTime.tryParse(tx['occurred_at']?.toString() ?? tx['created_at']?.toString() ?? '') ?? DateTime.now();
+      final dt =
+          DateTime.tryParse(
+            tx['occurred_at']?.toString() ?? tx['created_at']?.toString() ?? '',
+          ) ??
+          DateTime.now();
 
       return KasTransaction(
         id: tx['id']?.toString() ?? '',
@@ -264,12 +303,48 @@ class DashboardMockData {
   static const _duesProgress = DuesProgress(paid: 42, target: 50);
 
   static const List<MonthlyFinancePoint> _monthlyData = [
-    MonthlyFinancePoint(month: 'Apr', income: 3200000, expense: 1800000, incomeCount: 32, expenseCount: 4),
-    MonthlyFinancePoint(month: 'Mei', income: 4100000, expense: 2300000, incomeCount: 41, expenseCount: 6),
-    MonthlyFinancePoint(month: 'Jun', income: 3800000, expense: 2100000, incomeCount: 38, expenseCount: 5),
-    MonthlyFinancePoint(month: 'Jul', income: 4600000, expense: 2800000, incomeCount: 46, expenseCount: 7),
-    MonthlyFinancePoint(month: 'Agu', income: 3900000, expense: 2450000, incomeCount: 39, expenseCount: 5),
-    MonthlyFinancePoint(month: 'Sep', income: 4250000, expense: 2175000, incomeCount: 42, expenseCount: 5),
+    MonthlyFinancePoint(
+      month: 'Apr',
+      income: 3200000,
+      expense: 1800000,
+      incomeCount: 32,
+      expenseCount: 4,
+    ),
+    MonthlyFinancePoint(
+      month: 'Mei',
+      income: 4100000,
+      expense: 2300000,
+      incomeCount: 41,
+      expenseCount: 6,
+    ),
+    MonthlyFinancePoint(
+      month: 'Jun',
+      income: 3800000,
+      expense: 2100000,
+      incomeCount: 38,
+      expenseCount: 5,
+    ),
+    MonthlyFinancePoint(
+      month: 'Jul',
+      income: 4600000,
+      expense: 2800000,
+      incomeCount: 46,
+      expenseCount: 7,
+    ),
+    MonthlyFinancePoint(
+      month: 'Agu',
+      income: 3900000,
+      expense: 2450000,
+      incomeCount: 39,
+      expenseCount: 5,
+    ),
+    MonthlyFinancePoint(
+      month: 'Sep',
+      income: 4250000,
+      expense: 2175000,
+      incomeCount: 42,
+      expenseCount: 5,
+    ),
   ];
 
   static const List<Transaction> recentTransactions = [

@@ -84,6 +84,7 @@ describe('Special Resident positions (Keamanan, Operasional, Kebersihan)', () =>
     fireEvent.change(screen.getByLabelText(/NIK/i), { target: { value: '3173000000000001' } })
     fireEvent.change(screen.getByLabelText(/Telepon/i), { target: { value: '081234567890' } })
     fireEvent.change(screen.getByLabelText(/Email/i), { target: { value: 'budi.kebersihan@test.com' } })
+    fireEvent.change(screen.getByLabelText(/Kata Sandi/i), { target: { value: 'password123' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Simpan' }))
 

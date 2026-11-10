@@ -913,3 +913,27 @@ func TestRWMonitoring_BendaharaDenied(t *testing.T) {
 		t.Fatalf("bendahara read monitoring: expected 403, got %d body=%s", w.Code, w.Body.String())
 	}
 }
+
+// TestRWMonitoring_InactiveMembershipDenied verifies that when a user's membership is deactivated, access is forbidden.
+func TestRWMonitoring_InactiveMembershipDenied(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	rwID := createRWForNotifTest(t, pool)
+	_, router := setupRWNotifRouter(t, []string{rwID})
+
+	insertJabatanMonitoringPerms(t, pool, "keamanan", "rw.monitoring.read")
+
+	userID, token := createRTKeamananUser(t, pool, rwMonRTUrena)
+
+	// Deactivate membership in DB
+	_, err := pool.Raw().ExecContext(context.Background(),
+		`UPDATE user_rt_memberships SET is_active = false WHERE user_id = $1 AND rt_id = $2`,
+		userID, rwMonRTUrena)
+	if err != nil {
+		t.Fatalf("deactivate membership: %v", err)
+	}
+
+	w := doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/monitoring", token, nil)
+	if w.Code != http.StatusUnauthorized && w.Code != http.StatusForbidden {
+		t.Fatalf("inactive membership read monitoring: expected 401 or 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
