@@ -231,66 +231,131 @@ func main() {
 	slog.Info("server stopped")
 }
 
-// runAutoProvision creates RW 016 and RT 002 (Urena) if they don't exist,
-// and sets SCOPED_RT_IDS from the resulting UUID.
-func runAutoProvision(ctx context.Context, pool *database.Pool) error {
+// resolveRT002 looks up the canonical RT 002 (Urena) by its physical tenant
+// number (rw=16, rt='002'). Returns the RT UUID, or sql.ErrNoRows if absent.
+func resolveRT002(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (string, error) {
 	var rtID string
-	err := pool.Raw().QueryRowContext(ctx,
-		`SELECT id FROM rts WHERE rt = '002' AND rw = 16 AND is_active = true LIMIT 1`).Scan(&rtID)
-	if err == nil && rtID != "" {
-		if err := os.Setenv("SCOPED_RT_IDS", rtID); err != nil {
-			return fmt.Errorf("set SCOPED_RT_IDS: %w", err)
+	err := q.QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '002' AND rw = 16 AND is_active = true LIMIT 1`).Scan(&rtID)
+	if err != nil {
+		return "", err
+	}
+	return rtID, nil
+}
+
+// runAutoProvision creates RW 016 and RT 002 (Urena) if they don't exist,
+// and derives SCOPED_RT_IDS from the resulting UUID.
+//
+// Scope policy:
+//   - If SCOPED_RT_IDS is explicitly configured (non-blank), it is treated as
+//     authoritative and is left untouched on every restart — operator scope
+//     never shrinks or expands silently.
+//   - If SCOPED_RT_IDS is blank/unset (e.g. fresh install with docker default
+//     SCOPED_RT_IDS=), it is auto-derived to the bootstrapped RT 002 UUID.
+//     This keeps fresh installs self-contained while staying fail-closed once
+//     LoadScoping validates the resulting value.
+//
+// Idempotent: an existing RW 016 + RT 002 are always reused; never replaced.
+// On a fresh database, brand-new UUIDs are generated — we never hardcode
+// legacy canonical UUIDs from a prior database.
+func runAutoProvision(ctx context.Context, pool *database.Pool) error {
+	explicitScope := strings.TrimSpace(os.Getenv("SCOPED_RT_IDS")) != ""
+	// applyDerivedScope installs the auto-derived scope only when the operator
+	// did not configure one explicitly.
+	applyDerivedScope := func(rtID string) error {
+		if explicitScope {
+			slog.Info("auto-provision: keeping operator-configured SCOPED_RT_IDS unchanged", "rt_id", rtID)
+			return nil
 		}
-		slog.Info("auto-provision: RT 002 already exists, using canonical ID", "rt_id", rtID)
+		if err := os.Setenv("SCOPED_RT_IDS", rtID); err != nil {
+			return fmt.Errorf("auto-provision: set SCOPED_RT_IDS: %w", err)
+		}
+		slog.Info("auto-provision: auto-derived SCOPED_RT_IDS from bootstrapped RT", "rt_id", rtID)
+		return nil
+	}
+
+	if rtID, err := resolveRT002(ctx, pool.Raw()); err == nil {
+		if err := applyDerivedScope(rtID); err != nil {
+			return err
+		}
+		slog.Info("auto-provision: RT 002 already exists, reusing existing ID", "rt_id", rtID)
 		return nil
 	}
 
 	tx, err := pool.BeginTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin provision tx: %w", err)
+		return fmt.Errorf("auto-provision: begin tx: %w", err)
 	}
-	defer tx.Rollback()
-
-	var rwID string
-	err = tx.QueryRowContext(ctx,
-		`INSERT INTO rws (id, rw_number, name, is_active, created_at, updated_at)
-		 VALUES (gen_random_uuid(), 16, 'RW 016', true, now(), now())
-		 ON CONFLICT (rw_number) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
-		 RETURNING id`).Scan(&rwID)
-	if err != nil {
-		err = tx.QueryRowContext(ctx, `SELECT id FROM rws WHERE rw_number = 16 AND is_active = true LIMIT 1`).Scan(&rwID)
-		if err != nil {
-			return fmt.Errorf("insert/resolve RW 016: %w", err)
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
 		}
+	}()
+
+	// ---- Resolve or create RW 016 ----
+	var rwID string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM rws WHERE rw_number = 16 AND is_active = true LIMIT 1`).Scan(&rwID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// No RW present; create with a fresh UUID.
+		err = tx.QueryRowContext(ctx, `
+			INSERT INTO rws (rw_number, name, is_active, created_at, updated_at)
+			VALUES (16, 'RW 016', true, now(), now())
+			RETURNING id
+		`).Scan(&rwID)
+		if err != nil {
+			slog.Error("auto-provision: insert RW 016 failed", "operation", "insert rws", "error", err)
+			return fmt.Errorf("auto-provision: insert RW 016: %w", err)
+		}
+		slog.Info("auto-provision: created new RW 016", "rw_id", rwID)
+	case err != nil:
+		return fmt.Errorf("auto-provision: query RW 016: %w", err)
+	default:
+		slog.Info("auto-provision: reusing existing RW 016", "rw_id", rwID)
+	}
+	if rwID == "" {
+		return fmt.Errorf("auto-provision: RW 016 UUID empty after resolution")
 	}
 
-	rtUUID := devseed.CanonicalUrenaRTID
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO rts (id, name, rw, rt, address, head_name, is_active, rw_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		 ON CONFLICT (id) DO UPDATE SET
-			name = EXCLUDED.name,
-			rw = EXCLUDED.rw,
-			rt = EXCLUDED.rt,
-			address = EXCLUDED.address,
-			head_name = EXCLUDED.head_name,
-			is_active = EXCLUDED.is_active,
-			rw_id = EXCLUDED.rw_id,
-			updated_at = now()`,
-		rtUUID, "Urena", 16, "002", "GNI Urena", "Atom", true, rwID)
+	// ---- Resolve or create RT 002 ----
+	rtID, err := resolveRT002(ctx, tx)
+	if err == nil {
+		// RT 002 already present inside the transaction.
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("auto-provision: commit provision tx: %w", err)
+		}
+		committed = true
+		if err := applyDerivedScope(rtID); err != nil {
+			return err
+		}
+		slog.Info("auto-provision: RT 002 already exists, reusing existing ID", "rt_id", rtID)
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("auto-provision: query RT 002 inside tx: %w", err)
+	}
+
+	// Fresh RT 002 with a fresh UUID (gen_random_uuid default).
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO rts (name, rw, rt, address, head_name, is_active, rw_id)
+		VALUES ('Urena', 16, '002', 'GNI Urena', 'Atom', true, $1)
+		RETURNING id
+	`, rwID).Scan(&rtID)
 	if err != nil {
-		return fmt.Errorf("create RT 002: %w", err)
+		slog.Error("auto-provision: insert RT 002 failed", "operation", "insert rts", "rw_id", rwID, "error", err)
+		return fmt.Errorf("auto-provision: insert RT 002 (rw %s): %w", rwID, err)
 	}
-
-	if err := os.Setenv("SCOPED_RT_IDS", rtUUID); err != nil {
-		return fmt.Errorf("set SCOPED_RT_IDS: %w", err)
-	}
-
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit provision tx: %w", err)
+		committed = true // commit succeeded; avoid double-rollback no-op
+		return fmt.Errorf("auto-provision: commit provision tx: %w", err)
 	}
-
-	slog.Info("auto-provision: RW 016 and RT 002 provisioned successfully", "rt_id", rtUUID)
+	committed = true
+	if err := applyDerivedScope(rtID); err != nil {
+		return err
+	}
+	slog.Info("auto-provision: RW 016 and RT 002 provisioned", "rw_id", rwID, "rt_id", rtID)
 	return nil
 }
 
@@ -301,7 +366,8 @@ func runAutoProvision(ctx context.Context, pool *database.Pool) error {
 //   - BOOTSTRAP_NAME: full name for the super admin (default "Super Admin")
 //
 // This endpoint is NOT publicly exposed. It is run via:
-//   docker compose run --rm backend /tmp/build/api --bootstrap
+//
+//	docker compose run --rm backend /tmp/build/api --bootstrap
 func runBootstrap() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -379,10 +445,10 @@ func runBootstrapWithPool(ctx context.Context, pool *database.Pool) error {
 		slog.Info("bootstrap: super admin already exists", "user_id", userID)
 	}
 
-	// Ensure membership in canonical RT 002 if it exists in database.
-	rt002ID, errRT := devseed.ResolveCanonicalUrenaRT(context.Background(), tx)
+	// Ensure membership in RT 002 (Urena) if it exists.
+	rt002ID, errRT := resolveRT002(context.Background(), tx)
 	if errRT != nil && !errors.Is(errRT, sql.ErrNoRows) {
-		return fmt.Errorf("resolve canonical rt 002 for super admin: %w", errRT)
+		return fmt.Errorf("bootstrap: resolve RT 002 for super admin: %w", errRT)
 	}
 	if rt002ID != "" {
 		_, errMem := tx.ExecContext(context.Background(), `
