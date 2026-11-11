@@ -7,7 +7,7 @@ import {
   apiUploadCommunityImage,
   getSessionPair,
 } from '@/app/api'
-import { LoadingOutlined } from '@ant-design/icons'
+import { LoadingOutlined, DeleteOutlined } from '@ant-design/icons'
 import { CommunityImage } from '@/components/CommunityImage'
 
 interface AnnouncementModalProps {
@@ -422,12 +422,36 @@ export function AnnouncementModal({
               {uploading && <LoadingOutlined style={{ color: 'var(--sf-accent)' }} />}
             </div>
             {imageUrl && (
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: 8, position: 'relative', display: 'inline-block' }}>
                 <CommunityImage
                   src={imageUrl}
                   alt="Banner preview"
-                  style={{ maxHeight: 100, borderRadius: 6, objectFit: 'cover' }}
+                  style={{ maxHeight: 100, borderRadius: 6, objectFit: 'cover', display: 'block' }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setImageUrl('')}
+                  aria-label="Hapus gambar"
+                  title="Hapus gambar"
+                  style={{
+                    position: 'absolute',
+                    top: 6,
+                    right: 6,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    border: '1px solid var(--sf-border)',
+                    background: 'var(--sf-surface)',
+                    color: 'var(--sf-danger)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <DeleteOutlined />
+                </button>
               </div>
             )}
           </div>

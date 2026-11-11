@@ -21,6 +21,7 @@ type Repository interface {
 	DeactivateToken(ctx context.Context, token string) error
 	GetTokensForUser(ctx context.Context, userID string) ([]string, error)
 	GetTokensForPaymentVerifiers(ctx context.Context, rtID string) ([]string, error)
+	GetPaymentVerifierUserIDs(ctx context.Context, rtID string) ([]string, error)
 	GetTokensForRT(ctx context.Context, rtID string) ([]string, error)
 	GetTokensForWasteTruckArrival(ctx context.Context, rtID string) ([]string, error)
 	GetWasteTruckArrivalRecipients(ctx context.Context, rtID string) ([]WasteTruckArrivalRecipient, error)
@@ -296,6 +297,58 @@ func (r *pgRepository) GetTokensForPaymentVerifiers(ctx context.Context, rtID st
 		tokens = append(tokens, tok)
 	}
 	return tokens, rows.Err()
+}
+
+// GetPaymentVerifierUserIDs returns user IDs of every active user in the RT
+// who is authorized to verify payments via POST /api/v1/payments/{id}/verify.
+// This mirrors the recipient eligibility of GetTokensForPaymentVerifiers,
+// ensuring delivery logs can be recorded even if a verifier has no device tokens.
+func (r *pgRepository) GetPaymentVerifierUserIDs(ctx context.Context, rtID string) ([]string, error) {
+	query := `
+		SELECT DISTINCT u.id
+		FROM user_rt_memberships urm
+		JOIN users u ON u.id = urm.user_id
+		WHERE urm.rt_id = $1
+		  AND urm.is_active = true
+		  AND u.is_active = true
+		  AND (
+		      -- Jabatan-based verifier: the membership position grants
+		      -- finance.approve via position_permissions (e.g. ketua,
+		      -- bendahara regardless of tenant role).
+		      (urm.jabatan IS NOT NULL AND EXISTS (
+		          SELECT 1
+		          FROM position_permissions pp
+		          JOIN permission_types pt ON pt.id = pp.permission_id
+		          WHERE pp.position = urm.jabatan
+		            AND pt.code = 'finance.approve'
+		      ))
+		      -- Role-based verifier without jabatan: RequirePermission passes
+		      -- members that hold no jabatan, and RequireAccess allows the
+		      -- bendahara and pengurus tenant roles.
+		      OR (
+		          (urm.jabatan IS NULL OR btrim(urm.jabatan) = '')
+		          AND urm.role IN ('bendahara', 'pengurus')
+		      )
+		  );
+	`
+	rows, err := r.pool.Raw().QueryContext(ctx, query, rtID)
+	if err != nil {
+		if isTableMissingErr(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		userIDs = append(userIDs, uid)
+	}
+	return userIDs, rows.Err()
 }
 
 func (r *pgRepository) GetTokensForRT(ctx context.Context, rtID string) ([]string, error) {
@@ -2142,7 +2195,7 @@ func (r *pgRepository) ListManagementHistory(
 				GROUP BY
 					split_part(dedup_key, ':', 2),
 					split_part(dedup_key, ':', 3),
-					(CASE WHEN split_part(dedup_key, ':', 4) LIKE 'c_%' THEN substring(split_part(dedup_key, ':', 4) FROM 3) ELSE '' END)
+					(CASE WHEN split_part(dedup_key, ':', 4) LIKE 'c\_%' ESCAPE '\' THEN substring(split_part(dedup_key, ':', 4) FROM 3) ELSE '' END)
 			)
 			SELECT
 				nl.id, nl.rt_id, NULL::uuid, nl.event_type, nl.dedup_key, nl.title, nl.body,

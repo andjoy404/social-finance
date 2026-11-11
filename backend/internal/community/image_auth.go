@@ -232,3 +232,27 @@ func (h *Handler) canManageContent(ctx context.Context, ac *auth.AuthContext) (c
 	canAnnouncements = create || update
 	return canActivities, canAnnouncements
 }
+
+// canPreviewUnreferencedCommunityImage permits authenticated managers to
+// preview a freshly uploaded image key in their own RT before it is referenced
+// by saved content. This is Bearer-only and never extends signed/warga access.
+func (h *Handler) canPreviewUnreferencedCommunityImage(ctx context.Context, ac *auth.AuthContext, key string, canAct, canAnn bool) bool {
+	if ac == nil || ac.RTID == "" || key == "" || h.pool == nil {
+		return false
+	}
+	parts := strings.Split(key, "/")
+	if len(parts) != 4 || parts[0] != "community" || parts[1] != ac.RTID {
+		return false
+	}
+	category := parts[2]
+	switch category {
+	case "activity":
+		return canAct
+	case "announcement":
+		return canAnn
+	case "general":
+		return canAct || canAnn
+	default:
+		return false
+	}
+}

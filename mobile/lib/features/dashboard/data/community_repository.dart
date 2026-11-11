@@ -33,7 +33,11 @@ class CommunityRepository {
     if (data is! Map) {
       throw const FormatException('Format respons Beranda tidak valid');
     }
-    return HomeDashboardData.fromJson(data.cast<String, dynamic>());
+    final parsed = HomeDashboardData.fromJson(data.cast<String, dynamic>());
+    final syncedOrg = await _syncOrganizationMemberActiveStatus(
+      parsed.organization,
+    );
+    return parsed.copyWith(organization: syncedOrg);
   }
 
   CommunityPage<T> _parsePage<T>(
@@ -215,7 +219,120 @@ class CommunityRepository {
     if (data is! Map) {
       throw const FormatException('Format struktur organisasi tidak valid');
     }
-    return OrganizationStructure.fromJson(data.cast<String, dynamic>());
+    final parsed = OrganizationStructure.fromJson(data.cast<String, dynamic>());
+    return _syncOrganizationMemberActiveStatus(parsed);
+  }
+
+  /// Cross-checks organization members against the official resident and
+  /// household records so any resident or household deactivated in the Warga
+  /// module (`residents.is_active == false` or `households.is_active == false`)
+  /// is not treated as an active position holder on the diagram.
+  Future<OrganizationStructure> _syncOrganizationMemberActiveStatus(
+    OrganizationStructure org,
+  ) async {
+    final hasAnyMember = org.nodes.any((n) => n.members.isNotEmpty);
+    if (!hasAnyMember) return org;
+
+    try {
+      final householdActiveById = <String, bool>{};
+      try {
+        final hhRes = await dio.get(
+          '/api/v1/households',
+          queryParameters: {'page': '1', 'page_size': '200'},
+        );
+        final hhData = hhRes.data;
+        if (hhData is Map && hhData['data'] is List) {
+          for (final item in (hhData['data'] as List).whereType<Map>()) {
+            final id = item['id']?.toString() ?? '';
+            if (id.isNotEmpty) {
+              householdActiveById[id] = item['is_active'] != false;
+            }
+          }
+        }
+      } catch (_) {
+        // Ignore if households endpoint is unavailable in test mocks.
+      }
+
+      final activeByUserId = <String, bool>{};
+      final activeByNameJabatan = <String, bool>{};
+      var fetchedAnyResidents = false;
+
+      Future<void> collectResidents({String? isActiveParam}) async {
+        try {
+          final query = <String, dynamic>{'page': '1', 'page_size': '200'};
+          if (isActiveParam != null) query['is_active'] = isActiveParam;
+          final res = await dio.get(
+            '/api/v1/residents',
+            queryParameters: query,
+          );
+          final body = res.data;
+          if (body is Map && body['data'] is List) {
+            fetchedAnyResidents = true;
+            for (final item in (body['data'] as List).whereType<Map>()) {
+              final resIsActive = item['is_active'] != false;
+              final hhId = item['household_id']?.toString() ?? '';
+              final hhIsActive =
+                  (hhId.isNotEmpty && householdActiveById.containsKey(hhId))
+                  ? householdActiveById[hhId]!
+                  : true;
+              final effectiveActive = resIsActive && hhIsActive;
+
+              final uid = item['user_id']?.toString() ?? '';
+              if (uid.isNotEmpty) {
+                activeByUserId[uid] =
+                    (activeByUserId[uid] ?? false) || effectiveActive;
+              }
+              final fullName = (item['full_name']?.toString() ?? '')
+                  .trim()
+                  .toLowerCase();
+              final jab = normalizeOrgPosition(
+                item['jabatan']?.toString() ?? '',
+              );
+              if (fullName.isNotEmpty && jab.isNotEmpty) {
+                final key = '$fullName|$jab';
+                activeByNameJabatan[key] =
+                    (activeByNameJabatan[key] ?? false) || effectiveActive;
+              }
+            }
+          }
+        } catch (_) {
+          // Ignore if residents endpoint is unavailable in test mocks.
+        }
+      }
+
+      await collectResidents();
+      await collectResidents(isActiveParam: 'false');
+
+      if (!fetchedAnyResidents) return org;
+
+      final updatedNodes = org.nodes.map((node) {
+        final nodePos = normalizeOrgPosition(node.position, node.positionLabel);
+        final updatedMembers = node.members.map((m) {
+          if (!m.isActive) return m;
+          bool? residentActive;
+          if (m.userId.isNotEmpty && activeByUserId.containsKey(m.userId)) {
+            residentActive = activeByUserId[m.userId];
+          } else {
+            final mJab = normalizeOrgPosition(
+              m.jabatan.isNotEmpty ? m.jabatan : nodePos,
+            );
+            final key = '${m.name.trim().toLowerCase()}|$mJab';
+            if (activeByNameJabatan.containsKey(key)) {
+              residentActive = activeByNameJabatan[key];
+            }
+          }
+          if (residentActive == false) {
+            return m.copyWith(isActive: false);
+          }
+          return m;
+        }).toList();
+        return node.copyWith(members: updatedMembers);
+      }).toList();
+
+      return org.copyWith(nodes: updatedNodes);
+    } catch (_) {
+      return org;
+    }
   }
 }
 

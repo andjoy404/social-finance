@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { CommunityActivity, apiCreateActivity, apiUpdateActivity, apiUploadCommunityImage, getSessionPair } from '@/app/api'
-import { LoadingOutlined } from '@ant-design/icons'
+import { LoadingOutlined, DeleteOutlined } from '@ant-design/icons'
+import { CommunityImage } from '@/components/CommunityImage'
 
 interface ActivityModalProps {
   activity?: CommunityActivity | null
@@ -295,12 +296,36 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
               {uploading && <LoadingOutlined style={{ color: 'var(--sf-accent)' }} />}
             </div>
             {posterUrl && (
-              <div style={{ marginTop: 8 }}>
-                <img
+              <div style={{ marginTop: 8, position: 'relative', display: 'inline-block' }}>
+                <CommunityImage
                   src={posterUrl}
                   alt="Poster preview"
-                  style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover' }}
+                  style={{ maxHeight: 120, borderRadius: 6, objectFit: 'cover', display: 'block' }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setPosterUrl('')}
+                  aria-label="Hapus gambar"
+                  title="Hapus gambar"
+                  style={{
+                    position: 'absolute',
+                    top: 6,
+                    right: 6,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    border: '1px solid var(--sf-border)',
+                    background: 'var(--sf-surface)',
+                    color: 'var(--sf-danger)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <DeleteOutlined />
+                </button>
               </div>
             )}
           </div>

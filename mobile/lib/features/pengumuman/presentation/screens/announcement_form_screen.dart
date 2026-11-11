@@ -412,12 +412,12 @@ class _AnnouncementFormScreenState
                 ),
                 const SizedBox(height: AppSpacing.base),
                 Text(
-                  'Masa Tayang (opsional)',
+                  'Waktu Tayang (opsional)',
                   style: theme.textTheme.titleSmall,
                 ),
                 const SizedBox(height: 6),
                 _scheduleTile(
-                  label: 'Mulai tayang',
+                  label: 'Waktu Mulai (Opsional)',
                   value: _scheduledStart,
                   onPick: () async {
                     final picked = await _pickDateTime(_scheduledStart);
@@ -429,7 +429,7 @@ class _AnnouncementFormScreenState
                 ),
                 const SizedBox(height: 8),
                 _scheduleTile(
-                  label: 'Berakhir tayang',
+                  label: 'Waktu Selesai (Opsional)',
                   value: _scheduledEnd,
                   onPick: () async {
                     final picked = await _pickDateTime(_scheduledEnd);
@@ -447,14 +447,38 @@ class _AnnouncementFormScreenState
                 ),
                 const SizedBox(height: 6),
                 if (_imageUrl != null && _imageUrl!.isNotEmpty) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    child: CommunityImage(
-                      imageRef: _imageUrl!,
-                      height: 140,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
+                  Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        child: CommunityImage(
+                          imageRef: _imageUrl!,
+                          height: 140,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Material(
+                          color: Colors.white,
+                          shape: const CircleBorder(),
+                          elevation: 1,
+                          child: IconButton(
+                            onPressed: () => setState(() => _imageUrl = null),
+                            icon: const Icon(Icons.delete_outline,
+                                color: Colors.red),
+                            tooltip: 'Hapus gambar',
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints(
+                              minWidth: 36,
+                              minHeight: 36,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                 ],

@@ -98,11 +98,15 @@ func NormalizePhone(phone string) (string, error) {
 	if !strings.HasPrefix(cleaned, "08") {
 		return "", fmt.Errorf("phone number format is invalid")
 	}
+	if len(cleaned) < 10 || len(cleaned) > 15 {
+		return "", fmt.Errorf("phone number must be between 10 and 15 digits")
+	}
 	return cleaned, nil
 }
 
 // UsersFindByPhone finds a user by phone number.
 // Supports both standard local (08...) and legacy canonical (+62...) formats.
+// Falls back to residents.phone for backwards compatibility with accounts imported before users.phone was populated.
 func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithHash, error) {
 	trimmed := strings.TrimSpace(phone)
 	if trimmed == "" {
@@ -122,20 +126,23 @@ func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithH
 	var clauses []string
 	var args []interface{}
 	for i, v := range variants {
-		clauses = append(clauses, fmt.Sprintf("phone = $%d", i+1))
+		clauses = append(clauses, fmt.Sprintf("u.phone = $%d OR r.phone = $%d", i+1, i+1))
 		args = append(args, v)
 	}
 	query := fmt.Sprintf(`
-		SELECT id, system_role, full_name, email, phone, password_hash, is_active
-		FROM users
+		SELECT u.id, u.system_role, u.full_name, u.email, COALESCE(u.phone, r.phone) AS phone, u.password_hash, u.is_active
+		FROM users u
+		LEFT JOIN residents r ON r.user_id = u.id
 		WHERE (%s)
+		ORDER BY (CASE WHEN u.phone IS NOT NULL THEN 0 ELSE 1 END)
 		LIMIT 1
 	`, strings.Join(clauses, " OR "))
 
 	var u UserWithHash
 	var sysRole sql.NullString
+	var userPhone sql.NullString
 	err := tx.QueryRowContext(ctx, query, args...).Scan(
-		&u.ID, &sysRole, &u.Fullname, &u.Email, &u.Phone, &u.PasswordHash, &u.IsActive,
+		&u.ID, &sysRole, &u.Fullname, &u.Email, &userPhone, &u.PasswordHash, &u.IsActive,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -145,6 +152,9 @@ func UsersFindByPhone(ctx context.Context, tx *sql.Tx, phone string) (*UserWithH
 	}
 	if sysRole.Valid {
 		u.SystemRole = SystemRole(sysRole.String)
+	}
+	if userPhone.Valid {
+		u.Phone = &userPhone.String
 	}
 	return &u, nil
 }

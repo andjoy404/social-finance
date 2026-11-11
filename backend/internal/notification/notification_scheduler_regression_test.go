@@ -92,6 +92,10 @@ func (r *schedulerRegressionRepo) GetTokensForPaymentVerifiers(ctx context.Conte
 	return nil, nil
 }
 
+func (r *schedulerRegressionRepo) GetPaymentVerifierUserIDs(ctx context.Context, rtID string) ([]string, error) {
+	return nil, nil
+}
+
 func (r *schedulerRegressionRepo) GetTokensForWasteTruckArrival(ctx context.Context, rtID string) ([]string, error) {
 	return nil, nil
 }

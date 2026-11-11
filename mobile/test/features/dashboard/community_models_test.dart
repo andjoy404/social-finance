@@ -186,4 +186,166 @@ void main() {
       expect(canManageActivities(user), true);
     });
   });
+
+  group('OrganizationStructure.buildActiveDiagramTiers', () {
+    test('enforces canonical 4-tier hierarchy regardless of backend node level or order', () {
+      final org = OrganizationStructure.fromJson({
+        'rt_id': 'rt-1',
+        'nodes': [
+          // Intentionally scrambled order and backend levels (sekretaris at level 2, bendahara at level 3)
+          {
+            'position': 'operasional',
+            'position_label': 'Operasional',
+            'level': 4,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u8', 'membership_id': 'm8', 'full_name': 'Warga Operasional', 'jabatan': 'operasional'},
+            ],
+          },
+          {
+            'position': 'sekretaris',
+            'position_label': 'Sekretaris',
+            'level': 2,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u3', 'membership_id': 'm3', 'full_name': 'Warga Sekretaris', 'jabatan': 'sekretaris'},
+            ],
+          },
+          {
+            'position': 'sosial',
+            'position_label': 'Sosial',
+            'level': 4,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u7', 'membership_id': 'm7', 'full_name': 'Warga Sosial', 'jabatan': 'sosial'},
+            ],
+          },
+          {
+            'position': 'wakil_ketua',
+            'position_label': 'Wakil Ketua',
+            'level': 2,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u2', 'membership_id': 'm2', 'full_name': 'Warga Wakil', 'jabatan': 'wakil_ketua'},
+            ],
+          },
+          {
+            'position': 'kebersihan',
+            'position_label': 'Kebersihan',
+            'level': 4,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u6', 'membership_id': 'm6', 'full_name': 'Warga Kebersihan', 'jabatan': 'kebersihan'},
+            ],
+          },
+          {
+            'position': 'bendahara',
+            'position_label': 'Bendahara',
+            'level': 3,
+            'parent_position': 'sekretaris',
+            'members': [
+              {'user_id': 'u4', 'membership_id': 'm4', 'full_name': 'Warga Bendahara', 'jabatan': 'bendahara'},
+            ],
+          },
+          {
+            'position': 'keamanan',
+            'position_label': 'Keamanan',
+            'level': 4,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u5', 'membership_id': 'm5', 'full_name': 'Warga Keamanan', 'jabatan': 'keamanan'},
+            ],
+          },
+          {
+            'position': 'ketua',
+            'position_label': 'Ketua',
+            'level': 1,
+            'parent_position': '',
+            'members': [
+              {'user_id': 'u1', 'membership_id': 'm1', 'full_name': 'Warga Ketua', 'jabatan': 'ketua'},
+            ],
+          },
+        ],
+      });
+
+      final tiers = org.buildActiveDiagramTiers();
+      expect(tiers.length, 4);
+      expect(tiers[0].map((n) => n.position).toList(), ['ketua']);
+      expect(tiers[1].map((n) => n.position).toList(), ['wakil_ketua']);
+      expect(tiers[2].map((n) => n.position).toList(), ['bendahara', 'sekretaris']);
+      expect(
+        tiers[3].map((n) => n.position).toList(),
+        ['keamanan', 'kebersihan', 'sosial', 'operasional'],
+      );
+    });
+
+    test('filters out empty positions, inactive members, and empty tiers', () {
+      final org = OrganizationStructure.fromJson({
+        'rt_id': 'rt-1',
+        'nodes': [
+          {
+            'position': 'ketua',
+            'position_label': 'Ketua',
+            'level': 1,
+            'parent_position': '',
+            'members': [
+              {'user_id': 'u1', 'membership_id': 'm1', 'full_name': 'Pak Ketua', 'jabatan': 'ketua', 'is_active': true},
+            ],
+          },
+          {
+            'position': 'wakil_ketua',
+            'position_label': 'Wakil Ketua',
+            'level': 2,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u2', 'membership_id': 'm2', 'full_name': 'Pak Wakil', 'jabatan': 'wakil_ketua', 'is_active': true},
+            ],
+          },
+          {
+            'position': 'bendahara',
+            'position_label': 'Bendahara',
+            'level': 3,
+            'parent_position': 'sekretaris',
+            'members': [], // empty
+          },
+          {
+            'position': 'sekretaris',
+            'position_label': 'Sekretaris',
+            'level': 2,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u3', 'membership_id': 'm3', 'full_name': 'Bu Sekretaris', 'jabatan': 'sekretaris', 'is_active': true},
+            ],
+          },
+          {
+            'position': 'keamanan',
+            'position_label': 'Keamanan',
+            'level': 4,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u5a', 'membership_id': 'm5a', 'full_name': 'Aktif Keamanan', 'jabatan': 'keamanan', 'is_active': true},
+              {'user_id': 'u5b', 'membership_id': 'm5b', 'full_name': 'Nonaktif Keamanan', 'jabatan': 'keamanan', 'is_active': false},
+            ],
+          },
+          {
+            'position': 'kebersihan',
+            'position_label': 'Kebersihan',
+            'level': 4,
+            'parent_position': 'ketua',
+            'members': [
+              {'user_id': 'u6', 'membership_id': 'm6', 'full_name': 'Nonaktif Kebersihan', 'jabatan': 'kebersihan', 'status': 'nonaktif'},
+            ],
+          },
+        ],
+      });
+
+      final tiers = org.buildActiveDiagramTiers();
+      expect(tiers.length, 4);
+      expect(tiers[0].map((n) => n.position).toList(), ['ketua']);
+      expect(tiers[1].map((n) => n.position).toList(), ['wakil_ketua']);
+      expect(tiers[2].map((n) => n.position).toList(), ['sekretaris']);
+      expect(tiers[3].map((n) => n.position).toList(), ['keamanan']);
+      expect(tiers[3].single.members.map((m) => m.name).toList(), ['Aktif Keamanan']);
+    });
+  });
 }

@@ -858,9 +858,16 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allowed {
-		// Do not reveal whether the key exists outside the caller's access.
-		httpx.WriteNotFound(w, "image not found")
-		return
+		// Allow authenticated content managers to preview freshly uploaded
+		// images in their own RT before the key is referenced/persisted on
+		// draft content. This path is Bearer-only (not signed URLs), scoped to
+		// the caller RT, and limited to upload categories the caller may manage.
+		// Signed/warga-visible access still requires referenced visible content.
+		if !h.canPreviewUnreferencedCommunityImage(r.Context(), ac, key, canAct, canAnn) {
+			// Do not reveal whether the key exists outside the caller's access.
+			httpx.WriteNotFound(w, "image not found")
+			return
+		}
 	}
 	h.serveImage(w, r, key)
 }

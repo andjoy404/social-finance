@@ -3,7 +3,6 @@ import { useAuth, canManageActivities } from '@/app/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
-import { CommunityImage } from '@/components/CommunityImage'
 import { Pagination } from '@/components/Pagination'
 import {
   CalendarOutlined,
@@ -11,6 +10,7 @@ import {
   ClockCircleOutlined,
   EnvironmentOutlined,
   UserOutlined,
+  PictureOutlined,
   CheckOutlined,
   CloseOutlined,
   EditOutlined,
@@ -220,163 +220,161 @@ export function ActivityList() {
         <>
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))',
-            gap: 20,
+            overflowX: 'auto',
+            background: 'var(--sf-card-bg)',
+            border: '1px solid var(--sf-border)',
+            borderRadius: 8,
           }}
         >
-          {activities.map((act) => {
-            const start = new Date(act.starts_at)
-            const end = act.ends_at ? new Date(act.ends_at) : null
-            const isDraft = act.publication_status === 'draft'
-            const isCancelled = act.status === 'cancelled'
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--sf-border)', background: 'rgba(0,0,0,0.02)' }}>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Waktu & Lokasi</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Judul & Deskripsi</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Penyelenggara</th>
+                <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Status</th>
+                {canManage && (
+                  <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)', textAlign: 'right' }}>Aksi</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {activities.map((act) => {
+                const start = new Date(act.starts_at)
+                const end = act.ends_at ? new Date(act.ends_at) : null
+                const isDraft = act.publication_status === 'draft'
+                const isCancelled = act.status === 'cancelled'
 
-            return (
-              <div
-                key={act.id}
-                className="sf-card"
-                role="link"
-                aria-label={`Detail kegiatan ${act.title}`}
-                tabIndex={0}
-                onClick={() => navigate(`/kegiatan/${act.id}`)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') navigate(`/kegiatan/${act.id}`)
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                  padding: 0,
-                  borderRadius: 12,
-                  cursor: 'pointer',
-                }}
-              >
-                {/* Poster / Image header with consistent height & placeholder */}
-                <div style={{ height: 180, overflow: 'hidden', position: 'relative', background: 'var(--sf-surface-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--sf-border-subtle, rgba(0,0,0,0.06))' }}>
-                  {act.poster_url ? (
-                    <CommunityImage
-                      src={act.poster_url}
-                      alt={`Poster kegiatan ${act.title}`}
-                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                    />
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: 'var(--sf-text-muted)', opacity: 0.6 }}>
-                      <CalendarOutlined style={{ fontSize: 36 }} />
-                      <span style={{ fontSize: 11, fontWeight: 500 }}>Kegiatan RT</span>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ padding: 20, display: 'flex', flexDirection: 'column', flex: 1, gap: 12 }}>
-                  {/* Status Badges */}
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    {getStatusBadge(act.status)}
-                    {canManage && isDraft && <Badge variant="amber">DRAF</Badge>}
-                    {act.show_on_banner && <Badge variant="blue">BANNER</Badge>}
-                  </div>
-
-                  {/* Title & Description */}
-                  <div>
-                    <h3 style={{ margin: '0 0 6px 0', fontSize: 16, fontWeight: 700, color: 'var(--sf-text)' }}>
-                      {act.title}
-                    </h3>
-                    {act.description && (
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--sf-text-muted)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                        {act.description}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Meta Details */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'var(--sf-text-muted)', marginTop: 'auto', paddingTop: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <ClockCircleOutlined style={{ color: 'var(--sf-accent)' }} />
-                      <span>
-                        {start.toLocaleDateString('id-ID', { dateStyle: 'full' })} •{' '}
-                        {start.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
-                        {end && ` - ${end.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB`}
-                      </span>
-                    </div>
-
-                    {act.location && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <EnvironmentOutlined style={{ color: 'var(--sf-accent)' }} />
-                        <span>{act.location}</span>
+                return (
+                  <tr
+                    key={act.id}
+                    role="link"
+                    aria-label={`Detail kegiatan ${act.title}`}
+                    tabIndex={0}
+                    onClick={() => navigate(`/kegiatan/${act.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') navigate(`/kegiatan/${act.id}`)
+                    }}
+                    style={{
+                      borderBottom: '1px solid var(--sf-border)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <td style={{ padding: '14px 16px', verticalAlign: 'top', width: '25%' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--sf-text)', marginBottom: 2 }}>
+                        {start.toLocaleDateString('id-ID', { dateStyle: 'full' })}
                       </div>
-                    )}
-
-                    {act.organizer && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <UserOutlined style={{ color: 'var(--sf-accent)' }} />
-                        <span>Penyelenggara: {act.organizer}</span>
+                      <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <ClockCircleOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
+                        <span>
+                          {start.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                          {end && ` - ${end.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB`}
+                        </span>
                       </div>
-                    )}
-                  </div>
+                      {act.location && (
+                        <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+                          <EnvironmentOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
+                          <span>{act.location}</span>
+                        </div>
+                      )}
+                    </td>
 
-                  {/* Manager Action Bar */}
-                  {canManage && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      style={{
-                        display: 'flex',
-                        gap: 8,
-                        marginTop: 8,
-                        paddingTop: 12,
-                        borderTop: '1px solid var(--sf-border)',
-                        justifyContent: 'flex-end',
-                      }}
-                    >
-                      {(isDraft || (!isCancelled)) && (
-                        <button
-                          type="button"
-                          className="sf-btn sf-btn-outline"
-                          onClick={() => handlePublish(act.id)}
-                          style={{ padding: '4px 10px', fontSize: 12 }}
-                          title={isDraft ? 'Publikasikan' : 'Terbitkan ulang (perbarui snapshot banner)'}
-                        >
-                          <CheckOutlined /> {isDraft ? 'Publikasikan' : 'Terbitkan Ulang'}
-                        </button>
+                    <td style={{ padding: '14px 16px', verticalAlign: 'top', maxWidth: 380 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--sf-text)', marginBottom: act.description ? 2 : 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span>{act.title}</span>
+                        {act.poster_url && (
+                          <PictureOutlined style={{ color: 'var(--sf-accent)', fontSize: 13 }} title="Memiliki lampiran gambar" />
+                        )}
+                      </div>
+                      {act.description && (
+                        <div style={{ color: 'var(--sf-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {act.description}
+                        </div>
                       )}
-                      {!isCancelled && (
-                        <button
-                          type="button"
-                          className="sf-btn sf-btn-outline"
-                          onClick={() => handleCancel(act.id)}
-                          style={{ padding: '4px 10px', fontSize: 12, color: 'var(--sf-danger)' }}
-                          title="Batalkan"
-                        >
-                          <CloseOutlined /> Batalkan
-                        </button>
+                    </td>
+
+                    <td style={{ padding: '14px 16px', verticalAlign: 'top' }}>
+                      {act.organizer ? (
+                        <div style={{ fontSize: 12, color: 'var(--sf-text)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <UserOutlined style={{ color: 'var(--sf-accent)', fontSize: 12 }} />
+                          <span>Penyelenggara: {act.organizer}</span>
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>—</span>
                       )}
-                      <button
-                        type="button"
-                        className="sf-btn sf-btn-outline"
-                        onClick={() => {
-                          setEditingActivity(act)
-                          setShowModal(true)
-                        }}
-                        style={{ padding: '4px 10px', fontSize: 12 }}
-                        title="Ubah"
+                    </td>
+
+                    <td style={{ padding: '14px 16px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {getStatusBadge(act.status)}
+                        {canManage && isDraft && <Badge variant="amber">DRAF</Badge>}
+                        {act.show_on_banner && <Badge variant="blue">BANNER</Badge>}
+                      </div>
+                    </td>
+
+                    {canManage && (
+                      <td
+                        style={{ padding: '14px 16px', verticalAlign: 'top', textAlign: 'right' }}
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <EditOutlined /> Ubah
-                      </button>
-                      {isDraft && (
-                        <button
-                          type="button"
-                          className="sf-btn sf-btn-outline"
-                          onClick={() => handleDelete(act.id)}
-                          style={{ padding: '4px 10px', fontSize: 12, color: 'var(--sf-danger)' }}
-                          title="Hapus"
-                        >
-                          <DeleteOutlined /> Hapus
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          {(isDraft || (!isCancelled)) && (
+                            <button
+                              type="button"
+                              className="sf-btn-outline"
+                              onClick={() => handlePublish(act.id)}
+                              style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-success)' }}
+                              title={isDraft ? 'Publikasikan' : 'Terbitkan ulang (perbarui snapshot banner)'}
+                              aria-label={isDraft ? 'Publikasikan' : 'Terbitkan Ulang'}
+                            >
+                              <CheckOutlined />
+                            </button>
+                          )}
+                          {!isCancelled && (
+                            <button
+                              type="button"
+                              className="sf-btn-outline"
+                              onClick={() => handleCancel(act.id)}
+                              style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-warning)' }}
+                              title="Batalkan"
+                              aria-label="Batalkan"
+                            >
+                              <CloseOutlined />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="sf-btn-outline"
+                            onClick={() => {
+                              setEditingActivity(act)
+                              setShowModal(true)
+                            }}
+                            style={{ padding: '4px 8px', fontSize: 12 }}
+                            title="Ubah"
+                            aria-label="Ubah"
+                          >
+                            <EditOutlined />
+                          </button>
+                          {isDraft && (
+                            <button
+                              type="button"
+                              className="sf-btn-outline"
+                              onClick={() => handleDelete(act.id)}
+                              style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-danger)' }}
+                              title="Hapus"
+                              aria-label="Hapus"
+                            >
+                              <DeleteOutlined />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
         {totalPages > 1 && (
           <div className="sf-card" style={{ padding: 0, overflow: 'hidden', borderRadius: 12 }}>

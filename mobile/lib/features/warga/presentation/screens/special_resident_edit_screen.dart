@@ -8,6 +8,7 @@ import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
 import 'package:social_finance/core/widgets/app_text_field.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
+import 'package:social_finance/features/dashboard/data/community_repository.dart';
 import '../../data/api_warga_models.dart';
 import '../../data/warga_repository.dart';
 import '../../data/warga_providers.dart';
@@ -190,8 +191,9 @@ class _SpecialResidentEditScreenState
 
       await ref.read(authRepositoryProvider.notifier).reloadProfile();
 
-      // Refresh warga list
+      // Refresh warga list & home dashboard organization chart
       await ref.read(wargaListProvider.notifier).refresh();
+      ref.invalidate(homeDashboardFutureProvider);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

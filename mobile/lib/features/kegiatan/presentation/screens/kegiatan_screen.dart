@@ -19,7 +19,9 @@ import 'package:social_finance/features/dashboard/data/community_repository.dart
 import 'package:social_finance/features/dashboard/data/models/community_models.dart';
 
 class KegiatanScreen extends ConsumerStatefulWidget {
-  const KegiatanScreen({super.key});
+  final bool loadInTest;
+
+  const KegiatanScreen({super.key, this.loadInTest = false});
 
   @override
   ConsumerState<KegiatanScreen> createState() => _KegiatanScreenState();
@@ -59,7 +61,7 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
   }
 
   Future<void> _loadActivities({int page = 1, bool append = false}) async {
-    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+    if (!widget.loadInTest && Platform.environment.containsKey('FLUTTER_TEST')) {
       if (mounted) {
         setState(() {
           _activities = [];
@@ -270,9 +272,20 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
     bool isDark,
     bool canManage,
   ) {
+    final mutedColor = isDark
+        ? AppColors.darkTextMuted
+        : AppColors.lightTextMuted;
+    final scheduleLine =
+        '${_formatDateTime(act.startDate)}${act.endDate != null ? ' – ${_formatDateTime(act.endDate!)}' : ''}${act.location.isNotEmpty ? ' • ${act.location}' : ''}';
+    final hasExtraMeta =
+        (act.organizer != null && act.organizer!.isNotEmpty) ||
+        (act.picName != null && act.picName!.isNotEmpty) ||
+        (act.budgetPlanned != null && act.budgetPlanned!.isNotEmpty);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: AppCard(
+        padding: EdgeInsets.zero,
         child: InkWell(
           onTap: () async {
             await context.push('/home/kegiatan/${act.id}');
@@ -280,177 +293,136 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
           },
           borderRadius: BorderRadius.circular(AppRadius.base),
           child: Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(AppSpacing.base),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            act.startDate.day.toString(),
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.accent,
-                            ),
-                          ),
-                          Text(
-                            _formatMonthShort(act.startDate.month),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.accent,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            act.title,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.location_on_outlined,
-                                size: 14,
-                                color: AppColors.textMutedColor(context),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  act.location,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: AppColors.textMutedColor(context),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      child: Text(
+                        act.title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
-                    _buildStatusBadge(act),
                   ],
                 ),
-                if (act.posterUrl != null && act.posterUrl!.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    child: Container(
-                      width: double.infinity,
-                      height: 140,
-                      color: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurfaceSubtle,
-                      alignment: Alignment.center,
-                      child: CommunityImage(
-                        imageRef: act.posterUrl!,
-                        width: double.infinity,
-                        height: 140,
-                        fit: BoxFit.contain,
-                        alt: 'Poster kegiatan ${act.title}',
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _buildStatusBadge(act),
+                    if (act.publicationStatus == 'draft' &&
+                        act.status != 'cancelled')
+                      const AppBadge(
+                        label: 'Belum Terbit',
+                        backgroundColor: Color(0x22F59E0B),
+                        textColor: Colors.amber,
                       ),
-                    ),
+                    if (act.showOnBanner)
+                      AppBadge(
+                        label: 'Banner Beranda',
+                        backgroundColor: AppColors.accent.withValues(
+                          alpha: 0.15,
+                        ),
+                        textColor: AppColors.accent,
+                      ),
+                    if (act.posterUrl != null && act.posterUrl!.isNotEmpty)
+                      AppBadge(
+                        label: 'Gambar Terlampir',
+                        backgroundColor: AppColors.info.withValues(alpha: 0.15),
+                        textColor: AppColors.info,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  scheduleLine,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
                   ),
-                ],
+                ),
                 if (act.description.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 2),
                   Text(
                     act.description,
-                    style: theme.textTheme.bodySmall,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: mutedColor,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    if (act.picName != null && act.picName!.isNotEmpty) ...[
-                      const Icon(
-                        Icons.person_outline,
-                        size: 14,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'PIC: ${act.picName}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey,
+                if (hasExtraMeta) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      if (act.organizer != null && act.organizer!.isNotEmpty)
+                        Text(
+                          'Penyelenggara: ${act.organizer}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: mutedColor,
+                          ),
                         ),
-                      ),
-                      const Spacer(),
-                    ],
-                    if (act.budgetPlanned != null &&
-                        act.budgetPlanned!.isNotEmpty) ...[
-                      Text(
-                        'Anggaran: ${RupiahFormatter.format(int.tryParse(act.budgetPlanned!) ?? 0)}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.accent,
+                      if (act.picName != null && act.picName!.isNotEmpty)
+                        Text(
+                          'PIC: ${act.picName}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: mutedColor,
+                          ),
                         ),
-                      ),
+                      if (act.budgetPlanned != null &&
+                          act.budgetPlanned!.isNotEmpty)
+                        Text(
+                          'Anggaran: ${RupiahFormatter.format(int.tryParse(act.budgetPlanned!) ?? 0)}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: AppColors.accent,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                     ],
-                  ],
-                ),
-                const SizedBox(height: 10),
-                const Divider(height: 1),
-                const SizedBox(height: 6),
+                  ),
+                ],
+                const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
+                    IconButton(
+                      icon: const Icon(
+                        Icons.visibility_outlined,
+                        size: 20,
+                        color: AppColors.info,
                       ),
+                      tooltip: 'Detail',
                       onPressed: () => context.push('/home/kegiatan/${act.id}'),
-                      icon: const Icon(Icons.visibility_outlined, size: 16),
-                      label: const Text('Detail', style: TextStyle(fontSize: 12)),
                     ),
                     if (canManage) ...[
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          size: 20,
+                          color: AppColors.accent,
                         ),
+                        tooltip: 'Ubah',
                         onPressed: () => _showEditActivityDialog(context, act),
-                        icon: const Icon(Icons.edit_outlined, size: 16),
-                        label: const Text('Ubah', style: TextStyle(fontSize: 12)),
                       ),
-                      if (act.publicationStatus == 'draft') ...[
-                        TextButton.icon(
-                          style: TextButton.styleFrom(
-                            visualDensity: VisualDensity.compact,
-                            foregroundColor: AppColors.danger,
+                      if (act.publicationStatus == 'draft')
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            size: 20,
+                            color: AppColors.danger,
                           ),
+                          tooltip: 'Hapus',
                           onPressed: () =>
                               _showDeleteConfirmationDialog(context, act),
-                          icon: const Icon(Icons.delete_outline, size: 16),
-                          label: const Text('Hapus', style: TextStyle(fontSize: 12)),
                         ),
-                      ],
                     ],
                   ],
                 ),
@@ -667,6 +639,7 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
     final picNameCtrl = TextEditingController();
     final budgetCtrl = TextEditingController();
     DateTime startDate = DateTime.now().add(const Duration(days: 3));
+    DateTime? endDate;
     bool showOnBanner = false;
     String? posterUrl;
     bool isUploadingImage = false;
@@ -776,7 +749,73 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  // Poster picker button and preview
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final date = await showDatePicker(
+                        context: ctx,
+                        initialDate: startDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (date == null) return;
+                      if (!ctx.mounted) return;
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(startDate),
+                      );
+                      if (time == null) return;
+                      setModalState(() {
+                        startDate = DateTime(
+                          date.year, date.month, date.day, time.hour, time.minute,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.schedule),
+                    label: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Waktu Mulai *: ${_formatDateTime(startDate)}'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final base = endDate ?? startDate.add(const Duration(hours: 2));
+                      final date = await showDatePicker(
+                        context: ctx,
+                        initialDate: base,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (date == null) return;
+                      if (!ctx.mounted) return;
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(base),
+                      );
+                      if (time == null) return;
+                      setModalState(() {
+                        endDate = DateTime(
+                          date.year, date.month, date.day, time.hour, time.minute,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.schedule),
+                    label: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(endDate == null
+                          ? 'Waktu Selesai (Opsional)'
+                          : 'Waktu Selesai: ${_formatDateTime(endDate!)}'),
+                    ),
+                  ),
+                  if (endDate != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => setModalState(() => endDate = null),
+                        child: const Text('Hapus waktu selesai'),
+                      ),
+                    ),
+                  const SizedBox(height: 10),
                   OutlinedButton.icon(
                     onPressed: isUploadingImage ? null : pickImage,
                     icon: isUploadingImage
@@ -787,22 +826,49 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                           )
                         : const Icon(Icons.image_outlined),
                     label: Text(
-                      posterUrl != null ? 'Ganti Poster' : 'Unggah Poster (Maks 5 MB)',
+                      posterUrl != null
+                          ? 'Ganti Poster'
+                          : 'Unggah Poster (Maks 5 MB)',
                     ),
                   ),
                   if (posterUrl != null) ...[
                     const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      child: Container(
-                        width: double.infinity,
-                        height: 120,
-                        color: Colors.grey.withValues(alpha: 0.1),
-                        child: CommunityImage(
-                          imageRef: posterUrl!,
-                          fit: BoxFit.contain,
+                    Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          child: Container(
+                            width: double.infinity,
+                            height: 120,
+                            color: Colors.grey.withValues(alpha: 0.1),
+                            child: CommunityImage(
+                              imageRef: posterUrl!,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
                         ),
-                      ),
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Material(
+                            color: Colors.white,
+                            shape: const CircleBorder(),
+                            elevation: 1,
+                            child: IconButton(
+                              onPressed: () =>
+                                  setModalState(() => posterUrl = null),
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red),
+                              tooltip: 'Hapus gambar',
+                              visualDensity: VisualDensity.compact,
+                              constraints: const BoxConstraints(
+                                minWidth: 36,
+                                minHeight: 36,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                   const SizedBox(height: 10),
@@ -816,48 +882,60 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        if (titleCtrl.text.trim().isEmpty ||
-                            locationCtrl.text.trim().isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Judul dan lokasi wajib diisi'),
-                            ),
-                          );
-                          return;
-                        }
-                        final messenger = ScaffoldMessenger.of(context);
-                        Navigator.pop(ctx);
-                        try {
-                          await ref
-                              .read(communityRepositoryProvider)
-                              .createActivity({
-                                'title': titleCtrl.text.trim(),
-                                'location': locationCtrl.text.trim(),
-                                'description': descCtrl.text.trim(),
-                                'pic_name': picNameCtrl.text.trim(),
-                                'budget_planned': budgetCtrl.text.trim(),
-                                'start_date': startDate.toIso8601String(),
-                                'show_on_banner': showOnBanner,
-                                'publication_status': 'draft',
-                                if (posterUrl != null) 'poster_url': posterUrl,
-                              });
-                          _loadActivities();
-                        } catch (e) {
-                          if (mounted) {
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: Text('Gagal membuat kegiatan: $e'),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      child: const Text('Simpan'),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Batal'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            if (titleCtrl.text.trim().isEmpty ||
+                                locationCtrl.text.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Judul dan lokasi wajib diisi'),
+                                ),
+                              );
+                              return;
+                            }
+                            final messenger = ScaffoldMessenger.of(context);
+                            Navigator.pop(ctx);
+                            try {
+                              await ref
+                                  .read(communityRepositoryProvider)
+                                  .createActivity({
+                                    'title': titleCtrl.text.trim(),
+                                    'location': locationCtrl.text.trim(),
+                                    'description': descCtrl.text.trim(),
+                                    'pic_name': picNameCtrl.text.trim(),
+                                    'budget_planned': budgetCtrl.text.trim(),
+                                    'starts_at': startDate.toUtc().toIso8601String(),
+                                    'ends_at': endDate?.toUtc().toIso8601String(),
+                                    'show_on_banner': showOnBanner,
+                                    'publication_status': 'draft',
+                                    'poster_url': posterUrl,
+                                  });
+                              _loadActivities();
+                            } catch (e) {
+                              if (mounted) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content:
+                                        Text('Gagal membuat kegiatan: $e'),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          child: const Text('Simpan'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -875,6 +953,7 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
     final picNameCtrl = TextEditingController(text: act.picName ?? '');
     final budgetCtrl = TextEditingController(text: act.budgetPlanned ?? '');
     DateTime startDate = act.startDate;
+    DateTime? endDate = act.endDate;
     bool showOnBanner = act.showOnBanner;
     String? posterUrl = act.posterUrl;
     bool isUploadingImage = false;
@@ -985,6 +1064,73 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   ),
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
+                    onPressed: () async {
+                      final date = await showDatePicker(
+                        context: ctx,
+                        initialDate: startDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (date == null) return;
+                      if (!ctx.mounted) return;
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(startDate),
+                      );
+                      if (time == null) return;
+                      setModalState(() {
+                        startDate = DateTime(
+                          date.year, date.month, date.day, time.hour, time.minute,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.schedule),
+                    label: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Waktu Mulai *: ${_formatDateTime(startDate)}'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final base = endDate ?? startDate.add(const Duration(hours: 2));
+                      final date = await showDatePicker(
+                        context: ctx,
+                        initialDate: base,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (date == null) return;
+                      if (!ctx.mounted) return;
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(base),
+                      );
+                      if (time == null) return;
+                      setModalState(() {
+                        endDate = DateTime(
+                          date.year, date.month, date.day, time.hour, time.minute,
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.schedule),
+                    label: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(endDate == null
+                          ? 'Waktu Selesai (Opsional)'
+                          : 'Waktu Selesai: ${_formatDateTime(endDate!)}'),
+                    ),
+                  ),
+                  if (endDate != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => setModalState(() => endDate = null),
+                        child: const Text('Hapus waktu selesai'),
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
                     onPressed: isUploadingImage ? null : pickImage,
                     icon: isUploadingImage
                         ? const SizedBox(
@@ -999,17 +1145,42 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                   ),
                   if (posterUrl != null) ...[
                     const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                      child: Container(
-                        width: double.infinity,
-                        height: 120,
-                        color: Colors.grey.withValues(alpha: 0.1),
-                        child: CommunityImage(
-                          imageRef: posterUrl!,
-                          fit: BoxFit.contain,
+                    Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          child: Container(
+                            width: double.infinity,
+                            height: 120,
+                            color: Colors.grey.withValues(alpha: 0.1),
+                            child: CommunityImage(
+                              imageRef: posterUrl!,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
                         ),
-                      ),
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Material(
+                            color: Colors.white,
+                            shape: const CircleBorder(),
+                            elevation: 1,
+                            child: IconButton(
+                              onPressed: () =>
+                                  setModalState(() => posterUrl = null),
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red),
+                              tooltip: 'Hapus gambar',
+                              visualDensity: VisualDensity.compact,
+                              constraints: const BoxConstraints(
+                                minWidth: 36,
+                                minHeight: 36,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                   const SizedBox(height: 10),
@@ -1023,47 +1194,59 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        if (titleCtrl.text.trim().isEmpty ||
-                            locationCtrl.text.trim().isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Judul dan lokasi wajib diisi'),
-                            ),
-                          );
-                          return;
-                        }
-                        final messenger = ScaffoldMessenger.of(context);
-                        Navigator.pop(ctx);
-                        try {
-                          await ref
-                              .read(communityRepositoryProvider)
-                              .updateActivity(act.id, {
-                                'title': titleCtrl.text.trim(),
-                                'location': locationCtrl.text.trim(),
-                                'description': descCtrl.text.trim(),
-                                'pic_name': picNameCtrl.text.trim(),
-                                'budget_planned': budgetCtrl.text.trim(),
-                                'start_date': startDate.toIso8601String(),
-                                'show_on_banner': showOnBanner,
-                                if (posterUrl != null) 'poster_url': posterUrl,
-                              });
-                          _loadActivities();
-                        } catch (e) {
-                          if (mounted) {
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: Text('Gagal memperbarui kegiatan: $e'),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      child: const Text('Simpan Perubahan'),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Batal'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            if (titleCtrl.text.trim().isEmpty ||
+                                locationCtrl.text.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Judul dan lokasi wajib diisi'),
+                                ),
+                              );
+                              return;
+                            }
+                            final messenger = ScaffoldMessenger.of(context);
+                            Navigator.pop(ctx);
+                            try {
+                              await ref
+                                  .read(communityRepositoryProvider)
+                                  .updateActivity(act.id, {
+                                    'title': titleCtrl.text.trim(),
+                                    'location': locationCtrl.text.trim(),
+                                    'description': descCtrl.text.trim(),
+                                    'pic_name': picNameCtrl.text.trim(),
+                                    'budget_planned': budgetCtrl.text.trim(),
+                                    'starts_at': startDate.toUtc().toIso8601String(),
+                                    'ends_at': endDate?.toUtc().toIso8601String(),
+                                    'show_on_banner': showOnBanner,
+                                    'poster_url': posterUrl,
+                                  });
+                              _loadActivities();
+                            } catch (e) {
+                              if (mounted) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                        'Gagal memperbarui kegiatan: $e'),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          child: const Text('Simpan Perubahan'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1113,6 +1296,14 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
         ],
       ),
     );
+  }
+
+  String _formatDateTime(DateTime dt) {
+    const months = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+    final day = dt.day.toString().padLeft(2, '0');
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '$day ${months[dt.month]} ${dt.year}, $hour:$minute';
   }
 
   String _formatMonthShort(int m) {

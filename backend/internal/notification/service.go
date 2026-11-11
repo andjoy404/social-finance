@@ -234,12 +234,23 @@ func (s *service) NotifyPaymentSubmitted(ctx context.Context, rtID, billID, paym
 			return // duplicate event
 		}
 
+		// Record personal logs for each authorized payment verifier so they
+		// see the submission notification in their personal Riwayat Notifikasi.
+		if verifierUserIDs, err := s.repo.GetPaymentVerifierUserIDs(bgCtx, rtID); err == nil {
+			for _, vid := range verifierUserIDs {
+				verifierDedupKey := fmt.Sprintf("payment_submitted:%s:%s", paymentID, vid)
+				_, _ = s.repo.CheckAndRecordDedup(bgCtx, rtID, vid, EventPaymentSubmitted, verifierDedupKey, title, body, payloadMap)
+			}
+		} else {
+			slog.Error("failed to get payment verifier user IDs for personal delivery logs", "rt_id", rtID, "error", err)
+		}
+
 		s.sendPushToTokens(bgCtx, tokens, title, body, payloadMap)
 	}()
 }
 
-// NotifyPaymentVerified notifies the payment submitter and, if required by business rules, also notifies authorized verifiers.
-// When submitterUserID is empty, only the verifier group is notified (no submitter path).
+// NotifyPaymentVerified notifies the warga who owns/submitted the payment.
+// Verifiers (and Bendahara) must NOT receive this notification.
 func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, paymentID, submitterUserID, status, rejectionReason string) {
 	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -276,69 +287,38 @@ func (s *service) NotifyPaymentVerified(ctx context.Context, rtID, billID, payme
 			PaymentID: paymentID,
 			Status:    status,
 			DeepLink:  fmt.Sprintf("/home/iuran/detail/%s?payment_id=%s", billID, paymentID),
+			SentAt:    time.Now().UTC().Format(time.RFC3339Nano),
 		}
 
-		// Submitter path: only when submitterUserID is non-empty
+		var targets []string
 		if submitterUserID != "" {
-			// Deduplication for the submitter
-			submitterDedupKey := fmt.Sprintf("payment_verified:%s:%s", paymentID, status)
-			okSubmitter, dedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, submitterUserID, EventPaymentVerified, submitterDedupKey, title, body, payload.ToMap())
-			if dedupErr != nil {
-				slog.Warn("payment verified dedup check failed for submitter", "payment_id", paymentID, "user_id", submitterUserID, "error", dedupErr)
-			}
-
-			var submitterTokens []string
-			if dedupErr == nil && okSubmitter {
-				var err error
-				submitterTokens, err = s.repo.GetTokensForUser(bgCtx, submitterUserID)
-				if err != nil {
-					slog.Error("failed to get tokens for payment submitter", "user_id", submitterUserID, "error", err)
-				} else if len(submitterTokens) > 0 {
-					s.sendPushToTokens(bgCtx, submitterTokens, title, body, payload.ToMap())
-				}
-			}
-
-			// Notify other authorized verifiers
-			verifierTokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
-			if err != nil {
-				slog.Error("failed to get verifier tokens for payment verified", "rt_id", rtID, "error", err)
-			} else if len(verifierTokens) > 0 {
-				verifierDedupKey := fmt.Sprintf("payment_verified_verifier:%s:%s", paymentID, status)
-				okVerifier, verifierDedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentVerified, verifierDedupKey, title, body, payload.ToMap())
-				if verifierDedupErr != nil {
-					slog.Warn("verifier payment verified dedup check failed", "payment_id", paymentID, "error", verifierDedupErr)
-				}
-				if verifierDedupErr == nil && okVerifier {
-					// Remove any tokens already sent to submitter to avoid duplicate pushes
-					sent := make(map[string]struct{}, len(submitterTokens))
-					for _, t := range submitterTokens {
-						sent[t] = struct{}{}
-					}
-					var filtered []string
-					for _, vt := range verifierTokens {
-						if _, exists := sent[vt]; !exists {
-							filtered = append(filtered, vt)
-						}
-					}
-					if len(filtered) > 0 {
-						s.sendPushToTokens(bgCtx, filtered, title, body, payload.ToMap())
-					}
-				}
-			}
+			targets = []string{submitterUserID}
 		} else {
-			// No submitter — still notify authorized verifiers if they exist
-			verifierTokens, err := s.repo.GetTokensForPaymentVerifiers(bgCtx, rtID)
+			var err error
+			targets, err = s.repo.GetRecipientUserIDsForBill(bgCtx, rtID, billID)
 			if err != nil {
-				slog.Error("failed to get verifier tokens for payment verified", "rt_id", rtID, "error", err)
-			} else if len(verifierTokens) > 0 {
-				verifierDedupKey := fmt.Sprintf("payment_verified_verifier:%s:%s", paymentID, status)
-				okVerifier, verifierDedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, "", EventPaymentVerified, verifierDedupKey, title, body, payload.ToMap())
-				if verifierDedupErr != nil {
-					slog.Warn("verifier payment verified dedup check failed", "payment_id", paymentID, "error", verifierDedupErr)
-				}
-				if verifierDedupErr == nil && okVerifier {
-					s.sendPushToTokens(bgCtx, verifierTokens, title, body, payload.ToMap())
-				}
+				slog.Error("failed to get recipient user IDs for bill on payment verified", "bill_id", billID, "error", err)
+			}
+			targets = dedupeUserIDs(targets)
+		}
+
+		for _, targetUID := range targets {
+			submitterDedupKey := fmt.Sprintf("payment_verified:%s:%s:%s", paymentID, status, targetUID)
+			okSubmitter, dedupErr := s.repo.CheckAndRecordDedup(bgCtx, rtID, targetUID, EventPaymentVerified, submitterDedupKey, title, body, payload.ToMap())
+			if dedupErr != nil {
+				slog.Warn("payment verified dedup check failed for submitter", "payment_id", paymentID, "user_id", targetUID, "error", dedupErr)
+			}
+			if !okSubmitter || dedupErr != nil {
+				continue
+			}
+
+			submitterTokens, err := s.repo.GetTokensForUser(bgCtx, targetUID)
+			if err != nil {
+				slog.Error("failed to get tokens for payment submitter", "user_id", targetUID, "error", err)
+				continue
+			}
+			if len(submitterTokens) > 0 {
+				s.sendPushToTokens(bgCtx, submitterTokens, title, body, payload.ToMap())
 			}
 		}
 	}()

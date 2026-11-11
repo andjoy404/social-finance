@@ -166,4 +166,25 @@ describe('CommunityImage', () => {
 
     await waitFor(() => expect(screen.getByRole('img', { name: 'draft' }).tagName.toLowerCase()).not.toBe('img'))
   })
+
+  it('retries once when signed URL image load fails, then shows placeholder', async () => {
+    apiSignCommunityImage.mockResolvedValue({ url: 'https://cdn.example/expired.png?sig=1', expires_at: 1 })
+
+    render(<CommunityImage src={publishedSrc} alt="retry" />)
+    const img = await waitFor(() => screen.getByRole('img', { name: 'retry' }))
+    expect(apiSignCommunityImage).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      img.dispatchEvent(new Event('error'))
+    })
+
+    await waitFor(() => expect(apiSignCommunityImage).toHaveBeenCalledTimes(2))
+    const retryImg = await screen.findByRole('img', { name: 'retry' })
+
+    await act(async () => {
+      retryImg.dispatchEvent(new Event('error'))
+    })
+
+    await waitFor(() => expect(screen.getByRole('img', { name: 'retry' }).tagName.toLowerCase()).not.toBe('img'))
+  })
 })

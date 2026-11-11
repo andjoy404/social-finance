@@ -275,16 +275,25 @@ func (r *Repository) ListAnnouncements(ctx context.Context, tx *sql.Tx, rtID, st
 	args := []any{rtID}
 	argIdx := 2
 
-	if status != "" {
-		whereClause += fmt.Sprintf(" AND status = $%d", argIdx)
-		args = append(args, status)
-		argIdx++
-	}
 	if forWarga {
-		// Warga only see announcements inside their display window:
-		// scheduled_start <= now < scheduled_end (open-ended when NULL).
-		whereClause += " AND (scheduled_start IS NULL OR scheduled_start <= NOW())"
-		whereClause += " AND (scheduled_end IS NULL OR scheduled_end > NOW())"
+		if status == "history" || status == "archived" {
+			// Warga history: any non-draft announcement that is archived, expired, or past its scheduled_end
+			whereClause += " AND status != 'draft' AND (status IN ('archived', 'expired') OR (scheduled_end IS NOT NULL AND scheduled_end <= NOW()))"
+		} else if status == "all" {
+			// All non-draft announcements for warga
+			whereClause += " AND status != 'draft'"
+		} else {
+			// Active announcements inside display window
+			whereClause += " AND status = 'active'"
+			whereClause += " AND (scheduled_start IS NULL OR scheduled_start <= NOW())"
+			whereClause += " AND (scheduled_end IS NULL OR scheduled_end > NOW())"
+		}
+	} else {
+		if status != "" && status != "all" {
+			whereClause += fmt.Sprintf(" AND status = $%d", argIdx)
+			args = append(args, status)
+			argIdx++
+		}
 	}
 
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM announcements %s", whereClause)
@@ -572,14 +581,16 @@ func (r *Repository) GetBannerTemplateByID(ctx context.Context, tx *sql.Tx, rtID
 
 func (r *Repository) ListActiveBanners(ctx context.Context, tx *sql.Tx, rtID string) ([]Banner, error) {
 	query := `
-		SELECT id, rt_id, source_type, source_id, template_id, title, body, image_url, deep_link,
-		       start_at, end_at, priority, display_order, is_pinned, is_active, snapshot_content,
-		       created_by, created_at, updated_at
-		FROM banners
-		WHERE rt_id = $1 AND is_active = true
-		  AND (start_at IS NULL OR start_at <= NOW())
-		  AND (end_at IS NULL OR end_at > NOW())
-		ORDER BY is_pinned DESC, priority DESC, display_order ASC, created_at DESC
+		SELECT b.id, b.rt_id, b.source_type, b.source_id, b.template_id, b.title, b.body,
+		       COALESCE(b.image_url, bt.image_url) AS image_url,
+		       b.deep_link, b.start_at, b.end_at, b.priority, b.display_order, b.is_pinned,
+		       b.is_active, b.snapshot_content, b.created_by, b.created_at, b.updated_at
+		FROM banners b
+		LEFT JOIN banner_templates bt ON bt.id = b.template_id
+		WHERE b.rt_id = $1 AND b.is_active = true
+		  AND (b.start_at IS NULL OR b.start_at <= NOW())
+		  AND (b.end_at IS NULL OR b.end_at > NOW())
+		ORDER BY b.is_pinned DESC, b.priority DESC, b.display_order ASC, b.created_at DESC
 	`
 	rows, err := r.db(tx).QueryContext(ctx, query, rtID)
 	if err != nil {
@@ -699,15 +710,18 @@ func (r *Repository) ImageAccessAllowed(ctx context.Context, tx *sql.Tx, rtID, i
 			UNION
 			SELECT 1 FROM announcements
 			WHERE rt_id = $1 AND (image_url = $2 OR image_url = $3)
-			  AND ($5::bool OR (status = 'active'
-			    AND (scheduled_start IS NULL OR scheduled_start <= NOW())
-			    AND (scheduled_end IS NULL OR scheduled_end > NOW())))
+			  AND ($5::bool OR
+			        (status='active' AND (scheduled_start IS NULL OR scheduled_start <= NOW()) AND (scheduled_end IS NULL OR scheduled_end > NOW()))
+			     OR status IN ('archived', 'expired'))
 			UNION
 			SELECT 1 FROM banners
 			WHERE rt_id = $1 AND (image_url = $2 OR image_url = $3)
 			  AND ($4::bool OR $5::bool OR (is_active = true
 			    AND (start_at IS NULL OR start_at <= NOW())
 			    AND (end_at IS NULL OR end_at > NOW())))
+			UNION
+			SELECT 1 FROM banner_templates
+			WHERE (rt_id = $1 OR rt_id IS NULL) AND (image_url = $2 OR image_url = $3)
 		)
 	`, rtID, imageKey, urlForm, canManageActivities, canManageAnnouncements).Scan(&allowed)
 	return allowed, err

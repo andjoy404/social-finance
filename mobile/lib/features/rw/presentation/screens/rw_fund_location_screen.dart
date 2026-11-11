@@ -34,8 +34,6 @@ class _RwFundLocationScreenState
   String? _error;
 
   RwReconciliationReport? _reconciliation;
-  bool _reconLoading = false;
-  bool _allocLoading = false;
   String? _allocError;
 
   String _selectedCategory = 'all';
@@ -1780,8 +1778,10 @@ class _RwFundLocationScreenState
                         'amount': '${amt.toInt()}.00',
                         if (notesCtrl.text.trim().isNotEmpty) 'notes': notesCtrl.text.trim(),
                       });
-                      if (context.mounted) {
+                      if (dialogCtx.mounted) {
                         Navigator.pop(dialogCtx);
+                      }
+                      if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Alokasi saldo awal berhasil')),
                         );

@@ -416,9 +416,14 @@ func (s *Service) syncActivityBanner(ctx context.Context, tx *sql.Tx, a *Activit
 func (s *Service) ListAnnouncements(ctx context.Context, rtID, status string, canManage bool, limit, offset int) ([]Announcement, int, error) {
 	forWarga := false
 	if !canManage {
-		// Warga only see active announcements inside their display window.
-		status = "active"
 		forWarga = true
+		if status == "history" || status == "archived" {
+			status = "history"
+		} else if status == "all" {
+			status = "all"
+		} else {
+			status = "active"
+		}
 	}
 	return s.repo.ListAnnouncements(ctx, nil, rtID, status, forWarga, limit, offset)
 }
@@ -431,7 +436,7 @@ func (s *Service) GetAnnouncementByID(ctx context.Context, rtID, id string, canM
 	if an == nil {
 		return nil, ErrNotFound
 	}
-	if !canManage && !announcementVisibleForWarga(an, time.Now()) {
+	if !canManage && an.Status == "draft" {
 		return nil, ErrNotFound
 	}
 	return an, nil
@@ -571,6 +576,12 @@ func (s *Service) CreateAnnouncement(ctx context.Context, rtID, userID string, r
 		return nil, err
 	}
 
+	if (an.ImageURL == nil || *an.ImageURL == "") && req.TemplateID != nil && *req.TemplateID != "" {
+		if tmpl, err := s.repo.GetBannerTemplateByID(ctx, tx, rtID, *req.TemplateID); err == nil && tmpl != nil && tmpl.ImageURL != nil && *tmpl.ImageURL != "" {
+			an.ImageURL = tmpl.ImageURL
+		}
+	}
+
 	if err := s.repo.CreateAnnouncement(ctx, tx, &an); err != nil {
 		return nil, err
 	}
@@ -649,6 +660,12 @@ func (s *Service) UpdateAnnouncement(ctx context.Context, rtID, id, userID strin
 
 	if err := s.validateTemplate(ctx, tx, rtID, req.TemplateID); err != nil {
 		return nil, err
+	}
+
+	if (existing.ImageURL == nil || *existing.ImageURL == "") && req.TemplateID != nil && *req.TemplateID != "" {
+		if tmpl, err := s.repo.GetBannerTemplateByID(ctx, tx, rtID, *req.TemplateID); err == nil && tmpl != nil && tmpl.ImageURL != nil && *tmpl.ImageURL != "" {
+			existing.ImageURL = tmpl.ImageURL
+		}
 	}
 
 	if err := s.repo.UpdateAnnouncement(ctx, tx, existing); err != nil {
@@ -768,6 +785,13 @@ func (s *Service) DeleteAnnouncement(ctx context.Context, rtID, id string) error
 }
 
 func (s *Service) syncAnnouncementBanner(ctx context.Context, tx *sql.Tx, an *Announcement) error {
+	imgURL := an.ImageURL
+	if (imgURL == nil || *imgURL == "") && an.TemplateID != nil && *an.TemplateID != "" {
+		if tmpl, err := s.repo.GetBannerTemplateByID(ctx, tx, an.RTID, *an.TemplateID); err == nil && tmpl != nil && tmpl.ImageURL != nil {
+			imgURL = tmpl.ImageURL
+		}
+	}
+
 	b := Banner{
 		RTID:            an.RTID,
 		SourceType:      "announcement",
@@ -775,7 +799,7 @@ func (s *Service) syncAnnouncementBanner(ctx context.Context, tx *sql.Tx, an *An
 		TemplateID:      an.TemplateID,
 		Title:           an.Title,
 		Body:            &an.Body,
-		ImageURL:        an.ImageURL,
+		ImageURL:        imgURL,
 		DeepLink:        an.DeepLink,
 		StartAt:         an.ScheduledStart,
 		EndAt:           an.ScheduledEnd,

@@ -260,6 +260,92 @@ class BannerTemplate {
   }
 }
 
+/// Canonical tier structure for Struktur Organisasi RT diagram (top-to-bottom):
+/// Tier 1: Ketua
+/// Tier 2: Wakil Ketua
+/// Tier 3: Bendahara = Sekretaris (horizontal)
+/// Tier 4: Keamanan = Kebersihan = Sosial = Operasional (horizontal)
+const List<List<String>> kCanonicalOrgChartTiers = [
+  ['ketua'],
+  ['wakil_ketua'],
+  ['bendahara', 'sekretaris'],
+  ['keamanan', 'kebersihan', 'sosial', 'operasional'],
+];
+
+/// Normalizes a position key or label into one of the canonical RT position keys.
+String normalizeOrgPosition(String position, [String label = '']) {
+  String norm(String s) =>
+      s.trim().toLowerCase().replaceAll(RegExp(r'[\s\-]+'), '_');
+  final p = norm(position);
+  final l = norm(label);
+  for (final candidate in [p, l]) {
+    switch (candidate) {
+      case 'ketua':
+      case 'ketua_rt':
+        return 'ketua';
+      case 'wakil_ketua':
+      case 'wakil_ketua_rt':
+      case 'wakil':
+        return 'wakil_ketua';
+      case 'bendahara':
+      case 'bendahara_rt':
+        return 'bendahara';
+      case 'sekretaris':
+      case 'sekretaris_rt':
+        return 'sekretaris';
+      case 'keamanan':
+      case 'keamanan_rt':
+      case 'seksi_keamanan':
+      case 'seksi_keamanan_rt':
+        return 'keamanan';
+      case 'kebersihan':
+      case 'kebersihan_rt':
+      case 'seksi_kebersihan':
+      case 'seksi_kebersihan_rt':
+        return 'kebersihan';
+      case 'sosial':
+      case 'sosial_rt':
+      case 'seksi_sosial':
+      case 'seksi_sosial_rt':
+        return 'sosial';
+      case 'operasional':
+      case 'operasional_rt':
+      case 'seksi_operasional':
+      case 'seksi_operasional_rt':
+        return 'operasional';
+    }
+  }
+  return p;
+}
+
+bool _parseActiveFlag(dynamic value) {
+  if (value == null) return true;
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  final s = value.toString().trim().toLowerCase();
+  if (s == 'false' ||
+      s == '0' ||
+      s == 'inactive' ||
+      s == 'nonaktif' ||
+      s == 'non-aktif' ||
+      s == 'disabled' ||
+      s == 'deactivated') {
+    return false;
+  }
+  return true;
+}
+
+bool _isPlaceholderMemberName(String rawName) {
+  final n = rawName.trim().toLowerCase();
+  return n.isEmpty ||
+      n == '-' ||
+      n == 'null' ||
+      n == 'kosong' ||
+      n == 'belum terisi' ||
+      n == 'belum ditentukan' ||
+      n == 'belum ada';
+}
+
 @immutable
 class OrgMember {
   final String userId;
@@ -268,6 +354,7 @@ class OrgMember {
   final String jabatan;
   final String? phone;
   final int level;
+  final bool isActive;
 
   const OrgMember({
     required this.userId,
@@ -276,9 +363,41 @@ class OrgMember {
     required this.jabatan,
     this.phone,
     this.level = 1,
+    this.isActive = true,
   });
 
+  /// Whether this member represents an active warga with a valid name.
+  bool get isActiveMember => isActive && !_isPlaceholderMemberName(name);
+
+  OrgMember copyWith({
+    String? userId,
+    String? membershipId,
+    String? name,
+    String? jabatan,
+    String? phone,
+    int? level,
+    bool? isActive,
+  }) {
+    return OrgMember(
+      userId: userId ?? this.userId,
+      membershipId: membershipId ?? this.membershipId,
+      name: name ?? this.name,
+      jabatan: jabatan ?? this.jabatan,
+      phone: phone ?? this.phone,
+      level: level ?? this.level,
+      isActive: isActive ?? this.isActive,
+    );
+  }
+
   factory OrgMember.fromJson(Map<String, dynamic> json) {
+    final active =
+        _parseActiveFlag(json['is_active']) &&
+        _parseActiveFlag(json['active']) &&
+        _parseActiveFlag(json['user_is_active']) &&
+        _parseActiveFlag(json['resident_is_active']) &&
+        _parseActiveFlag(json['membership_is_active']) &&
+        _parseActiveFlag(json['household_is_active']) &&
+        _parseActiveFlag(json['status']);
     return OrgMember(
       userId: json['user_id']?.toString() ?? '',
       membershipId: json['membership_id']?.toString() ?? '',
@@ -286,6 +405,7 @@ class OrgMember {
       jabatan: json['jabatan']?.toString() ?? '',
       phone: json['phone'] as String?,
       level: (json['level'] as num?)?.toInt() ?? 1,
+      isActive: active,
     );
   }
 }
@@ -305,6 +425,29 @@ class OrgNode {
     this.parentPosition = '',
     required this.members,
   });
+
+  /// Active members only (excluding inactive or placeholder members).
+  List<OrgMember> get activeMembers =>
+      members.where((m) => m.isActiveMember).toList();
+
+  /// Whether this position has at least one active member.
+  bool get hasActiveMembers => members.any((m) => m.isActiveMember);
+
+  OrgNode copyWith({
+    String? position,
+    String? positionLabel,
+    int? level,
+    String? parentPosition,
+    List<OrgMember>? members,
+  }) {
+    return OrgNode(
+      position: position ?? this.position,
+      positionLabel: positionLabel ?? this.positionLabel,
+      level: level ?? this.level,
+      parentPosition: parentPosition ?? this.parentPosition,
+      members: members ?? this.members,
+    );
+  }
 
   factory OrgNode.fromJson(Map<String, dynamic> json) {
     final rawMembers = json['members'] as List? ?? [];
@@ -339,6 +482,22 @@ class OrganizationStructure {
     this.nodes = const [],
   });
 
+  OrganizationStructure copyWith({
+    String? rtId,
+    String? rtName,
+    String? rtNumber,
+    String? rwNumber,
+    List<OrgNode>? nodes,
+  }) {
+    return OrganizationStructure(
+      rtId: rtId ?? this.rtId,
+      rtName: rtName ?? this.rtName,
+      rtNumber: rtNumber ?? this.rtNumber,
+      rwNumber: rwNumber ?? this.rwNumber,
+      nodes: nodes ?? this.nodes,
+    );
+  }
+
   /// Nodes grouped by level, ordered ascending.
   Map<int, List<OrgNode>> get levels {
     final grouped = <int, List<OrgNode>>{};
@@ -346,6 +505,86 @@ class OrganizationStructure {
       grouped.putIfAbsent(node.level, () => <OrgNode>[]).add(node);
     }
     return grouped;
+  }
+
+  /// Builds the canonical 4-tier RT organization diagram structure, filtering out
+  /// empty positions and inactive members, and ordering strictly by:
+  /// Tier 1: Ketua
+  /// Tier 2: Wakil Ketua
+  /// Tier 3: Bendahara = Sekretaris
+  /// Tier 4: Keamanan = Kebersihan = Sosial = Operasional
+  List<List<OrgNode>> buildActiveDiagramTiers({
+    bool Function(OrgMember member)? extraActiveFilter,
+  }) {
+    final activeByPosition = <String, OrgNode>{};
+    final extraNodes = <OrgNode>[];
+    final knownPositions = <String>{
+      for (final tier in kCanonicalOrgChartTiers) ...tier,
+    };
+
+    for (final node in nodes) {
+      final canonicalPos = normalizeOrgPosition(
+        node.position,
+        node.positionLabel,
+      );
+      if (canonicalPos.isEmpty) continue;
+
+      final filteredMembers = node.members.where((m) {
+        if (!m.isActiveMember) return false;
+        if (extraActiveFilter != null && !extraActiveFilter(m)) return false;
+        return true;
+      }).toList();
+
+      if (filteredMembers.isEmpty) {
+        continue;
+      }
+
+      if (knownPositions.contains(canonicalPos)) {
+        final existing = activeByPosition[canonicalPos];
+        if (existing == null) {
+          activeByPosition[canonicalPos] = node.copyWith(
+            position: canonicalPos,
+            members: filteredMembers,
+          );
+        } else {
+          final merged = <OrgMember>[...existing.members];
+          for (final m in filteredMembers) {
+            final duplicate = merged.any(
+              (em) =>
+                  (em.userId.isNotEmpty && em.userId == m.userId) ||
+                  (em.userId.isEmpty &&
+                      em.name.trim().toLowerCase() ==
+                          m.name.trim().toLowerCase()),
+            );
+            if (!duplicate) merged.add(m);
+          }
+          activeByPosition[canonicalPos] = existing.copyWith(members: merged);
+        }
+      } else {
+        extraNodes.add(node.copyWith(members: filteredMembers));
+      }
+    }
+
+    final tiers = <List<OrgNode>>[];
+    for (var tIdx = 0; tIdx < kCanonicalOrgChartTiers.length; tIdx++) {
+      final tierPositions = kCanonicalOrgChartTiers[tIdx];
+      final rowNodes = <OrgNode>[];
+      for (final pos in tierPositions) {
+        final n = activeByPosition[pos];
+        if (n != null && n.members.isNotEmpty) {
+          rowNodes.add(n.copyWith(level: tIdx + 1));
+        }
+      }
+      if (rowNodes.isNotEmpty) {
+        tiers.add(rowNodes);
+      }
+    }
+
+    if (extraNodes.isNotEmpty) {
+      tiers.add(extraNodes);
+    }
+
+    return tiers;
   }
 
   factory OrganizationStructure.fromJson(Map<String, dynamic> json) {
@@ -470,6 +709,34 @@ class HomeDashboardData {
     required this.organization,
     required this.upcomingActivities,
   });
+
+  HomeDashboardData copyWith({
+    String? greeting,
+    String? userName,
+    String? userRole,
+    String? userJabatan,
+    String? rt,
+    String? rw,
+    String? rtName,
+    List<CommunityBanner>? banners,
+    SecurityOnDutyInfo? security,
+    OrganizationStructure? organization,
+    List<CommunityActivity>? upcomingActivities,
+  }) {
+    return HomeDashboardData(
+      greeting: greeting ?? this.greeting,
+      userName: userName ?? this.userName,
+      userRole: userRole ?? this.userRole,
+      userJabatan: userJabatan ?? this.userJabatan,
+      rt: rt ?? this.rt,
+      rw: rw ?? this.rw,
+      rtName: rtName ?? this.rtName,
+      banners: banners ?? this.banners,
+      security: security ?? this.security,
+      organization: organization ?? this.organization,
+      upcomingActivities: upcomingActivities ?? this.upcomingActivities,
+    );
+  }
 
   factory HomeDashboardData.fromJson(Map<String, dynamic> json) {
     final rawBanners = json['banners'] as List? ?? [];

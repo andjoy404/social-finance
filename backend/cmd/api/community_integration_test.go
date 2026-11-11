@@ -50,6 +50,8 @@ func setupCommunityRouter(t *testing.T, rtIDs []string) (*database.Pool, http.Ha
 		"068_community_activities_announcements_banners.up.sql",
 		"069_community_banner_dedup_and_idempotency.up.sql",
 		"070_community_delete_permissions.up.sql",
+		"072_sekretaris_announcement_permissions.up.sql",
+		"076_sekretaris_activities_permissions.up.sql",
 	})
 
 	auth.SigningSecret = []byte("test-secret-key-32-chars-long-ok!!")

@@ -619,6 +619,14 @@ func TestGetTokensForPaymentVerifiers_PengurusWithBendaharaJabatan(t *testing.T)
 	if len(tokens) != 1 || tokens[0] != "tok-pengurus-bendahara" {
 		t.Fatalf("expected [tok-pengurus-bendahara], got %v", tokens)
 	}
+
+	uids, err := repo.GetPaymentVerifierUserIDs(ctx, rtID)
+	if err != nil {
+		t.Fatalf("GetPaymentVerifierUserIDs: %v", err)
+	}
+	if len(uids) != 1 || uids[0] != userID {
+		t.Fatalf("expected [%s], got %v", userID, uids)
+	}
 }
 
 // Documented pattern from migration 031: Ketua RT has role=warga + jabatan=ketua.

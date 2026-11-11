@@ -791,7 +791,7 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 					}
 					pwHash = &h
 				}
-				err = createResidentUserAndMembership(ctx, tx, resID, rtID, res.ResidentName, res.Email, pwHash, res.Jabatan, importSuffix)
+				err = createResidentUserAndMembership(ctx, tx, resID, rtID, res.ResidentName, res.Email, res.Phone, pwHash, res.Jabatan, importSuffix)
 				if err != nil {
 					return nil, fmt.Errorf("create user+membership for %s: %w", res.ResidentName, err)
 				}
@@ -892,6 +892,14 @@ func processExistingResident(
 			if err != nil {
 				return fmt.Errorf("update membership jabatan for %s: %w", res.ResidentName, err)
 			}
+			if strings.TrimSpace(res.Phone) != "" {
+				if cp, err := NormalizePhone(res.Phone); err == nil {
+					_, _ = tx.ExecContext(ctx,
+						`UPDATE users SET phone = $1, updated_at = now() WHERE id = $2 AND (phone IS NULL OR phone = '')`,
+						cp, userID.String,
+					)
+				}
+			}
 		} else if res.Password != "" {
 			// No existing user — create user with password and membership
 			pwHash, err := auth.Hash(res.Password)
@@ -899,11 +907,29 @@ func processExistingResident(
 				return fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
 			}
 
+			var userPhone *string
+			if strings.TrimSpace(res.Phone) != "" {
+				if cp, err := NormalizePhone(res.Phone); err == nil {
+					userPhone = &cp
+				} else {
+					p := strings.TrimSpace(res.Phone)
+					userPhone = &p
+				}
+			}
+			userEmail := NormalizeEmail(res.Email)
+			if userEmail == "" {
+				if userPhone != nil {
+					userEmail = fmt.Sprintf("%s@warga.local", *userPhone)
+				} else {
+					userEmail = fmt.Sprintf("%s-%s@warga.local", strings.ToLower(strings.ReplaceAll(res.ResidentName, " ", "")), importSuffix)
+				}
+			}
+
 			var newUserID string
 			err = tx.QueryRowContext(ctx,
-				`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
-				 VALUES ($1, $2, $3, NULL, now(), now()) RETURNING id`,
-				fmt.Sprintf("%s-%s@import.local", strings.ToLower(res.ResidentName), importSuffix), res.ResidentName, pwHash,
+				`INSERT INTO users (email, phone, full_name, password_hash, system_role, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, NULL, now(), now()) RETURNING id`,
+				userEmail, userPhone, res.ResidentName, pwHash,
 			).Scan(&newUserID)
 			if err != nil {
 				return fmt.Errorf("create user for %s: %w", res.ResidentName, err)
@@ -938,21 +964,42 @@ func processExistingResident(
 			if err != nil {
 				return fmt.Errorf("update password for %s: %w", res.ResidentName, err)
 			}
+			if strings.TrimSpace(res.Phone) != "" {
+				if cp, err := NormalizePhone(res.Phone); err == nil {
+					_, _ = tx.ExecContext(ctx,
+						`UPDATE users SET phone = $1, updated_at = now() WHERE id = $2 AND (phone IS NULL OR phone = '')`,
+						cp, existingUID.String,
+					)
+				}
+			}
 		} else {
 			// Resident has no linked user — create user with password and link
 			pwHash, err := auth.Hash(res.Password)
 			if err != nil {
 				return fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
 			}
-			userEmail := fmt.Sprintf("%s-%s@import.local", strings.ToLower(res.ResidentName), importSuffix)
-			if res.Email != "" {
-				userEmail = NormalizeEmail(res.Email)
+			var userPhone *string
+			if strings.TrimSpace(res.Phone) != "" {
+				if cp, err := NormalizePhone(res.Phone); err == nil {
+					userPhone = &cp
+				} else {
+					p := strings.TrimSpace(res.Phone)
+					userPhone = &p
+				}
+			}
+			userEmail := NormalizeEmail(res.Email)
+			if userEmail == "" {
+				if userPhone != nil {
+					userEmail = fmt.Sprintf("%s@warga.local", *userPhone)
+				} else {
+					userEmail = fmt.Sprintf("%s-%s@warga.local", strings.ToLower(strings.ReplaceAll(res.ResidentName, " ", "")), importSuffix)
+				}
 			}
 			var newUserID string
 			err = tx.QueryRowContext(ctx,
-				`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
-				 VALUES ($1, $2, $3, NULL, now(), now()) RETURNING id`,
-				userEmail, res.ResidentName, pwHash,
+				`INSERT INTO users (email, phone, full_name, password_hash, system_role, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, NULL, now(), now()) RETURNING id`,
+				userEmail, userPhone, res.ResidentName, pwHash,
 			).Scan(&newUserID)
 			if err != nil {
 				return fmt.Errorf("create user for %s: %w", res.ResidentName, err)
@@ -1025,7 +1072,7 @@ func processExistingResident(
 func createResidentUserAndMembership(
 	ctx context.Context,
 	tx *sql.Tx,
-	resID, rtID, residentName, email string,
+	resID, rtID, residentName, email, phone string,
 	pwHash *string, // nil if no password
 	jabatan string,
 	importSuffix string,
@@ -1056,6 +1103,11 @@ func createResidentUserAndMembership(
 		userEmail = normalizedEmail
 	}
 
+	var userPhone *string
+	if norm, err := NormalizePhone(phone); err == nil && norm != "" {
+		userPhone = &norm
+	}
+
 	actualHash := ""
 	if pwHash != nil {
 		actualHash = *pwHash
@@ -1068,9 +1120,9 @@ func createResidentUserAndMembership(
 	}
 
 	err = tx.QueryRowContext(ctx,
-		`INSERT INTO users (email, full_name, password_hash, system_role, created_at, updated_at)
-		 VALUES ($1, $2, $3, NULL, now(), now()) RETURNING id`,
-		userEmail, residentName, actualHash,
+		`INSERT INTO users (email, phone, full_name, password_hash, system_role, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, NULL, now(), now()) RETURNING id`,
+		userEmail, userPhone, residentName, actualHash,
 	).Scan(&newUserID)
 	if err != nil {
 		return fmt.Errorf("create user for %s: %w", residentName, err)

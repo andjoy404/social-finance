@@ -304,12 +304,12 @@ describe('Sidebar — navigation items', () => {
     clearSidebarLocalStorage()
   })
 
-  it('has nav items for warga, including Keuangan, Kegiatan, and Notifikasi', () => {
+  it('has nav items for warga, including Keuangan, Kegiatan, Pengumuman, and Notifikasi', () => {
     renderSidebar()
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(7) // Beranda, Keuangan, Kegiatan, Kas, Iuran, Warga, Notifikasi
+    expect(links.length).toBe(8) // Beranda, Keuangan, Kegiatan, Pengumuman, Kas, Iuran, Warga, Notifikasi
     expect(buttons.length).toBe(1) // pin toggle
   })
 
@@ -331,13 +331,13 @@ describe('Sidebar — navigation items', () => {
     expect(screen.queryByText('Kelola RT')).not.toBeInTheDocument()
   })
 
-  it('shows Notifikasi (personal history) for warga and pengurus roles, hides it for bendahara', () => {
+  it('shows Notifikasi (personal history) for warga, bendahara, and pengurus roles', () => {
     const u1 = renderSidebar(mockWargaUser)
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
     u1.unmount()
 
     const u2 = renderSidebar(mockBendaharaUser)
-    expect(screen.queryByText('Notifikasi')).not.toBeInTheDocument()
+    expect(screen.getByText('Notifikasi')).toBeInTheDocument()
     u2.unmount()
 
     // Pengurus RT without notification.manage keeps a personal Riwayat menu;

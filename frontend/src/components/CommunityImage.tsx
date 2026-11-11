@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PictureOutlined } from '@ant-design/icons'
 import { useAuth, canManageAnnouncements, canManageActivities } from '@/app/AuthContext'
 import { apiSignCommunityImage, apiGetCommunityImageBlob, getSessionPair } from '@/app/api'
@@ -29,17 +29,29 @@ export function CommunityImage({ src, alt, style, className }: CommunityImagePro
   const { user } = useAuth()
   const [resolved, setResolved] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const objectUrlRef = useRef<string | null>(null)
 
   const canManage = canManageAnnouncements(user) || canManageActivities(user)
   const userId = user?.id ?? null
   const rtId = user?.rt?.id ?? null
 
-  useEffect(() => {
-    let cancelled = false
-    let createdObjectUrl: string | null = null
+  const revokeObjectUrl = useCallback(() => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+  }, [])
 
+  useEffect(() => {
     setResolved(null)
     setFailed(false)
+    setAttempt(0)
+    revokeObjectUrl()
+  }, [src, canManage, userId, rtId, revokeObjectUrl])
+
+  useEffect(() => {
+    let cancelled = false
 
     const session = getSessionPair()
     if (!session?.accessToken || !src) {
@@ -54,19 +66,18 @@ export function CommunityImage({ src, alt, style, className }: CommunityImagePro
         if (!cancelled) setResolved(res.url)
       })
       .catch(async () => {
+        if (cancelled) return
         if (!canManage) {
-          if (!cancelled) setFailed(true)
+          setFailed(true)
           return
         }
         try {
           const { blob } = await apiGetCommunityImageBlob(token, src)
           if (cancelled) return
-          createdObjectUrl = URL.createObjectURL(blob)
-          if (!cancelled) {
-            setResolved(createdObjectUrl)
-          } else {
-            URL.revokeObjectURL(createdObjectUrl)
-          }
+          const createdObjectUrl = URL.createObjectURL(blob)
+          revokeObjectUrl()
+          objectUrlRef.current = createdObjectUrl
+          setResolved(createdObjectUrl)
         } catch {
           if (!cancelled) setFailed(true)
         }
@@ -74,11 +85,10 @@ export function CommunityImage({ src, alt, style, className }: CommunityImagePro
 
     return () => {
       cancelled = true
-      if (createdObjectUrl) {
-        URL.revokeObjectURL(createdObjectUrl)
-      }
     }
-  }, [src, canManage, userId, rtId])
+  }, [src, canManage, userId, rtId, attempt, revokeObjectUrl])
+
+  useEffect(() => () => revokeObjectUrl(), [revokeObjectUrl])
 
   if (failed) {
     return (
@@ -124,7 +134,17 @@ export function CommunityImage({ src, alt, style, className }: CommunityImagePro
       alt={alt}
       className={className}
       style={style}
-      onError={() => setFailed(true)}
+      onError={() => {
+        // Signed URLs are short-lived and browser-cached failures can be transient.
+        // Retry once by re-resolving; if already retried, surface placeholder.
+        revokeObjectUrl()
+        setResolved(null)
+        if (attempt === 0) {
+          setAttempt(1)
+          return
+        }
+        setFailed(true)
+      }}
     />
   )
 }

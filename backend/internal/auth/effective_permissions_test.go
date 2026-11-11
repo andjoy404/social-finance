@@ -80,7 +80,9 @@ func TestMeReturnsEffectiveFinancePermissions(t *testing.T) {
 			wantJabatan: "sekretaris",
 			want: []string{
 				"finance.read", "finance.create", "notification.read",
-				"activities.read", "announcements.read", "banner_templates.read", "organization.read", "organization.contact.read",
+				"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
+				"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
+				"banner_templates.read", "organization.read", "organization.contact.read",
 			},
 		},
 		{

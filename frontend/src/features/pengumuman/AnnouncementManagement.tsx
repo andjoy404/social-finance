@@ -16,6 +16,7 @@ import {
   ThunderboltOutlined,
   ReloadOutlined,
   EyeOutlined,
+  PictureOutlined,
 } from '@ant-design/icons'
 import {
   CommunityAnnouncement,
@@ -76,9 +77,13 @@ export function AnnouncementManagement() {
       params.status = statusFilter
     }
 
+    const fetchTemplates = canManage
+      ? apiListBannerTemplates(session.accessToken)
+      : Promise.resolve([] as BannerTemplate[])
+
     Promise.all([
       apiListAnnouncements(session.accessToken, params),
-      apiListBannerTemplates(session.accessToken),
+      fetchTemplates,
     ])
       .then(([annRes, tmplRes]) => {
         setTemplates(tmplRes || [])
@@ -202,22 +207,24 @@ export function AnnouncementManagement() {
       />
 
       {/* Main Tabs: Pengumuman vs Template Banner */}
-      <div style={{ display: 'flex', gap: 12, borderBottom: '1px solid var(--sf-border)', paddingBottom: 12 }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('announcements')}
-          className={`sf-btn ${activeTab === 'announcements' ? 'sf-btn-primary' : 'sf-btn-outline'}`}
-        >
-          <NotificationOutlined /> Daftar Pengumuman ({total})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('templates')}
-          className={`sf-btn ${activeTab === 'templates' ? 'sf-btn-primary' : 'sf-btn-outline'}`}
-        >
-          <AppstoreOutlined /> Template Banner ({templates.length})
-        </button>
-      </div>
+      {canManage && (
+        <div style={{ display: 'flex', gap: 12, borderBottom: '1px solid var(--sf-border)', paddingBottom: 12 }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('announcements')}
+            className={`sf-btn ${activeTab === 'announcements' ? 'sf-btn-primary' : 'sf-btn-outline'}`}
+          >
+            <NotificationOutlined /> Daftar Pengumuman ({total})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('templates')}
+            className={`sf-btn ${activeTab === 'templates' ? 'sf-btn-primary' : 'sf-btn-outline'}`}
+          >
+            <AppstoreOutlined /> Template Banner ({templates.length})
+          </button>
+        </div>
+      )}
 
       {actionError && (
         <div
@@ -231,30 +238,35 @@ export function AnnouncementManagement() {
 
       {activeTab === 'announcements' ? (
         <>
-          {/* Status Filters (visible to managers; warga only ever sees in-window active announcements) */}
-          {canManage && (
-            <div className="sf-list-toolbar" style={{ marginTop: 0, marginBottom: 0 }}>
-              <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
-                {[
-                  { id: 'all', label: 'Semua Status' },
-                  { id: 'active', label: 'Aktif' },
-                  { id: 'draft', label: 'Draf' },
-                  { id: 'scheduled', label: 'Terjadwal' },
-                  { id: 'archived', label: 'Diarsipkan' },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    className={`sf-btn ${statusFilter === tab.id ? 'sf-btn-primary' : 'sf-btn-outline'}`}
-                    onClick={() => handleStatusFilter(tab.id)}
-                    style={{ padding: '6px 14px', fontSize: 13 }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+          {/* Status Filters */}
+          <div className="sf-list-toolbar" style={{ marginTop: 0, marginBottom: 0 }}>
+            <div className="sf-list-toolbar-left" style={{ flexWrap: 'wrap', gap: 8 }}>
+              {(canManage
+                ? [
+                    { id: 'all', label: 'Semua Status' },
+                    { id: 'active', label: 'Aktif' },
+                    { id: 'draft', label: 'Draf' },
+                    { id: 'scheduled', label: 'Terjadwal' },
+                    { id: 'archived', label: 'Diarsipkan' },
+                  ]
+                : [
+                    { id: 'all', label: 'Semua' },
+                    { id: 'active', label: 'Aktif' },
+                    { id: 'history', label: 'Riwayat' },
+                  ]
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`sf-btn ${statusFilter === tab.id ? 'sf-btn-primary' : 'sf-btn-outline'}`}
+                  onClick={() => handleStatusFilter(tab.id)}
+                  style={{ padding: '6px 14px', fontSize: 13 }}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
 
           {/* Announcements List */}
           {loading ? (
@@ -272,165 +284,172 @@ export function AnnouncementManagement() {
             </div>
           ) : announcements.length > 0 ? (
             <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {announcements.map((ann) => {
-                const windowLabel = formatScheduleWindow(ann.scheduled_start, ann.scheduled_end)
-                const isDraft = ann.status === 'draft'
-                const canRepublish = ann.status === 'active' || ann.status === 'scheduled' || ann.status === 'archived'
-                return (
-                <div
-                  key={ann.id}
-                  className="sf-card"
-                  style={{
-                    padding: 20,
-                    borderRadius: 12,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
-                        {getStatusBadge(ann.status)}
-                        <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
-                          Prioritas: {ann.priority}
-                        </span>
-                        {ann.deep_link && (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                              background: 'var(--sf-surface-hover)',
-                              color: 'var(--sf-accent)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <LinkOutlined /> {ann.deep_link}
+            <div
+              style={{
+                overflowX: 'auto',
+                background: 'var(--sf-card-bg)',
+                border: '1px solid var(--sf-border)',
+                borderRadius: 8,
+              }}
+            >
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--sf-border)', background: 'rgba(0,0,0,0.02)' }}>
+                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Judul & Ringkasan</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Jadwal & Tautan</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Prioritas</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)' }}>Status</th>
+                    <th style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text-muted)', textAlign: 'right' }}>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {announcements.map((ann) => {
+                    const windowLabel = formatScheduleWindow(ann.scheduled_start, ann.scheduled_end)
+                    const isDraft = ann.status === 'draft'
+                    const canRepublish = ann.status === 'active' || ann.status === 'scheduled' || ann.status === 'archived'
+                    const hasScheduleOrLink = Boolean(windowLabel || ann.deep_link)
+                    return (
+                      <tr key={ann.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
+                        <td style={{ padding: '14px 16px', verticalAlign: 'top', maxWidth: 420 }}>
+                          <div style={{ fontWeight: 600, color: 'var(--sf-text)', marginBottom: ann.body ? 2 : 0, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span>{ann.title}</span>
+                            {ann.image_url && (
+                              <PictureOutlined style={{ color: 'var(--sf-accent)', fontSize: 13 }} title="Memiliki lampiran gambar" />
+                            )}
+                          </div>
+                          {ann.body && (
+                            <div style={{ color: 'var(--sf-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {ann.body}
+                            </div>
+                          )}
+                        </td>
+
+                        <td style={{ padding: '14px 16px', verticalAlign: 'top' }}>
+                          {hasScheduleOrLink ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {windowLabel && (
+                                <div style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>
+                                  Tayang: {windowLabel}
+                                </div>
+                              )}
+                              {ann.deep_link && (
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    padding: '2px 8px',
+                                    borderRadius: 4,
+                                    background: 'var(--sf-surface-hover)',
+                                    color: 'var(--sf-accent)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    width: 'fit-content',
+                                  }}
+                                >
+                                  <LinkOutlined /> {ann.deep_link}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--sf-text-muted)' }}>-</span>
+                          )}
+                        </td>
+
+                        <td style={{ padding: '14px 16px', verticalAlign: 'top' }}>
+                          <span style={{ fontSize: 12, color: 'var(--sf-text-muted)', fontWeight: 600 }}>
+                            Prioritas: {ann.priority}
                           </span>
-                        )}
-                      </div>
-                      <h3 style={{ margin: '0 0 6px 0', fontSize: 17, fontWeight: 700, color: 'var(--sf-text)' }}>
-                        {ann.title}
-                      </h3>
-                      <p style={{ margin: 0, fontSize: 13, color: 'var(--sf-text-muted)', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
-                        {ann.body}
-                      </p>
-                      {windowLabel && (
-                        <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginTop: 6 }}>
-                          Tayang: {windowLabel}
-                        </div>
-                      )}
-                    </div>
+                        </td>
 
-                    {ann.image_url && (
-                      <div
-                        style={{
-                          width: 90,
-                          height: 65,
-                          borderRadius: 8,
-                          overflow: 'hidden',
-                          background: 'var(--sf-surface-subtle)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          border: '1px solid var(--sf-border-subtle)',
-                        }}
-                      >
-                        <CommunityImage
-                          src={ann.image_url}
-                          alt={`Gambar pengumuman ${ann.title}`}
-                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                        />
-                      </div>
-                    )}
-                  </div>
+                        <td style={{ padding: '14px 16px', verticalAlign: 'top' }}>
+                          {getStatusBadge(ann.status)}
+                        </td>
 
-                  {/* Actions Bar */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 8,
-                      paddingTop: 12,
-                      borderTop: '1px solid var(--sf-border)',
-                      justifyContent: 'flex-end',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="sf-btn sf-btn-outline"
-                      onClick={() => setViewingAnnouncement(ann)}
-                      style={{ padding: '4px 10px', fontSize: 12 }}
-                    >
-                      <EyeOutlined /> Lihat Detail
-                    </button>
-                    {canManage && (
-                      <>
-                        {isDraft && (
-                          <button
-                            type="button"
-                            className="sf-btn sf-btn-outline"
-                            onClick={() => handlePublish(ann.id, false)}
-                            style={{ padding: '4px 10px', fontSize: 12 }}
-                          >
-                            <CheckOutlined /> Publikasikan
-                          </button>
-                        )}
-                        {canRepublish && (
-                          <button
-                            type="button"
-                            className="sf-btn sf-btn-outline"
-                            onClick={() => handlePublish(ann.id, true)}
-                            style={{ padding: '4px 10px', fontSize: 12 }}
-                            title="Terbitkan ulang (perbarui snapshot konten & banner)"
-                          >
-                            <CheckOutlined /> Terbitkan Ulang
-                          </button>
-                        )}
-                        {(ann.status === 'active' || ann.status === 'scheduled') && (
-                          <button
-                            type="button"
-                            className="sf-btn sf-btn-outline"
-                            onClick={() => handleArchive(ann.id)}
-                            style={{ padding: '4px 10px', fontSize: 12 }}
-                          >
-                            <InboxOutlined /> Arsipkan
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="sf-btn sf-btn-outline"
-                          onClick={() => {
-                            setEditingAnnouncement(ann)
-                            setSelectedTemplateForCreate(null)
-                            setShowModal(true)
-                          }}
-                          style={{ padding: '4px 10px', fontSize: 12 }}
-                        >
-                          <EditOutlined /> Ubah
-                        </button>
-                        {isDraft && (
-                          <button
-                            type="button"
-                            className="sf-btn sf-btn-outline"
-                            onClick={() => handleDelete(ann.id)}
-                            style={{ padding: '4px 10px', fontSize: 12, color: 'var(--sf-danger)' }}
-                          >
-                            <DeleteOutlined /> Hapus
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-                )
-              })}
+                        <td style={{ padding: '14px 16px', verticalAlign: 'top', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              className="sf-btn-outline"
+                              onClick={() => setViewingAnnouncement(ann)}
+                              title="Lihat Detail"
+                              aria-label="Lihat Detail"
+                              style={{ padding: '4px 8px', fontSize: 12 }}
+                            >
+                              <EyeOutlined />
+                            </button>
+                            {canManage && (
+                              <>
+                                {isDraft && (
+                                  <button
+                                    type="button"
+                                    className="sf-btn-outline"
+                                    onClick={() => handlePublish(ann.id, false)}
+                                    title="Publikasikan"
+                                    aria-label="Publikasikan"
+                                    style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-success)' }}
+                                  >
+                                    <CheckOutlined />
+                                  </button>
+                                )}
+                                {canRepublish && (
+                                  <button
+                                    type="button"
+                                    className="sf-btn-outline"
+                                    onClick={() => handlePublish(ann.id, true)}
+                                    title="Terbitkan ulang (perbarui snapshot konten & banner)"
+                                    aria-label="Terbitkan Ulang"
+                                    style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-success)' }}
+                                  >
+                                    <CheckOutlined />
+                                  </button>
+                                )}
+                                {(ann.status === 'active' || ann.status === 'scheduled') && (
+                                  <button
+                                    type="button"
+                                    className="sf-btn-outline"
+                                    onClick={() => handleArchive(ann.id)}
+                                    title="Arsipkan"
+                                    aria-label="Arsipkan"
+                                    style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-warning)' }}
+                                  >
+                                    <InboxOutlined />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="sf-btn-outline"
+                                  onClick={() => {
+                                    setEditingAnnouncement(ann)
+                                    setSelectedTemplateForCreate(null)
+                                    setShowModal(true)
+                                  }}
+                                  title="Ubah"
+                                  aria-label="Ubah"
+                                  style={{ padding: '4px 8px', fontSize: 12 }}
+                                >
+                                  <EditOutlined />
+                                </button>
+                                {isDraft && (
+                                  <button
+                                    type="button"
+                                    className="sf-btn-outline"
+                                    onClick={() => handleDelete(ann.id)}
+                                    title="Hapus"
+                                    aria-label="Hapus"
+                                    style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-danger)' }}
+                                  >
+                                    <DeleteOutlined />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
             {totalPages > 1 && (
               <div className="sf-card" style={{ padding: 0, overflow: 'hidden', borderRadius: 12 }}>

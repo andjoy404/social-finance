@@ -51,6 +51,7 @@ class PaginationInfo {
 class BackendResident {
   final String id;
   final String rtId;
+  final String? userId;
   final String? householdId;
   final String fullName;
   final String? phone;
@@ -67,6 +68,7 @@ class BackendResident {
   const BackendResident({
     required this.id,
     required this.rtId,
+    this.userId,
     this.householdId,
     required this.fullName,
     this.phone,
@@ -85,6 +87,7 @@ class BackendResident {
     return BackendResident(
       id: json['id'] as String? ?? '',
       rtId: json['rt_id'] as String? ?? '',
+      userId: json['user_id'] as String?,
       householdId: json['household_id'] as String?,
       fullName: json['full_name'] as String? ?? '',
       phone: json['phone'] as String?,
@@ -349,6 +352,7 @@ class UpdateResidentRequest {
 @immutable
 class MappedResident {
   final String id;
+  final String? userId;
   final String? householdId;
   final String name;
   final String? nik;
@@ -367,6 +371,7 @@ class MappedResident {
 
   const MappedResident({
     required this.id,
+    this.userId,
     this.householdId,
     required this.name,
     this.nik,
@@ -509,6 +514,7 @@ class MappedResident {
     final mappedJabatan = resident.jabatan;
     return MappedResident(
       id: resident.id,
+      userId: resident.userId,
       householdId: resident.householdId,
       name: resident.fullName,
       nik: resident.nik,
@@ -521,7 +527,7 @@ class MappedResident {
           : household?.occupancyStatus == 'TENANT'
           ? 'Penyewa'
           : null,
-      isActive: resident.isActive,
+      isActive: resident.isActive && (household?.isActive ?? true),
       rtNumber: resident.rtNumber,
       rw: resident.rw,
       rtName: resident.rtName,

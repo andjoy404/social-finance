@@ -7,8 +7,8 @@ import 'package:go_router/go_router.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/theme/app_radius.dart';
 import 'package:social_finance/core/theme/app_spacing.dart';
+import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
-import 'package:social_finance/core/widgets/community_image.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -18,7 +18,9 @@ import 'package:social_finance/features/dashboard/data/models/community_models.d
 import 'announcement_ui.dart';
 
 class PengumumanScreen extends ConsumerStatefulWidget {
-  const PengumumanScreen({super.key});
+  final bool loadInTest;
+
+  const PengumumanScreen({super.key, this.loadInTest = false});
 
   @override
   ConsumerState<PengumumanScreen> createState() => _PengumumanScreenState();
@@ -44,8 +46,9 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
     }
   }
 
-  // Widget tests run offline; never hit the network.
-  bool get _isFlutterTest => Platform.environment.containsKey('FLUTTER_TEST');
+  // Widget tests run offline; never hit the network unless loadInTest is true.
+  bool get _isFlutterTest =>
+      !widget.loadInTest && Platform.environment.containsKey('FLUTTER_TEST');
 
   String? get _statusParam {
     switch (_statusFilter) {
@@ -59,6 +62,8 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
         return 'scheduled';
       case 'archived':
         return 'archived';
+      case 'history':
+        return 'history';
       default:
         return null;
     }
@@ -101,7 +106,11 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
     }
   }
 
-  Future<void> _runAction(
+
+  String? _formatWindow(CommunityAnnouncement a) =>
+      scheduleWindowLabel(a.scheduledStart, a.scheduledEnd);
+
+  Future<void> _action(
     Future<void> Function() action,
     String errorMessage,
   ) async {
@@ -116,8 +125,33 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
     }
   }
 
-  String? _formatWindow(CommunityAnnouncement a) =>
-      scheduleWindowLabel(a.scheduledStart, a.scheduledEnd);
+  Future<void> _confirmAction(
+    String title,
+    String message,
+    Future<void> Function() action,
+    String errorMessage,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Ya'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _action(action, errorMessage);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -144,35 +178,40 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
         onRefresh: () => _load(),
         child: Column(
           children: [
-            if (canManage)
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.base,
-                  vertical: 8,
-                ),
-                child: Row(
-                  children: [
-                    for (final entry in const [
-                      ('Semua', 'all'),
-                      ('Aktif', 'active'),
-                      ('Draf', 'draft'),
-                      ('Terjadwal', 'scheduled'),
-                      ('Diarsipkan', 'archived'),
-                    ]) ...[
-                      ChoiceChip(
-                        label: Text(entry.$1),
-                        selected: _statusFilter == entry.$2,
-                        onSelected: (_) {
-                          setState(() => _statusFilter = entry.$2);
-                          _load();
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                  ],
-                ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.base,
+                vertical: 8,
               ),
+              child: Row(
+                children: [
+                  for (final entry in (canManage
+                      ? const [
+                          ('Semua', 'all'),
+                          ('Aktif', 'active'),
+                          ('Draf', 'draft'),
+                          ('Terjadwal', 'scheduled'),
+                          ('Diarsipkan', 'archived'),
+                        ]
+                      : const [
+                          ('Semua', 'all'),
+                          ('Aktif', 'active'),
+                          ('Riwayat', 'history'),
+                        ])) ...[
+                    ChoiceChip(
+                      label: Text(entry.$1),
+                      selected: _statusFilter == entry.$2,
+                      onSelected: (_) {
+                        setState(() => _statusFilter = entry.$2);
+                        _load();
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                ],
+              ),
+            ),
             if (_actionError != null)
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -296,97 +335,194 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
     bool canManage,
   ) {
     final window = _formatWindow(a);
-    final isDraft = a.status == 'draft';
-    final canRepublish =
-        a.status == 'active' ||
-        a.status == 'scheduled' ||
-        a.status == 'archived';
+    final mutedColor = isDark
+        ? AppColors.darkTextMuted
+        : AppColors.lightTextMuted;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: AppCard(
+        padding: EdgeInsets.zero,
         child: InkWell(
           onTap: () => context.push('/home/pengumuman/${a.id}'),
           borderRadius: BorderRadius.circular(AppRadius.base),
           child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
+            padding: const EdgeInsets.all(AppSpacing.base),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (a.imageUrl != null && a.imageUrl!.isNotEmpty) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                    child: Container(
-                      width: 72,
-                      height: 72,
-                      color: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurfaceSubtle,
-                      alignment: Alignment.center,
-                      child: CommunityImage(
-                        imageRef: a.imageUrl!,
-                        width: 72,
-                        height: 72,
-                        fit: BoxFit.contain,
-                        alt: 'Gambar pengumuman ${a.title}',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          announcementStatusBadge(a.status),
-                          const Spacer(),
-                          if (a.priority >= 10)
-                            const Row(
-                              children: [
-                                Icon(Icons.star, size: 12, color: Colors.amber),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Penting',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.amber,
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
                         a.title,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        a.body,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.textMutedColor(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    announcementStatusBadge(a.status),
+                    if (a.priority >= 10)
+                      AppBadge(
+                        label: 'Penting',
+                        backgroundColor: AppColors.warning.withValues(
+                          alpha: 0.15,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        textColor: AppColors.warning,
                       ),
-                      if (window != null) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          window,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: AppColors.textMutedColor(context),
+                    if (a.imageUrl != null && a.imageUrl!.isNotEmpty)
+                      AppBadge(
+                        label: 'Gambar Terlampir',
+                        backgroundColor: AppColors.info.withValues(alpha: 0.15),
+                        textColor: AppColors.info,
+                      ),
+                    if (a.deepLink != null && a.deepLink!.isNotEmpty)
+                      AppBadge(
+                        label: a.deepLink!,
+                        backgroundColor: AppColors.accent.withValues(
+                          alpha: 0.15,
+                        ),
+                        textColor: AppColors.accent,
+                      ),
+                  ],
+                ),
+                if (window != null || a.body.isNotEmpty)
+                  const SizedBox(height: 8),
+                if (window != null) ...[
+                  Text(
+                    window,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  if (a.body.isNotEmpty) const SizedBox(height: 2),
+                ],
+                if (a.body.isNotEmpty)
+                  Text(
+                    a.body,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: mutedColor,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                const SizedBox(height: 6),
+                Text(
+                  'Prioritas: ${a.priority}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: mutedColor,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      icon: const Icon(
+                        Icons.visibility_outlined,
+                        size: 20,
+                        color: AppColors.info,
+                      ),
+                      tooltip: 'Detail',
+                      onPressed: () => context.push('/home/pengumuman/${a.id}'),
+                    ),
+                    if (canManage) ...[
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          size: 20,
+                          color: AppColors.accent,
+                        ),
+                        tooltip: 'Ubah',
+                        onPressed: () async {
+                          final changed = await context.push<bool>(
+                            '/home/pengumuman/${a.id}/edit',
+                          );
+                          if (changed == true && mounted) {
+                            await _load();
+                          }
+                        },
+                      ),
+                      if (a.status == 'draft')
+                        IconButton(
+                          icon: const Icon(
+                            Icons.publish,
+                            size: 20,
+                            color: AppColors.success,
+                          ),
+                          tooltip: 'Publikasikan',
+                          onPressed: () => _confirmAction(
+                            'Publikasikan pengumuman?',
+                            'Pengumuman akan langsung tayang di Beranda.',
+                            () => ref
+                                .read(communityRepositoryProvider)
+                                .publishAnnouncement(a.id),
+                            'Gagal mempublikasikan pengumuman',
                           ),
                         ),
-                      ],
+                      if (a.status == 'active' ||
+                          a.status == 'scheduled' ||
+                          a.status == 'archived')
+                        IconButton(
+                          icon: const Icon(
+                            Icons.refresh,
+                            size: 20,
+                            color: AppColors.accent,
+                          ),
+                          tooltip: 'Terbitkan Ulang',
+                          onPressed: () => _confirmAction(
+                            'Terbitkan ulang?',
+                            'Snapshot konten & banner Beranda ikut diperbarui.',
+                            () => ref
+                                .read(communityRepositoryProvider)
+                                .publishAnnouncement(a.id),
+                            'Gagal menerbitkan ulang pengumuman',
+                          ),
+                        ),
+                      if (a.status == 'active' || a.status == 'scheduled')
+                        IconButton(
+                          icon: const Icon(
+                            Icons.archive_outlined,
+                            size: 20,
+                            color: AppColors.warning,
+                          ),
+                          tooltip: 'Arsipkan',
+                          onPressed: () => _confirmAction(
+                            'Arsipkan pengumuman?',
+                            'Pengumuman dan banner-nya akan dinonaktifkan.',
+                            () => ref
+                                .read(communityRepositoryProvider)
+                                .archiveAnnouncement(a.id),
+                            'Gagal mengarsipkan pengumuman',
+                          ),
+                        ),
+                      if (a.status == 'draft')
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            size: 20,
+                            color: AppColors.danger,
+                          ),
+                          tooltip: 'Hapus',
+                          onPressed: () => _confirmAction(
+                            'Hapus pengumuman?',
+                            'Tindakan ini tidak dapat dibatalkan.',
+                            () => ref
+                                .read(communityRepositoryProvider)
+                                .deleteAnnouncement(a.id),
+                            'Gagal menghapus pengumuman',
+                          ),
+                        ),
                     ],
-                  ),
+                  ],
                 ),
               ],
             ),

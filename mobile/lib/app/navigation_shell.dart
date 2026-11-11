@@ -207,19 +207,20 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         _kasTab,
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
-        _kegiatanTab,
-        _pengumumanTab,
         _wargaTab,
         if (canMonitoring) _monitoringTab,
         if (rwMemberships.isNotEmpty) _rwDataTab,
+        _pengumumanTab,
+        _kegiatanTab,
         if (canNotifikasi) _notifikasiTab,
         _profileTab,
       ];
     }
     return [
       _homeTab,
-      _kegiatanTab,
       if (rwMemberships.isNotEmpty) _rwDataTab,
+      _pengumumanTab,
+      _kegiatanTab,
       if (canNotifikasi) _notifikasiTab,
       _profileTab,
     ];
@@ -252,19 +253,20 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         _kasTab,
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
-        _kegiatanTab,
-        _pengumumanTab,
         _wargaTab,
         if (canMonitoring) _monitoringTab,
         if (rwMemberships.isNotEmpty) _rwDataTab,
+        _pengumumanTab,
+        _kegiatanTab,
         if (canNotifikasi) _notifikasiTab,
         _profileTab,
       ];
     }
     return [
       _homeTab,
-      _kegiatanTab,
       if (rwMemberships.isNotEmpty) _rwDataTab,
+      _pengumumanTab,
+      _kegiatanTab,
       if (canNotifikasi) _notifikasiTab,
       _profileTab,
     ];

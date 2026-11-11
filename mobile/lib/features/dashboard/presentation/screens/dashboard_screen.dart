@@ -16,6 +16,8 @@ import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/dashboard/data/community_repository.dart';
 import 'package:social_finance/core/widgets/community_image.dart';
 import 'package:social_finance/features/dashboard/data/models/community_models.dart';
+import 'package:social_finance/features/warga/data/api_warga_models.dart';
+import 'package:social_finance/features/warga/data/warga_providers.dart';
 
 const _sectionGap = AppSpacing.lg;
 const _titleGap = AppSpacing.sm;
@@ -33,6 +35,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   final PageController _bannerController = PageController();
   int _activeBannerIndex = 0;
   Timer? _autoScrollTimer;
+  int _orgChartPointers = 0;
 
   @override
   void initState() {
@@ -100,7 +103,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         key: const Key('dashboard-refresh-indicator'),
         onRefresh: _handleRefresh,
         child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
+          physics: _orgChartPointers > 0
+              ? const NeverScrollableScrollPhysics()
+              : const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
             AppSpacing.base,
             AppSpacing.base,
@@ -620,7 +625,52 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     ThemeData theme,
     bool isDark,
   ) {
-    if (organization.levels.isEmpty) {
+    final wargaAsync = ref.watch(wargaListProvider);
+    final wargaResidents = switch (wargaAsync) {
+      AsyncData(:final value) => value,
+      _ => const <MappedResident>[],
+    };
+
+    bool extraActiveFilter(OrgMember member) {
+      if (!member.isActiveMember) return false;
+      if (wargaResidents.isEmpty) return true;
+
+      final uid = member.userId.trim();
+      if (uid.isNotEmpty) {
+        final byUser = wargaResidents.where(
+          (r) => (r.userId ?? '').trim() == uid,
+        );
+        if (byUser.isNotEmpty) {
+          return byUser.any((r) => r.isActive);
+        }
+      }
+
+      final normName = member.name.trim().toLowerCase().replaceAll(
+        RegExp(r'\s+'),
+        ' ',
+      );
+      final normPos = normalizeOrgPosition(member.jabatan);
+      final byNameAndPos = wargaResidents.where((r) {
+        final rName = r.name.trim().toLowerCase().replaceAll(
+          RegExp(r'\s+'),
+          ' ',
+        );
+        if (rName != normName) return false;
+        final rPos = normalizeOrgPosition(r.jabatan ?? '');
+        return normPos.isEmpty || rPos.isEmpty || rPos == normPos;
+      });
+      if (byNameAndPos.isNotEmpty) {
+        return byNameAndPos.any((r) => r.isActive);
+      }
+
+      return true;
+    }
+
+    final activeTiers = organization.buildActiveDiagramTiers(
+      extraActiveFilter: extraActiveFilter,
+    );
+
+    if (activeTiers.isEmpty) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -663,7 +713,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       );
     }
 
-    final sortedLevels = organization.levels.keys.toList()..sort();
+    final viewportHeight =
+        (activeTiers.length * 40.0 + (activeTiers.length - 1) * 48.0 + 72.0)
+            .clamp(220.0, 380.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -671,49 +723,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         const SectionHeader(title: 'Struktur Organisasi RT'),
         const SizedBox(height: _titleGap),
         AppCard(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final lvl in sortedLevels) ...[
-                  if (lvl > sortedLevels.first) ...[
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 2,
-                              height: 12,
-                              color: AppColors.accent.withValues(alpha: 0.6),
-                            ),
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: const BoxDecoration(
-                                color: AppColors.accent,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            Container(
-                              width: 2,
-                              height: 12,
-                              color: AppColors.accent.withValues(alpha: 0.6),
-                            ),
-                          ],
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.base),
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) {
+                setState(() => _orgChartPointers++);
+              },
+              onPointerUp: (_) {
+                setState(
+                  () => _orgChartPointers = (_orgChartPointers - 1).clamp(
+                    0,
+                    99,
+                  ),
+                );
+              },
+              onPointerCancel: (_) {
+                setState(() => _orgChartPointers = 0);
+              },
+              child: SizedBox(
+                height: viewportHeight,
+                width: double.infinity,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final viewportWidth = constraints.maxWidth.isFinite
+                        ? constraints.maxWidth
+                        : MediaQuery.sizeOf(context).width;
+                    return _OrgChartViewport(
+                      viewportWidth: viewportWidth,
+                      tiersSignature: activeTiers
+                          .map((t) => t.map((n) => n.position).join(','))
+                          .join('|'),
+                      child: _OrgChartWithConnectors(
+                        tiers: activeTiers,
+                        isDark: isDark,
+                        buildChip: (node) => _buildOrgMemberChip(
+                          node: node,
+                          theme: theme,
+                          isDark: isDark,
                         ),
                       ),
-                    ),
-                  ],
-                  _buildLevelNodeGroup(
-                    lvl,
-                    organization.levels[lvl]!,
-                    theme,
-                    isDark,
-                  ),
-                ],
-              ],
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ),
@@ -721,60 +774,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildLevelNodeGroup(
-    int level,
-    List<OrgNode> nodes,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    final levelLabels = {
-      1: 'Pimpinan RT (Level 1)',
-      2: 'Sekretariat & Perwakilan (Level 2)',
-      3: 'Keuangan (Level 3)',
-      4: 'Seksi & Operasional (Level 4)',
-    };
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          levelLabels[level] ?? 'Tingkat $level',
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: AppColors.accent,
-            fontSize: 11,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: nodes.expand((node) {
-            if (node.members.isEmpty) {
-              return [
-                _buildOrgMemberChip(
-                  name: 'Belum terisi',
-                  jabatan: node.positionLabel,
-                  phone: null,
-                  theme: theme,
-                  isDark: isDark,
-                ),
-              ];
-            }
-            return node.members.map(
-              (m) => _buildOrgMemberChip(
-                name: m.name,
-                jabatan: node.positionLabel,
-                phone: m.phone,
-                theme: theme,
-                isDark: isDark,
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
 
   Color _getJabatanColor(String jabatan) {
     final normalized = jabatan
@@ -816,15 +815,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   void _showOrgMemberDetail({
     required BuildContext context,
-    required String name,
+    required List<OrgMember> members,
     required String jabatan,
-    required String? phone,
     required Color color,
     required bool isDark,
   }) {
+    final activeMembers = members.where((m) => m.isActiveMember).toList();
+    if (activeMembers.isEmpty) return;
+
     final jNorm = jabatan.trim().toLowerCase();
-    final isKetua = jNorm == 'ketua' || jNorm == 'ketua rt' || jNorm == 'ketua_rt';
-    final safePhone = isKetua ? phone : null;
+    final isKetua =
+        jNorm == 'ketua' || jNorm == 'ketua rt' || jNorm == 'ketua_rt';
 
     showModalBottomSheet(
       context: context,
@@ -851,74 +852,98 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: color.withValues(alpha: 0.15),
-                      child: Text(
-                        name.isNotEmpty ? name[0].toUpperCase() : '?',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
+                for (var i = 0; i < activeMembers.length; i++) ...[
+                  if (i > 0) ...[
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 12),
+                  ],
+                  Builder(
+                    builder: (context) {
+                      final member = activeMembers[i];
+                      final name = member.name.trim();
+                      final safePhone = isKetua ? member.phone : null;
+                      return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: color.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(AppRadius.sm),
-                            ),
-                            child: Text(
-                              jabatan.toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: color,
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 24,
+                                backgroundColor: color.withValues(alpha: 0.15),
+                                child: Text(
+                                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: color,
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (i == 0) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: color.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(
+                                            AppRadius.sm,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          jabatan.toUpperCase(),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: color,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                    ],
+                                    Text(
+                                      name,
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            name,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
+                          if (safePhone != null && safePhone.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            const Divider(),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.phone_outlined,
+                                  size: 20,
+                                  color: AppColors.accent,
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  safePhone,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
+                          ],
                         ],
-                      ),
-                    ),
-                  ],
-                ),
-                if (safePhone != null && safePhone.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  const Divider(),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.phone_outlined,
-                        size: 20,
-                        color: AppColors.accent,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        safePhone,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ],
                 const SizedBox(height: 20),
@@ -938,22 +963,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildOrgMemberChip({
-    required String name,
-    required String jabatan,
-    required String? phone,
+    required OrgNode node,
     required ThemeData theme,
     required bool isDark,
   }) {
+    final jabatan = node.positionLabel;
     final color = _getJabatanColor(jabatan);
     return Material(
       color: Colors.transparent,
       child: InkWell(
+        key: ValueKey('org-badge-${node.position}'),
         borderRadius: BorderRadius.circular(AppRadius.sm),
         onTap: () => _showOrgMemberDetail(
           context: context,
-          name: name,
+          members: node.members,
           jabatan: jabatan,
-          phone: phone,
           color: color,
           isDark: isDark,
         ),
@@ -1164,6 +1188,476 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     ];
     return m >= 1 && m <= 12 ? months[m] : '';
   }
+}
+
+
+
+class _OrgChartViewport extends StatefulWidget {
+  final double viewportWidth;
+  final String tiersSignature;
+  final Widget child;
+
+  const _OrgChartViewport({
+    required this.viewportWidth,
+    required this.tiersSignature,
+    required this.child,
+  });
+
+  @override
+  State<_OrgChartViewport> createState() => _OrgChartViewportState();
+}
+
+class _OrgChartViewportState extends State<_OrgChartViewport> {
+  final TransformationController _controller = TransformationController();
+  final GlobalKey _contentKey = GlobalKey();
+  bool _userInteracted = false;
+  bool _fitScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleFit();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OrgChartViewport oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tiersSignature != widget.tiersSignature ||
+        (oldWidget.viewportWidth - widget.viewportWidth).abs() > 1.0) {
+      _userInteracted = false;
+      _scheduleFit();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scheduleFit() {
+    if (_fitScheduled) return;
+    _fitScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fitScheduled = false;
+      _applyInitialCenterFit();
+    });
+  }
+
+  void _applyInitialCenterFit() {
+    if (!mounted || _userInteracted) return;
+    final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final contentWidth = box.size.width;
+    if (contentWidth <= 0 || widget.viewportWidth <= 0) return;
+
+    if (contentWidth > widget.viewportWidth + 1.0) {
+      final fitScale = (widget.viewportWidth / contentWidth).clamp(0.5, 1.0);
+      final tx = (widget.viewportWidth - contentWidth * fitScale) / 2.0;
+      _controller.value = Matrix4.identity()
+        ..translate(tx, 0.0)
+        ..scale(fitScale, fitScale);
+    } else {
+      _controller.value = Matrix4.identity();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InteractiveViewer(
+      key: const ValueKey('org-chart-interactive-viewer'),
+      transformationController: _controller,
+      constrained: false,
+      boundaryMargin: const EdgeInsets.all(320),
+      minScale: 0.15,
+      maxScale: 3.0,
+      panEnabled: true,
+      scaleEnabled: true,
+      onInteractionStart: (_) {
+        _userInteracted = true;
+      },
+      child: ConstrainedBox(
+        key: _contentKey,
+        constraints: BoxConstraints(minWidth: widget.viewportWidth),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChipMeta {
+  final String position;
+  final GlobalKey key;
+  _ChipMeta({required this.position, required this.key});
+}
+
+/// Represents a single orthogonal connector polyline segment on the RT diagram.
+class OrgConnectorLine {
+  final List<Offset> points;
+  final double stroke;
+  const OrgConnectorLine({required this.points, this.stroke = 2.0});
+}
+
+/// Computes strictly orthogonal (90-degree right-angle) connector lines
+/// between adjacent active tiers in [tierPositions] using badge [rects].
+///
+/// Rules:
+/// - Vertical stem exits from bottom-center `(p.center.dx, p.bottom)` of each parent.
+/// - Single aligned parent -> single child uses a direct vertical line.
+/// - Multiple children (or multiple parents) share a single horizontal branching line
+///   at `busY` (midpoint between parent bottom and child top), with vertical stems
+///   from parents to `busY` and vertical drops from `busY` to top-center
+///   `(c.center.dx, c.top)` of each child.
+List<OrgConnectorLine> computeOrgConnectorLines(
+  List<List<String>> tierPositions,
+  Map<String, Rect> rects, {
+  double stroke = 2.0,
+}) {
+  final activeTiers = <List<String>>[];
+  for (final tier in tierPositions) {
+    final present = <String>[];
+    for (final pos in tier) {
+      if (rects.containsKey(pos) && !present.contains(pos)) {
+        present.add(pos);
+      }
+    }
+    if (present.isNotEmpty) {
+      activeTiers.add(present);
+    }
+  }
+
+  final lines = <OrgConnectorLine>[];
+  for (var i = 1; i < activeTiers.length; i++) {
+    final parentPositions = activeTiers[i - 1];
+    final childPositions = activeTiers[i];
+
+    final parentRects = <Rect>[for (final p in parentPositions) rects[p]!];
+    final childRects = <Rect>[for (final c in childPositions) rects[c]!];
+    if (parentRects.isEmpty || childRects.isEmpty) continue;
+
+    double maxParentBottom = parentRects.first.bottom;
+    for (final pr in parentRects) {
+      if (pr.bottom > maxParentBottom) maxParentBottom = pr.bottom;
+    }
+
+    double minChildTop = childRects.first.top;
+    for (final cr in childRects) {
+      if (cr.top < minChildTop) minChildTop = cr.top;
+    }
+
+    final busY = maxParentBottom + (minChildTop - maxParentBottom) / 2.0;
+
+    if (parentRects.length == 1 && childRects.length == 1) {
+      final pr = parentRects.first;
+      final cr = childRects.first;
+      final px = pr.center.dx;
+      final cx = cr.center.dx;
+      if ((px - cx).abs() <= 1.0) {
+        final midX = (px + cx) / 2.0;
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(midX, pr.bottom), Offset(midX, cr.top)],
+            stroke: stroke,
+          ),
+        );
+      } else {
+        final minX = px < cx ? px : cx;
+        final maxX = px > cx ? px : cx;
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(px, pr.bottom), Offset(px, busY)],
+            stroke: stroke,
+          ),
+        );
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(minX, busY), Offset(maxX, busY)],
+            stroke: stroke,
+          ),
+        );
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(cx, busY), Offset(cx, cr.top)],
+            stroke: stroke,
+          ),
+        );
+      }
+    } else {
+      // 1. Vertical stem down from bottom-center of each parent badge to busY
+      for (final pr in parentRects) {
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(pr.center.dx, pr.bottom), Offset(pr.center.dx, busY)],
+            stroke: stroke,
+          ),
+        );
+      }
+
+      // 2. Single horizontal branching line at busY spanning all parent stems & child drops
+      final allXs = <double>[
+        ...parentRects.map((r) => r.center.dx),
+        ...childRects.map((r) => r.center.dx),
+      ];
+      final minX = allXs.reduce((a, b) => a < b ? a : b);
+      final maxX = allXs.reduce((a, b) => a > b ? a : b);
+      if ((maxX - minX).abs() > 0.5) {
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(minX, busY), Offset(maxX, busY)],
+            stroke: stroke,
+          ),
+        );
+      }
+
+      // 3. Vertical drop from busY to top-center of each child badge
+      for (final cr in childRects) {
+        lines.add(
+          OrgConnectorLine(
+            points: [Offset(cr.center.dx, busY), Offset(cr.center.dx, cr.top)],
+            stroke: stroke,
+          ),
+        );
+      }
+    }
+  }
+
+  return lines;
+}
+
+class _OrgChartWithConnectors extends StatefulWidget {
+  final List<List<OrgNode>> tiers;
+  final bool isDark;
+  final Widget Function(OrgNode node) buildChip;
+
+  const _OrgChartWithConnectors({
+    required this.tiers,
+    required this.isDark,
+    required this.buildChip,
+  });
+
+  @override
+  State<_OrgChartWithConnectors> createState() =>
+      _OrgChartWithConnectorsState();
+}
+
+class _OrgChartWithConnectorsState extends State<_OrgChartWithConnectors> {
+  final GlobalKey _rootKey = GlobalKey();
+  final List<_ChipMeta> _chips = [];
+  final Map<String, GlobalKey> _chipKeys = {};
+  List<OrgConnectorLine> _lines = [];
+  bool _recomputeScheduled = false;
+
+  GlobalKey _keyFor(String position) {
+    return _chipKeys.putIfAbsent(position, () => GlobalKey());
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleRecompute();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OrgChartWithConnectors oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _scheduleRecompute();
+  }
+
+  void _scheduleRecompute() {
+    if (_recomputeScheduled) return;
+    _recomputeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _recomputeScheduled = false;
+      _recompute();
+    });
+  }
+
+  bool _sameLines(List<OrgConnectorLine> a, List<OrgConnectorLine> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final pa = a[i].points;
+      final pb = b[i].points;
+      if (pa.length != pb.length) return false;
+      for (var j = 0; j < pa.length; j++) {
+        if ((pa[j].dx - pb[j].dx).abs() > 0.01 ||
+            (pa[j].dy - pb[j].dy).abs() > 0.01) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  Map<String, Rect> _measureChipRects() {
+    final rootBox = _rootKey.currentContext?.findRenderObject() as RenderBox?;
+    if (rootBox == null || !rootBox.hasSize) return const <String, Rect>{};
+    final rects = <String, Rect>{};
+    for (final c in _chips) {
+      final ctx = c.key.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) continue;
+      final topLeft = box.localToGlobal(Offset.zero, ancestor: rootBox);
+      rects[c.position] = topLeft & box.size;
+    }
+    return rects;
+  }
+
+  List<List<String>> _tierPositionMatrix() {
+    return [
+      for (final tier in widget.tiers)
+        [for (final node in tier) node.position],
+    ];
+  }
+
+  void _recompute() {
+    if (!mounted) return;
+    final rects = _measureChipRects();
+    if (rects.isEmpty && _chips.isNotEmpty) {
+      _scheduleRecompute();
+      return;
+    }
+    final lines = computeOrgConnectorLines(_tierPositionMatrix(), rects);
+    if (_sameLines(_lines, lines)) return;
+    setState(() => _lines = lines);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _chips.clear();
+    _scheduleRecompute();
+
+    final lineColor = AppColors.accent.withValues(
+      alpha: widget.isDark ? 0.65 : 0.5,
+    );
+
+    Widget buildTierRow(List<OrgNode> nodesAtTier) {
+      final children = <Widget>[];
+      for (final node in nodesAtTier) {
+        if (!node.hasActiveMembers) continue;
+        final key = _keyFor(node.position);
+        _chips.add(_ChipMeta(position: node.position, key: key));
+        children.add(KeyedSubtree(key: key, child: widget.buildChip(node)));
+      }
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const SizedBox(width: 16),
+            children[i],
+          ],
+        ],
+      );
+    }
+
+    final tierPositions = _tierPositionMatrix();
+
+    return Stack(
+      key: _rootKey,
+      alignment: Alignment.topCenter,
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              key: const ValueKey('org-connectors-custom-paint'),
+              painter: OrgConnectorsPainter(
+                fallbackLines: _lines,
+                color: lineColor,
+                measureRects: _measureChipRects,
+                tierPositions: tierPositions,
+              ),
+            ),
+          ),
+        ),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            for (var i = 0; i < widget.tiers.length; i++) ...[
+              if (i > 0) const SizedBox(height: 48),
+              buildTierRow(widget.tiers[i]),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class OrgConnectorsPainter extends CustomPainter {
+  final List<OrgConnectorLine> fallbackLines;
+  final Color color;
+  final Map<String, Rect> Function()? measureRects;
+  final List<List<String>> tierPositions;
+
+  OrgConnectorsPainter({
+    required this.fallbackLines,
+    required this.color,
+    this.measureRects,
+    this.tierPositions = const <List<String>>[],
+  });
+
+  Map<String, Rect> computeCurrentRects() {
+    return measureRects?.call() ?? const <String, Rect>{};
+  }
+
+  List<OrgConnectorLine> computeCurrentLines() {
+    final rects = computeCurrentRects();
+    if (rects.isNotEmpty && tierPositions.isNotEmpty) {
+      return computeOrgConnectorLines(tierPositions, rects);
+    }
+    return fallbackLines;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final activeLines = computeCurrentLines();
+    if (activeLines.isEmpty) return;
+
+    final verticalPaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.butt
+      ..strokeJoin = StrokeJoin.miter
+      ..isAntiAlias = true;
+
+    final horizontalPaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.square
+      ..strokeJoin = StrokeJoin.miter
+      ..isAntiAlias = true;
+
+    for (final line in activeLines) {
+      if (line.points.length < 2) continue;
+      for (var i = 0; i < line.points.length - 1; i++) {
+        final p0 = line.points[i];
+        final p1 = line.points[i + 1];
+        final isHorizontal = (p0.dy - p1.dy).abs() < 0.05;
+        canvas.drawLine(
+          p0,
+          p1,
+          isHorizontal ? horizontalPaint : verticalPaint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant OrgConnectorsPainter old) =>
+      old.fallbackLines != fallbackLines ||
+      old.color != color ||
+      old.tierPositions != tierPositions;
 }
 
 class DashboardMedia {

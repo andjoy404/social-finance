@@ -92,40 +92,52 @@ func TestCommunity_PermissionMatrix_LeastPrivilege(t *testing.T) {
 	}
 
 	// Non-permission holders must be rejected even though they carry a
-	// management jabatan: Sekretaris/Bendahara get read-only grants in 068.
+	// management jabatan. Bendahara remains read-only; Sekretaris diberi
+	// pengelolaan Pengumuman dan Kegiatan (WRITE).
 	for name, token := range map[string]string{
-		"warga":      wargaToken,
-		"sekretaris": sekretarisToken,
-		"bendahara":  bendaharaToken,
+		"warga":     wargaToken,
+		"bendahara": bendaharaToken,
 	} {
 		if rec := newActivity(token); rec.Code != http.StatusForbidden {
 			t.Errorf("%s create activity = %d, want 403", name, rec.Code)
 		}
 	}
+	if rec := newActivity(sekretarisToken); rec.Code != http.StatusCreated {
+		t.Errorf("sekretaris create activity = %d, want 201", rec.Code)
+	}
 	if rec := newActivity(ketuaToken); rec.Code != http.StatusCreated {
 		t.Fatalf("ketua create activity = %d, want 201: %s", rec.Code, rec.Body.String())
 	}
 
-	// Announcements: same least-privilege mapping
+	// Announcements: bendahara remains read-only; sekretaris has manage grants
+	// since migration 072 (Sekretaris diberi pengelolaan Pengumuman — Lihat docs/…).
 	newAnnouncement := func(token string) *httptest.ResponseRecorder {
 		body := jsonBody(t, map[string]any{"title": "Ann", "body": "Body"})
 		return doReq(t, router, http.MethodPost, "/api/v1/announcements", token, body, "application/json")
 	}
-	for name, token := range map[string]string{
-		"sekretaris": sekretarisToken,
-		"bendahara":  bendaharaToken,
-	} {
-		if rec := newAnnouncement(token); rec.Code != http.StatusForbidden {
-			t.Errorf("%s create announcement = %d, want 403", name, rec.Code)
-		}
+	if rec := newAnnouncement(bendaharaToken); rec.Code != http.StatusForbidden {
+		t.Errorf("bendahara create announcement = %d, want 403", rec.Code)
+	}
+	// Sekretaris diberi pengelolaan Pengumuman oleh migration 072 — diharapkan 201.
+	if rec := newAnnouncement(sekretarisToken); rec.Code != http.StatusCreated {
+		t.Errorf("sekretaris create announcement = %d, want 201", rec.Code)
 	}
 	if rec := newAnnouncement(ketuaToken); rec.Code != http.StatusCreated {
 		t.Fatalf("ketua create announcement = %d, want 201: %s", rec.Code, rec.Body.String())
 	}
 
-	// Sekretaris cannot upload announcement images (no announcements.create).
-	if code, resp := uploadCommunityImage(t, router, sekretarisToken, "announcement", "poster.png", tinyPNG); code != http.StatusForbidden {
-		t.Errorf("sekretaris upload = %d, want 403 (resp=%v)", code, resp)
+	// Sekretaris boleh mengunggah gambar pengumuman dan kegiatan; Bendahara tidak.
+	if code, resp := uploadCommunityImage(t, router, sekretarisToken, "announcement", "poster.png", tinyPNG); code != http.StatusCreated {
+		t.Errorf("sekretaris upload announcement image = %d, want 201 (resp=%v)", code, resp)
+	}
+	if code, resp := uploadCommunityImage(t, router, sekretarisToken, "activity", "poster.png", tinyPNG); code != http.StatusCreated {
+		t.Errorf("sekretaris upload activity image = %d, want 201 (resp=%v)", code, resp)
+	}
+	if code, resp := uploadCommunityImage(t, router, bendaharaToken, "announcement", "poster.png", tinyPNG); code != http.StatusForbidden {
+		t.Errorf("bendahara upload = %d, want 403 (resp=%v)", code, resp)
+	}
+	if code, resp := uploadCommunityImage(t, router, bendaharaToken, "activity", "poster.png", tinyPNG); code != http.StatusForbidden {
+		t.Errorf("bendahara upload activity = %d, want 403 (resp=%v)", code, resp)
 	}
 	// Ketua can upload.
 	if code, resp := uploadCommunityImage(t, router, ketuaToken, "announcement", "poster.png", tinyPNG); code != http.StatusCreated {
@@ -266,7 +278,10 @@ func TestCommunity_ImageEndpointAccessControl(t *testing.T) {
 		t.Fatalf("ketua get draft image = %d, want 200", rec.Code)
 	}
 
-	// 5. Uploaded but unreferenced image is rejected for everyone.
+	// 5. Uploaded but unreferenced image: managers with matching category permission
+	// may preview it via authenticated Bearer access in their own RT (safe draft
+	// preview of freshly uploaded content); signed URLs / warga-visible access
+	// must not be granted for unreferenced keys. Warga cannot access it.
 	code, up = uploadCommunityImage(t, router, ketuaToken, "announcement", "orphan.png", tinyPNG)
 	if code != http.StatusCreated {
 		t.Fatalf("upload orphan image = %d", code)
@@ -275,8 +290,13 @@ func TestCommunity_ImageEndpointAccessControl(t *testing.T) {
 	if rec := doReq(t, router, http.MethodGet, "/api/v1/community/images/"+orphanKey, wargaToken, nil, ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("unreferenced image for warga = %d, want 404", rec.Code)
 	}
-	if rec := doReq(t, router, http.MethodGet, "/api/v1/community/images/"+orphanKey, ketuaToken, nil, ""); rec.Code != http.StatusNotFound {
-		t.Fatalf("unreferenced image for ketua = %d, want 404", rec.Code)
+	if rec := doReq(t, router, http.MethodGet, "/api/v1/community/images/"+orphanKey, ketuaToken, nil, ""); rec.Code != http.StatusOK {
+		t.Fatalf("unreferenced image bearer preview for ketua = %d, want 200", rec.Code)
+	}
+	// Unreferenced keys must not be signable as warga-visible/signed URLs.
+	orphanSignBody := jsonBody(t, map[string]any{"key": orphanKey})
+	if rec := doReq(t, router, http.MethodPost, "/api/v1/community/images/sign", ketuaToken, orphanSignBody, "application/json"); rec.Code == http.StatusOK {
+		t.Fatal("manager minted a signed URL for an unreferenced image")
 	}
 
 	// 6. Traversal / double-encoding attempts must not succeed.
@@ -804,12 +824,14 @@ func TestCommunity_SignedURLRevokedAfterArchive(t *testing.T) {
 		t.Fatalf("signed url before archive = %d, want 200", rec.Code)
 	}
 
-	// Archive the announcement: warga signed URL must stop serving images.
+	// Archive the announcement. Warga sees archived announcements in Riwayat
+	// list, so the image must still be authorized (the actual requirement).
 	if rec := doReq(t, router, http.MethodPost, "/api/v1/announcements/"+annID+"/archive", ketuaToken, nil, "application/json"); rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
 		t.Fatalf("archive = %d", rec.Code)
 	}
-	if rec := doReq(t, router, http.MethodGet, signedURL, "", nil, ""); rec.Code != http.StatusNotFound {
-		t.Fatalf("signed url after archive = %d, want 404 (revalidation)", rec.Code)
+	// Warga CAN see archived announcement images because warga can see the announcement in Riwayat list.
+	if rec := doReq(t, router, http.MethodGet, signedURL, "", nil, ""); rec.Code != http.StatusOK {
+		t.Fatalf("signed url after archive = %d, want 200 (history visibility)", rec.Code)
 	}
 }
 
@@ -1149,7 +1171,8 @@ func TestCommunity_ImageResponseNoStore(t *testing.T) {
 	}
 	assertNoStore("warga draft denied", rec)
 
-	// 5. Archived content: signed URL issued while active dies at archive
+	// 5. Archived content: signed URL stays valid (Warga can view archived
+	// announcements in Riwayat list).
 	signRec = doReq(t, router, http.MethodPost, "/api/v1/community/images/sign", wargaToken, signBody, "application/json")
 	var sr2 map[string]any
 	_ = json.Unmarshal(signRec.Body.Bytes(), &sr2)
@@ -1158,8 +1181,8 @@ func TestCommunity_ImageResponseNoStore(t *testing.T) {
 		t.Fatalf("archive = %d", rec.Code)
 	}
 	rec = doReq(t, router, http.MethodGet, signedURL2, "", nil, "")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("archived content signed URL = %d, want 404", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("archived content signed URL = %d, want 200", rec.Code)
 	}
 	assertNoStore("archived content", rec)
 

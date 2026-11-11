@@ -735,7 +735,9 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		},
 		"sekretaris": {
 			"warga.read", "warga.create", "warga.update", "finance.read", "finance.create", "notification.read", "reports.read", "rt.settings.read",
-			"activities.read", "announcements.read", "banner_templates.read", "organization.read", "organization.contact.read",
+			"activities.read", "activities.create", "activities.update", "activities.publish", "activities.cancel", "activities.delete",
+			"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
+			"banner_templates.read", "organization.read", "organization.contact.read",
 		},
 		"bendahara": {
 			"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "notification.read", "reports.read",
