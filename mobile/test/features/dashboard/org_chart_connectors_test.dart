@@ -290,7 +290,7 @@ Future<GlobalKey> _pumpDashboardWithOrg(
     security: const SecurityOnDutyInfo(
       isAvailable: false,
       officers: [],
-      message: 'Belum ada petugas aktif',
+      message: 'Tidak ada petugas keamanan yang sedang bertugas.',
       subtext: '',
     ),
     organization: org,

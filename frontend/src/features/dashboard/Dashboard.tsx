@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/app/AuthContext'
+import { ResidentAvatar } from '@/components/ResidentAvatar'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
 import {
@@ -9,6 +10,7 @@ import {
   NotificationOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
+  IdcardOutlined,
   RightOutlined,
   PhoneOutlined,
   ClockCircleOutlined,
@@ -201,7 +203,7 @@ export function Dashboard() {
                     />
                   </div>
                 )}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, maxWidth: '85%', minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, flex: 1, minWidth: 0, justifyContent: 'flex-start' }}>
                   <div
                     style={{
                       width: 48,
@@ -302,94 +304,85 @@ export function Dashboard() {
 
       {/* Two Column Layout: Security On-Duty & Upcoming Activities */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
-        {/* Security Officer On-Duty Card */}
+        {/* Petugas Keamanan Sedang Bertugas */}
         <div className="sf-card" style={{ padding: 22 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 8,
-                  background: 'rgba(87, 148, 242, 0.15)',
-                  color: 'var(--sf-info)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 18,
-                }}
-              >
-                <SafetyCertificateOutlined />
-              </div>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Petugas Keamanan Bertugas</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 8,
+                background: 'rgba(87, 148, 242, 0.15)',
+                color: 'var(--sf-info)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 18,
+              }}
+            >
+              <SafetyCertificateOutlined />
             </div>
-            <Badge variant={security?.is_available ? 'green' : 'gray'}>
-              {security?.is_available ? 'AKTIF' : 'STANDBY'}
-            </Badge>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
+              Petugas Keamanan Sedang Bertugas
+            </h3>
           </div>
 
-          {security?.officers && security.officers.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {security.officers.map((officer) => (
-                <div
-                  key={officer.user_id}
-                  style={{
-                    padding: '12px 14px',
-                    borderRadius: 8,
-                    background: 'var(--sf-bg)',
-                    border: '1px solid var(--sf-border)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{officer.full_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginTop: 2 }}>
-                      Shift: {officer.shift_name} ({officer.shift_start} - {officer.shift_end})
+          {security?.is_available && (security.officers?.length ?? 0) > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {security.officers.map((officer) => {
+                const name = officer.full_name ?? ''
+                const phoneRow = officer.phone_number && officer.phone_number.trim() !== ''
+                return (
+                  <div
+                    key={officer.user_id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      background: 'var(--sf-bg)',
+                      border: '1px solid var(--sf-border)',
+                    }}
+                  >
+                    <ResidentAvatar
+                      name={name}
+                      avatarPath={officer.avatar_path ?? null}
+                      size={44}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <IdcardOutlined style={{ fontSize: 12, color: 'var(--sf-text-muted)', flexShrink: 0 }} />
+                        <span style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {name}
+                        </span>
+                      </div>
+                      {phoneRow && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <PhoneOutlined style={{ fontSize: 12, color: '#16A34A', flexShrink: 0 }} />
+                          <span style={{ fontSize: 12, color: 'var(--sf-text-secondary, #94a3b8)', letterSpacing: '0.02em' }}>
+                            {officer.phone_number}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  {officer.phone_number && (
-                    <a
-                      href={`tel:${officer.phone_number}`}
-                      style={{
-                        padding: '6px 10px',
-                        borderRadius: 6,
-                        background: 'rgba(46, 213, 115, 0.12)',
-                        color: 'var(--sf-success)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        fontSize: 12,
-                        textDecoration: 'none',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <PhoneOutlined /> Hubungi
-                    </a>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <div
               style={{
-                padding: '24px 16px',
-                textAlign: 'center',
+                padding: '16px',
                 borderRadius: 8,
                 background: 'var(--sf-bg)',
                 border: '1px dashed var(--sf-border)',
+                fontWeight: 600,
+                fontSize: 14,
+                color: 'var(--sf-text)',
               }}
             >
-              <div style={{ fontSize: 24, color: 'var(--sf-text-muted)', marginBottom: 8 }}>
-                <ClockCircleOutlined />
-              </div>
-              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--sf-text)' }}>
-                {security?.message || 'Belum ada petugas aktif / jadwal shift saat ini'}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--sf-text-muted)', marginTop: 4 }}>
-                Data shift terintegrasi langsung saat Modul Keamanan berjalan
-              </div>
+              Tidak ada petugas keamanan yang sedang bertugas.
             </div>
           )}
         </div>

@@ -47,14 +47,17 @@ func createTestSuperAdminUser(t *testing.T, pool *database.Pool) (string, string
 func getTestRTs(t *testing.T, pool *database.Pool) (string, string) {
 	t.Helper()
 	ctx := context.Background()
+	// Use the canonical seeded RTs only — the shared container DB contains
+	// thousands of non-seeded RTs, so LIMIT 1 without a deterministic predicate
+	// is non-deterministic.
 	var rt002ID, rt003ID string
-	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '002' AND is_active = true LIMIT 1`).Scan(&rt002ID)
+	err := pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE id = 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b' AND is_active = true`).Scan(&rt002ID)
 	if err != nil {
-		t.Fatalf("get rt 002: %v", err)
+		t.Fatalf("get canonical rt 002 (a95c1cb5): %v", err)
 	}
-	err = pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE rt = '003' AND is_active = true LIMIT 1`).Scan(&rt003ID)
+	err = pool.Raw().QueryRowContext(ctx, `SELECT id FROM rts WHERE id = '8dfa1e36-6727-45be-8fea-24d958efc155' AND is_active = true`).Scan(&rt003ID)
 	if err != nil {
-		t.Fatalf("get rt 003: %v", err)
+		t.Fatalf("get canonical rt 001 (8dfa1e36): %v", err)
 	}
 	return rt002ID, rt003ID
 }
@@ -341,7 +344,7 @@ func TestSuperAdminResident_CrossTenantIsolation_Returns404(t *testing.T) {
 		t.Fatalf("insert resident in RT 002: %v", err)
 	}
 
-	// Try to access resident of RT 002 while Super Admin has RT 003 context in X-RT-ID
+	// Try to access resident of RT 002 while Super Admin has RT 001 context in X-RT-ID
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/residents/"+resID, nil)
 	req.Header.Set("Authorization", "Bearer "+saToken)
 	req.Header.Set("X-RT-ID", rt003ID)

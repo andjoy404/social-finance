@@ -16,7 +16,7 @@ import {
   EditOutlined,
   PrinterOutlined,
 } from '@ant-design/icons'
-import { useAuth } from '@/app/AuthContext'
+import { useAuth, hasPermission } from '@/app/AuthContext'
 import { getSessionPair } from '@/app/api'
 import {
   apiGetMonitoringHouseholds,
@@ -51,6 +51,7 @@ export function MonitoringScreen() {
       ? rwName
       : ''
 
+  const canExport = hasPermission(user, 'rw.monitoring.export')
   const [households, setHouseholds] = useState<ApiMonitoringHousehold[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -204,24 +205,28 @@ export function MonitoringScreen() {
           </Typography.Text>
         </div>
         <Space className="monitoring-actions">
-          <Button
-            style={{ backgroundColor: 'var(--sf-success)', borderColor: 'var(--sf-success)', color: '#111' }}
-            icon={<FileExcelOutlined />}
-            onClick={handleExportExcel}
-            disabled={loading || exporting !== null}
-            loading={exporting === 'excel'}
-          >
-            Export Excel
-          </Button>
-          <Button
-            style={{ backgroundColor: 'var(--sf-danger)', borderColor: 'var(--sf-danger)', color: '#111' }}
-            icon={<FilePdfOutlined />}
-            onClick={handleExportPDF}
-            disabled={loading || exporting !== null}
-            loading={exporting === 'pdf'}
-          >
-            Export PDF
-          </Button>
+          {canExport && (
+            <Button
+              style={{ backgroundColor: 'var(--sf-success)', borderColor: 'var(--sf-success)', color: '#111' }}
+              icon={<FileExcelOutlined />}
+              onClick={handleExportExcel}
+              disabled={loading || exporting !== null}
+              loading={exporting === 'excel'}
+            >
+              Export Excel
+            </Button>
+          )}
+          {canExport && (
+            <Button
+              style={{ backgroundColor: 'var(--sf-danger)', borderColor: 'var(--sf-danger)', color: '#111' }}
+              icon={<FilePdfOutlined />}
+              onClick={handleExportPDF}
+              disabled={loading || exporting !== null}
+              loading={exporting === 'pdf'}
+            >
+              Export PDF
+            </Button>
+          )}
           <Button
             style={{ backgroundColor: '#6b7280', borderColor: '#6b7280', color: '#fff' }}
             icon={<PrinterOutlined />}

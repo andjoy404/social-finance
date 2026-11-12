@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:social_finance/features/warga/presentation/widgets/resident_photo_manage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -33,6 +34,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
+  String? _residentId;
+  String? _residentName;
+  String? _avatarPath;
 
   String _occupancyStatus = 'OWNER';
   bool _isActive = true;
@@ -102,6 +106,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       }
 
       setState(() {
+        _residentId = resident.id;
+        _residentName = resident.name;
+        _avatarPath = resident.avatarPath;
         _houseNumberCtrl.text = resident.houseNumber;
         _headNameCtrl.text = resident.name;
         _occupancyStatus = resident.occupancyStatus == 'Pemilik'
@@ -148,7 +155,9 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
       errors.add('NIK harus berupa 16 digit angka.');
     }
     if (_emailCtrl.text.trim().isNotEmpty &&
-        !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(_emailCtrl.text.trim())) {
+        !RegExp(
+          r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
+        ).hasMatch(_emailCtrl.text.trim())) {
       errors.add('Format email tidak valid.');
     }
     if (_endDate != null &&
@@ -319,6 +328,18 @@ class _HouseholdEditScreenState extends ConsumerState<HouseholdEditScreen> {
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.base),
             children: [
+              if (_residentId != null) ...[
+                Center(
+                  child: ResidentPhotoManage(
+                    residentId: _residentId!,
+                    fullName: _residentName ?? _headNameCtrl.text,
+                    avatarPath: _avatarPath,
+                    onChanged: (newPath) =>
+                        setState(() => _avatarPath = newPath),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
               // Error message
               if (_error != null)
                 Container(

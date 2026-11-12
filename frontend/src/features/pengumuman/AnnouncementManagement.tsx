@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth, canManageAnnouncements } from '@/app/AuthContext'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/Badge'
@@ -54,6 +54,15 @@ export function AnnouncementManagement() {
   const [editingAnnouncement, setEditingAnnouncement] = useState<CommunityAnnouncement | null>(null)
   const [selectedTemplateForCreate, setSelectedTemplateForCreate] = useState<BannerTemplate | null>(null)
   const [viewingAnnouncement, setViewingAnnouncement] = useState<CommunityAnnouncement | null>(null)
+  const sortedAnnouncements = useMemo(() => {
+    return [...announcements].sort((a, b) => {
+      const pa = a.is_permanent ? 1 : 0
+      const pb = b.is_permanent ? 1 : 0
+      if (pa !== pb) return pb - pa
+      return b.priority - a.priority
+    })
+  }, [announcements])
+
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
   const [total, setTotal] = useState(0)
@@ -303,7 +312,7 @@ export function AnnouncementManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {announcements.map((ann) => {
+                  {sortedAnnouncements.map((ann) => {
                     const windowLabel = formatScheduleWindow(ann.scheduled_start, ann.scheduled_end)
                     const isDraft = ann.status === 'draft'
                     const canRepublish = ann.status === 'active' || ann.status === 'scheduled' || ann.status === 'archived'
@@ -315,6 +324,24 @@ export function AnnouncementManagement() {
                             <span>{ann.title}</span>
                             {ann.image_url && (
                               <PictureOutlined style={{ color: 'var(--sf-accent)', fontSize: 13 }} title="Memiliki lampiran gambar" />
+                            )}
+                            {ann.is_permanent && (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  letterSpacing: 0.4,
+                                  textTransform: 'uppercase',
+                                  color: 'var(--sf-warning)',
+                                  background: 'rgba(255, 152, 48, 0.15)',
+                                  border: '1px solid rgba(255, 152, 48, 0.35)',
+                                  borderRadius: 4,
+                                  padding: '2px 6px',
+                                }}
+                                title="Pengumuman sistem default — bersifat permanen, tidak dapat dihapus atau diarsipkan"
+                              >
+                                Sistem · Permanen
+                              </span>
                             )}
                           </div>
                           {ann.body && (
@@ -396,20 +423,32 @@ export function AnnouncementManagement() {
                                     type="button"
                                     className="sf-btn-outline"
                                     onClick={() => handlePublish(ann.id, true)}
-                                    title="Terbitkan ulang (perbarui snapshot konten & banner)"
-                                    aria-label="Terbitkan Ulang"
+                                    title={ann.is_permanent ? 'Terbitkan / Terbitkan Ulang (perbarui snapshot konten & banner)' : 'Terbitkan ulang (perbarui snapshot konten & banner)'}
+                                    aria-label={ann.is_permanent ? 'Terbitkan / Terbitkan Ulang' : 'Terbitkan Ulang'}
                                     style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-success)' }}
                                   >
                                     <CheckOutlined />
                                   </button>
                                 )}
-                                {(ann.status === 'active' || ann.status === 'scheduled') && (
+                                {(ann.status === 'active' || ann.status === 'scheduled') && !ann.is_permanent && (
                                   <button
                                     type="button"
                                     className="sf-btn-outline"
                                     onClick={() => handleArchive(ann.id)}
                                     title="Arsipkan"
                                     aria-label="Arsipkan"
+                                    style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-warning)' }}
+                                  >
+                                    <InboxOutlined />
+                                  </button>
+                                )}
+                                {ann.is_permanent && (
+                                  <button
+                                    type="button"
+                                    className="sf-btn-outline"
+                                    onClick={() => handleArchive(ann.id)}
+                                    title="Nonaktifkan (tidak tampil di Beranda; dapat diaktifkan kembali)"
+                                    aria-label="Nonaktifkan"
                                     style={{ padding: '4px 8px', fontSize: 12, color: 'var(--sf-warning)' }}
                                   >
                                     <InboxOutlined />
@@ -429,7 +468,7 @@ export function AnnouncementManagement() {
                                 >
                                   <EditOutlined />
                                 </button>
-                                {isDraft && (
+                                {isDraft && !ann.is_permanent && (
                                   <button
                                     type="button"
                                     className="sf-btn-outline"

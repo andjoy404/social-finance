@@ -382,7 +382,7 @@ func TestGenerateResetPasswordCode_FullMiddlewareChain(t *testing.T) {
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", "8dfa1e36-6727-45be-8fea-24d958efc155"}, RWIDs: []string{}}))
 		r.Use(auth.RequirePermission(pool, "warga.update"))
 		r.Use(auth.RequireAccess(
 			[]auth.Role{auth.RolePengurus, auth.RoleBendahara},

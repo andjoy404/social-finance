@@ -62,6 +62,7 @@ func TestMeReturnsEffectiveFinancePermissions(t *testing.T) {
 				"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
 				"banner_templates.read", "banner_templates.manage",
 				"organization.read", "organization.contact.read",
+				"security.schedule.read", "security.schedule.write", "security.device.manage", "security.correction", "security.guest_book", "resident.profile_photo.manage",
 			},
 		},
 		{
@@ -267,6 +268,8 @@ func TestMeSystemSuperAdminUsesExistingPermissionBypass(t *testing.T) {
 		"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
 		"banner_templates.read", "banner_templates.manage",
 		"organization.read", "organization.contact.read",
+		"rw.monitoring.read", "rw.monitoring.notes.write", "rw.monitoring.export",
+		"security.attendance", "security.schedule.read", "security.schedule.write", "security.device.manage", "security.correction", "security.guest_book", "resident.profile_photo.manage",
 	}
 	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
 		t.Fatalf("super admin effective_permissions = %v, want %v", profile.EffectivePermissions, want)
@@ -332,6 +335,7 @@ func TestMeKetuaWithWargaRoleGetsEffectiveFinancePermissions(t *testing.T) {
 		"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
 		"banner_templates.read", "banner_templates.manage",
 		"organization.read", "organization.contact.read",
+		"security.schedule.read", "security.schedule.write", "security.device.manage", "security.correction", "security.guest_book", "resident.profile_photo.manage",
 	}
 	if !reflect.DeepEqual(profile.EffectivePermissions, want) {
 		t.Fatalf("effective_permissions = %v, want %v", profile.EffectivePermissions, want)

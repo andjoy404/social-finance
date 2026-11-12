@@ -55,9 +55,22 @@ type MonitoringNoteResponse struct {
 	UpdatedAt            string `json:"updated_at,omitempty"`
 }
 
-// ListMonitoringHouseholds returns households with obligatory bills overdue 3+ months
-// for the caller's RT.
+// ListMonitoringHouseholds returns households with obligatory bills overdue 3+ months.
 func (h *Handler) ListMonitoringHouseholds(w http.ResponseWriter, r *http.Request) {
+	h.listMonitoringHouseholds(w, r)
+}
+
+// ListMonitoringHouseholdsReadOnly is the Ketua RT read-only variant.
+func (h *Handler) ListMonitoringHouseholdsReadOnly(w http.ResponseWriter, r *http.Request) {
+	ac := auth.GetAuthContext(r)
+	if ac == nil || (ac.Jabatan != auth.JabatanKetua && ac.SystemRole != auth.SystemRoleSuperAdmin) {
+		httpx.WriteForbidden(w, "forbidden: read-only RT monitoring is restricted to Ketua RT")
+		return
+	}
+	h.listMonitoringHouseholds(w, r)
+}
+
+func (h *Handler) listMonitoringHouseholds(w http.ResponseWriter, r *http.Request) {
 	ac := auth.GetAuthContext(r)
 	if ac == nil || ac.UserID == "" {
 		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing auth context")

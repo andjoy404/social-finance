@@ -19,6 +19,7 @@ import '../../data/warga_repository.dart';
 import '../dialogs/data_choice_dialog.dart';
 import 'package:social_finance/core/models/role.dart';
 import '../../../auth/data/mock_auth_repository.dart';
+import 'package:social_finance/core/widgets/resident_avatar.dart';
 
 /// Screen displaying the list of RT residents with search capabilities.
 class WargaScreen extends ConsumerStatefulWidget {
@@ -70,8 +71,11 @@ bool _hasWargaWriteAccess(WidgetRef ref) {
   final role = user?['role'] is AppRole
       ? user!['role'] as AppRole
       : (user?['role'] is String
-          ? mapStringToAppRole(user!['role'] as String, systemRoleStr: systemRole)
-          : null);
+            ? mapStringToAppRole(
+                user!['role'] as String,
+                systemRoleStr: systemRole,
+              )
+            : null);
   return (role != null && kWargaWriteRoles.contains(role));
 }
 
@@ -144,8 +148,11 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
     final userRole = user?['role'] is AppRole
         ? user!['role'] as AppRole
         : (user?['role'] is String
-            ? mapStringToAppRole(user!['role'] as String, systemRoleStr: systemRole)
-            : null);
+              ? mapStringToAppRole(
+                  user!['role'] as String,
+                  systemRoleStr: systemRole,
+                )
+              : null);
     final isWarga = userRole == AppRole.warga;
 
     final errorMessage = switch (wargaState) {
@@ -402,7 +409,11 @@ class _WargaScreenState extends ConsumerState<WargaScreen> {
           borderRadius: BorderRadius.circular(24),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Icon(Icons.person_add, size: iconSize, color: AppColors.accent),
+            child: Icon(
+              Icons.person_add,
+              size: iconSize,
+              color: AppColors.accent,
+            ),
           ),
         ),
       ),
@@ -532,7 +543,9 @@ class _ResidentCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final homeIconColor = isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
+    final homeIconColor = isDark
+        ? const Color(0xFFFBBF24)
+        : const Color(0xFFD97706);
     final phoneIconColor = isDark ? AppColors.success : const Color(0xFF16A34A);
     final emailIconColor = isDark ? AppColors.info : const Color(0xFF2563EB);
 
@@ -543,12 +556,18 @@ class _ResidentCard extends ConsumerWidget {
     final userRole = user?['role'] is AppRole
         ? user!['role'] as AppRole
         : (user?['role'] is String
-            ? mapStringToAppRole(user!['role'] as String, systemRoleStr: user['system_role']?.toString())
-            : null);
-    final userJabatan = (user?['jabatan'] as String? ?? '').trim().toLowerCase();
+              ? mapStringToAppRole(
+                  user!['role'] as String,
+                  systemRoleStr: user['system_role']?.toString(),
+                )
+              : null);
+    final userJabatan = (user?['jabatan'] as String? ?? '')
+        .trim()
+        .toLowerCase();
     final systemRole = user?['system_role']?.toString();
     final isSuperAdmin = systemRole == 'super_admin';
-    final isPengurus = userRole == AppRole.pengurus ||
+    final isPengurus =
+        userRole == AppRole.pengurus ||
         userRole == AppRole.bendahara ||
         kWargaWriteJabatans.contains(userJabatan);
 
@@ -586,20 +605,10 @@ class _ResidentCard extends ConsumerWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Avatar with Initials
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: theme.colorScheme.primary.withValues(
-                  alpha: isDark ? 0.25 : 0.12,
-                ),
-                child: Text(
-                  _getInitials(resident.name),
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
+              ResidentAvatar(
+                name: resident.name,
+                avatarPath: resident.avatarPath,
+                size: 40,
               ),
               const SizedBox(width: AppSpacing.md),
 
@@ -709,7 +718,9 @@ class _ResidentCard extends ConsumerWidget {
                 (resident.email != null && resident.email!.isNotEmpty))
               const SizedBox(height: 6),
           ],
-          if (showPhone && resident.phoneNumber != null && resident.phoneNumber!.isNotEmpty) ...[
+          if (showPhone &&
+              resident.phoneNumber != null &&
+              resident.phoneNumber!.isNotEmpty) ...[
             Row(
               children: [
                 Icon(Icons.phone_outlined, size: 16, color: phoneIconColor),
@@ -725,7 +736,9 @@ class _ResidentCard extends ConsumerWidget {
             if (resident.email != null && resident.email!.isNotEmpty)
               const SizedBox(height: 6),
           ],
-          if (showEmail && resident.email != null && resident.email!.isNotEmpty) ...[
+          if (showEmail &&
+              resident.email != null &&
+              resident.email!.isNotEmpty) ...[
             Row(
               children: [
                 Icon(Icons.email_outlined, size: 16, color: emailIconColor),
@@ -887,15 +900,23 @@ class _ResidentCard extends ConsumerWidget {
             children: [
               Text(
                 resident.name,
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
               ),
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
+                  border: Border.all(
+                    color: AppColors.accent.withValues(alpha: 0.4),
+                  ),
                 ),
                 child: Text(
                   code,

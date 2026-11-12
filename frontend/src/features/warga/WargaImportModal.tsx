@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { Badge } from '@/components/Badge'
-import { useAuth, ALLOWED_RT_CODES, ALLOWED_RT_IDS } from '@/app/AuthContext'
+import { useAuth } from '@/app/AuthContext'
 import {
   getSessionPair,
   apiDownloadWargaTemplate,
@@ -34,20 +34,9 @@ type Step = 'upload' | 'preview' | 'success'
 // Resolve an RT UUID (or super-admin chosen RT id) to a human-readable label.
 function resolveRtLabel(rtId: string | undefined, rtCode?: string | null): string {
   if (!rtId) return ''
-  // Direct match against known RT codes
-  const codeMap = new Map<string, string>()
-  for (const pair of ALLOWED_RT_IDS) {
-    const idx = ALLOWED_RT_IDS.indexOf(pair)
-    const code = ALLOWED_RT_CODES[idx]
-    if (code) {
-      codeMap.set(pair, code)
-    }
-  }
-  const code = codeMap.get(rtId)
-  if (code) return `RT ${code}`
-  // Fallback: use rtCode from auth context
+  // Prefer the RT code from auth context; otherwise fall back to a
+  // truncated UUID for readability. No hardcoded RT list exists anymore.
   if (rtCode) return `RT ${rtCode}`
-  // Last fallback: truncate UUID for readability
   return `RT ${rtId.slice(0, 8)}`
 }
 

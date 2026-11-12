@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationAdmin, type RWMembership } from '@/app/AuthContext'
+import { useAuth, isAllowedRT, isSuperAdminUser, canAccessNotificationAdmin, hasPermission, type RWMembership } from '@/app/AuthContext'
 import { DownOutlined } from '@ant-design/icons'
 import {
   MenuFoldOutlined,
@@ -16,6 +16,7 @@ import {
   BankOutlined,
   BellOutlined,
   AreaChartOutlined,
+  SafetyCertificateOutlined,
   ScheduleOutlined,
 } from '@ant-design/icons'
 
@@ -117,6 +118,19 @@ export function Sidebar() {
         label: 'Sampah',
         icon: <ScheduleOutlined />,
         id: 'monitoring',
+      })
+    }
+    const canManageSecurity =
+      isSuperAdmin ||
+      jabatan === 'ketua' ||
+      hasPermission(user, 'security.schedule.write') ||
+      hasPermission(user, 'security.device.manage')
+    if (canManageSecurity) {
+      items.push({
+        to: '/keamanan-rt',
+        label: 'Kelola Keamanan',
+        icon: <SafetyCertificateOutlined />,
+        id: 'keamanan-rt',
       })
     }
   }

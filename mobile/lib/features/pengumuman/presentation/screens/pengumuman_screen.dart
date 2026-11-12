@@ -14,6 +14,7 @@ import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/dashboard/data/community_repository.dart';
 import 'package:social_finance/features/dashboard/data/models/community_models.dart';
+import 'package:social_finance/core/widgets/accent_action_fab.dart';
 
 import 'announcement_ui.dart';
 
@@ -168,10 +169,10 @@ class _PengumumanScreenState extends ConsumerState<PengumumanScreen> {
         title: const MenuAppBarTitle(title: 'Pengumuman'),
       ),
       floatingActionButton: canManage
-          ? FloatingActionButton.extended(
+          ? AccentActionFab(
+              tooltip: 'Tambah Pengumuman',
+              icon: Icons.campaign_outlined,
               onPressed: () => context.push('/home/pengumuman/create'),
-              icon: const Icon(Icons.add),
-              label: const Text('Tambah Pengumuman'),
             )
           : null,
       body: RefreshIndicator(

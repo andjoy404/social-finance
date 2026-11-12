@@ -68,12 +68,12 @@ class _SpecialResidentCreateScreenState
     setState(() => _rtLoading = true);
     try {
       final repo = ref.read(wargaRepositoryProvider);
+      // No client-side RT whitelist: the backend enforces active+scoped
+      // access (super-admin fail-closed on SCOPED_RT_IDS). Show all RTs;
+      // out-of-scope picks will be rejected server-side.
       final rts = await repo.fetchRts();
-      final filteredRts = rts
-          .where((r) => ['002', '003'].contains(r['rt'] as String?))
-          .toList();
       if (mounted) {
-        setState(() => _rtOptions = filteredRts);
+        setState(() => _rtOptions = rts);
       }
     } catch (e) {
       // Silently fail
@@ -113,6 +113,13 @@ class _SpecialResidentCreateScreenState
       errors.add('RT Tujuan harus dipilih.');
     }
 
+    final pwd = _passwordCtrl.text.trim();
+    if (pwd.isEmpty) {
+      errors.add('Kata sandi harus diisi.');
+    } else if (pwd.length < 8) {
+      errors.add('Kata sandi minimal 8 karakter.');
+    }
+
     setState(() => _validationErrors = errors);
     return errors.isEmpty;
   }
@@ -133,6 +140,7 @@ class _SpecialResidentCreateScreenState
         nik: _nikCtrl.text.trim(),
         phone: _phoneCtrl.text.trim(),
         email: _emailCtrl.text.trim(),
+        password: _passwordCtrl.text.trim(),
         isActive: _isActive,
       );
 
@@ -420,7 +428,7 @@ class _SpecialResidentCreateScreenState
               AppTextField(
                 controller: _passwordCtrl,
                 label: 'Kata Sandi',
-                hintText: 'minimal 6 karakter',
+                hintText: 'Minimal 8 karakter',
                 obscureText: true,
               ),
               const SizedBox(height: AppSpacing.lg),

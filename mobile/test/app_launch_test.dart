@@ -288,10 +288,10 @@ void main() {
     expect(find.text('Iuran Bulan Ini'), findsOneWidget);
   });
 
-  testWidgets('42 / 50 KK sudah membayar information renders', (tester) async {
+  testWidgets('42 / 50 warga sudah membayar information renders', (tester) async {
     await tester.pumpWidget(_dashboardViaMaterialApp());
     await tester.pump();
-    expect(find.textContaining('KK sudah membayar'), findsOneWidget);
+    expect(find.textContaining('warga sudah membayar'), findsOneWidget);
     expect(find.textContaining('42'), findsWidgets);
     expect(find.textContaining('50'), findsWidgets);
   });
@@ -910,9 +910,8 @@ void main() {
     expect(find.textContaining('RT 002 / RW 016'), findsOneWidget);
 
     // Security on-duty card with graceful empty state
-    expect(find.text('Petugas Keamanan Bertugas'), findsOneWidget);
-    expect(find.text('Belum ada petugas aktif / jadwal shift saat ini'), findsOneWidget);
-    expect(find.text('Belum Ada Jadwal'), findsOneWidget);
+    expect(find.text('Petugas Keamanan Sedang Bertugas'), findsOneWidget);
+    expect(find.text('Tidak ada petugas keamanan yang sedang bertugas.'), findsOneWidget);
 
     // Strictly NO garbage truck or waste collection status on Beranda
     expect(find.textContaining('Truk Sampah'), findsNothing);

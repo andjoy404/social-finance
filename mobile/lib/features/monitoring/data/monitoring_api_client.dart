@@ -8,13 +8,19 @@ class MonitoringApiClient {
   MonitoringApiClient({required this.dio});
 
   /// GET /api/v1/rw/{rtId}/monitoring
-  Future<MonitoringListResponse> getMonitoringHouseholds(String rtId) async {
-    final response = await dio.get('/api/v1/rw/$rtId/monitoring');
+  Future<MonitoringListResponse> getMonitoringHouseholds(
+    String rtId, {
+    bool readOnly = false,
+  }) async {
+    final endpoint = readOnly ? '/read-only' : '';
+    final response = await dio.get('/api/v1/rw/$rtId/monitoring$endpoint');
     final data = response.data;
     if (data is Map) {
       return MonitoringListResponse.fromJson(data.cast<String, dynamic>());
     }
-    throw const FormatException('Unexpected response fetching monitoring households');
+    throw const FormatException(
+      'Unexpected response fetching monitoring households',
+    );
   }
 
   /// POST /api/v1/rw/{rtId}/monitoring/notes/{householdOccupancyId}

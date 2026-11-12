@@ -305,7 +305,7 @@ func (r *Repository) ListAnnouncements(ctx context.Context, tx *sql.Tx, rtID, st
 	query := fmt.Sprintf(`
 		SELECT id, rt_id, title, body, image_url, deep_link, template_id,
 		       scheduled_start, scheduled_end, priority, display_order, status,
-		       published_at, snapshot_content, created_by, updated_by, created_at, updated_at
+		       published_at, snapshot_content, is_permanent, created_by, updated_by, created_at, updated_at
 		FROM announcements
 		%s
 		ORDER BY priority DESC, created_at DESC
@@ -328,7 +328,7 @@ func (r *Repository) ListAnnouncements(ctx context.Context, tx *sql.Tx, rtID, st
 		if err := rows.Scan(
 			&an.ID, &an.RTID, &an.Title, &an.Body, &img, &link, &tmplID,
 			&schedStart, &schedEnd, &an.Priority, &an.DisplayOrder, &an.Status,
-			&pubAt, &snapshotBytes, &cBy, &uBy, &an.CreatedAt, &an.UpdatedAt,
+			&pubAt, &snapshotBytes, &an.IsPermanent, &cBy, &uBy, &an.CreatedAt, &an.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan announcement: %w", err)
 		}
@@ -365,11 +365,37 @@ func (r *Repository) ListAnnouncements(ctx context.Context, tx *sql.Tx, rtID, st
 	return list, total, nil
 }
 
+// PermanentAnnouncementExists reports whether a permanent (system default) announcement exists for the RT.
+func (r *Repository) PermanentAnnouncementExists(ctx context.Context, tx *sql.Tx, rtID string) (bool, error) {
+	var exists bool
+	err := r.db(tx).QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM announcements WHERE rt_id = $1 AND is_permanent = true)`,
+		rtID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check permanent announcement exists: %w", err)
+	}
+	return exists, nil
+}
+
+// IsPermanentAnnouncement reports whether the given announcement is the permanent system default.
+func (r *Repository) IsPermanentAnnouncement(ctx context.Context, tx *sql.Tx, rtID, id string) (bool, error) {
+	var exists bool
+	err := r.db(tx).QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM announcements WHERE rt_id = $1 AND id = $2 AND is_permanent = true)`,
+		rtID, id,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check permanent announcement: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *Repository) GetAnnouncementByID(ctx context.Context, tx *sql.Tx, rtID, id string) (*Announcement, error) {
 	query := `
 		SELECT id, rt_id, title, body, image_url, deep_link, template_id,
 		       scheduled_start, scheduled_end, priority, display_order, status,
-		       published_at, snapshot_content, created_by, updated_by, created_at, updated_at
+		       published_at, snapshot_content, is_permanent, created_by, updated_by, created_at, updated_at
 		FROM announcements
 		WHERE rt_id = $1 AND id = $2
 	`
@@ -380,7 +406,7 @@ func (r *Repository) GetAnnouncementByID(ctx context.Context, tx *sql.Tx, rtID, 
 	err := r.db(tx).QueryRowContext(ctx, query, rtID, id).Scan(
 		&an.ID, &an.RTID, &an.Title, &an.Body, &img, &link, &tmplID,
 		&schedStart, &schedEnd, &an.Priority, &an.DisplayOrder, &an.Status,
-		&pubAt, &snapshotBytes, &cBy, &uBy, &an.CreatedAt, &an.UpdatedAt,
+		&pubAt, &snapshotBytes, &an.IsPermanent, &cBy, &uBy, &an.CreatedAt, &an.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -722,6 +748,9 @@ func (r *Repository) ImageAccessAllowed(ctx context.Context, tx *sql.Tx, rtID, i
 			UNION
 			SELECT 1 FROM banner_templates
 			WHERE (rt_id = $1 OR rt_id IS NULL) AND (image_url = $2 OR image_url = $3)
+			UNION
+			SELECT 1 FROM residents
+			WHERE rt_id = $1 AND avatar_path IS NOT NULL AND (avatar_path = $2 OR avatar_path = $3)
 		)
 	`, rtID, imageKey, urlForm, canManageActivities, canManageAnnouncements).Scan(&allowed)
 	return allowed, err

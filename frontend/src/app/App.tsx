@@ -26,6 +26,7 @@ import { KeuanganScreen } from '@/features/keuangan/KeuanganScreen'
 import { ActivityList } from '@/features/kegiatan/ActivityList'
 import { ActivityDetail } from '@/features/kegiatan/ActivityDetail'
 import { AnnouncementManagement } from '@/features/pengumuman/AnnouncementManagement'
+import { KelolaKeamananPage } from '@/features/keamanan/KelolaKeamananPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -189,6 +190,10 @@ export function App() {
             path="special/:id/edit"
             element={<SpecialResidentEdit />}
           />
+          <Route
+            path="special/:id"
+            element={<SpecialResidentEdit mode="detail" />}
+          />
         </Route>
         <Route
           path="iuran/*"
@@ -231,6 +236,14 @@ export function App() {
           element={
             <AllowedRTRoute>
               <MonitoringScreen />
+            </AllowedRTRoute>
+          }
+        />
+        <Route
+          path="keamanan-rt"
+          element={
+            <AllowedRTRoute>
+              <KelolaKeamananPage />
             </AllowedRTRoute>
           }
         />

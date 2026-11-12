@@ -3,12 +3,6 @@ import { apiLogin, apiMe, apiRefresh, apiLogout, setTokenManager, clearSessionPa
 
 export { ApiError } from '@/app/api'
 
-export const ALLOWED_RT_CODES = ['002', '003']
-export const ALLOWED_RT_IDS = [
-  'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', // RT 002
-  '8dfa1e36-6727-45be-8fea-24d958efc155', // RT 003
-]
-
 export type RWMembershipSource = 'explicit' | 'rt_inferred'
 
 export interface RWMembership {
@@ -24,6 +18,7 @@ export interface AuthUser {
   name: string
   email: string
   phone?: string | null
+  avatarPath?: string | null
   systemRole: string | null
   role: string
   jabatan: string | null
@@ -133,12 +128,17 @@ export function canManageAnnouncements(user: AuthUser | null | undefined): boole
   return hasPermission(user, 'announcements.create') || hasPermission(user, 'announcements.update')
 }
 
+/**
+ * Coarse RT-membership gate used only for UX routing; the backend enforces
+ * actual authorization (active RT, configured scope fail-closed, jabatan and
+ * permission checks). Any user with an RT membership in /me is allowed to
+ * enter the RT-scoped area; the backend still decides what they can do.
+ */
 export function isAllowedRT(user: AuthUser | null): boolean {
   if (!user) return false
   if (isSuperAdminUser(user)) return true
-  if (user.rtCode && ALLOWED_RT_CODES.includes(user.rtCode)) return true
-  if (user.rtId && ALLOWED_RT_IDS.includes(user.rtId)) return true
-  if (user.rt?.id && ALLOWED_RT_IDS.includes(user.rt.id)) return true
+  if (typeof user.rtId === 'string' && user.rtId.trim() !== '') return true
+  if (typeof user.rt?.id === 'string' && user.rt.id.trim() !== '') return true
   return false
 }
 
@@ -167,6 +167,7 @@ function mapUser(raw: ApiUser): AuthUser {
     name: raw.full_name,
     email: raw.email,
     phone: raw.phone ?? null,
+    avatarPath: raw.avatar_path ?? null,
     systemRole: raw.system_role ?? null,
     role: raw.role,
     jabatan: raw.jabatan ?? null,

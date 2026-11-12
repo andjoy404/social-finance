@@ -7,6 +7,7 @@ import 'package:social_finance/core/models/role.dart';
 import 'package:social_finance/core/navigators/kas_form_navigation_guard.dart';
 import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/core/utils/rw_utils.dart';
+import 'package:social_finance/core/utils/permissions.dart';
 import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/overdue_warning_card.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
@@ -110,6 +111,25 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     label: 'Sampah',
     icon: Icons.checklist_outlined,
     activeIcon: Icons.checklist,
+    highlightWhenSelected: true,
+  );
+  static const _absenTab = _NavRoute(
+    path: '/home/absen',
+    label: 'Absen',
+    icon: Icons.qr_code_scanner_outlined,
+    activeIcon: Icons.qr_code_scanner,
+  );
+  static const _securityManagementTab = _NavRoute(
+    path: '/home/security-management',
+    label: 'Keamanan',
+    icon: Icons.security_outlined,
+    activeIcon: Icons.security,
+  );
+  static const _securityGuestBookTab = _NavRoute(
+    path: '/home/security-guestbook',
+    label: 'Buku Tamu',
+    icon: Icons.menu_book_outlined,
+    activeIcon: Icons.menu_book,
   );
 
   bool _canAccessKeuangan(Map<String, dynamic>? user) {
@@ -181,10 +201,9 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final user = authState?.valueOrNull;
     final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
 
-    // Security officers retain their read-only Warga and dispatch menus,
-    // plus Monitoring, with Profile always available for account and logout actions.
+    // Security officers use Warga, Absen (QR attendance), Notifikasi (waste-truck), and Profil.
     if (jabatan == 'keamanan') {
-      return [_wargaTab, _monitoringTab, _notifikasiTab, _profileTab];
+      return [_wargaTab, _absenTab, _notifikasiTab, _profileTab];
     }
 
     // Kebersihan keeps Monitoring and also has Profile/logout access.
@@ -192,6 +211,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
       return [_monitoringTab, _profileTab];
     }
 
+    final canSecurityManage =
+        userHasPermission(user, 'security.schedule.read') ||
+        userHasPermission(user, 'security.schedule.write') ||
+        userHasPermission(user, 'security.device.manage') ||
+        userHasPermission(user, 'security.correction');
+    final canGuestBook = userHasPermission(user, 'security.guest_book');
     final canNotifikasi = _canAccessNotifikasi(user);
     final canKeuangan = _canAccessKeuangan(user);
     final rwMemberships = _getValidRWMemberships(user);
@@ -208,7 +233,21 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
         _wargaTab,
-        if (canMonitoring) _monitoringTab,
+        if (canMonitoring && jabatan != 'ketua') _monitoringTab,
+        // Ketua RT: open editable Sampah when the user has notes.write,
+        // otherwise fall back to read-only view.
+        if (jabatan == 'ketua' && canMonitoring)
+          userHasPermission(user, 'rw.monitoring.notes.write')
+              ? _monitoringTab
+              : const _NavRoute(
+                  path: '/home/monitoring?mode=read_only',
+                  label: 'Sampah',
+                  icon: Icons.checklist_outlined,
+                  activeIcon: Icons.checklist,
+                  highlightWhenSelected: true,
+                ),
+        if (canSecurityManage) _securityManagementTab,
+        if (canGuestBook && jabatan != 'ketua') _securityGuestBookTab,
         if (rwMemberships.isNotEmpty) _rwDataTab,
         _pengumumanTab,
         _kegiatanTab,
@@ -232,12 +271,18 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
 
     if (jabatan == 'keamanan') {
-      return [_wargaTab, _monitoringTab, _notifikasiTab, _profileTab];
+      return [_wargaTab, _absenTab, _notifikasiTab, _profileTab];
     }
     if (jabatan == 'kebersihan') {
       return [_monitoringTab, _profileTab];
     }
 
+    final canSecurityManage =
+        userHasPermission(user, 'security.schedule.read') ||
+        userHasPermission(user, 'security.schedule.write') ||
+        userHasPermission(user, 'security.device.manage') ||
+        userHasPermission(user, 'security.correction');
+    final canGuestBook = userHasPermission(user, 'security.guest_book');
     final canNotifikasi = _canAccessNotifikasi(user);
     final canKeuangan = _canAccessKeuangan(user);
     final rwMemberships = _getValidRWMemberships(user);
@@ -254,7 +299,21 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
         _wargaTab,
-        if (canMonitoring) _monitoringTab,
+        if (canMonitoring && jabatan != 'ketua') _monitoringTab,
+        // Ketua RT: open editable Sampah when the user has notes.write,
+        // otherwise fall back to read-only view.
+        if (jabatan == 'ketua' && canMonitoring)
+          userHasPermission(user, 'rw.monitoring.notes.write')
+              ? _monitoringTab
+              : const _NavRoute(
+                  path: '/home/monitoring?mode=read_only',
+                  label: 'Sampah',
+                  icon: Icons.checklist_outlined,
+                  activeIcon: Icons.checklist,
+                  highlightWhenSelected: true,
+                ),
+        if (canSecurityManage) _securityManagementTab,
+        if (canGuestBook && jabatan != 'ketua') _securityGuestBookTab,
         if (rwMemberships.isNotEmpty) _rwDataTab,
         _pengumumanTab,
         _kegiatanTab,
@@ -590,6 +649,7 @@ class _NavRoute {
   final IconData icon;
   final IconData activeIcon;
   final bool isProminent;
+  final bool highlightWhenSelected;
 
   const _NavRoute({
     required this.path,
@@ -597,6 +657,7 @@ class _NavRoute {
     required this.icon,
     required this.activeIcon,
     this.isProminent = false,
+    this.highlightWhenSelected = false,
   });
 }
 
@@ -617,13 +678,20 @@ class _NavRailItem extends StatelessWidget {
     final theme = Theme.of(context);
     final isProminent = tab.isProminent;
 
-    final Color iconColor = isSelected
-        ? AppColors.seed
-        : (isProminent ? AppColors.accent : theme.colorScheme.onSurfaceVariant);
+    final bool highlightWhenSelected = tab.highlightWhenSelected;
+    final bool highlightNow = isSelected && highlightWhenSelected;
 
-    final Color labelColor = isSelected
-        ? AppColors.seed
-        : (isProminent ? AppColors.accent : theme.colorScheme.onSurfaceVariant);
+    final Color iconColor = highlightNow
+        ? AppColors.accent
+        : isSelected
+            ? AppColors.seed
+            : theme.colorScheme.onSurfaceVariant;
+
+    final Color labelColor = highlightNow
+        ? AppColors.accent
+        : isSelected
+            ? AppColors.seed
+            : theme.colorScheme.onSurfaceVariant;
 
     return GestureDetector(
       onTap: onTap,
@@ -640,9 +708,11 @@ class _NavRailItem extends StatelessWidget {
               ? (isSelected
                     ? AppColors.accent.withValues(alpha: 0.20)
                     : AppColors.accent.withValues(alpha: 0.08))
+              : highlightNow
+              ? AppColors.accent.withValues(alpha: 0.20)
               : (isSelected ? AppColors.hoverTint : null),
-          borderRadius: BorderRadius.circular(isProminent ? 12 : 8),
-          border: isProminent
+          borderRadius: BorderRadius.circular(isProminent || highlightNow ? 12 : 8),
+          border: highlightNow || isProminent
               ? Border.all(
                   color: isSelected
                       ? AppColors.accent

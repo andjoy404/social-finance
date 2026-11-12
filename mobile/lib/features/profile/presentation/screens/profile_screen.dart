@@ -13,6 +13,7 @@ import 'package:social_finance/core/widgets/double_back_exit_scope.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/notification/data/models/notification_models.dart';
+import 'package:social_finance/core/widgets/resident_avatar.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -150,17 +151,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              // Avatar
-              CircleAvatar(
-                radius: 40,
-                backgroundColor: theme.colorScheme.primary.withValues(
-                  alpha: isDark ? 0.25 : 0.15,
-                ),
-                child: Icon(
-                  Icons.person,
-                  size: 40,
-                  color: theme.colorScheme.primary,
-                ),
+              // Avatar — same avatar source as menu Warga / pengurus views.
+              ResidentAvatar(
+                name: userName,
+                avatarPath: user?['avatar_path'] as String?,
+                size: 80,
               ),
               const SizedBox(height: 16),
               // Identity

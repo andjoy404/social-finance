@@ -408,7 +408,9 @@ func HouseholdCreate(ctx context.Context, tx *sql.Tx, in CreateHouseholdInput) (
 		}
 	}
 
-	triggerSyncBills(ctx, tx, in.RTID, occID)
+	if err := syncOccupancyBills(ctx, tx, in.RTID, occID); err != nil {
+		return nil, fmt.Errorf("sync bills for new household: %w", err)
+	}
 
 	return &item, nil
 }
@@ -719,71 +721,11 @@ func HouseholdUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Updat
 		in.EndDate = in.MoveOutDate
 	}
 
-	occupancyDateChanged := false
-	if hoID.Valid && in.StartDate != nil && strings.TrimSpace(*in.StartDate) != "" {
-		trimmedDate := strings.TrimSpace(*in.StartDate)
-		_, err = tx.ExecContext(ctx,
-			`UPDATE household_occupancies SET start_date = $1, updated_at = now() WHERE id = $2`,
-			trimmedDate, hoID.String,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("update occupancy start_date: %w", err)
-		}
-		_, _ = tx.ExecContext(ctx,
-			`UPDATE residency_periods SET start_date = $1 WHERE household_occupancy_id = $2`,
-			trimmedDate, hoID.String,
-		)
-		hasChanges = true
-		occupancyDateChanged = true
-	}
-
-	if hoID.Valid && in.EndDate != nil {
-		trimmedEnd := strings.TrimSpace(*in.EndDate)
-		if trimmedEnd == "" {
-			_, err = tx.ExecContext(ctx,
-				`UPDATE household_occupancies SET end_date = NULL, updated_at = now() WHERE id = $1`,
-				hoID.String,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("clear occupancy end_date: %w", err)
-			}
-			_, _ = tx.ExecContext(ctx,
-				`UPDATE residency_periods SET end_date = NULL WHERE household_occupancy_id = $1`,
-				hoID.String,
-			)
-		} else {
-			_, err = tx.ExecContext(ctx,
-				`UPDATE household_occupancies SET end_date = $1, updated_at = now() WHERE id = $2`,
-				trimmedEnd, hoID.String,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("update occupancy end_date: %w", err)
-			}
-			_, _ = tx.ExecContext(ctx,
-				`UPDATE residency_periods SET end_date = $1 WHERE household_occupancy_id = $2`,
-				trimmedEnd, hoID.String,
-			)
+	if hoID.Valid && ((in.StartDate != nil && strings.TrimSpace(*in.StartDate) != "") || in.EndDate != nil) {
+		if err := SyncOccupancyDatesAndBills(ctx, tx, rtID, hoID.String, in.StartDate, in.EndDate, true); err != nil {
+			return nil, err
 		}
 		hasChanges = true
-		occupancyDateChanged = true
-	}
-
-	if hoID.Valid && occupancyDateChanged {
-		// Recalculate obligation status on unpaid bills for this occupancy
-		_, _ = tx.ExecContext(ctx, `
-			UPDATE bills b
-			SET is_obligatory = CASE
-				WHEN ho.start_date IS NOT NULL AND b.period < to_char(ho.start_date, 'YYYY-MM') THEN false
-				WHEN ho.end_date IS NOT NULL AND b.period > to_char(ho.end_date, 'YYYY-MM') THEN false
-				ELSE true
-			END,
-			updated_at = CURRENT_TIMESTAMP
-			FROM household_occupancies ho
-			WHERE b.household_occupancy_id = ho.id
-			  AND ho.id = $1
-			  AND b.status IN ('unpaid', 'partial')
-		`, hoID.String)
-		triggerSyncBills(ctx, tx, rtID, hoID.String)
 	}
 
 	var headResID sql.NullString
@@ -1088,7 +1030,12 @@ func HouseholdMove(ctx context.Context, tx *sql.Tx, id, rtID string, in MoveHous
 		}
 	}
 
-	triggerSyncBills(ctx, tx, rtID, newHOID)
+	if err := syncOccupancyBills(ctx, tx, rtID, currHOID); err != nil {
+		return nil, fmt.Errorf("sync bills for previous occupancy: %w", err)
+	}
+	if err := syncOccupancyBills(ctx, tx, rtID, newHOID); err != nil {
+		return nil, fmt.Errorf("sync bills for new occupancy: %w", err)
+	}
 
 	return HouseholdGetByID(ctx, tx, id, rtID)
 }
@@ -1277,7 +1224,7 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 	var rpStart, rpEnd sql.NullTime
 
 	err := tx.QueryRowContext(ctx,
-		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
+		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path,
 		        ho.household_id, rp.start_date, rp.end_date, r.user_id,
 		        rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 		 FROM residents r
@@ -1295,7 +1242,7 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 		id, rtID,
 	).Scan(
 		&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email, &item.IsActive,
-		&item.CreatedAt, &item.UpdatedAt,
+		&item.CreatedAt, &item.UpdatedAt, &item.AvatarPath,
 		&hhID,
 		&rpStart, &rpEnd,
 		&userID,
@@ -1355,7 +1302,7 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 	var rpStart, rpEnd sql.NullTime
 
 	err := tx.QueryRowContext(ctx,
-		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
+		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path,
 		        ho.household_id, rp.start_date, rp.end_date, r.user_id,
 		        rt.rt, rt.rw, rt.name, urm.jabatan, ph.house_number
 		 FROM residents r
@@ -1373,7 +1320,7 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 		id,
 	).Scan(
 		&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email, &item.IsActive,
-		&item.CreatedAt, &item.UpdatedAt,
+		&item.CreatedAt, &item.UpdatedAt, &item.AvatarPath,
 		&hhID, &rpStart, &rpEnd,
 		&userID,
 		&rtNumber, &rw, &rtName,
@@ -1421,7 +1368,7 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 
 // ResidentList returns residents filtered by RT with optional household_id, active filter, and search.
 func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
-	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
+	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path,
 	                 ho.household_id, rp.start_date, rp.end_date, r.user_id,
 	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 	          FROM residents r
@@ -1481,7 +1428,7 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 		var startDate, endDate sql.NullTime
 		if err := rows.Scan(
 			&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email,
-			&item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+			&item.IsActive, &item.CreatedAt, &item.UpdatedAt, &item.AvatarPath,
 			&hhID, &startDate, &endDate,
 			&userID,
 			&rtNumber, &rw, &rtName,
@@ -1571,7 +1518,7 @@ func ResidentCount(ctx context.Context, tx *sql.Tx, rtID string, householdID *st
 
 // ResidentListAll returns residents across all RTs with optional filters and pagination.
 func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
-	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at,
+	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path,
 	                 ho.household_id, rp.start_date, rp.end_date, r.user_id,
 	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 	          FROM residents r
@@ -1629,7 +1576,7 @@ func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isAct
 		var startDate, endDate sql.NullTime
 		if err := rows.Scan(
 			&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email,
-			&item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+			&item.IsActive, &item.CreatedAt, &item.UpdatedAt, &item.AvatarPath,
 			&hhID, &startDate, &endDate,
 			&userID,
 			&rtNumber, &rw, &rtName,
@@ -1781,14 +1728,19 @@ func ResidentUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Update
 	}
 
 	if (in.StartDate != nil && strings.TrimSpace(*in.StartDate) != "") || in.EndDate != nil {
-		var rpID sql.NullString
-		_ = tx.QueryRowContext(ctx,
-			`SELECT id FROM residency_periods
-			 WHERE resident_id = $1
-			 ORDER BY (end_date IS NULL) DESC, created_at DESC
+		var rpID, hoID sql.NullString
+		rpErr := tx.QueryRowContext(ctx,
+			`SELECT rp.id, rp.household_occupancy_id
+			 FROM residency_periods rp
+			 JOIN residents r ON r.id = rp.resident_id
+			 WHERE rp.resident_id = $1 AND r.rt_id = $2
+			 ORDER BY (rp.end_date IS NULL) DESC, rp.created_at DESC
 			 LIMIT 1`,
-			id,
-		).Scan(&rpID)
+			id, rtID,
+		).Scan(&rpID, &hoID)
+		if rpErr != nil && !errors.Is(rpErr, sql.ErrNoRows) {
+			return nil, fmt.Errorf("lookup resident residency period: %w", rpErr)
+		}
 
 		if rpID.Valid && rpID.String != "" {
 			if in.StartDate != nil && strings.TrimSpace(*in.StartDate) != "" {
@@ -1819,6 +1771,11 @@ func ResidentUpdate(ctx context.Context, tx *sql.Tx, id, rtID string, in *Update
 					}
 				}
 				hasChanges = true
+			}
+			if hoID.Valid && hoID.String != "" {
+				if err := SyncOccupancyDatesAndBills(ctx, tx, rtID, hoID.String, in.StartDate, in.EndDate, false); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}

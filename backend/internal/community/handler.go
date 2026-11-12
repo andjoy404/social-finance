@@ -22,6 +22,18 @@ type Handler struct {
 	svc     *Service
 	pool    *database.Pool
 	storage storage.Service
+	cfg     *auth.ScopingConfig
+}
+
+// NewHandlerWithScope creates a Handler that also enforces scoped RT reachability
+// for community endpoints. Tenant members' access is pinned by their own JWT;
+// super admins additionally need the RT in cfg.RTIDs.
+func NewHandlerWithScope(svc *Service, pool *database.Pool, store storage.Service, cfg auth.ScopingConfig) *Handler {
+	if store == nil {
+		store = storage.NewMockStorage()
+	}
+	scoped := cfg
+	return &Handler{svc: svc, pool: pool, storage: store, cfg: &scoped}
 }
 
 // NewHandler creates a new community Handler.

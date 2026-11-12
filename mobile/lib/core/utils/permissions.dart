@@ -26,3 +26,9 @@ bool canManageActivities(Map<String, dynamic>? user) =>
 bool canManageAnnouncements(Map<String, dynamic>? user) =>
     userHasPermission(user, 'announcements.create') ||
     userHasPermission(user, 'announcements.update');
+
+/// Resident profile-photo management: upload, replace, delete, and view
+/// action for residents' profile photos (Warga biasa and Petugas Keamanan).
+/// Server enforces this; this helper only hides/shows the UI actions.
+bool canManageResidentProfilePhoto(Map<String, dynamic>? user) =>
+    userHasPermission(user, 'resident.profile_photo.manage');

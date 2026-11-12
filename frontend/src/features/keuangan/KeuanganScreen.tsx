@@ -10,6 +10,60 @@ import { formatRupiah as formatKasRupiah } from '@/features/kas/kasTypes'
 import { DollarOutlined, LeftOutlined, RightOutlined, CopyOutlined, CheckOutlined, ReloadOutlined } from '@ant-design/icons'
 import { apiGetDashboardSummary, ApiDashboardSummary, getSessionPair } from '@/app/api'
 
+interface MethodTooltipProps {
+  active?: boolean
+  label?: string
+  payload?: Array<{ name?: string; value?: number; payload?: { count?: number } }>
+}
+
+/** Clone of FinancialChart's custom tooltip (style + coloring), applied to the Metode Pembayaran donut. */
+function CustomMethodTooltip({ active, payload }: MethodTooltipProps) {
+  if (!active || !payload || payload.length === 0) return null
+
+  const mk = payload.find((p) => p.name === 'Transfer')
+  const mc = payload.find((p) => p.name === 'Tunai')
+  const transferVal = Number(mk?.value ?? 0)
+  const cashVal = Number(mc?.value ?? 0)
+  const total = transferVal + cashVal
+  const transferPct = total > 0 ? Math.round((transferVal / total) * 100) : 0
+  const cashPct = total > 0 ? 100 - transferPct : 0
+  const transferCount = Number((mk?.payload as { count?: number } | undefined)?.count ?? 0)
+  const cashCount = Number((mc?.payload as { count?: number } | undefined)?.count ?? 0)
+
+  return (
+    <div
+      style={{
+        background: 'var(--sf-surface)',
+        border: '1px solid var(--sf-border)',
+        borderRadius: 'var(--sf-radius-sm)',
+        fontSize: '12px',
+        boxShadow: 'var(--sf-shadow-sm)',
+        padding: '8px 12px',
+        color: 'var(--sf-text)',
+        minWidth: 160,
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--sf-text)' }}>
+        Metode Pembayaran
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#a970ff', fontWeight: 600 }}>
+        <span>Transfer</span>
+        <span style={{ fontFamily: 'monospace' }}>Rp.{transferVal.toLocaleString('id-ID')}</span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>
+        {transferPct}% · {transferCount} transaksi
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#5794f2', fontWeight: 600, marginTop: 8 }}>
+        <span>Tunai</span>
+        <span style={{ fontFamily: 'monospace' }}>Rp.{cashVal.toLocaleString('id-ID')}</span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>
+        {cashPct}% · {cashCount} transaksi
+      </div>
+    </div>
+  )
+}
+
 const MONTH_NAMES = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
@@ -447,13 +501,8 @@ export function KeuanganScreen() {
                         ))}
                       </Pie>
                       <RechartsTooltip
-                        formatter={(val: number) => formatRupiah(val)}
-                        contentStyle={{
-                          background: 'var(--sf-surface)',
-                          borderColor: 'var(--sf-border)',
-                          borderRadius: 8,
-                          color: 'var(--sf-text)',
-                        }}
+                        content={<CustomMethodTooltip />}
+                        cursor={{ fill: 'var(--sf-accent)', fillOpacity: 0.10 }}
                       />
                     </PieChart>
                   </ResponsiveContainer>

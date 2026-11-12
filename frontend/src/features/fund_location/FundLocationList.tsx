@@ -633,14 +633,17 @@ export function FundLocationList() {
           type="button"
           onClick={() => setActiveTab('locations')}
           style={{
-            padding: '10px 16px',
-            border: 'none',
-            background: 'none',
-            fontWeight: activeTab === 'locations' ? 600 : 400,
+            padding: '10px 20px',
             fontSize: 14,
-            cursor: 'pointer',
-            borderBottom: activeTab === 'locations' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+            fontWeight: activeTab === 'locations' ? 600 : 400,
             color: activeTab === 'locations' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+            borderBottom: activeTab === 'locations' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+            background: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            borderTop: 'none',
+            cursor: 'pointer',
+            transition: 'all 150ms ease',
           }}
         >
           Daftar Lokasi Dana ({locations.length})
@@ -649,14 +652,17 @@ export function FundLocationList() {
           type="button"
           onClick={() => setActiveTab('transfers')}
           style={{
-            padding: '10px 16px',
-            border: 'none',
-            background: 'none',
-            fontWeight: activeTab === 'transfers' ? 600 : 400,
+            padding: '10px 20px',
             fontSize: 14,
-            cursor: 'pointer',
-            borderBottom: activeTab === 'transfers' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+            fontWeight: activeTab === 'transfers' ? 600 : 400,
             color: activeTab === 'transfers' ? 'var(--sf-accent)' : 'var(--sf-text-muted)',
+            borderBottom: activeTab === 'transfers' ? '2px solid var(--sf-accent)' : '2px solid transparent',
+            background: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            borderTop: 'none',
+            cursor: 'pointer',
+            transition: 'all 150ms ease',
           }}
         >
           Riwayat Transfer Dana ({transfers.length})

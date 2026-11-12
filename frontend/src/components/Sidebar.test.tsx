@@ -91,6 +91,21 @@ const mockNonAllowedUser: AuthUser = {
   rtId: 'efb70405-09f5-48a0-ad14-34802cf09e3b',
 }
 
+// Authenticated with NO RT membership — the only RT-denial case left after
+// the coarse backend-authoritative gate was removed. Backend still enforces
+// scope/permission server-side.
+const mockNoRTUser: AuthUser = {
+  id: 'user-5',
+  name: 'Warga tanpa RT',
+  email: 'warga-no-rt@example.com',
+  systemRole: null,
+  role: 'warga',
+  jabatan: null,
+  rt: null,
+  rtCode: null,
+  rtId: null,
+}
+
 const mockSecurityUser: AuthUser = {
   id: 'user-keamanan',
   name: 'Petugas Keamanan',
@@ -190,17 +205,24 @@ describe('Sidebar — AndJoy visual language', () => {
     expect(screen.getByText('Warga')).toBeInTheDocument()
     expect(screen.getByText('Sampah')).toBeInTheDocument()
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
+    expect(screen.queryByText('Kelola Keamanan')).not.toBeInTheDocument()
     expect(screen.queryByText('Beranda')).not.toBeInTheDocument()
     expect(screen.queryByText('Kas')).not.toBeInTheDocument()
     expect(screen.queryByText('Iuran')).not.toBeInTheDocument()
     expect(screen.queryByText('Lokasi Dana')).not.toBeInTheDocument()
   })
 
-  it('shows Sampah for Ketua RT alongside normal RT nav items', () => {
+  it('shows Sampah and Kelola Keamanan for Ketua RT alongside normal RT nav items', () => {
     renderSidebar(mockKetuaRTUser)
     expect(screen.getByText('Sampah')).toBeInTheDocument()
+    expect(screen.getByText('Kelola Keamanan')).toBeInTheDocument()
     expect(screen.getByText('Beranda')).toBeInTheDocument()
     expect(screen.getByText('Warga')).toBeInTheDocument()
+  })
+
+  it('hides Kelola Keamanan for warga and cleaning officer', () => {
+    renderSidebar(mockWargaUser)
+    expect(screen.queryByText('Kelola Keamanan')).not.toBeInTheDocument()
   })
 
   it('shows Notifikasi for Pengurus without granting notification management', () => {
@@ -318,7 +340,7 @@ describe('Sidebar — navigation items', () => {
     const links = screen.getAllByRole('link')
     // Total buttons = pin button only (logout removed → header user menu)
     const buttons = screen.getAllByRole('button')
-    expect(links.length).toBe(11) // Beranda, Keuangan, Kegiatan, Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Notifikasi, Kelola RT, Kelola RW
+    expect(links.length).toBe(12) // Beranda, Keuangan, Kegiatan, Pengumuman, Kas, Iuran, Lokasi Dana, Warga, Kelola Keamanan, Notifikasi, Kelola RT, Kelola RW
     expect(buttons.length).toBe(1) // pin toggle
     expect(screen.getByText('Notifikasi')).toBeInTheDocument()
   })
@@ -351,8 +373,16 @@ describe('Sidebar — navigation items', () => {
     u4.unmount()
   })
 
-  it('hides RT-scoped menus (Warga, Iuran, KAS) for non-allowed RTs (RT 004)', () => {
+  it('shows warga menus to an ordinary member of an arbitrary RT (RT 004)', () => {
     renderSidebar(mockNonAllowedUser)
+    expect(screen.getByText('Beranda')).toBeInTheDocument()
+    expect(screen.getByText('Warga')).toBeInTheDocument()
+    expect(screen.getByText('Iuran')).toBeInTheDocument()
+    expect(screen.getAllByText(/Kas/i).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('hides RT-scoped menus for an authenticated user with NO RT membership', () => {
+    renderSidebar(mockNoRTUser)
     const links = screen.getAllByRole('link')
     expect(links.length).toBe(1) // Beranda only
     expect(screen.getByText('Beranda')).toBeInTheDocument()

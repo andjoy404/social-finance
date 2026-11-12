@@ -22,34 +22,34 @@ import (
 
 // WargaCSVRow models a parsed single line from the Warga import template.
 type WargaCSVRow struct {
-	RowNumber      int    `json:"row_number"`
-	HouseNumber    string `json:"house_number"`
-	HeadName       string `json:"head_name"`
+	RowNumber       int    `json:"row_number"`
+	HouseNumber     string `json:"house_number"`
+	HeadName        string `json:"head_name"`
 	OccupancyStatus string `json:"occupancy_status"`
-	Address        string `json:"address"`
-	ResidentName   string `json:"resident_name"`
-	Nik            string `json:"nik"`
-	Phone          string `json:"phone"`
-	Email          string `json:"email"`
-	MoveInDate     string `json:"move_in_date"`
-	Jabatan        string `json:"jabatan"`
-	Password       string `json:"password"`
+	Address         string `json:"address"`
+	ResidentName    string `json:"resident_name"`
+	Nik             string `json:"nik"`
+	Phone           string `json:"phone"`
+	Email           string `json:"email"`
+	MoveInDate      string `json:"move_in_date"`
+	Jabatan         string `json:"jabatan"`
+	Password        string `json:"password"`
 }
 
 // WargaPreviewRow is the safe, sanitized preview row returned to the client.
 // It is a strict subset of WargaCSVRow with the Password field omitted.
 type WargaPreviewRow struct {
-	RowNumber      int    `json:"row_number"`
-	HouseNumber    string `json:"house_number"`
-	HeadName       string `json:"head_name"`
+	RowNumber       int    `json:"row_number"`
+	HouseNumber     string `json:"house_number"`
+	HeadName        string `json:"head_name"`
 	OccupancyStatus string `json:"occupancy_status"`
-	Address        string `json:"address"`
-	ResidentName   string `json:"resident_name"`
-	Nik            string `json:"nik"`
-	Phone          string `json:"phone"`
-	Email          string `json:"email"`
-	MoveInDate     string `json:"move_in_date"`
-	Jabatan        string `json:"jabatan"`
+	Address         string `json:"address"`
+	ResidentName    string `json:"resident_name"`
+	Nik             string `json:"nik"`
+	Phone           string `json:"phone"`
+	Email           string `json:"email"`
+	MoveInDate      string `json:"move_in_date"`
+	Jabatan         string `json:"jabatan"`
 	// Password field intentionally omitted to prevent password leak in preview responses.
 	PasswordHint string `json:"password_hint,omitempty"`
 }
@@ -64,10 +64,10 @@ type RowError struct {
 
 // ImportPreviewResponse returns machine-readable summary of validation.
 type ImportPreviewResponse struct {
-	TotalRows   int              `json:"total_rows"`
-	ValidRows   int              `json:"valid_rows"`
-	InvalidRows int              `json:"invalid_rows"`
-	Errors      []RowError       `json:"errors"`
+	TotalRows   int               `json:"total_rows"`
+	ValidRows   int               `json:"valid_rows"`
+	InvalidRows int               `json:"invalid_rows"`
+	Errors      []RowError        `json:"errors"`
 	PreviewData []WargaPreviewRow `json:"preview_data"`
 }
 
@@ -170,18 +170,18 @@ func ParseWargaCSV(r io.Reader) ([]WargaCSVRow, []RowError, error) {
 		}
 
 		row := WargaCSVRow{
-			RowNumber:          rowNum,
-			HouseNumber:        getVal(record, "house_number", "nomor_rumah"),
-			HeadName:           getVal(record, "head_name", "nama_warga", "nama_penanggung_jawab"),
-			OccupancyStatus:    normStatus,
-			Address:            getVal(record, "address", "alamat"),
-			ResidentName:       getVal(record, "resident_name", "nama_anggota"),
-			Nik:                getVal(record, "nik", "resident_nik", "ktp"),
-			Phone:              getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
-			Email:              getVal(record, "email", "resident_email"),
-			MoveInDate:         getVal(record, "move_in_date", "tanggal_mulai", "move_in"),
-			Jabatan:            getVal(record, "jabatan", "position", "jabatan_warga"),
-			Password:           getVal(record, "password", "kata_sandi"),
+			RowNumber:       rowNum,
+			HouseNumber:     getVal(record, "house_number", "nomor_rumah"),
+			HeadName:        getVal(record, "head_name", "nama_warga", "nama_penanggung_jawab"),
+			OccupancyStatus: normStatus,
+			Address:         getVal(record, "address", "alamat"),
+			ResidentName:    getVal(record, "resident_name", "nama_anggota"),
+			Nik:             getVal(record, "nik", "resident_nik", "ktp"),
+			Phone:           getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
+			Email:           getVal(record, "email", "resident_email"),
+			MoveInDate:      getVal(record, "move_in_date", "tanggal_mulai", "move_in"),
+			Jabatan:         getVal(record, "jabatan", "position", "jabatan_warga"),
+			Password:        getVal(record, "password", "kata_sandi"),
 		}
 
 		// Normalize "kosong" (Indonesian for "empty") to empty string for optional
@@ -678,6 +678,22 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 			}
 		}
 
+		// Determine the household occupancy move-in date from the group's residents
+		// (head resident's MoveInDate if present, otherwise earliest non-empty MoveInDate).
+		occMoveInDate := ""
+		for _, r := range grp.Residents {
+			if r.MoveInDate == "" {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(r.ResidentName), strings.TrimSpace(grp.HeadName)) {
+				occMoveInDate = r.MoveInDate
+				break
+			}
+			if occMoveInDate == "" || r.MoveInDate < occMoveInDate {
+				occMoveInDate = r.MoveInDate
+			}
+		}
+
 		// B. Find or create Household
 		var householdID string
 		var hoID string
@@ -713,11 +729,11 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 				}
 				importedHouseholds++
 
-				// Create current occupancy starting today
+				// Create current occupancy using imported move_in_date if provided, else CURRENT_DATE
 				err = tx.QueryRowContext(ctx,
 					`INSERT INTO household_occupancies (household_id, physical_house_id, occupancy_status, start_date)
-					 VALUES ($1, $2, $3, CURRENT_DATE) RETURNING id`,
-					householdID, houseID, grp.OccupancyStatus,
+					 VALUES ($1, $2, $3, COALESCE(NULLIF($4, '')::date, CURRENT_DATE)) RETURNING id`,
+					householdID, houseID, grp.OccupancyStatus, occMoveInDate,
 				).Scan(&hoID)
 				if err != nil {
 					return nil, fmt.Errorf("create household occupancy for %s: %w", grp.HouseNumber, err)
@@ -741,9 +757,9 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 
 			if err == nil {
 				// Existing resident in current occupancy — perform partial update per column
-				err = processExistingResident(ctx, tx, rtID, hoID, existingResID, res, importSuffix)
+				err = processExistingResident(ctx, tx, rtID, hoID, existingResID, res, occMoveInDate, importSuffix)
 				if err != nil {
-					return nil, fmt.Errorf("update resident %s: %w", res.ResidentName, err)
+					return nil, fmt.Errorf("update resident %s (row %d): %w", res.ResidentName, res.RowNumber, err)
 				}
 				continue
 			}
@@ -797,7 +813,15 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 				}
 			}
 
-			triggerSyncBills(ctx, tx, rtID, hoID)
+			if res.MoveInDate != "" {
+				if err := SyncOccupancyDatesAndBills(ctx, tx, rtID, hoID, &res.MoveInDate, nil, false); err != nil {
+					return nil, fmt.Errorf("sync occupancy bills for %s (row %d): %w", res.ResidentName, res.RowNumber, err)
+				}
+			} else {
+				if err := syncOccupancyBills(ctx, tx, rtID, hoID); err != nil {
+					return nil, fmt.Errorf("sync occupancy bills for %s (row %d): %w", res.ResidentName, res.RowNumber, err)
+				}
+			}
 		}
 	}
 
@@ -839,21 +863,29 @@ func processExistingResident(
 	tx *sql.Tx,
 	rtID, hoID, resID string,
 	res WargaCSVRow,
+	occMoveInDate string,
 	importSuffix string,
 ) error {
-	// --- 1. Move-in date: update current residency period start_date if provided ---
+	// --- 1. Move-in date: update current residency period and household occupancy start_date if provided ---
 	if res.MoveInDate != "" {
 		_, err := tx.ExecContext(ctx,
 			`UPDATE residency_periods
-			 SET start_date = $1, updated_at = now()
-			 WHERE resident_id = $2 AND household_occupancy_id = $3 AND end_date IS NULL`,
+			 SET start_date = $1::date, updated_at = now()
+			 WHERE resident_id = $2
+			   AND household_occupancy_id = $3
+			   AND end_date IS NULL
+			   AND start_date IS DISTINCT FROM $1::date`,
 			res.MoveInDate, resID, hoID,
 		)
 		if err != nil {
 			return fmt.Errorf("update residency start_date for %s: %w", res.ResidentName, err)
 		}
-		// Trigger bill recalculation since start_date has changed
-		triggerSyncBills(ctx, tx, rtID, hoID)
+
+		// Synchronize household_occupancies.start_date (from head resident's active
+		// residency period) and reconcile bill obligations using the unified backend mechanism.
+		if err := SyncOccupancyDatesAndBills(ctx, tx, rtID, hoID, &res.MoveInDate, nil, false); err != nil {
+			return fmt.Errorf("sync bills for %s: %w", res.ResidentName, err)
+		}
 	}
 
 	// --- 2. Jabatan: upsert membership if provided, do nothing if empty ---
@@ -1510,27 +1542,49 @@ func HandleWargaImportCommit(pool *database.Pool) http.HandlerFunc {
 
 // --- Date helpers ---
 
-// parseMoveInDate parses a YYYY-MM-DD date string. Returns error if not valid.
+// parseMoveInDate parses a date string and normalizes it to YYYY-MM-DD. Returns error if not valid.
 func parseMoveInDate(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return "", fmt.Errorf("move_in_date is empty")
 	}
-	if len(s) < 10 {
-		return "", fmt.Errorf("move_in_date is too short")
+	// Primary canonical format: YYYY-MM-DD (or ISO timestamp prefix)
+	if len(s) >= 10 {
+		datePart := s[:10]
+		if t, err := time.Parse("2006-01-02", datePart); err == nil {
+			return t.Format("2006-01-02"), nil
+		}
 	}
-	// Accept YYYY-MM-DD, strip leading/trailing spaces
-	dateStr := s[:10]
-	_, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		return "", fmt.Errorf("move_in_date must be in YYYY-MM-DD format, got %q", dateStr)
+	// Fallback for common Excel-rendered date representations when users edit date cells in spreadsheet apps
+	excelLayouts := []string{
+		"2006/01/02",
+		"02-01-2006",
+		"02/01/2006",
+		"2006-1-2",
+		"2006/1/2",
+		"2-1-2006",
+		"2/1/2006",
+		"02-Jan-2006",
+		"2-Jan-2006",
+		"02 Jan 2006",
+		"2 Jan 2006",
+		"02-Jan-06",
+		"2-Jan-06",
+		"01-02-06",
 	}
-	return dateStr, nil
+	for _, layout := range excelLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.Format("2006-01-02"), nil
+		}
+	}
+	return "", fmt.Errorf("move_in_date must be in YYYY-MM-DD format, got %q", s)
 }
 
 // normalizeDate normalizes a date to YYYY-MM-DD.
 func normalizeDate(s string) string {
-	// Already validated via parseMoveInDate; just return the YYYY-MM-DD part.
+	if parsed, err := parseMoveInDate(s); err == nil {
+		return parsed
+	}
 	s = strings.TrimSpace(s)
 	if len(s) >= 10 {
 		return s[:10]

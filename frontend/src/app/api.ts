@@ -15,6 +15,7 @@ export interface ApiUser {
   role: string
   jabatan?: string | null
   effective_permissions?: string[]
+  avatar_path?: string | null
   rt: { id: string; name: string } | null
   rt_id?: string
   rt_name?: string
@@ -324,7 +325,7 @@ async function performRefresh(): Promise<void> {
   }
 }
 
-async function authenticatedApiRequest(
+export async function authenticatedApiRequest(
   url: string,
   opts: RequestInit,
 ): Promise<Response> {
@@ -836,6 +837,7 @@ export interface ApiResident {
   jabatan?: string | null
   occupancy_status?: 'OWNER' | 'TENANT' | null
   house_number?: string | null
+  avatar_path?: string | null
 }
 
 export interface ApiCreateResidentBody {
@@ -874,6 +876,41 @@ export interface ApiListResidentsParams {
   household_id?: string
   rt_id?: string
   signal?: AbortSignal
+}
+
+// Upload (or replace) a resident's profile photo.
+// Requires the resident.profile_photo.manage permission (ketua only for now).
+export async function apiUploadResidentPhoto(
+  token: string,
+  residentId: string,
+  file: File,
+): Promise<{ status: string; avatar_path: string; key: string }> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await authenticatedApiRequest(BASE + `/residents/${residentId}/photo`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(30_000) } : {}),
+  })
+  const data = await json<{ status: string; avatar_path: string; key: string }>(res)
+  if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to upload resident photo')
+  return data
+}
+
+// Clear a resident's profile photo. Requires the resident.profile_photo.manage permission.
+export async function apiDeleteResidentPhoto(
+  token: string,
+  residentId: string,
+): Promise<{ status: string }> {
+  const res = await authenticatedApiRequest(BASE + `/residents/${residentId}/photo`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(10_000) } : {}),
+  })
+  const data = await json<{ status: string }>(res)
+  if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to delete resident photo')
+  return data
 }
 
 export async function listResidents(token: string, params: ApiListResidentsParams): Promise<ApiPaginated<ApiResident>> {
@@ -971,6 +1008,8 @@ export interface ApiSpecialResidentCreateBody {
   nik: string
   phone: string
   email: string
+  password?: string
+  is_active?: boolean
 }
 
 export interface ApiSpecialResidentUpdateBody {
@@ -980,6 +1019,7 @@ export interface ApiSpecialResidentUpdateBody {
   email?: string
   jabatan?: 'keamanan' | 'operasional' | 'kebersihan'
   is_active?: boolean
+  password?: string
 }
 
 export async function createSpecialResident(
@@ -3324,6 +3364,7 @@ export interface CommunityAnnouncement {
   priority: number
   display_order: number
   status: 'draft' | 'scheduled' | 'active' | 'expired' | 'archived'
+  is_permanent?: boolean
   published_at?: string | null
   created_by?: string | null
   updated_by?: string | null
@@ -3391,12 +3432,18 @@ export interface OrganizationStructure {
 
 export interface SecurityOfficer {
   user_id: string
+  membership_id?: string
+  rt_id?: string
+  resident_id?: string
   full_name: string
   shift_name: string
   shift_start: string
   shift_end: string
   status: string
   phone_number?: string | null
+  email?: string | null
+  is_active?: boolean
+  avatar_path?: string | null
 }
 
 export interface SecurityOnDutyInfo {

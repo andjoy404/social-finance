@@ -627,6 +627,7 @@ class SecurityOfficer {
   final String shift;
   final String? shiftStartTime;
   final String? shiftEndTime;
+  final String? avatarPath;
 
   const SecurityOfficer({
     required this.id,
@@ -635,6 +636,7 @@ class SecurityOfficer {
     required this.shift,
     this.shiftStartTime,
     this.shiftEndTime,
+    this.avatarPath,
   });
 
   factory SecurityOfficer.fromJson(Map<String, dynamic> json) {
@@ -646,6 +648,7 @@ class SecurityOfficer {
       shiftStartTime:
           (json['shift_start'] ?? json['shift_start_time']) as String?,
       shiftEndTime: (json['shift_end'] ?? json['shift_end_time']) as String?,
+      avatarPath: json['avatar_path']?.toString(),
     );
   }
 }
@@ -674,10 +677,8 @@ class SecurityOnDutyInfo {
           .toList(),
       message:
           json['message']?.toString() ??
-          'Belum ada petugas aktif / jadwal shift saat ini',
-      subtext:
-          json['subtext']?.toString() ??
-          'Data shift terintegrasi langsung saat Modul Keamanan berjalan',
+          'Tidak ada petugas keamanan yang sedang bertugas.',
+      subtext: json['subtext']?.toString() ?? '',
     );
   }
 }
@@ -763,9 +764,8 @@ class HomeDashboardData {
           : const SecurityOnDutyInfo(
               isAvailable: false,
               officers: [],
-              message: 'Belum ada petugas aktif / jadwal shift saat ini',
-              subtext:
-                  'Data shift terintegrasi langsung saat Modul Keamanan berjalan',
+              message: 'Tidak ada petugas keamanan yang sedang bertugas.',
+              subtext: '',
             ),
       organization: json['organization'] is Map<String, dynamic>
           ? OrganizationStructure.fromJson(

@@ -180,19 +180,31 @@ func (h *Handler) authenticateImageBearer(r *http.Request) (*auth.AuthContext, e
 		return nil, errImageForbidden
 	}
 
-	// RT must be active and in the allowed codes set (same rule as
-	// RequireAllowedRT).
-	var rtCode string
+	// RT must be active. For super admins additionally require cfg.RTIDs
+	// scope match (fail-closed). Tenant session is pinned by membership
+	// already (their own RT).
 	var isActive bool
-	err = h.pool.Raw().QueryRowContext(ctx, `SELECT rt, is_active FROM rts WHERE id = $1 LIMIT 1`, rtID).Scan(&rtCode, &isActive)
+	err = h.pool.Raw().QueryRowContext(ctx, `SELECT is_active FROM rts WHERE id = $1 LIMIT 1`, rtID).Scan(&isActive)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errImageForbidden
 		}
 		return nil, err
 	}
-	if !isActive || !auth.AllowedRTCodes[rtCode] {
+	if !isActive {
 		return nil, errImageForbidden
+	}
+	if sysRole := auth.SystemRole(claims.SysRole); sysRole == auth.SystemRoleSuperAdmin && h.cfg != nil && len(h.cfg.RTIDs) > 0 {
+		found := false
+		for _, id := range h.cfg.RTIDs {
+			if id == rtID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, errImageForbidden
+		}
 	}
 
 	return &auth.AuthContext{

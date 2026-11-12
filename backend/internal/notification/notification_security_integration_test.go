@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 
 	"social-finance/internal/auth"
-	httpx "social-finance/internal/http"
 	"social-finance/internal/database"
+	httpx "social-finance/internal/http"
 	"social-finance/internal/notification"
 	"social-finance/internal/testutil"
 )
@@ -39,7 +39,7 @@ func TestRequireAllowedRT_ProductionMiddleware(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{rt002ID, rt003ID}, RWIDs: []string{}})
 	authorizedHandler := middleware(handler)
 
 	tests := []struct {
@@ -282,7 +282,7 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 				next.ServeHTTP(w, r)
 			})
 		})
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{rt002ID, rt003ID}, RWIDs: []string{}}))
 		r.Use(auth.RequireNotificationAdmin(pool))
 
 		r.Get("/api/v1/notifications/system-types", handler.GetSystemTypes)
@@ -311,29 +311,29 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 	}{
 		// Super Admin tests
 		{
-			name:          "sa_list_templates_whitelisted_rt_002",
-			systemRole:    auth.SystemRoleSuperAdmin,
-			rtID:          rt002ID,
-			method:        "GET",
-			path:          "/api/v1/notifications/templates",
-			expectedCode:  http.StatusOK,
+			name:         "sa_list_templates_whitelisted_rt_002",
+			systemRole:   auth.SystemRoleSuperAdmin,
+			rtID:         rt002ID,
+			method:       "GET",
+			path:         "/api/v1/notifications/templates",
+			expectedCode: http.StatusOK,
 		},
 		{
-			name:          "sa_list_templates_whitelisted_rt_003",
-			systemRole:    auth.SystemRoleSuperAdmin,
-			rtID:          rt003ID,
-			method:        "GET",
-			path:          "/api/v1/notifications/templates",
-			expectedCode:  http.StatusOK,
+			name:         "sa_list_templates_whitelisted_rt_003",
+			systemRole:   auth.SystemRoleSuperAdmin,
+			rtID:         rt003ID,
+			method:       "GET",
+			path:         "/api/v1/notifications/templates",
+			expectedCode: http.StatusOK,
 		},
 		{
-			name:          "sa_create_template_whitelisted_rt_002",
-			systemRole:    auth.SystemRoleSuperAdmin,
-			rtID:          rt002ID,
-			method:        "POST",
-			path:          "/api/v1/notifications/templates",
-			body:          `{"name":"Test Template","event_type":"manual_push","channel":"push","title":"Test","body":"Test body"}`,
-			expectedCode:  http.StatusCreated,
+			name:         "sa_create_template_whitelisted_rt_002",
+			systemRole:   auth.SystemRoleSuperAdmin,
+			rtID:         rt002ID,
+			method:       "POST",
+			path:         "/api/v1/notifications/templates",
+			body:         `{"name":"Test Template","event_type":"manual_push","channel":"push","title":"Test","body":"Test body"}`,
+			expectedCode: http.StatusCreated,
 		},
 		{
 			name:          "sa_list_templates_non_whitelisted_uuid",
@@ -397,13 +397,13 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 
 		// Ketua RT tests (non-SuperAdmin with jabatan "ketua")
 		{
-			name:          "ketua_with_whitelisted_rt",
-			systemRole:    "", // non-SuperAdmin
-			jabatan:       auth.JabatanKetua,
-			rtID:          rt002ID,
-			method:        "GET",
-			path:          "/api/v1/notifications/templates",
-			expectedCode:  http.StatusOK,
+			name:         "ketua_with_whitelisted_rt",
+			systemRole:   "", // non-SuperAdmin
+			jabatan:      auth.JabatanKetua,
+			rtID:         rt002ID,
+			method:       "GET",
+			path:         "/api/v1/notifications/templates",
+			expectedCode: http.StatusOK,
 		},
 		{
 			name:          "ketua_with_non_whitelisted_rt",
@@ -430,11 +430,11 @@ func TestRequireAllowedRT_IntegrationWithNotificationHandlers(t *testing.T) {
 			}
 
 			ac := &auth.AuthContext{
-				UserID:         userID,
-				MembershipID:   membID,
-				SystemRole:     tc.systemRole,
-				RTID:           tc.rtID,
-				Jabatan:        jabatanVal,
+				UserID:       userID,
+				MembershipID: membID,
+				SystemRole:   tc.systemRole,
+				RTID:         tc.rtID,
+				Jabatan:      jabatanVal,
 			}
 
 			var req *http.Request
@@ -508,7 +508,7 @@ func TestRequireAllowedRT_ActiveRTFlag(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{rtID}, RWIDs: []string{}})
 	authorizedHandler := middleware(handler)
 
 	// First, verify RT is active → passes
@@ -555,7 +555,7 @@ func TestRequireAllowedRT_NoDBPoolUsesAuthDBPool(t *testing.T) {
 	// With the new security hardening, RequireAllowedRT always validates
 	// RTID against the whitelist when RTID is non-empty. When RTID is empty,
 	// it rejects the request (no bypass for any role).
-	middleware := auth.RequireAllowedRT(nil)
+	middleware := auth.RequireAllowedRT(nil, auth.ScopingConfig{})
 	authorizedHandler := middleware(handler)
 
 	ac := &auth.AuthContext{
@@ -587,7 +587,7 @@ func TestRequireAllowedRT_NotFoundAuthContext(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middleware := auth.RequireAllowedRT(pool)
+	middleware := auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{}, RWIDs: []string{}})
 	authorizedHandler := middleware(handler)
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -624,7 +624,7 @@ func TestRequireAllowedRT_IntegrationWithNotificationLogs(t *testing.T) {
 				next.ServeHTTP(w, r)
 			})
 		})
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, auth.ScopingConfig{RTIDs: []string{rt002ID}, RWIDs: []string{}}))
 		r.Use(auth.RequireNotificationAdmin(pool))
 
 		r.Get("/api/v1/notifications/logs", handler.ListLogs)

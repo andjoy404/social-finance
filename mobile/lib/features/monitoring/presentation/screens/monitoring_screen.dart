@@ -22,7 +22,8 @@ import 'package:social_finance/features/monitoring/data/monitoring_repository.da
 /// 3 bulan kalender dan masih belum lunas. Data bersumber dari backend,
 /// tidak dihitung ulang di Flutter.
 class MonitoringScreen extends ConsumerStatefulWidget {
-  const MonitoringScreen({super.key});
+  final bool readOnly;
+  const MonitoringScreen({super.key, this.readOnly = false});
 
   @override
   ConsumerState<MonitoringScreen> createState() => _MonitoringScreenState();
@@ -69,7 +70,9 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
     setState(() {
       _rtId = rtId;
       _rtName = rtName;
-      _rwNumber = rwNumber != null ? 'RW ${rwNumber.toString().padLeft(3, '0')}' : '';
+      _rwNumber = rwNumber != null
+          ? 'RW ${rwNumber.toString().padLeft(3, '0')}'
+          : '';
     });
 
     await _fetchMonitoring();
@@ -85,7 +88,10 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
 
     try {
       final repo = ref.read(monitoringRepositoryProvider);
-      final data = await repo.fetchMonitoringHouseholds(_rtId!);
+      final data = await repo.fetchMonitoringHouseholds(
+        _rtId!,
+        readOnly: widget.readOnly,
+      );
       if (!mounted) return;
       setState(() {
         _monitoringData = data;
@@ -115,9 +121,8 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
 
     final result = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => _NoteDialog(
-        houseNumber: _selectedHouseNumber ?? '',
-      ),
+      builder: (dialogContext) =>
+          _NoteDialog(houseNumber: _selectedHouseNumber ?? ''),
     );
 
     if (result != null && result.isNotEmpty && _selectedOccupancyId != null) {
@@ -145,9 +150,9 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
       });
       await _fetchMonitoring();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Catatan tersimpan')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Catatan tersimpan')));
       }
     } catch (e) {
       if (!mounted) return;
@@ -199,8 +204,10 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
       final now = DateTime.now();
       final date =
           '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final rtLabel = (_rtName ?? rtId)
-          .replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final rtLabel = (_rtName ?? rtId).replaceAll(
+        RegExp(r'[^A-Za-z0-9_-]'),
+        '_',
+      );
       final fileName = 'Monitoring_Kebersihan_${rtLabel}_$date.$format';
 
       Directory? targetDir;
@@ -212,11 +219,13 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
           try {
             targetDir = await getDownloadsDirectory();
           } catch (_) {}
-          targetDir ??= await getExternalStorageDirectory() ??
+          targetDir ??=
+              await getExternalStorageDirectory() ??
               await getApplicationDocumentsDirectory();
         }
       } else {
-        targetDir = await getDownloadsDirectory() ??
+        targetDir =
+            await getDownloadsDirectory() ??
             await getApplicationDocumentsDirectory();
       }
 
@@ -260,10 +269,7 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
           ? e.message
           : 'Gagal menyimpan file export: $e';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: AppColors.danger,
-        ),
+        SnackBar(content: Text(message), backgroundColor: AppColors.danger),
       );
     } finally {
       if (mounted) {
@@ -438,6 +444,7 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
                           household: h,
                           isDark: isDark,
                           onNoteTap: _openNoteModal,
+                          readOnly: widget.readOnly,
                         );
                       },
                     );
@@ -541,12 +548,14 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
 /// Kartu satu rumah dalam daftar monitoring.
 class _HouseholdCard extends ConsumerWidget {
   final MonitoringHousehold household;
+  final bool readOnly;
   final bool isDark;
   final void Function(MonitoringHousehold) onNoteTap;
 
   const _HouseholdCard({
     super.key,
     required this.household,
+    required this.readOnly,
     required this.isDark,
     required this.onNoteTap,
   });
@@ -559,105 +568,106 @@ class _HouseholdCard extends ConsumerWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: AppCard(
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.accent.withValues(alpha: 0.12),
-                child: Text(
-                  household.houseNumber.isNotEmpty
-                      ? household.houseNumber[0].toUpperCase()
-                      : '?',
-                  style: TextStyle(
-                    color: AppColors.accent,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.accent.withValues(alpha: 0.12),
+                  child: Text(
+                    household.houseNumber.isNotEmpty
+                        ? household.houseNumber[0].toUpperCase()
+                        : '?',
+                    style: TextStyle(
+                      color: AppColors.accent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'No. Rumah ${household.houseNumber}',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.edit_outlined, size: 20),
-                color: AppColors.accent,
-                tooltip: 'Edit Catatan',
-                onPressed: () => onNoteTap(household),
-              ),
-            ],
-          ),
-          const Divider(height: 20),
-          if (household.note != null && household.note!.isNotEmpty) ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.note_outlined,
-                  size: 16,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Catatan Operasional',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.accent,
+                        'No. Rumah ${household.houseNumber}',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        household.note!,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                      if (household.noteCreatedAt != null ||
-                          household.noteUpdatedAt != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'Diperbarui: ${_formatDateTime(household.noteUpdatedAt ?? household.noteCreatedAt)}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
+                if (!readOnly)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                    color: AppColors.accent,
+                    tooltip: 'Edit Catatan',
+                    onPressed: () => onNoteTap(household),
+                  ),
               ],
             ),
-          ] else
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Belum ada catatan lapangan.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontStyle: FontStyle.italic,
+            const Divider(height: 20),
+            if (household.note != null && household.note!.isNotEmpty) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.note_outlined,
+                    size: 16,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Catatan Operasional',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          household.note!,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        if (household.noteCreatedAt != null ||
+                            household.noteUpdatedAt != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Diperbarui: ${_formatDateTime(household.noteUpdatedAt ?? household.noteCreatedAt)}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ] else
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Belum ada catatan lapangan.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
   }
 
   String _formatDateTime(String? raw) {
@@ -722,10 +732,7 @@ class _NoteDialogState extends State<_NoteDialog> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppRadius.sm),
-                borderSide: const BorderSide(
-                  color: AppColors.accent,
-                  width: 2,
-                ),
+                borderSide: const BorderSide(color: AppColors.accent, width: 2),
               ),
             ),
           ),
@@ -736,8 +743,9 @@ class _NoteDialogState extends State<_NoteDialog> {
         OutlinedButton(
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(80, 42),
-            foregroundColor:
-                isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+            foregroundColor: isDark
+                ? AppColors.darkTextMuted
+                : AppColors.lightTextMuted,
             side: BorderSide(
               color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
             ),

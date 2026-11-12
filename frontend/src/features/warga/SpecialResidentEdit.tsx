@@ -11,6 +11,11 @@ import {
 } from '@/app/api'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
+import { SpecialResidentForm, type SpecialResidentFormValues, type JabatanValue } from './SpecialResidentForm'
+
+interface Props {
+  mode?: 'edit' | 'detail'
+}
 
 const validJabatans: Record<string, boolean> = {
   keamanan: true,
@@ -18,32 +23,60 @@ const validJabatans: Record<string, boolean> = {
   kebersihan: true,
 }
 
-type JabatanValue = 'keamanan' | 'operasional' | 'kebersihan'
-
-const jabatanOptions: { value: JabatanValue; label: string }[] = [
-  { value: 'keamanan', label: 'Keamanan' },
-  { value: 'operasional', label: 'Operasional' },
-  { value: 'kebersihan', label: 'Kebersihan' },
-]
-
-interface SpecialResidentFormState {
-  full_name: string
-  nik: string
-  phone: string
-  email: string
-  password: string
-  jabatan: JabatanValue
-  is_active: boolean
-}
-
-export function SpecialResidentEdit() {
+export function SpecialResidentEdit({ mode = 'edit' }: Props) {
   const { user } = useAuth()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+
+  const [loadingData, setLoadingData] = useState(true)
+  const [savingError, setSavingError] = useState<ApiErrorType | null>(null)
+  const [notFound, setNotFound] = useState(false)
+  const [resident, setResident] = useState<ApiResident | null>(null)
+
+  const fetchResident = useCallback(async () => {
+    if (!id) return
+    const pair = getSessionPair()
+    if (!pair?.accessToken) {
+      navigate('/login')
+      return
+    }
+    setLoadingData(true)
+    setNotFound(false)
+    setSavingError(null)
+    try {
+      const data: ApiResident = await getResident(pair.accessToken, id)
+      if (data.jabatan && validJabatans[data.jabatan] && !data.household_id) {
+        setResident(data)
+      } else {
+        if (data.household_id) {
+          navigate(`/warga/${data.household_id}/edit`, { replace: true })
+        } else {
+          navigate(`/warga/${data.id}/edit`, { replace: true })
+        }
+      }
+    } catch (err) {
+      if (err instanceof ApiErrorType && err.code === 'auth_expired') {
+        clearSessionPair()
+        navigate('/login')
+      } else if (err instanceof ApiErrorType && err.code === 'not_found') {
+        setNotFound(true)
+      } else if (err instanceof ApiErrorType) {
+        setSavingError(new ApiErrorType(err.code, err.message || 'Gagal memuat data.'))
+      } else {
+        setSavingError(new ApiErrorType('unexpected', 'Gagal memuat data.'))
+      }
+    } finally {
+      setLoadingData(false)
+    }
+  }, [id, navigate])
+
+  useEffect(() => {
+    void fetchResident()
+  }, [fetchResident])
+
   if (!user || !id) return null
 
   const canWrite = hasWargaWriteAccess(user)
-
   if (!canWrite) {
     return (
       <Modal open onClose={() => navigate('/warga')} width={560}>
@@ -54,7 +87,7 @@ export function SpecialResidentEdit() {
         />
         <ModalBody>
           <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', textAlign: 'center', padding: '24px 0' }}>
-            Anda tidak memiliki izin untuk mengubah data petugas khusus ini.
+            Anda tidak memiliki izin untuk mengubah data petugas ini.
           </div>
         </ModalBody>
         <ModalFooter>
@@ -66,319 +99,107 @@ export function SpecialResidentEdit() {
     )
   }
 
-  const [loadingData, setLoadingData] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<ApiErrorType | null>(null)
-  const [notFound, setNotFound] = useState(false)
-  const [isSpecial, setIsSpecial] = useState(false)
-  const [form, setForm] = useState<SpecialResidentFormState>({
-    full_name: '',
-    nik: '',
-    phone: '',
-    email: '',
-    password: '',  // optional: kosong = pertahankan password lama
-    jabatan: 'keamanan',
-    is_active: true,
-  })
-  const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const handleClose = () => navigate('/warga')
 
-  const fetchResident = useCallback(async () => {
+  if (loadingData) {
+    return (
+      <Modal open onClose={handleClose} width={560}>
+        <ModalHeader title="Ubah Petugas" subtitle="Memuat..." onClose={handleClose} />
+        <ModalBody>
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
+            Memuat data petugas...
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+            Batal
+          </button>
+        </ModalFooter>
+      </Modal>
+    )
+  }
+
+  if (notFound || !resident) {
+    return (
+      <Modal open onClose={handleClose} width={560}>
+        <ModalHeader title="Ubah Petugas" onClose={handleClose} />
+        <ModalBody>
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
+            {notFound ? 'Petugas tidak ditemukan.' : savingError?.message || 'Gagal memuat data.'}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <button type="button" className="sf-btn-ghost" onClick={handleClose}>
+            Batal
+          </button>
+        </ModalFooter>
+      </Modal>
+    )
+  }
+
+  const handleSubmit = async (values: SpecialResidentFormValues) => {
+    setSavingError(null)
     const pair = getSessionPair()
     if (!pair?.accessToken) {
       navigate('/login')
       return
     }
-
-    setLoadingData(true)
-    setError(null)
-    setNotFound(false)
-
     try {
-      const data: ApiResident = await getResident(pair.accessToken, id)
-
-      if (data.jabatan && validJabatans[data.jabatan]) {
-        setIsSpecial(true)
-        setForm({
-          full_name: data.full_name,
-          nik: data.nik ?? '',
-          phone: data.phone ?? '',
-          email: data.email ?? '',
-          password: '',
-          jabatan: data.jabatan as JabatanValue,
-          is_active: data.is_active,
-        })
-      } else {
-        // Not a special resident — redirect to normal edit
-        if (data.household_id) {
-          navigate(`/warga/${data.household_id}/edit`, { replace: true })
-        } else {
-          setNotFound(true)
-          setIsSpecial(false)
-        }
+      const body: {
+        full_name: string
+        nik: string
+        phone: string
+        email: string
+        jabatan: JabatanValue
+        is_active: boolean
+        password?: string
+      } = {
+        full_name: values.full_name,
+        nik: values.nik,
+        phone: values.phone,
+        email: values.email,
+        jabatan: values.jabatan,
+        is_active: values.is_active,
       }
-    } catch (err) {
-      if (err instanceof ApiErrorType && err.code === 'auth_expired') {
-        clearSessionPair()
-        navigate('/login')
-      } else if (err instanceof ApiErrorType && err.code === 'not_found') {
-        setNotFound(true)
-      } else if (err instanceof ApiErrorType) {
-        setError(new ApiErrorType(err.code, err.message || 'Gagal memuat data.'))
-      } else {
-        setError(new ApiErrorType('unexpected', 'Gagal memuat data.'))
+      if (values.password.trim()) {
+        body.password = values.password.trim()
       }
-    } finally {
-      setLoadingData(false)
-    }
-  }, [id, navigate])
-
-  useEffect(() => { void fetchResident() }, [fetchResident])
-
-  const handleClose = () => navigate('/warga')
-
-  const handleChange = (field: string, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
-    if (validationErrors.length > 0) setValidationErrors([])
-  }
-
-  const validate = (): boolean => {
-    const errs: string[] = []
-    if (!form.full_name.trim()) errs.push('Nama harus diisi.')
-    if (!form.nik.trim()) {
-      errs.push('NIK harus diisi.')
-    } else if (!/^[0-9]{16}$/.test(form.nik.trim())) {
-      errs.push('NIK harus berupa 16 digit angka.')
-    }
-    if (!form.phone.trim()) errs.push('Telepon harus diisi.')
-    if (!form.email.trim()) {
-      errs.push('Email harus diisi.')
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-      errs.push('Format email tidak valid.')
-    }
-    if (errs.length > 0) { setValidationErrors(errs); return false }
-    return true
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setValidationErrors([])
-    setError(null)
-    if (!validate()) return
-
-    setSaving(true)
-    try {
-      const pair = getSessionPair()
-      if (!pair?.accessToken) { handleClose(); return }
-
-      // Only include password if it's been provided (non-empty)
-      const body: any = {
-        full_name: form.full_name.trim(),
-        nik: form.nik.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim(),
-        jabatan: form.jabatan,
-        is_active: form.is_active,
-      }
-      if (form.password.trim()) {
-        body.password = form.password.trim()
-      }
-
       await updateSpecialResident(pair.accessToken, id, body)
       navigate('/warga')
     } catch (err) {
       if (err instanceof ApiErrorType && err.code === 'auth_expired') {
         clearSessionPair()
-        handleClose()
-      } else if (err instanceof ApiErrorType) {
-        setError(new ApiErrorType(err.code, err.message || 'Gagal memperbarui petugas khusus.'))
-      } else {
-        setError(new ApiErrorType('unexpected', 'Gagal memperbarui petugas khusus.'))
+        navigate('/login')
+        return
       }
-    } finally {
-      setSaving(false)
+      setSavingError(
+        err instanceof ApiErrorType
+          ? new ApiErrorType(err.code, err.message || 'Gagal memperbarui petugas.')
+          : new ApiErrorType('unexpected', 'Gagal memperbarui petugas.'),
+      )
+      throw err
     }
   }
 
-  if (!isSpecial) {
-    return loadingData ? (
-      <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-        Memuat data...
-      </div>
-    ) : notFound ? (
-      <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-        Data tidak ditemukan.
-      </div>
-    ) : null
-  }
-
   return (
-    <Modal open onClose={handleClose} width={560}>
-      <ModalHeader
-        title="Ubah Petugas Khusus"
-        subtitle={form.full_name || 'Memuat...'}
-        onClose={handleClose}
-      />
-      {loadingData ? (
-        <>
-          <ModalBody>
-            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-              Memuat data petugas khusus...
-            </div>
-          </ModalBody>
-          <ModalFooter>
-            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
-              Batal
-            </button>
-          </ModalFooter>
-        </>
-      ) : notFound ? (
-        <>
-          <ModalBody>
-            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sf-text-muted)', fontSize: 13 }}>
-              Petugas khusus tidak ditemukan.
-            </div>
-          </ModalBody>
-          <ModalFooter>
-            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
-              Batal
-            </button>
-          </ModalFooter>
-        </>
-      ) : error ? (
-        <>
-          <ModalBody>
-            <div className="sf-form-error-list">{error.message}</div>
-          </ModalBody>
-          <ModalFooter>
-            <button type="button" className="sf-btn-ghost" onClick={handleClose}>
-              Batal
-            </button>
-          </ModalFooter>
-        </>
-      ) : (
-        <form onSubmit={handleSubmit}>
-          <ModalBody>
-            {validationErrors.length > 0 && (
-              <div className="sf-form-error-list">
-                <ul>{validationErrors.map((e, i) => <li key={i}>{e}</li>)}</ul>
-              </div>
-            )}
-
-            {/* Jenis Petugas */}
-            <div className="sf-form-field">
-              <label className="sf-form-label" htmlFor="sr-e-jabatan">
-                Jenis Petugas <span style={{ color: 'var(--sf-danger)' }}>*</span>
-              </label>
-              <select
-                id="sr-e-jabatan"
-                className="sf-form-select"
-                value={form.jabatan}
-                onChange={(e) => handleChange('jabatan', e.target.value)}
-                disabled={saving}
-              >
-                {jabatanOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Nama */}
-            <div className="sf-form-field">
-              <label className="sf-form-label" htmlFor="sr-e-name">
-                Nama <span style={{ color: 'var(--sf-danger)' }}>*</span>
-              </label>
-              <input
-                id="sr-e-name"
-                className="sf-form-input"
-                type="text"
-                value={form.full_name}
-                onChange={(e) => handleChange('full_name', e.target.value)}
-                placeholder="Nama lengkap"
-                required
-                disabled={saving}
-              />
-            </div>
-
-            {/* NIK + Telepon */}
-            <div className="sf-form-grid-2">
-              <div className="sf-form-field">
-                <label className="sf-form-label" htmlFor="sr-e-nik">
-                  NIK <span style={{ color: 'var(--sf-danger)' }}>*</span>
-                </label>
-                <input
-                  id="sr-e-nik"
-                  className="sf-form-input"
-                  type="text"
-                  value={form.nik}
-                  onChange={(e) => handleChange('nik', e.target.value)}
-                  placeholder="16 digit NIK"
-                  maxLength={16}
-                  required
-                  disabled={saving}
-                />
-              </div>
-
-              <div className="sf-form-field">
-                <label className="sf-form-label" htmlFor="sr-e-phone">
-                  Telepon <span style={{ color: 'var(--sf-danger)' }}>*</span>
-                </label>
-                <input
-                  id="sr-e-phone"
-                  className="sf-form-input"
-                  type="tel"
-                  value={form.phone}
-                  onChange={(e) => handleChange('phone', e.target.value)}
-                  placeholder="Contoh: 08123456789"
-                  required
-                  disabled={saving}
-                />
-              </div>
-            </div>
-
-            {/* Email */}
-            <div className="sf-form-field">
-              <label className="sf-form-label" htmlFor="sr-e-email">
-                Email <span style={{ color: 'var(--sf-danger)' }}>*</span>
-              </label>
-              <input
-                id="sr-e-email"
-                className="sf-form-input"
-                type="email"
-                value={form.email}
-                onChange={(e) => handleChange('email', e.target.value)}
-                placeholder="nama@email.com"
-                required
-                disabled={saving}
-              />
-            </div>
-
-            {/* Status */}
-            <div className="sf-form-field">
-              <label className="sf-form-label" htmlFor="sr-e-status">
-                Status <span style={{ color: 'var(--sf-danger)' }}>*</span>
-              </label>
-              <select
-                id="sr-e-status"
-                className="sf-form-select"
-                value={form.is_active ? 'true' : 'false'}
-                onChange={(e) => setForm((prev) => ({ ...prev, is_active: e.target.value === 'true' }))}
-                disabled={saving}
-              >
-                <option value="true">Aktif</option>
-                <option value="false">Tidak Aktif</option>
-              </select>
-            </div>
-          </ModalBody>
-          <ModalFooter>
-            <button type="button" className="sf-btn-ghost sf-btn-cancel-red" onClick={handleClose}>
-              Batal
-            </button>
-            <button type="submit" className="sf-btn-primary" disabled={saving}>
-              {saving ? 'Menyimpan...' : 'Simpan Perubahan'}
-            </button>
-          </ModalFooter>
-        </form>
-      )}
-    </Modal>
+    <SpecialResidentForm
+      key={resident.id}
+      mode={mode}
+      canEdit={canWrite}
+      residentId={resident.id}
+      subtitle={resident.full_name}
+      error={savingError}
+      initialValues={{
+        full_name: resident.full_name || '',
+        nik: resident.nik || '',
+        phone: resident.phone || '',
+        email: resident.email || '',
+        jabatan: (resident.jabatan as JabatanValue) || 'keamanan',
+        is_active: resident.is_active,
+        rt_id: resident.rt_id || '',
+        password: '',
+      }}
+      onSubmit={handleSubmit}
+    />
   )
 }

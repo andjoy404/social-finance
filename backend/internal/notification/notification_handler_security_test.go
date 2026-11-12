@@ -47,8 +47,8 @@ func (r *deviceAwareRepo) AddLog(entry notification.NotificationLogEntry) {
 	defer r.logsMu.Unlock()
 	r.nextLogID++
 	entry.ID = "log-" + strconv.Itoa(r.nextLogID)
-if entry.CreatedAt.IsZero() {
-			entry.CreatedAt = *nowPtr()
+	if entry.CreatedAt.IsZero() {
+		entry.CreatedAt = *nowPtr()
 	}
 	r.logs = append(r.logs, entry)
 }
@@ -185,7 +185,8 @@ func (r *deviceAwareRepo) GetDefaultRTID(ctx context.Context) (string, error) {
 
 // setupNotificationRouter builds a router mirroring the production
 // notification device/detail/read routes chain:
-//   RequireAuth + RequireAllowedRT(pool)
+//
+//	RequireAuth + RequireAllowedRT(pool)
 //
 // Since RequireAllowedRT takes *database.Pool, we use an inline middleware
 // matching RequireAllowedRT(pool)'s whitelist logic against an in-memory
@@ -193,9 +194,9 @@ func (r *deviceAwareRepo) GetDefaultRTID(ctx context.Context) (string, error) {
 func setupNotificationRouter(repo notification.Repository, svc notification.Service) http.Handler {
 	r := chi.NewRouter()
 
-	allowedRTCodes := map[string]string{
-		"rt-002": "002",
-		"rt-003": "003",
+	allowedRTCodes := map[string]bool{
+		"rt-002": true,
+		"rt-003": true,
 	}
 
 	requireAllowedRT := func(next http.Handler) http.Handler {
@@ -209,8 +210,7 @@ func setupNotificationRouter(repo notification.Repository, svc notification.Serv
 				http.Error(w, `{"error":{"code":"forbidden","message":"tenant context required"}}`, http.StatusForbidden)
 				return
 			}
-			rtCode, found := allowedRTCodes[ac.RTID]
-			if !found || !auth.AllowedRTCodes[rtCode] {
+			if !allowedRTCodes[ac.RTID] {
 				http.Error(w, `{"error":{"code":"forbidden","message":"rt is not enabled or not allowed"}}`, http.StatusForbidden)
 				return
 			}
@@ -269,8 +269,8 @@ func TestHandler_Device_RegisterTiesToAuthenticatedUser(t *testing.T) {
 	router := setupNotificationRouter(repo, svc)
 
 	userA := &auth.AuthContext{
-		UserID: "user-a",
-		RTID:   "rt-002",
+		UserID:     "user-a",
+		RTID:       "rt-002",
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -316,8 +316,8 @@ func TestHandler_Device_UnregisterOwnDevice(t *testing.T) {
 	router := setupNotificationRouter(repo, svc)
 
 	userA := &auth.AuthContext{
-		UserID: "user-a",
-		RTID:   "rt-002",
+		UserID:     "user-a",
+		RTID:       "rt-002",
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -351,8 +351,8 @@ func TestHandler_Device_CannotUnregisterOtherUserDevice(t *testing.T) {
 	router := setupNotificationRouter(repo, svc)
 
 	userA := &auth.AuthContext{
-		UserID: "user-a",
-		RTID:   "rt-002",
+		UserID:     "user-a",
+		RTID:       "rt-002",
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -400,8 +400,8 @@ func TestHandler_NotificationDetail_OwnNotification(t *testing.T) {
 	router := setupNotificationRouter(repo, svc)
 
 	userA := &auth.AuthContext{
-		UserID: "user-a",
-		RTID:   "rt-002",
+		UserID:     "user-a",
+		RTID:       "rt-002",
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -616,8 +616,8 @@ func TestHandler_MarkAsRead_CannotMarkOtherUserNotification(t *testing.T) {
 
 	// Another user (user-c) tries to mark user-a's notification as read
 	userC := &auth.AuthContext{
-		UserID: "user-c",
-		RTID:   "rt-002",
+		UserID:     "user-c",
+		RTID:       "rt-002",
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -670,8 +670,8 @@ func TestHandler_MarkAllAsRead_CannotMarkOtherUserNotifications(t *testing.T) {
 
 	// User C tries to read-all for user-a
 	userC := &auth.AuthContext{
-		UserID: "user-c",
-		RTID:   "rt-002",
+		UserID:     "user-c",
+		RTID:       "rt-002",
 		TenantRole: auth.RoleWarga,
 	}
 	req := httptest.NewRequest("POST", "/api/v1/notifications/logs/read-all", nil)
@@ -715,8 +715,8 @@ func TestHandler_UnreadCount_ExcludesOtherUser(t *testing.T) {
 	router := setupNotificationRouter(repo, svc)
 
 	userA := &auth.AuthContext{
-		UserID: "user-a",
-		RTID:   "rt-002",
+		UserID:     "user-a",
+		RTID:       "rt-002",
 		TenantRole: auth.RoleWarga,
 	}
 
@@ -804,7 +804,7 @@ func TestHandler_ListLogs_ExcludesOtherUser(t *testing.T) {
 	}
 
 	var resp struct {
-		Data []notification.NotificationLogEntry `json:"data"`
+		Data       []notification.NotificationLogEntry `json:"data"`
 		Pagination struct {
 			Total int `json:"total"`
 		} `json:"pagination"`

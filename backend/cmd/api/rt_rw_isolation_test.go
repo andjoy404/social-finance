@@ -582,7 +582,9 @@ func TestIsolation_RTtoRW_DirectTransferRejected(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // Test 11: Penerimaan dana RT ke RW tercatat sebagai transaksi KAS Masuk RW
-//          dengan source_rt_id yang benar
+//
+//	dengan source_rt_id yang benar
+//
 // -----------------------------------------------------------------------------
 func TestIsolation_RTtoRW_LegitimateKasIncome(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -721,4 +723,3 @@ func TestIsolation_RT_RW_LedgersAndLocationsStrictlyIndependent(t *testing.T) {
 		t.Fatalf("expected RT balance 1000000.00, got %s", rtBal)
 	}
 }
-

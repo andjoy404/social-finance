@@ -40,7 +40,7 @@ type LoginResponse struct {
 // refreshRequest is the body of a refresh POST request.
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
-	DeviceID   string `json:"device_id,omitempty"`
+	DeviceID     string `json:"device_id,omitempty"`
 }
 
 // logoutRequest is the body of a logout POST request.
@@ -587,10 +587,13 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch err {
 		case ErrNotAuthorized:
+			slog.Error("handleMe: profile not authorized", "user_id", ac.UserID, "error", err)
 			httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "user profile not found")
 		case ErrUserNotFound:
+			slog.Error("handleMe: profile user not found", "user_id", ac.UserID, "error", err)
 			httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "user profile not found")
 		default:
+			slog.Error("handleMe: get profile failed", "user_id", ac.UserID, "error", err)
 			httpx.ErrorJSON(w, http.StatusInternalServerError, "internal_error", "failed to load profile")
 		}
 		return
@@ -935,6 +938,16 @@ func effectivePermissions(ctx context.Context, tx *sql.Tx, pool *database.Pool, 
 		{code: "banner_templates.manage", roleAllows: false},
 		{code: "organization.read", roleAllows: roleAllowsRead},
 		{code: "organization.contact.read", roleAllows: false},
+		{code: "rw.monitoring.read", roleAllows: false},
+		{code: "rw.monitoring.notes.write", roleAllows: false},
+		{code: "rw.monitoring.export", roleAllows: false},
+		{code: "security.attendance", roleAllows: false},
+		{code: "security.schedule.read", roleAllows: false},
+		{code: "security.schedule.write", roleAllows: false},
+		{code: "security.device.manage", roleAllows: false},
+		{code: "security.correction", roleAllows: false},
+		{code: "security.guest_book", roleAllows: false},
+		{code: "resident.profile_photo.manage", roleAllows: false},
 	}
 
 	resolver := NewPermissionResolver(pool)

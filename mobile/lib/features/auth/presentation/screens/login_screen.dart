@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:social_finance/core/api/auth_service.dart';
 import 'package:social_finance/core/api/client.dart';
@@ -578,6 +579,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
             // 7. Submit button
             _buildSubmitButton(isLoading),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              onPressed: isLoading
+                  ? null
+                  : () {
+                      final router = GoRouter.maybeOf(context);
+                      if (router != null) {
+                        router.go('/pos/activate');
+                      }
+                    },
+              icon: const Icon(
+                Icons.qr_code_2_outlined,
+                size: 16,
+                color: Color(0xFFC4B5FD),
+              ),
+              label: const Text(
+                'Mode Perangkat Pos Keamanan',
+                style: TextStyle(fontSize: 12, color: Color(0xFFC4B5FD)),
+              ),
+            ),
           ],
         ),
       ),

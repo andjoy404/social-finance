@@ -97,6 +97,8 @@ describe('Special Resident positions (Keamanan, Operasional, Kebersihan)', () =>
           nik: '3173000000000001',
           phone: '081234567890',
           email: 'budi.kebersihan@test.com',
+          password: 'password123',
+          is_active: true,
         })
       )
     })

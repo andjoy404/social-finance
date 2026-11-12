@@ -1013,7 +1013,7 @@ class _KeuanganScreenState extends ConsumerState<KeuanganScreen> {
                     const SizedBox(width: 14),
                     Expanded(
                       child: Text(
-                        '${dues.paid} dari ${dues.target} KK sudah membayar',
+                        '${dues.paid} dari ${dues.target} warga sudah membayar',
                         style: theme.textTheme.titleMedium,
                       ),
                     ),

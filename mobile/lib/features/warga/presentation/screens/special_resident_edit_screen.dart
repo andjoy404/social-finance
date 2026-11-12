@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:social_finance/features/warga/presentation/widgets/resident_photo_manage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -28,6 +29,7 @@ class _SpecialResidentEditScreenState
     extends ConsumerState<SpecialResidentEditScreen> {
   final _formKey = GlobalKey<FormState>();
   final _fullNameCtrl = TextEditingController();
+  String? _avatarPath;
   final _nikCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -62,6 +64,7 @@ class _SpecialResidentEditScreenState
     _nikCtrl.dispose();
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
+    _passwordCtrl.dispose();
     super.dispose();
   }
 
@@ -82,6 +85,7 @@ class _SpecialResidentEditScreenState
       final mapped = MappedResident.fromBackend(resident, null);
 
       setState(() {
+        _avatarPath = mapped.avatarPath;
         _fullNameCtrl.text = mapped.name;
         _nikCtrl.text = mapped.nik ?? '';
         _phoneCtrl.text = mapped.phoneNumber ?? '';
@@ -141,8 +145,9 @@ class _SpecialResidentEditScreenState
     }
 
     // Password opsional pada edit: kosong = pertahankan password lama
-    if (_passwordCtrl.text.trim() != '') {
-      // Password diisi, lega
+    final pwd = _passwordCtrl.text.trim();
+    if (pwd.isNotEmpty && pwd.length < 8) {
+      errors.add('Kata sandi baru minimal 8 karakter.');
     }
 
     setState(() => _validationErrors = errors);
@@ -162,6 +167,7 @@ class _SpecialResidentEditScreenState
 
       if (_hasJabatan) {
         // Special resident (has jabatan) — use the special endpoint
+        final pwd = _passwordCtrl.text.trim();
         final request = UpdateSpecialResidentRequest(
           fullName: _fullNameCtrl.text.trim().isEmpty
               ? null
@@ -171,11 +177,13 @@ class _SpecialResidentEditScreenState
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
           jabatan: _jabatan.isEmpty ? null : _jabatan,
           isActive: _isActive,
+          password: pwd.isEmpty ? null : pwd,
         );
 
         await repo.updateSpecialResident(widget.residentId, request: request);
       } else {
         // Regular resident (no jabatan) — use the regular endpoint
+        final pwd = _passwordCtrl.text.trim();
         final request = UpdateResidentRequest(
           fullName: _fullNameCtrl.text.trim().isEmpty
               ? null
@@ -184,6 +192,7 @@ class _SpecialResidentEditScreenState
           phone: _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
           email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
           isActive: _isActive,
+          password: pwd.isEmpty ? null : pwd,
         );
 
         await repo.updateResident(widget.residentId, request: request);
@@ -274,18 +283,14 @@ class _SpecialResidentEditScreenState
 
     if (_loading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Edit Petugas'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Petugas')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_notFound) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Edit Petugas'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Petugas')),
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -318,14 +323,23 @@ class _SpecialResidentEditScreenState
         await _confirmCancel();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Edit Petugas'),
-        ),
+        appBar: AppBar(title: const Text('Ubah Petugas')),
         body: Form(
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.base),
             children: [
+              // Foto Profil Petugas
+              Center(
+                child: ResidentPhotoManage(
+                  residentId: widget.residentId,
+                  fullName: _fullNameCtrl.text,
+                  avatarPath: _avatarPath,
+                  onChanged: (newPath) => setState(() => _avatarPath = newPath),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+
               // Error message
               if (_error != null)
                 Container(
@@ -474,11 +488,11 @@ class _SpecialResidentEditScreenState
               ),
               const SizedBox(height: AppSpacing.lg),
 
-              // Kata Sandi
+              // Kata Sandi Baru (Opsional): kosong = pertahankan password lama
               AppTextField(
                 controller: _passwordCtrl,
-                label: 'Kata Sandi',
-                hintText: 'minimal 6 karakter',
+                label: 'Kata Sandi Baru (Opsional)',
+                hintText: 'Kosongkan jika tidak ingin mengubah kata sandi',
                 obscureText: true,
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -540,9 +554,7 @@ class _SpecialResidentEditScreenState
                           backgroundColor: AppColors.accent,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppRadius.base,
-                            ),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
                           ),
                         ),
                         child: _saving
@@ -583,9 +595,7 @@ class _SpecialResidentEditScreenState
                           backgroundColor: AppColors.danger,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              AppRadius.base,
-                            ),
+                            borderRadius: BorderRadius.circular(AppRadius.base),
                           ),
                         ),
                         child: const Row(

@@ -702,6 +702,12 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 		{"banner_templates.manage", "community", "manage"},
 		{"organization.read", "community", "read"},
 		{"organization.contact.read", "community", "read"},
+		{"security.attendance", "security", "attendance"},
+		{"security.schedule.read", "security", "read"},
+		{"security.schedule.write", "security", "write"},
+		{"security.device.manage", "security", "manage"},
+		{"security.correction", "security", "correction"},
+		{"security.guest_book", "security", "guest_book"},
 	}
 
 	for _, pc := range permissionCodes {
@@ -728,6 +734,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			"announcements.read", "announcements.create", "announcements.update", "announcements.publish", "announcements.archive", "announcements.delete",
 			"banner_templates.read", "banner_templates.manage",
 			"organization.read", "organization.contact.read",
+			"security.schedule.read", "security.schedule.write", "security.device.manage", "security.correction", "security.guest_book",
 		},
 		"wakil_ketua": {
 			"warga.read", "warga.create", "warga.update", "finance.read", "notification.read", "reports.read", "rt.settings.read",
@@ -743,7 +750,7 @@ func RunTx(ctx context.Context, tx *sql.Tx, appEnv string) (*SeedSummary, error)
 			"warga.read", "warga.create", "warga.update", "warga.import", "warga.export", "finance.read", "finance.create", "finance.update", "finance.approve", "notification.read", "reports.read",
 			"activities.read", "announcements.read", "banner_templates.read", "organization.read",
 		},
-		"keamanan":    {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},
+		"keamanan":    {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read", "security.attendance", "security.schedule.read"},
 		"sosial":      {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},
 		"operasional": {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},
 		"kebersihan":  {"warga.read", "reports.read", "activities.read", "announcements.read", "banner_templates.read", "organization.read"},

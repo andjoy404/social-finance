@@ -562,19 +562,16 @@ func RequireNotificationAdmin(pool *database.Pool) func(http.Handler) http.Handl
 	}
 }
 
-// RequireAllowedRT returns a middleware that verifies the tenant RT is in the allowed
-// list (RT 002 and RT 003). Non-allowed RTs receive 403 Forbidden.
+// RequireAllowedRT returns a middleware that enforces RT existence and scope access.
+// It eliminates hardcoded RT-code whitelists; the single source of truth for
+// RT scope is SCOPED_RT_IDS (config-driven, auto-derived by the fresh-install
+// bootstrap) and active membership for ordinary tenants.
 //
 // RT validation rules:
-//   - Non-SuperAdmin: must have a valid, active RT from JWT membership. No fallback.
-//   - SuperAdmin with RTID from JWT: same whitelist + active check as above.
-//   - SuperAdmin without JWT RTID: MUST have an RT provided via X-RT-ID header (or
-//     equivalent mechanism set by RequireAuth). The header RT is validated against
-//     the whitelist and the active flag in the rts table. No fallback to a default RT.
-//     If no RT is provided, the request is rejected with 400 Bad Request.
-//
-// This prevents Super Admins from silently accessing any RT or bypassing the
-// whitelist by relying on an empty RTID.
+//   - Tenant access is granted solely by membership (JWT carries an RT that is
+//     an actually active RT). Non-members cannot reach any tenant data.
+//   - SuperAdmin requires their pinned RT (or the configured X-RT-ID) to be active AND
+//     to be in cfg.RTIDs (from SCOPED_RT_IDS). An empty cfg.RTIDs fails closed.
 type rtStatusScanner interface {
 	Scan(dest ...any) error
 }
@@ -606,7 +603,7 @@ func writeRTStatusErrorWithLogger(w http.ResponseWriter, err error, requestID st
 	}()
 }
 
-func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
+func RequireAllowedRT(pool *database.Pool, cfg ScopingConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ac, ok := r.Context().Value(AuthContextKey).(*AuthContext)
@@ -615,7 +612,7 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Every tenant-scoped request MUST have a valid RTID.
+			// Every tenant-scoped request MUST have a valid RTID pinned in the JWT.
 			// No bypass for any role — including Super Admin.
 			rtIDToValidate := ac.RTID
 			if rtIDToValidate == "" {
@@ -635,7 +632,7 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
 
-			rtCode, isActive, err := scanRTStatus(effectivePool.Raw().QueryRowContext(ctx,
+			_, isActive, err := scanRTStatus(effectivePool.Raw().QueryRowContext(ctx,
 				`SELECT rt, is_active FROM rts WHERE id = $1 LIMIT 1`,
 				rtIDToValidate,
 			))
@@ -643,28 +640,29 @@ func RequireAllowedRT(pool *database.Pool) func(http.Handler) http.Handler {
 				writeRTStatusError(w, err, httpx.GetRequestID(r.Context()))
 				return
 			}
-
-			if !isActive || !AllowedRTCodes[rtCode] {
-				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt is not enabled or not allowed")
+			if !isActive {
+				httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt is not active")
 				return
+			}
+
+			// SuperAdmin is authorized by system role, but pinned beyond its JWT
+			// scope: the requested RT must be in SCOPED_RT_IDS. Empty scope fails
+			// closed. Tenant members are pinned by construction to their own RT.
+			if ac.SystemRole == SystemRoleSuperAdmin {
+				scoped := false
+				for _, id := range cfg.RTIDs {
+					if id == rtIDToValidate {
+						scoped = true
+						break
+					}
+				}
+				if !scoped {
+					httpx.ErrorJSON(w, http.StatusForbidden, "forbidden", "rt is not in the configured scope")
+					return
+				}
 			}
 
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// AllowedRTCodes defines the set of RT codes that are permitted for operational access.
-var AllowedRTCodes = map[string]bool{
-	"002": true,
-	"003": true,
-}
-
-// AllowedRTCodesList returns the allowed RT codes as a sorted []string for iteration.
-func AllowedRTCodesList() []string {
-	result := make([]string, 0, len(AllowedRTCodes))
-	for code := range AllowedRTCodes {
-		result = append(result, code)
-	}
-	return result
 }

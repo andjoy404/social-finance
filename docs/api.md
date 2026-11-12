@@ -1404,3 +1404,72 @@ Internal deep-link allowlist: `/keuangan`, `/iuran`, `/kas`, `/kegiatan`, `/peng
 ### 14.5 Pagination Contract
 List endpoints accept `page` (default 1) and `page_size` (default 20, max 100) and return
 `{ "data": [...], "pagination": { "page": n, "per_page": n, "total": n, "total_pages": n } }`.
+
+---
+
+## 15. Security Attendance API (`/api/v1/security` & `/api/v1/security-device`)
+
+Time authority: all check-in/out timestamps, shift boundaries, lateness calculations, absent transitions, and QR expiration checks use server time in `Asia/Jakarta`. Tenant scoping (`rt_id`) is derived strictly from the authenticated user JWT or authenticated Pos device credential; client-supplied `rt_id` overrides are rejected/ignored.
+
+### 15.1 Permissions (`permission_types` & `position_permissions`)
+- `security.attendance` — Officer self check-in/out & personal swap/correction submissions (`keamanan`).
+- `security.schedule.read` — Read shift configs, schedules, attendance, dashboard summary (`ketua`, `keamanan`).
+- `security.schedule.write` — Create/update shifts, schedules, approve/reject swaps, manage officer list (`ketua`).
+- `security.device.manage` — Register, rotate activation token, revoke Pos devices (`ketua`).
+- `security.correction` — Approve/reject attendance corrections (`ketua`; maker-checker prevents self-approval).
+- `security.guest_book` — Monitor guest book logs (`ketua`).
+- `system_role = super_admin` bypasses RT RBAC (and specifies `?rt_id=` when managing a target RT).
+
+### 15.2 Management & Officer Endpoints (`/api/v1/security/*`, JWT Bearer)
+- **Dashboard & Officers**:
+  - `GET /api/v1/security/dashboard` (`security.schedule.read`) — summary counts, active shifts, today's officers, pending swaps/corrections, active Pos devices, active guests count.
+  - `GET /api/v1/security/officers` (`security.schedule.read`) — active officers with `jabatan = 'keamanan'` in caller's RT (plus monthly summary stats).
+- **Shift Configs**:
+  - `GET /api/v1/security/shifts` (`security.schedule.read`)
+  - `POST /api/v1/security/shifts` (`security.schedule.write`)
+  - `PUT /api/v1/security/shifts/{id}` (`security.schedule.write`) — bumps `version`; historical schedules/attendance keep original snapshots.
+- **Schedules**:
+  - `GET /api/v1/security/schedules` (`security.schedule.read`) — supports `date_from`, `date_to`, `user_id`, `shift_config_id`, `status`, pagination.
+  - `POST /api/v1/security/schedules` (`security.schedule.write`) — accepts inclusive `start_date` and `end_date` (legacy `shift_date` remains supported); atomically expands into one daily schedule and attendance row per date, validating active officer/shift and shift-time overlap for every day.
+  - `GET /api/v1/security/schedules/{id}` (`security.schedule.read`) — returns all daily schedule/attendance records for the assignment period.
+  - `PUT /api/v1/security/schedules/{id}` (`security.schedule.write`) — edits the existing assignment; validates conflicts excluding its own daily rows, preserves past dates and rejects changes affecting dates with attendance/correction history. Writes an audit log only when changed.
+  - `DELETE /api/v1/security/schedules/{id}` (`security.schedule.write`) — soft-cancels the selected daily schedule if no recorded attendance.
+- **Shift Swaps (2-Step Workflow)**:
+  - `GET /api/v1/security/swaps` (`security.schedule.read` / `security.attendance`)
+  - `POST /api/v1/security/swaps` (`security.attendance`) — officer proposes swap between own `scheduled` shift and target officer's `scheduled` shift (same RT, not checked-in, no conflict after swap).
+  - `POST /api/v1/security/swaps/{id}/target-respond` (`security.attendance`) — target officer accepts (`pending_ketua`) or rejects (`rejected_target`).
+  - `POST /api/v1/security/swaps/{id}/decide` (`security.schedule.write`) — Ketua RT / Super Admin approves or rejects. On approve, swaps `(user_id, membership_id)` on both schedules & updates `belum_hadir` attendance rows atomically.
+- **Attendance Check-in / Check-out & Monitoring**:
+  - `GET /api/v1/security/attendance/me` (`security.attendance`) — officer's current/upcoming shift, today's attendance state, and history.
+  - `POST /api/v1/security/attendance/scan` (`security.attendance`, rate-limited) — officer scans Pos dynamic QR `{ "qr_token": "...", "action": "check_in" | "check_out" | "auto" }`. Validates QR atomically (`SELECT ... FOR UPDATE`), device active/unrevoked, RT match, schedule match, check-in window, server-side `Asia/Jakarta` status calculation, anti-replay, and idempotency.
+  - `GET /api/v1/security/attendance` (`security.schedule.read`) — monitoring list with filters (`date_from`, `date_to`, `user_id`, `shift_config_id`, `status`, pagination).
+  - `GET /api/v1/security/attendance/export` (`security.schedule.read`) — CSV/JSON/Excel-friendly export summary scoped to RT.
+- **Attendance Corrections (Maker-Checker & Audit Log)**:
+  - `GET /api/v1/security/corrections` (`security.schedule.read` / `security.attendance`)
+  - `POST /api/v1/security/corrections` (`security.attendance` or `security.correction`) — requires non-empty `reason`; officers may only request for their own record.
+  - `POST /api/v1/security/corrections/{id}/decide` (`security.correction`) — approves or rejects. Rejects self-approval (`decided_by != requested_by` and `decided_by != officer_user_id`), preserves original values, updates attendance atomically when approved, writes immutable entry to `audit_logs`.
+- **Pos Device Provisioning & Revocation**:
+  - `GET /api/v1/security/devices` (`security.device.manage`)
+  - `POST /api/v1/security/devices` (`security.device.manage`) — creates device and returns one-time `pairing_token` (shown once; stored hashed).
+  - `POST /api/v1/security/devices/{id}/rotate-pairing` (`security.device.manage`) — issues fresh one-time `pairing_token`.
+  - `POST /api/v1/security/devices/{id}/revoke` (`security.device.manage`) — immediately revokes device token and invalidates active QR tokens.
+- **Guest Book Monitoring (Ketua RT)**:
+  - `GET /api/v1/security/guest-books` (`security.guest_book`) — read/filter RT guest book entries (`date_from`, `date_to`, `status=active|checked_out`, `search`).
+
+### 15.3 Security Pos Device Endpoints (`/api/v1/security-device/*`, Device Credential)
+- **Activation (Unauthenticated, Rate-Limited)**:
+  - `POST /api/v1/security/devices/activate` — exchanges one-time `pairing_token` for persistent `device_token` bound to `(device_id, rt_id)`.
+- **Authenticated Pos Device Endpoints** (`Authorization: Device <device_token>` or `X-Device-Token: <device_token>`):
+  - `GET /api/v1/security-device/me` — Pos device profile and bound RT metadata.
+  - `POST /api/v1/security-device/qr` (rate-limited) — generates fresh short-lived (45s) single-use dynamic QR token for the Pos device.
+  - `GET /api/v1/security-device/attendance/today` — today's Pos shift & attendance summary (names/statuses only, no PII).
+  - `GET /api/v1/security-device/guest-books` — list RT guest book entries.
+  - `POST /api/v1/security-device/guest-books` — register guest check-in (Pos Device only).
+  - `POST /api/v1/security-device/guest-books/{id}/checkout` — record guest check-out (Pos Device only).
+  - `GET /api/v1/security-device/warga/households` — read-only RT household directory (for Pos `Warga` menu). Returns `household_occupancy_id`, `house_number`, `block`, `head_of_family_name`, `occupancy_type`, `resident_count`, and `head_avatar_path` (opaque key resolved only through `security-device/images/*`).
+  - `GET /api/v1/security-device/warga/households/{id}` — read-only RT household detail (no NIK/passwords/PII leaks). Resident rows carry `full_name`, `relationship`, `is_head_of_family`, `residency_status`, and `avatar_path` (opaque key resolved only through `security-device/images/*`).
+  - `GET /api/v1/security-device/images/{key}` — read-only resident avatar bytes for the device's bound RT (opaque `community/{rt}/profile/*` keys only; the key must reference an active resident avatar in that RT; content serves with `no-store`). User credentials and cross-RT keys are rejected (403/404); image bytes are identical to what resident menus render.
+  - `GET /api/v1/security-device/monitoring/sampah` — read-only uncollected waste monitoring list for device's RT.
+  - `GET /api/v1/security/guest-books` — read-only Ketua RT Buku Tamu list; supports `search`, `status`, `page`, and `page_size`. RT scope comes from authenticated membership.
+  - `GET /api/v1/security-device/guest-books` — paired-device Buku Tamu list; supports server-side `search`, `status`, `page`, and `page_size`, scoped to the bound device RT.
+  - `GET /api/v1/rw/{rwId}/monitoring/read-only` — Ketua RT read-only monitoring list. Tenant RT is resolved from auth context; the path parameter is not an authorization scope. Notes mutation endpoints remain gated by `rw.monitoring.notes.write`.

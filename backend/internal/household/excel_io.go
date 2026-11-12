@@ -135,18 +135,28 @@ func parseExcelRows(f *excelize.File) ([]WargaCSVRow, []RowError, error) {
 		nikRaw = stripNonDigits(nikRaw)
 
 		row := WargaCSVRow{
-			RowNumber:          rowNum,
-			HouseNumber:        getVal(record, "house_number", "nomor_rumah"),
-			HeadName:           getVal(record, "head_name", "nama_warga", "nama_penanggung_jawab"),
-			OccupancyStatus:    normStatus,
-			Address:            getVal(record, "address", "alamat"),
-			ResidentName:       getVal(record, "resident_name", "nama_anggota"),
-			Nik:                nikRaw,
-			Phone:              getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
-			Email:              getVal(record, "email", "resident_email"),
-			MoveInDate:         getVal(record, "move_in_date", "tanggal_mulai", "move_in"),
-			Jabatan:            getVal(record, "jabatan", "position", "jabatan_warga"),
-			Password:           getVal(record, "password", "kata_sandi"),
+			RowNumber:       rowNum,
+			HouseNumber:     getVal(record, "house_number", "nomor_rumah"),
+			HeadName:        getVal(record, "head_name", "nama_warga", "nama_penanggung_jawab"),
+			OccupancyStatus: normStatus,
+			Address:         getVal(record, "address", "alamat"),
+			ResidentName:    getVal(record, "resident_name", "nama_anggota"),
+			Nik:             nikRaw,
+			Phone:           getVal(record, "phone", "resident_phone", "household_phone", "telepon"),
+			Email:           getVal(record, "email", "resident_email"),
+			MoveInDate:      getVal(record, "move_in_date", "tanggal_mulai", "move_in"),
+			Jabatan:         getVal(record, "jabatan", "position", "jabatan_warga"),
+			Password:        getVal(record, "password", "kata_sandi"),
+		}
+
+		if strings.EqualFold(row.Jabatan, "kosong") {
+			row.Jabatan = ""
+		}
+		if strings.EqualFold(row.Password, "kosong") {
+			row.Password = ""
+		}
+		if strings.EqualFold(row.MoveInDate, "kosong") {
+			row.MoveInDate = ""
 		}
 
 		// Field-level validation (identical to ParseWargaCSV).
@@ -743,7 +753,7 @@ func exportWargaToXLSX(ctx context.Context, pool *database.Pool, rtID string, ac
 
 	// Add jabatan dropdown to exported data (same range as template).
 	if rowNum > 2 {
-		if err := addJabatanValidation(f, "Warga", 2, rowNum - 1); err != nil {
+		if err := addJabatanValidation(f, "Warga", 2, rowNum-1); err != nil {
 			f.Close()
 			return nil, fmt.Errorf("add jabatan validation to export: %w", err)
 		}

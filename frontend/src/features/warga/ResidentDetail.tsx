@@ -19,6 +19,9 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/Modal'
 import { ResidentDetailFields } from './ResidentDetailFields'
+import { ResidentAvatar } from '@/components/ResidentAvatar'
+import { ResidentPhotoManage } from '@/components/ResidentPhotoManage'
+import { SpecialResidentForm, type SpecialResidentFormValues, type JabatanValue } from './SpecialResidentForm'
 import {
   HomeOutlined,
   UserOutlined,
@@ -204,10 +207,36 @@ export function ResidentDetail() {
   return (
     <Modal open onClose={handleClose} width={560}>
       <ModalHeader
-        title="Detail Warga"
+        title={resident?.jabatan && !resident.household_id ? 'Detail Petugas' : 'Detail Warga'}
         subtitle={resident?.full_name}
         onClose={handleClose}
       />
+      {resident && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            padding: '16px 20px 0',
+          }}
+        >
+          <ResidentAvatar
+            name={resident.full_name}
+            avatarPath={resident.avatar_path ?? null}
+            size={84}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <ResidentPhotoManage
+              residentId={resident.id}
+              fullName={resident.full_name}
+              avatarPath={resident.avatar_path ?? null}
+              onChanged={(newPath) =>
+                setResident((prev) => (prev ? { ...prev, avatar_path: newPath } : prev))
+              }
+            />
+          </div>
+        </div>
+      )}
       {loading && (
         <>
           <ModalBody>
@@ -257,7 +286,35 @@ export function ResidentDetail() {
           </ModalFooter>
         </>
       )}
-      {resident && !isEditing && (
+      {resident && !isEditing && resident.jabatan && !resident.household_id && (
+        <>
+          <SpecialResidentForm
+            key={`detail-${resident.id}`}
+            mode="detail"
+            subtitle="Profil Petugas"
+            initialValues={{
+              full_name: resident.full_name || '',
+              nik: resident.nik || '',
+              phone: formatPhoneDisplay(resident.phone || '') === '-' ? '' : formatPhoneDisplay(resident.phone || ''),
+              email: resident.email || '',
+              jabatan: (resident.jabatan as JabatanValue) || 'keamanan',
+              is_active: resident.is_active,
+              rt_id: resident.rt_id || '',
+              password: '',
+            }}
+          />
+          {canWrite && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 20px 16px' }}>
+              <button type="button" className="sf-btn-primary" onClick={handleStartEdit}>
+                <EditOutlined style={{ marginRight: 4 }} />
+                Ubah
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {resident && !isEditing && !(resident.jabatan && !resident.household_id) && (
         <>
           <ModalBody>
             {resetCodeData && (
@@ -351,7 +408,43 @@ export function ResidentDetail() {
         </>
       )}
 
-      {resident && isEditing && (
+      {resident && isEditing && resident.jabatan && !resident.household_id && (
+        <SpecialResidentForm
+          key={resident.id}
+          mode="edit"
+          subtitle="Profil Petugas"
+          initialValues={{
+            full_name: resident.full_name || '',
+            nik: resident.nik || '',
+            phone: formatPhoneDisplay(resident.phone || '') === '-' ? '' : formatPhoneDisplay(resident.phone || ''),
+            email: resident.email || '',
+            jabatan: (resident.jabatan as JabatanValue) || 'keamanan',
+            is_active: resident.is_active,
+            rt_id: resident.rt_id || '',
+            password: '',
+          }}
+          onSubmit={async (values: SpecialResidentFormValues) => {
+            const pair = getSessionPair()
+            if (!pair?.accessToken) { clearSessionPair(); navigate('/login'); return }
+            const body: Record<string, unknown> = {
+              full_name: values.full_name,
+              nik: values.nik,
+              phone: values.phone,
+              email: values.email,
+              jabatan: values.jabatan,
+              is_active: values.is_active,
+            }
+            if (values.password.trim()) body.password = values.password.trim()
+            await updateSpecialResident(pair.accessToken, resident.id, body)
+            const updated = await getResident(pair.accessToken, resident.id)
+            setResident(updated)
+            setIsEditing(false)
+            window.dispatchEvent(new CustomEvent('warga:refresh'))
+          }}
+        />
+      )}
+
+      {resident && isEditing && !(resident.jabatan && !resident.household_id) && (
         <form
           onSubmit={async (e) => {
             e.preventDefault()
@@ -396,14 +489,18 @@ export function ResidentDetail() {
               // Residents with jabatan AND household_id use the regular endpoint + household endpoint.
               let updatedResident: ApiResident | null = null
               if (resident.jabatan && !resident.household_id) {
-                updatedResident = await updateSpecialResident(pair.accessToken, resident.id, {
+                const specialBody: Record<string, unknown> = {
                   full_name: editForm.fullName.trim(),
                   nik: editForm.nik.trim() || undefined,
                   phone: editForm.phone.trim() || undefined,
                   email: editForm.email.trim() || undefined,
                   jabatan: resident.jabatan as 'keamanan' | 'operasional' | 'kebersihan',
                   is_active: editForm.isActive,
-                })
+                }
+                if (editForm.password.trim()) {
+                  specialBody.password = editForm.password.trim()
+                }
+                updatedResident = await updateSpecialResident(pair.accessToken, resident.id, specialBody)
               } else {
                 updatedResident = await updateResident(pair.accessToken, resident.id, {
                   full_name: editForm.fullName.trim(),
@@ -617,7 +714,7 @@ export function ResidentDetail() {
               </div>
             )}
 
-            {/* Kata Sandi Baru (Opsional) */}
+            {/* Kata Sandi Baru (Opsional) — selalu kosong saat dibuka; kosong = tidak ubah */}
             <div className="sf-form-field">
               <label className="sf-form-label" htmlFor="edit-password">
                 <LockOutlined style={{ marginRight: 4 }} />
@@ -628,6 +725,7 @@ export function ResidentDetail() {
                 className="sf-form-input"
                 type="password"
                 placeholder="Kosongkan jika tidak ingin mengubah kata sandi"
+                autoComplete="new-password"
                 value={editForm.password}
                 onChange={(e) => setEditForm((prev) => ({ ...prev, password: e.target.value }))}
                 disabled={saving}

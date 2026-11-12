@@ -61,10 +61,10 @@ type CreateHouseholdInput struct {
 	Email           *string         `json:"email,omitempty"`
 	Address         *string         `json:"address,omitempty"`
 	OccupancyStatus OccupancyStatus `json:"occupancy_status"`
-	StartDate       *string         `json:"start_date,omitempty"`   // YYYY-MM-DD
-	EndDate         *string         `json:"end_date,omitempty"`     // YYYY-MM-DD
-	MoveInDate      *string         `json:"move_in_date,omitempty"` // YYYY-MM-DD
-	MoveOutDate     *string         `json:"move_out_date,omitempty"`// YYYY-MM-DD
+	StartDate       *string         `json:"start_date,omitempty"`    // YYYY-MM-DD
+	EndDate         *string         `json:"end_date,omitempty"`      // YYYY-MM-DD
+	MoveInDate      *string         `json:"move_in_date,omitempty"`  // YYYY-MM-DD
+	MoveOutDate     *string         `json:"move_out_date,omitempty"` // YYYY-MM-DD
 	IsActive        *bool           `json:"is_active,omitempty"`
 	Password        *string         `json:"password,omitempty"`
 }
@@ -98,27 +98,28 @@ type MoveHouseholdInput struct {
 
 // Resident represents a resident linked to a household.
 type Resident struct {
-	ID          string    `json:"id"`
-	RTID        string    `json:"rt_id"`
-	HouseholdID *string   `json:"household_id,omitempty"`
-	FullName    string    `json:"full_name"`
-	Phone       *string   `json:"phone,omitempty"`
-	Nik         *string   `json:"nik,omitempty"`
-	Email       *string   `json:"email,omitempty"`
-	StartDate   *string   `json:"start_date,omitempty"` // YYYY-MM-DD
-	EndDate     *string   `json:"end_date,omitempty"`   // YYYY-MM-DD
-	MoveInDate  *string   `json:"move_in_date,omitempty"`
-	MoveOutDate *string   `json:"move_out_date,omitempty"`
-	IsActive    bool      `json:"is_active"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	RTNumber    *string   `json:"rt_number,omitempty"`
-	RW          *int      `json:"rw,omitempty"`
-	RTName      *string   `json:"rt_name,omitempty"`
-	UserID      *string   `json:"user_id,omitempty"`
-	Jabatan     *string   `json:"jabatan,omitempty"`
+	ID              string    `json:"id"`
+	RTID            string    `json:"rt_id"`
+	HouseholdID     *string   `json:"household_id,omitempty"`
+	FullName        string    `json:"full_name"`
+	Phone           *string   `json:"phone,omitempty"`
+	Nik             *string   `json:"nik,omitempty"`
+	Email           *string   `json:"email,omitempty"`
+	StartDate       *string   `json:"start_date,omitempty"` // YYYY-MM-DD
+	EndDate         *string   `json:"end_date,omitempty"`   // YYYY-MM-DD
+	MoveInDate      *string   `json:"move_in_date,omitempty"`
+	MoveOutDate     *string   `json:"move_out_date,omitempty"`
+	IsActive        bool      `json:"is_active"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	RTNumber        *string   `json:"rt_number,omitempty"`
+	RW              *int      `json:"rw,omitempty"`
+	RTName          *string   `json:"rt_name,omitempty"`
+	UserID          *string   `json:"user_id,omitempty"`
+	Jabatan         *string   `json:"jabatan,omitempty"`
 	OccupancyStatus *string   `json:"occupancy_status,omitempty"`
-	HouseNumber    *string   `json:"house_number,omitempty"`
+	HouseNumber     *string   `json:"house_number,omitempty"`
+	AvatarPath      *string   `json:"avatar_path,omitempty"`
 }
 
 // CreateResidentInput holds the fields for creating a new resident.

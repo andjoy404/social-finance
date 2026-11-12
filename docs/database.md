@@ -1016,3 +1016,206 @@ Indexes:
 - `idx_reset_codes_rt_id (rt_id)`
 - `idx_reset_codes_active (user_id, expires_at) WHERE used_at IS NULL`
 
+---
+
+## 15. Security Attendance Module (Migration 077)
+
+All Security Attendance tables are RT-scoped (`rt_id` FK -> `rts(id)` ON DELETE RESTRICT). Shift schedules and attendance records store immutable shift snapshots (`shift_version`, times, tolerances, computed WIB boundaries) so editing shift configurations only affects future schedules/attendance and never alters historical records.
+
+### 15.1 `security_devices` — Registered Security Pos Devices
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Device identifier |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE RESTRICT | Bound RT tenant |
+| `device_name` | `text` | NOT NULL | Human-readable pos device name |
+| `location_label` | `text` | NOT NULL, default `'Pos Keamanan Utama'` | Guard post location label |
+| `activation_code_hash` | `text` | NULL | SHA-256 hash of single-use pairing secret |
+| `activation_expires_at` | `timestamptz` | NULL | Pairing token expiration |
+| `token_hash` | `text` | NULL | SHA-256 hash of active device access credential |
+| `is_active` | `boolean` | NOT NULL, default `true` | Active/revoked state |
+| `activated_at` | `timestamptz` | NULL | First successful activation timestamp |
+| `last_active_at` | `timestamptz` | NULL | Latest authenticated device heartbeat/request |
+| `revoked_at` | `timestamptz` | NULL | Revocation timestamp |
+| `revoked_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Revoking administrator |
+| `created_by` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Provisioning administrator |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Indexes:
+- `idx_security_devices_rt_active (rt_id, is_active)`
+- `uniq_security_devices_token_hash UNIQUE (token_hash) WHERE token_hash IS NOT NULL`
+
+### 15.2 `security_shift_configs` — Flexible Shift Definitions (N Shifts)
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Shift config ID |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE RESTRICT | RT tenant |
+| `name` | `text` | NOT NULL | Shift display name |
+| `start_time` | `time` | NOT NULL | Shift start time (Asia/Jakarta wall clock) |
+| `end_time` | `time` | NOT NULL | Shift end time (Asia/Jakarta wall clock) |
+| `crosses_midnight` | `boolean` | NOT NULL, default `false` | True when shift crosses midnight |
+| `lateness_tolerance_minutes` | `int` | NOT NULL, default `15`, CHECK `0..180` | Tolerance before marked `terlambat` |
+| `check_in_window_before_minutes` | `int` | NOT NULL, default `60`, CHECK `0..360` | Minutes before start when check-in opens |
+| `check_in_window_after_minutes` | `int` | NOT NULL, default `120`, CHECK `0..480` | Minutes after start when check-in remains open |
+| `absent_cutoff_minutes` | `int` | NOT NULL, default `120`, CHECK `0..480` | Minutes after start before scheduler marks `tidak_hadir` |
+| `missing_checkout_cutoff_minutes` | `int` | NOT NULL, default `180`, CHECK `0..720` | Minutes after end before scheduler marks `belum_absen_pulang` |
+| `version` | `int` | NOT NULL, default `1`, CHECK `version >= 1` | Incremented on every update for historical immutability |
+| `is_active` | `boolean` | NOT NULL, default `true` | Active toggle |
+| `created_by` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | |
+| `updated_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Indexes:
+- `uniq_security_shift_configs_rt_name_active UNIQUE (rt_id, LOWER(name)) WHERE is_active = true`
+- `idx_security_shift_configs_rt_active (rt_id, is_active)`
+
+### 15.3 `security_schedules` — Officer Shift Assignments
+
+Migration 078 adds `assignment_id`, `assignment_start_date`, and `assignment_end_date` to this daily schedule table. One assignment period is represented by one row per local shift date; `security_schedules` remains the sole source of truth, while `security_attendance_records` remains one-to-one with each daily row. Create/edit and attendance initialization are transactional. Existing records migrate as one-day assignments.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Daily schedule ID |
+| `assignment_id` | `uuid` | NOT NULL | Shared identifier grouping daily rows for a multi-date assignment |
+| `assignment_start_date` | `date` | NOT NULL | Inclusive assignment start date |
+| `assignment_end_date` | `date` | NOT NULL | Inclusive assignment end date |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE RESTRICT | RT tenant |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Assigned security officer |
+| `membership_id` | `uuid` | NOT NULL, FK → `user_rt_memberships.id` ON DELETE RESTRICT | Active officer RT membership |
+| `shift_config_id` | `uuid` | NOT NULL, FK → `security_shift_configs.id` ON DELETE RESTRICT | Source shift template |
+| `shift_version` | `int` | NOT NULL, default `1` | Snapshot shift version |
+| `shift_date` | `date` | NOT NULL | Shift start calendar date (`Asia/Jakarta`) |
+| `shift_name_snapshot` | `text` | NOT NULL | Immutable shift name snapshot |
+| `start_time_snapshot` | `time` | NOT NULL | Immutable start time snapshot |
+| `end_time_snapshot` | `time` | NOT NULL | Immutable end time snapshot |
+| `crosses_midnight_snapshot` | `boolean` | NOT NULL, default `false` | Immutable midnight-crossing flag |
+| `lateness_tolerance_minutes` | `int` | NOT NULL | Snapshot tolerance |
+| `check_in_window_before_minutes` | `int` | NOT NULL | Snapshot check-in open offset |
+| `check_in_window_after_minutes` | `int` | NOT NULL | Snapshot check-in close offset |
+| `absent_cutoff_minutes` | `int` | NOT NULL | Snapshot absent cutoff |
+| `missing_checkout_cutoff_minutes` | `int` | NOT NULL | Snapshot missing checkout cutoff |
+| `scheduled_start_at` | `timestamptz` | NOT NULL | Exact UTC/WIB instant for shift start |
+| `scheduled_end_at` | `timestamptz` | NOT NULL | Exact UTC/WIB instant for shift end |
+| `notes` | `text` | NULL | Optional schedule notes |
+| `status` | `text` | NOT NULL, default `'scheduled'`, CHECK IN `('scheduled', 'cancelled')` | Lifecycle state |
+| `created_by` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | |
+| `updated_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+Indexes:
+- `uniq_security_schedules_active_slot UNIQUE (rt_id, user_id, shift_date, shift_config_id) WHERE status = 'scheduled'`
+- `idx_security_schedules_rt_date (rt_id, shift_date, status)`
+- `idx_security_schedules_user_window (user_id, scheduled_start_at, scheduled_end_at)`
+
+### 15.4 `security_shift_swaps` — Two-Step Shift Swap Requests
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Swap request ID |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE RESTRICT | RT tenant |
+| `requester_user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Proposing officer |
+| `target_user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Counterpart officer |
+| `requester_schedule_id` | `uuid` | NOT NULL, FK → `security_schedules.id` ON DELETE RESTRICT | Requester's shift |
+| `target_schedule_id` | `uuid` | NOT NULL, FK → `security_schedules.id` ON DELETE RESTRICT | Target officer's shift |
+| `reason` | `text` | NOT NULL | Swap reason |
+| `status` | `text` | NOT NULL, default `'pending_target'`, CHECK IN `('pending_target', 'rejected_target', 'pending_ketua', 'approved', 'rejected_ketua', 'cancelled')` | Workflow state |
+| `target_responded_at` | `timestamptz` | NULL | Target officer response timestamp |
+| `target_note` | `text` | NULL | Optional target officer note |
+| `ketua_decided_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Ketua RT / Super Admin final approver |
+| `ketua_decided_at` | `timestamptz` | NULL | Final decision timestamp |
+| `ketua_note` | `text` | NULL | Optional approval/rejection note |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+### 15.5 `security_qr_tokens` — Dynamic Single-Use QR Tokens
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Token ID |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE RESTRICT | Bound RT |
+| `device_id` | `uuid` | NOT NULL, FK → `security_devices.id` ON DELETE RESTRICT | Issuing Pos device |
+| `token_hash` | `text` | NOT NULL, UNIQUE | SHA-256 hash of raw QR token |
+| `expires_at` | `timestamptz` | NOT NULL | Server expiry (`Asia/Jakarta` UTC instant) |
+| `used_at` | `timestamptz` | NULL | Populated atomically via `SELECT ... FOR UPDATE` on first consume |
+| `used_by_user_id` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Officer who redeemed the token |
+| `used_for_action` | `text` | NULL, CHECK IN `('check_in', 'check_out')` | Redemption action |
+| `invalidated_at` | `timestamptz` | NULL | Set if device revoked before expiration |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+### 15.6 `security_attendance_records` — Immutable Attendance Ledger
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Attendance record ID |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE RESTRICT | RT tenant |
+| `schedule_id` | `uuid` | NOT NULL, UNIQUE, FK → `security_schedules.id` ON DELETE RESTRICT | One record per schedule |
+| `user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Officer |
+| `shift_config_id` | `uuid` | NOT NULL, FK → `security_shift_configs.id` ON DELETE RESTRICT | Shift reference |
+| `shift_version` | `int` | NOT NULL | Snapshot version |
+| `shift_date` | `date` | NOT NULL | Shift start date (`Asia/Jakarta`) |
+| `status` | `text` | NOT NULL, default `'belum_hadir'`, CHECK IN `('belum_hadir', 'hadir', 'terlambat', 'sudah_absen_pulang', 'tidak_hadir', 'belum_absen_pulang')` | Current attendance state |
+| `arrival_status` | `text` | NULL, CHECK IN `('hadir', 'terlambat')` | Preserved arrival punctuality after checkout |
+| `late_minutes` | `int` | NOT NULL, default `0`, CHECK `late_minutes >= 0` | Minutes late past start + tolerance |
+| `check_in_device_id` | `uuid` | NULL, FK → `security_devices.id` ON DELETE SET NULL | Pos device used for check-in |
+| `check_out_device_id` | `uuid` | NULL, FK → `security_devices.id` ON DELETE SET NULL | Pos device used for check-out |
+| `check_in_qr_token_id` | `uuid` | NULL, FK → `security_qr_tokens.id` ON DELETE SET NULL | Redeemed check-in QR token |
+| `check_out_qr_token_id` | `uuid` | NULL, FK → `security_qr_tokens.id` ON DELETE SET NULL | Redeemed check-out QR token |
+| `checked_in_at` | `timestamptz` | NULL | Authoritative server check-in time |
+| `checked_out_at` | `timestamptz` | NULL | Authoritative server check-out time |
+| `marked_absent_at` | `timestamptz` | NULL | Scheduler timestamp when marked `tidak_hadir` |
+| `marked_missing_checkout_at` | `timestamptz` | NULL | Scheduler timestamp when marked `belum_absen_pulang` |
+| `correction_locked` | `boolean` | NOT NULL, default `false` | Prevents scheduler from overwriting an approved correction |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+### 15.7 `security_attendance_corrections` — Maker-Checker Attendance Corrections
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Correction ID |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE RESTRICT | RT tenant |
+| `attendance_record_id` | `uuid` | NOT NULL, FK → `security_attendance_records.id` ON DELETE RESTRICT | Target attendance record |
+| `schedule_id` | `uuid` | NOT NULL, FK → `security_schedules.id` ON DELETE RESTRICT | Associated schedule |
+| `officer_user_id` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Subject officer |
+| `requested_by` | `uuid` | NOT NULL, FK → `users.id` ON DELETE RESTRICT | Submitter |
+| `request_type` | `text` | NOT NULL, CHECK IN `('status_change', 'time_adjustment', 'manual_check_in', 'manual_check_out')` | Correction kind |
+| `original_status` | `text` | NOT NULL | Original status before correction |
+| `original_checked_in_at` | `timestamptz` | NULL | Original check-in time |
+| `original_checked_out_at` | `timestamptz` | NULL | Original check-out time |
+| `requested_status` | `text` | NOT NULL, CHECK IN `('belum_hadir', 'hadir', 'terlambat', 'sudah_absen_pulang', 'tidak_hadir', 'belum_absen_pulang')` | Requested final status |
+| `requested_checked_in_at` | `timestamptz` | NULL | Requested check-in time |
+| `requested_checked_out_at` | `timestamptz` | NULL | Requested check-out time |
+| `reason` | `text` | NOT NULL | Mandatory justification |
+| `status` | `text` | NOT NULL, default `'pending'`, CHECK IN `('pending', 'approved', 'rejected')` | Approval status |
+| `decided_by` | `uuid` | NULL, FK → `users.id` ON DELETE SET NULL | Approver (`decided_by != requested_by`) |
+| `decided_at` | `timestamptz` | NULL | Decision timestamp |
+| `decision_note` | `text` | NULL | Approver remarks |
+| `final_status` | `text` | NULL | Applied final status when approved |
+| `final_checked_in_at` | `timestamptz` | NULL | Applied final check-in time when approved |
+| `final_checked_out_at` | `timestamptz` | NULL | Applied final check-out time when approved |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+### 15.8 `security_guest_books` — Security Pos Guest Book
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PK, default `gen_random_uuid()` | Entry ID |
+| `rt_id` | `uuid` | NOT NULL, FK → `rts.id` ON DELETE RESTRICT | Bound RT |
+| `device_id` | `uuid` | NOT NULL, FK → `security_devices.id` ON DELETE RESTRICT | Check-in Pos device |
+| `guest_name` | `text` | NOT NULL | Visitor name |
+| `phone` | `text` | NULL | Visitor contact number (PII-protected in logs/masked where appropriate) |
+| `purpose` | `text` | NOT NULL | Visit purpose |
+| `host_household_id` | `uuid` | NULL, FK → `household_occupancies.id` ON DELETE SET NULL | Optional visited household |
+| `destination_label` | `text` | NOT NULL | Destination house/person |
+| `vehicle_plate` | `text` | NULL | Optional plate number |
+| `notes` | `text` | NULL | Optional remarks |
+| `checked_in_at` | `timestamptz` | NOT NULL, default `now()` | Check-in timestamp |
+| `checked_out_at` | `timestamptz` | NULL | Check-out timestamp |
+| `checkout_device_id` | `uuid` | NULL, FK → `security_devices.id` ON DELETE SET NULL | Check-out Pos device |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | |

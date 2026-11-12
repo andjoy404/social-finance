@@ -52,7 +52,7 @@ HomeDashboardData _dataWithBanner({String? imageUrl}) {
     security: const SecurityOnDutyInfo(
       isAvailable: false,
       officers: [],
-      message: 'Belum ada petugas aktif / jadwal shift saat ini',
+      message: 'Tidak ada petugas keamanan yang sedang bertugas.',
       subtext: '',
     ),
     organization: const OrganizationStructure(),

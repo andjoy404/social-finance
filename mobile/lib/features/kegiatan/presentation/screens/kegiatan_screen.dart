@@ -17,6 +17,7 @@ import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/dashboard/data/community_repository.dart';
 import 'package:social_finance/features/dashboard/data/models/community_models.dart';
+import 'package:social_finance/core/widgets/accent_action_fab.dart';
 
 class KegiatanScreen extends ConsumerStatefulWidget {
   final bool loadInTest;
@@ -126,10 +127,10 @@ class _KegiatanScreenState extends ConsumerState<KegiatanScreen> {
         title: const MenuAppBarTitle(title: 'Kegiatan Warga'),
       ),
       floatingActionButton: canManage
-          ? FloatingActionButton.extended(
+          ? AccentActionFab(
+              tooltip: 'Tambah Kegiatan',
+              icon: Icons.event_outlined,
               onPressed: () => _showCreateActivityDialog(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Tambah Kegiatan'),
             )
           : null,
       body: RefreshIndicator(

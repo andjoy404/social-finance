@@ -275,6 +275,7 @@ func getRWSecurityDBState(t *testing.T, pool *database.Pool, rwID string, locIDs
 //   - Super Admin sends HTTP POST mutation to RW B's transfer and transaction endpoints.
 //   - Both requests MUST return 403 Forbidden.
 //   - RW B's database state (transactions, transfers, mutations, balances) remains untouched.
+//
 // -----------------------------------------------------------------------------
 func TestSecurity_SuperAdminOutOfScopeMutationBlocked(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -357,6 +358,7 @@ func TestSecurity_SuperAdminOutOfScopeMutationBlocked(t *testing.T) {
 //   - Bendahara sends HTTP POST reversal to RW B's router endpoint -> 403 Forbidden.
 //   - Bendahara sends HTTP POST reversal to RW A's endpoint using RW B's transfer ID -> 404 Not Found.
 //   - RW B's original transfer, mutations, and location balances remain strictly unchanged.
+//
 // -----------------------------------------------------------------------------
 func TestSecurity_CrossRWReversalBlocked(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -436,6 +438,7 @@ func TestSecurity_CrossRWReversalBlocked(t *testing.T) {
 //   - Sends HTTP POST reversal -> 403 Forbidden.
 //   - Zero side effects: no transfers created, no reversal records inserted.
 //   - Positive control: Wakil Ketua sends HTTP POST kas transaction (finance.create) -> 201 Created.
+//
 // -----------------------------------------------------------------------------
 func TestSecurity_WakilKetuaDirectHTTPMutationBlocked(t *testing.T) {
 	pool := testutil.GetTestPool(t)

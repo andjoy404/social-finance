@@ -481,23 +481,24 @@ func FindRTDetailsByID(ctx context.Context, tx *sql.Tx, rtID string) (name strin
 
 // UserForMe returns user info plus their active RT details for the /me endpoint.
 type UserForMe struct {
-	ID                   string          `json:"id"`
-	Fullname             string          `json:"full_name"`
-	Email                string          `json:"email"` // NOT NULL after migration
-	Phone                *string         `json:"phone,omitempty"`
-	HouseNumber          *string         `json:"house_number,omitempty"`
-	TenantRole           Role            `json:"role"`
-	SystemRole           string          `json:"system_role,omitempty"` // "super_admin" if present
-	Jabatan              *string         `json:"jabatan"`               // RT organizational position, null if not assigned
-	EffectivePermissions []string        `json:"effective_permissions"`
-	RTID                 string          `json:"rt_id"`
-	RTName               string          `json:"rt_name"`
-	RT_rw                int             `json:"rt_rw"`
-	RT_rt                string          `json:"rt_rt"`
-	RW                   int             `json:"rw"`
-	RWID                 *string         `json:"rw_id,omitempty"`
-	RWName               *string         `json:"rw_name,omitempty"`
-	RWMemberships        []RWMembership  `json:"rw_memberships,omitempty"`
+	ID                   string         `json:"id"`
+	Fullname             string         `json:"full_name"`
+	Email                string         `json:"email"` // NOT NULL after migration
+	Phone                *string        `json:"phone,omitempty"`
+	HouseNumber          *string        `json:"house_number,omitempty"`
+	AvatarPath           *string        `json:"avatar_path,omitempty"`
+	TenantRole           Role           `json:"role"`
+	SystemRole           string         `json:"system_role,omitempty"` // "super_admin" if present
+	Jabatan              *string        `json:"jabatan"`               // RT organizational position, null if not assigned
+	EffectivePermissions []string       `json:"effective_permissions"`
+	RTID                 string         `json:"rt_id"`
+	RTName               string         `json:"rt_name"`
+	RT_rw                int            `json:"rt_rw"`
+	RT_rt                string         `json:"rt_rt"`
+	RW                   int            `json:"rw"`
+	RWID                 *string        `json:"rw_id,omitempty"`
+	RWName               *string        `json:"rw_name,omitempty"`
+	RWMemberships        []RWMembership `json:"rw_memberships,omitempty"`
 }
 
 // GetProfile returns user info plus their active RT details for the /me endpoint.
@@ -505,7 +506,7 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	query := `
 		SELECT u.id, u.full_name, u.email, u.phone, u.system_role, urm.role,
 			urm.jabatan, rt.id, rt.name, rt.rw, rt.rt, rt.rw_id, w.name AS rw_name,
-			h.house_number
+			h.house_number, avatar.avatar_path
 		FROM users u
 		JOIN user_rt_memberships urm ON urm.id = $2
 		JOIN rts rt ON rt.id = urm.rt_id
@@ -527,6 +528,20 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 			ORDER BY CASE WHEN r.user_id = u.id THEN 0 ELSE 1 END, ho.created_at DESC
 			LIMIT 1
 		) h ON true
+		LEFT JOIN LATERAL (
+			SELECT r.avatar_path
+			FROM residents r
+			WHERE (
+				r.user_id = u.id
+				OR (u.email IS NOT NULL AND u.email != '' AND lower(trim(r.email)) = lower(trim(u.email)))
+				OR (u.phone IS NOT NULL AND u.phone != '' AND (
+					r.phone = u.phone
+					OR regexp_replace(r.phone, '^(\+62|62|0)', '') = regexp_replace(u.phone, '^(\+62|62|0)', '')
+				))
+			) AND r.rt_id = rt.id AND r.is_active = true
+			ORDER BY CASE WHEN r.user_id = u.id THEN 0 ELSE 1 END, r.updated_at DESC
+			LIMIT 1
+		) avatar ON true
 		WHERE u.id = $1 AND u.is_active = true
 		AND urm.is_active = true AND rt.is_active = true
 		LIMIT 1
@@ -536,10 +551,11 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	var jabatanStr sql.NullString
 	var roleStr string
 	var houseNum sql.NullString
+	var avatarPath sql.NullString
 	err := tx.QueryRowContext(ctx, query, userID, membershipID).Scan(
 		&u.ID, &u.Fullname, &u.Email, &u.Phone, &sysRole,
 		&roleStr, &jabatanStr, &u.RTID, &u.RTName, &u.RT_rw, &u.RT_rt,
-		&u.RWID, &u.RWName, &houseNum,
+		&u.RWID, &u.RWName, &houseNum, &avatarPath,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -559,6 +575,10 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	if houseNum.Valid && strings.TrimSpace(houseNum.String) != "" {
 		hn := strings.TrimSpace(houseNum.String)
 		u.HouseNumber = &hn
+	}
+	if avatarPath.Valid && strings.TrimSpace(avatarPath.String) != "" {
+		av := strings.TrimSpace(avatarPath.String)
+		u.AvatarPath = &av
 	}
 
 	// Load all active RW memberships for this user.

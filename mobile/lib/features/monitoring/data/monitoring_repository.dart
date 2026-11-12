@@ -11,9 +11,12 @@ class MonitoringRepository {
 
   MonitoringRepository({required this.apiClient});
 
-  Future<MonitoringListResponse> fetchMonitoringHouseholds(String rtId) async {
+  Future<MonitoringListResponse> fetchMonitoringHouseholds(
+    String rtId, {
+    bool readOnly = false,
+  }) async {
     try {
-      return await apiClient.getMonitoringHouseholds(rtId);
+      return await apiClient.getMonitoringHouseholds(rtId, readOnly: readOnly);
     } catch (e) {
       throw _handleError(e);
     }
@@ -95,7 +98,8 @@ class MonitoringRepository {
       }
       return ServerException(
         statusCode: status ?? 500,
-        message: 'Gagal memproses permintaan monitoring (${status ?? "koneksi"}).',
+        message:
+            'Gagal memproses permintaan monitoring (${status ?? "koneksi"}).',
       );
     }
     return ServerException(message: 'Terjadi kesalahan tidak terduga.');
@@ -114,6 +118,6 @@ final monitoringRepositoryProvider = Provider<MonitoringRepository>((ref) {
 
 final monitoringHouseholdsProvider =
     FutureProvider.family<MonitoringListResponse, String>((ref, rtId) async {
-  final repo = ref.watch(monitoringRepositoryProvider);
-  return repo.fetchMonitoringHouseholds(rtId);
-});
+      final repo = ref.watch(monitoringRepositoryProvider);
+      return repo.fetchMonitoringHouseholds(rtId);
+    });

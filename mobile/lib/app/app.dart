@@ -55,6 +55,12 @@ import '../features/notification/presentation/screens/notification_detail_screen
 import '../features/notification/presentation/screens/notification_management_screen.dart';
 import '../features/notification/presentation/screens/security_waste_truck_screen.dart';
 import '../features/monitoring/presentation/screens/monitoring_screen.dart';
+import '../features/security/presentation/providers/security_providers.dart';
+import '../features/security/presentation/screens/pos_activation_screen.dart';
+import '../features/security/presentation/screens/pos_kiosk_screen.dart';
+import '../features/security/presentation/screens/security_absen_screen.dart';
+import '../features/security/presentation/screens/security_management_screen.dart';
+import '../features/security/presentation/screens/security_guest_book_screen.dart';
 
 /// Normalizes a notification deep link and/or FCM data payload into a valid
 /// internal GoRouter destination path.
@@ -280,9 +286,15 @@ class App extends ConsumerStatefulWidget {
 
 class _RouterRefreshNotifier extends ChangeNotifier {
   bool _lastLoggedIn = false;
+  bool _lastPosPaired = false;
 
   void update(bool isLoggedIn) {
     _lastLoggedIn = isLoggedIn;
+    notifyListeners();
+  }
+
+  void updatePos(bool isPosPaired) {
+    _lastPosPaired = isPosPaired;
     notifyListeners();
   }
 }
@@ -310,6 +322,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
       GlobalKey<ScaffoldMessengerState>();
   ProviderSubscription<AsyncValue<Map<String, dynamic>?>?>? _authSubscription;
+  ProviderSubscription<PosSessionState>? _posSubscription;
   StreamSubscription? _foregroundSub;
   StreamSubscription? _messageOpenedSub;
   StreamSubscription? _nativeTappedSub;
@@ -488,9 +501,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     _refreshNotifier = _RouterRefreshNotifier();
     final initialAuth = ref.read(authRepositoryProvider);
     _refreshNotifier._lastLoggedIn = initialAuth?.valueOrNull != null;
+    _refreshNotifier._lastPosPaired = ref.read(posSessionProvider).isPaired;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(authRepositoryProvider.notifier).restoreSession();
+      ref.read(posSessionProvider.notifier).restoreSession();
       final notifService = ref.read(pushNotificationServiceProvider);
       notifService.getInitialNativeNotificationPayload().then((payload) {
         if (payload != null && payload.isNotEmpty) {
@@ -716,11 +731,31 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       },
     );
 
+    _posSubscription = ref.listenManual<PosSessionState>(posSessionProvider, (
+      previous,
+      next,
+    ) {
+      if (next.isPaired != _refreshNotifier._lastPosPaired) {
+        _refreshNotifier.updatePos(next.isPaired);
+      }
+    });
+
     _router = GoRouter(
-      initialLocation: _refreshNotifier._lastLoggedIn ? '/home' : '/login',
+      initialLocation: _refreshNotifier._lastPosPaired
+          ? '/pos'
+          : (_refreshNotifier._lastLoggedIn ? '/home' : '/login'),
       debugLogDiagnostics: true,
       refreshListenable: _refreshNotifier,
       redirect: (context, state) {
+        final posPaired = ref.read(posSessionProvider).isPaired;
+        final loc = state.matchedLocation;
+        if (posPaired) {
+          if (loc != '/pos') return '/pos';
+          return null;
+        }
+        if (loc == '/pos') {
+          return '/pos/activate';
+        }
         final authState = ref.read(authRepositoryProvider);
         final loggedIn = authState?.valueOrNull != null;
         if (loggedIn && _pendingDeepLink != null) {
@@ -730,16 +765,36 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           final user = authState?.valueOrNull;
           return _resolveAuthorizedTarget(pending, user);
         }
-        if (!loggedIn && state.matchedLocation != '/login') {
+        if (!loggedIn && loc != '/login' && loc != '/pos/activate') {
           return '/login';
         }
         if (loggedIn) {
           final user = authState?.valueOrNull;
-          final loc = state.matchedLocation;
           final jabatan = (user?['jabatan'] ?? '')
               .toString()
               .trim()
               .toLowerCase();
+          if (loc == '/pos/activate') return '/home';
+          if (loc == '/home/absen' && jabatan != 'keamanan') {
+            return '/home';
+          }
+          final perms =
+              (user?['effective_permissions'] as List?)
+                  ?.whereType<String>()
+                  .toSet() ??
+              <String>{};
+          if (loc == '/home/security-management' &&
+              !perms.contains('security.schedule.read') &&
+              !perms.contains('security.schedule.write') &&
+              !perms.contains('security.device.manage') &&
+              !perms.contains('security.correction') &&
+              !perms.contains('security.guest_book')) {
+            return '/home';
+          }
+          if (loc == '/home/security-guestbook' &&
+              !perms.contains('security.guest_book')) {
+            return '/home';
+          }
           final securityLanding = securityOfficerHomeRedirect(jabatan, loc);
           if (securityLanding != null) return securityLanding;
           final cleaningLanding = cleaningOfficerHomeRedirect(jabatan, loc);
@@ -849,6 +904,16 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           path: '/login',
           name: 'login',
           builder: (context, state) => const LoginScreen(),
+        ),
+        GoRoute(
+          path: '/pos/activate',
+          name: 'pos_activate',
+          builder: (context, state) => const PosActivationScreen(),
+        ),
+        GoRoute(
+          path: '/pos',
+          name: 'pos_kiosk',
+          builder: (context, state) => const PosKioskScreen(),
         ),
         GoRoute(
           path: '/notifications',
@@ -984,7 +1049,24 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
             GoRoute(
               path: '/home/monitoring',
               name: 'monitoring',
-              builder: (context, state) => const MonitoringScreen(),
+              builder: (context, state) => MonitoringScreen(
+                readOnly: state.uri.queryParameters['mode'] == 'read_only',
+              ),
+            ),
+            GoRoute(
+              path: '/home/absen',
+              name: 'security_absen',
+              builder: (context, state) => const SecurityAbsenScreen(),
+            ),
+            GoRoute(
+              path: '/home/security-management',
+              name: 'security_management',
+              builder: (context, state) => const SecurityManagementScreen(),
+            ),
+            GoRoute(
+              path: '/home/security-guestbook',
+              name: 'security_guestbook',
+              builder: (context, state) => const SecurityGuestBookScreen(),
             ),
             GoRoute(
               path: '/home/cash',
@@ -1202,6 +1284,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     _messageOpenedSub?.cancel();
     _nativeTappedSub?.cancel();
     _authSubscription?.close();
+    _posSubscription?.close();
     _router.dispose();
     _refreshNotifier.dispose();
     super.dispose();

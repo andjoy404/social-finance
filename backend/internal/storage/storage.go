@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	DefaultBucketName = "social-finance-payment-proofs"
+	DefaultBucketName  = "social-finance-payment-proofs"
 	DefaultMaxFileSize = 5 * 1024 * 1024 // 5 MB
 )
 
@@ -73,8 +73,8 @@ type S3Config struct {
 }
 
 type S3Storage struct {
-	client     *minio.Client
-	bucketName string
+	client      *minio.Client
+	bucketName  string
 	maxFileSize int64
 }
 
@@ -245,7 +245,7 @@ func (s *S3Storage) DeleteProof(ctx context.Context, key string) error {
 }
 
 func (s *S3Storage) UploadCommunityImage(ctx context.Context, rtID, category, filename string, r io.Reader, size int64) (*ObjectMetadata, error) {
-	if category != "activity" && category != "announcement" && category != "banner" {
+	if category != "activity" && category != "announcement" && category != "banner" && category != "profile" && category != "avatar" && category != "resident" {
 		category = "general"
 	}
 	if size <= 0 {

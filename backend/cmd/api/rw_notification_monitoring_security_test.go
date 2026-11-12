@@ -430,11 +430,11 @@ func createRTKebersihanUser(t *testing.T, pool *database.Pool, rtID string) (str
 		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	})
 	token, err := auth.GenerateAccessToken(auth.TokenClaims{
-		UserID:   userID,
-		MID:      mid,
-		RTID:     rtID,
-		Role:     string(auth.RolePengurus),
-		Jabatan:  string(auth.JabatanKebersihan),
+		UserID:  userID,
+		MID:     mid,
+		RTID:    rtID,
+		Role:    string(auth.RolePengurus),
+		Jabatan: string(auth.JabatanKebersihan),
 	})
 	if err != nil {
 		t.Fatalf("token: %v", err)
@@ -464,10 +464,10 @@ func createWargaUser(t *testing.T, pool *database.Pool, rtID string) (string, st
 		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	})
 	token, err := auth.GenerateAccessToken(auth.TokenClaims{
-		UserID: userID,
-		MID:    mid,
-		RTID:   rtID,
-		Role:   string(auth.RoleWarga),
+		UserID:  userID,
+		MID:     mid,
+		RTID:    rtID,
+		Role:    string(auth.RoleWarga),
 		Jabatan: "",
 	})
 	if err != nil {
@@ -501,14 +501,14 @@ func setupMonitoringData(t *testing.T, pool *database.Pool, rtID, createdBy stri
 	var houseID string
 	if err := db.QueryRowContext(ctx,
 		`INSERT INTO physical_houses (rt_id, house_number, is_active) VALUES ($1, $2, true) RETURNING id`,
-		rtID, fmt.Sprintf("MON-%d", n)).Scan(&houseID); err != nil {
+		rtID, fmt.Sprintf("MON-%d-%d", time.Now().UnixNano(), n)).Scan(&houseID); err != nil {
 		t.Fatalf("create physical house: %v", err)
 	}
 
 	var householdID string
 	if err := db.QueryRowContext(ctx,
 		`INSERT INTO households (rt_id, head_name, is_active) VALUES ($1, $2, true) RETURNING id`,
-		rtID, fmt.Sprintf("Monitoring Household %d", n)).Scan(&householdID); err != nil {
+		rtID, fmt.Sprintf("Monitoring Household %d-%d", time.Now().UnixNano(), n)).Scan(&householdID); err != nil {
 		t.Fatalf("create household: %v", err)
 	}
 
@@ -579,6 +579,34 @@ func monitoringNoteSnapshot(t *testing.T, pool *database.Pool, rtID, occupancyID
 	}
 	return note
 }
+
+// Ketua RT can use the separate read-only endpoint, but not the legacy notes-capable endpoint.
+func TestRWMonitoring_KetuaReadOnlyEndpointCannotMutate(t *testing.T) {
+	pool := testutil.GetTestPool(t)
+	rwID := createRWForNotifTest(t, pool)
+	_, router := setupRWNotifRouter(t, []string{rwID})
+	insertJabatanMonitoringPerms(t, pool, "ketua", "rw.monitoring.read")
+	_, token := createRTKetuaUser(t, pool, rwMonRTUrena)
+	occupancyID := setupMonitoringData(t, pool, rwMonRTUrena, "")
+	beforeCount := countMonitoringNotes(t, pool, rwMonRTUrena)
+	beforeNote := monitoringNoteSnapshot(t, pool, rwMonRTUrena, occupancyID)
+
+	read := doJSON(router, http.MethodGet, "/api/v1/rw/"+rwID+"/monitoring/read-only", token, nil)
+	if read.Code != http.StatusOK {
+		t.Fatalf("read-only GET status=%d body=%s", read.Code, read.Body.String())
+	}
+	write := doJSON(router, http.MethodPost, "/api/v1/rw/"+rwID+"/monitoring/notes/"+occupancyID, token, map[string]any{"note": "must not write"})
+	if write.Code != http.StatusForbidden {
+		t.Fatalf("Ketua write status=%d body=%s", write.Code, write.Body.String())
+	}
+	if count := countMonitoringNotes(t, pool, rwMonRTUrena); count != beforeCount {
+		t.Fatalf("read-only route side effect: note count %d -> %d", beforeCount, count)
+	}
+	if note := monitoringNoteSnapshot(t, pool, rwMonRTUrena, occupancyID); note != beforeNote {
+		t.Fatalf("read-only route changed note %q -> %q", beforeNote, note)
+	}
+}
+
 // Req 1: Kebersihan dengan permission rw.monitoring.read dapat membaca data RT sendiri.
 func TestRWMonitoring_KebersihanReadOwnRT(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -719,6 +747,7 @@ func TestRWMonitoring_CrossRTWriteDeniedDBUnchanged(t *testing.T) {
 		t.Fatalf("RT2 note mutated: before=%q after=%q", beforeNoteRT2, afterNote)
 	}
 }
+
 // Req 6a: Permission rw.monitoring.notes.write diperiksa pada endpoint notes (POST/PATCH).
 func TestRWMonitoring_NotesWritePermissionAllowed(t *testing.T) {
 	pool := testutil.GetTestPool(t)
@@ -815,9 +844,9 @@ func TestRWMonitoring_SuperAdminBypass(t *testing.T) {
 		_, _ = pool.Raw().ExecContext(context.Background(), `DELETE FROM users WHERE id = $1`, saUserID)
 	})
 	saToken, err := auth.GenerateAccessToken(auth.TokenClaims{
-		UserID: saUserID,
+		UserID:  saUserID,
 		SysRole: string(auth.SystemRoleSuperAdmin),
-		RTID:   rwMonRTUrena,
+		RTID:    rwMonRTUrena,
 	})
 	if err != nil {
 		t.Fatalf("SA token: %v", err)

@@ -77,12 +77,12 @@ class _HouseholdCreateScreenState extends ConsumerState<HouseholdCreateScreen> {
     setState(() => _rtLoading = true);
     try {
       final repo = ref.read(wargaRepositoryProvider);
+      // No client-side RT whitelist: the backend enforces active+scoped
+      // access (super-admin fail-closed on SCOPED_RT_IDS). Show all RTs;
+      // out-of-scope picks will be rejected server-side.
       final rts = await repo.fetchRts();
-      final filteredRts = rts
-          .where((r) => ['002', '003'].contains(r['rt'] as String?))
-          .toList();
       if (mounted) {
-        setState(() => _rtOptions = filteredRts);
+        setState(() => _rtOptions = rts);
       }
     } catch (e) {
       // Silently fail — RT selection not critical for non-superadmin

@@ -495,6 +495,7 @@ class AuthRepository extends StateNotifier<AsyncValue<Map<String, dynamic>?>?> {
       'system_role': user.systemRole,
       'jabatan': user.jabatan,
       'house_number': user.houseNumber,
+      'avatar_path': user.avatarPath,
       'effective_permissions': user.effectivePermissions,
       'profile_status':
           profileStatusOverride ??
@@ -776,12 +777,11 @@ final authRepositoryProvider =
       );
     });
 
-const allowedRTCodes = {'002', '003'};
-const allowedRTIds = {
-  'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b', // RT 002
-  '8dfa1e36-6727-45be-8fea-24d958efc155', // RT 003
-};
-
+// Coarse RT-membership gate used only for UX routing on mobile. The backend
+// enforces actual authorization (active RT, configured SCOPED_RT_IDS
+// fail-closed, jabatan and permission checks). Any authenticated user with an
+// RT membership is allowed to enter the RT-scoped area; the backend still
+// decides what they can do. No hardcoded RT list exists anymore.
 bool isAllowedRT(Map<String, dynamic>? user) {
   if (user == null) return false;
   final role = user['role'];
@@ -795,8 +795,8 @@ bool isAllowedRT(Map<String, dynamic>? user) {
     return true;
   }
   final rtCode = user['rt'] as String?;
-  if (rtCode != null && allowedRTCodes.contains(rtCode)) return true;
+  if (rtCode != null && rtCode.trim().isNotEmpty) return true;
   final rtId = user['rt_id'] as String?;
-  if (rtId != null && allowedRTIds.contains(rtId)) return true;
+  if (rtId != null && rtId.trim().isNotEmpty) return true;
   return false;
 }

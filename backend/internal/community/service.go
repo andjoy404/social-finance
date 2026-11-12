@@ -16,11 +16,11 @@ import (
 )
 
 var (
-	ErrValidation        = errors.New("validation error")
-	ErrNotFound          = errors.New("resource not found")
-	ErrUnauthorized      = errors.New("unauthorized")
-	ErrInvalidDeepLink   = errors.New("invalid deep link: must be an internal allowed path")
-	ErrTemplateNotFound  = errors.New("template not found")
+	ErrValidation       = errors.New("validation error")
+	ErrNotFound         = errors.New("resource not found")
+	ErrUnauthorized     = errors.New("unauthorized")
+	ErrInvalidDeepLink  = errors.New("invalid deep link: must be an internal allowed path")
+	ErrTemplateNotFound = errors.New("template not found")
 )
 
 var allowedDeepLinkPrefixes = []string{
@@ -36,10 +36,14 @@ var allowedDeepLinkPrefixes = []string{
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+// OnDutyReaderFunc injects live on-duty security officers from the security module without cyclic imports.
+type OnDutyReaderFunc func(ctx context.Context, rtID string) ([]SecurityOfficer, error)
+
 // Service provides business logic for community features.
 type Service struct {
-	repo    *Repository
-	storage storage.Service
+	repo         *Repository
+	storage      storage.Service
+	onDutyReader OnDutyReaderFunc
 }
 
 // NewService creates a new community Service.
@@ -48,6 +52,11 @@ func NewService(repo *Repository, store storage.Service) *Service {
 		repo:    repo,
 		storage: store,
 	}
+}
+
+// WithOnDutyReader attaches a security module reader for live on-duty officer status on Beranda.
+func (s *Service) WithOnDutyReader(fn OnDutyReaderFunc) {
+	s.onDutyReader = fn
 }
 
 // ValidateDeepLink ensures that a deep link is safe and internal.
@@ -115,11 +124,12 @@ func (s *Service) ListActivities(ctx context.Context, rtID, pubStatus, status st
 // activityDynamicStatus computes the PUBLIC execution status of an activity
 // at time now. Cancellation is explicit and takes priority; everything else
 // derives from starts_at/ends_at:
-//   upcoming  — starts_at in the future
-//   ongoing   — starts_at <= now < ends_at (or open-ended)
-//   completed — ends_at <= now (or starts_at <= now and no ends_at and ...
-//               handled by ongoing), i.e. ended in the past
-//   cancelled — explicit stored cancel
+//
+//	upcoming  — starts_at in the future
+//	ongoing   — starts_at <= now < ends_at (or open-ended)
+//	completed — ends_at <= now (or starts_at <= now and no ends_at and ...
+//	            handled by ongoing), i.e. ended in the past
+//	cancelled — explicit stored cancel
 func activityDynamicStatus(a *Activity, now time.Time) string {
 	if a.Status == "cancelled" {
 		return "cancelled"
@@ -744,7 +754,10 @@ func (s *Service) ArchiveAnnouncement(ctx context.Context, rtID, id, userID stri
 		return err
 	}
 	// Hide the banner but keep the row (publish history) intact.
-	if err := s.repo.DeactivateBannerBySource(ctx, tx, rtID, "announcement", id); err != nil {
+	// Permanent rows publish under 'iuran_reminder' — deactivate both slots.
+	if perm, errP := s.repo.IsPermanentAnnouncement(ctx, tx, rtID, id); errP == nil && perm {
+		_ = s.repo.DeactivateBannerBySource(ctx, tx, rtID, "iuran_reminder", id)
+	} else if err := s.repo.DeactivateBannerBySource(ctx, tx, rtID, "announcement", id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -757,6 +770,11 @@ func (s *Service) DeleteAnnouncement(ctx context.Context, rtID, id string) error
 	}
 	if existing == nil {
 		return ErrNotFound
+	}
+	// The permanent system default announcement is not deletable — it is part
+	// of every RT's managed experience and can only be toggled active/archived.
+	if existing.IsPermanent {
+		return fmt.Errorf("%w: pengumuman sistem default bersifat permanen dan tidak dapat dihapus", ErrValidation)
 	}
 	// Only drafts may be hard-deleted. Active/scheduled announcements must be
 	// archived instead so published history is preserved. Archived content
@@ -792,9 +810,16 @@ func (s *Service) syncAnnouncementBanner(ctx context.Context, tx *sql.Tx, an *An
 		}
 	}
 
+	sourceType := "announcement"
+	if an.IsPermanent {
+		// Permanent reminder flows through the iuran_reminder slot so it shares
+		// dedup semantics with banners generated for unpaid obligatory bills.
+		sourceType = "iuran_reminder"
+	}
+
 	b := Banner{
 		RTID:            an.RTID,
-		SourceType:      "announcement",
+		SourceType:      sourceType,
 		SourceID:        &an.ID,
 		TemplateID:      an.TemplateID,
 		Title:           an.Title,
@@ -848,8 +873,17 @@ func (s *Service) ListActiveBanners(ctx context.Context, rtID string) ([]Banner,
 	// It is merged into the banner list with the same ordering as DB banners
 	// (pinned, then priority) instead of being prepended, so it stays
 	// findable without permanently shadowing activity/announcement banners.
+	//
+	// When a permanent announcement exists for the RT (published or archived),
+	// skip synthesized banner injection — the permanent announcement owns the
+	// iuran_reminder slot through the standard publish flow.
+	hasPermanent, err := s.repo.PermanentAnnouncementExists(ctx, nil, rtID)
+	if err != nil {
+		hasPermanent = false
+	}
+
 	hasUnpaid, err := s.repo.HasUnpaidObligatoryBills(ctx, nil, rtID)
-	if err == nil && hasUnpaid {
+	if err == nil && hasUnpaid && !hasPermanent {
 		hasReminder := false
 		for _, b := range banners {
 			if b.SourceType == "iuran_reminder" {
@@ -937,11 +971,24 @@ func (s *Service) GetHomeDashboard(ctx context.Context, rtID, userFullName, user
 		greeting = "Selamat Malam"
 	}
 
-	// 5. Security on-duty info (Clean, un-faked empty state awaiting Security Module)
+	// 5. Security on-duty info (officers actually on duty now; backed by Security Attendance module)
 	securityInfo := SecurityOnDutyInfo{
 		IsAvailable: false,
-		Message:     "Belum ada petugas aktif / jadwal shift saat ini",
+		Message:     "Tidak ada petugas keamanan yang sedang bertugas.",
 		Officers:    []SecurityOfficer{},
+	}
+	if s.onDutyReader != nil {
+		if officers, err := s.onDutyReader(ctx, rtID); err == nil && len(officers) > 0 {
+			// Phone numbers are personal contact data: expose only to authorized viewers.
+			if !canViewContact {
+				for i := range officers {
+					officers[i].PhoneNumber = nil
+				}
+			}
+			securityInfo.IsAvailable = true
+			securityInfo.Message = "Petugas keamanan sedang bertugas."
+			securityInfo.Officers = officers
+		}
 	}
 
 	return &HomeDashboardData{

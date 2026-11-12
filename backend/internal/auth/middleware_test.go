@@ -1274,7 +1274,9 @@ func TestRequireAllowedRT(t *testing.T) {
 		t.Fatalf("token002 err: %v", err)
 	}
 
-	handler := RequireAuth(RequireAllowedRT(pool)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	cfg := ScopingConfig{RTIDs: []string{testUUID("rt-uuid-002"), testUUID("rt-uuid-003"), testUUID("rt-uuid-001")}, RWIDs: []string{}}
+
+	handler := RequireAuth(RequireAllowedRT(pool, cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})))
 
@@ -1317,7 +1319,8 @@ func TestRequireAllowedRT(t *testing.T) {
 		t.Errorf("tenant JWT RT should remain authoritative despite a different X-RT-ID, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 3. RT 004 NOT allowed -> 403
+	// 3. RT 004 — after removal of the hardcoded whitelist, any active RT a
+	// tenant owns via membership is permitted.
 	setupTenantIdentityWithRTCode(t, "user-rt004", "member-rt004", "rt-uuid-004", "test-rt004@example.com", "004", RoleBendahara, true)
 	claims004 := TokenClaims{
 		UserID: testUUID("user-rt004"),
@@ -1334,8 +1337,48 @@ func TestRequireAllowedRT(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token004)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("expected 403 for RT 004, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for RT 004 (tenant pinned by JWT), got %d", rec.Code)
+	}
+
+	// 3b. RT 001 — regression check for otherwise-unexpected codes.
+	setupTenantIdentityWithRTCode(t, "user-rt001", "member-rt001", "rt-uuid-001", "test-rt001@example.com", "001", RoleBendahara, true)
+	claims001 := TokenClaims{
+		UserID: testUUID("user-rt001"),
+		MID:    testUUID("member-rt001"),
+		RTID:   testUUID("rt-uuid-001"),
+		Role:   "bendahara",
+	}
+	token001, err := GenerateAccessToken(claims001)
+	if err != nil {
+		t.Fatalf("token001 err: %v", err)
+	}
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+token001)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for RT 001, got %d", rec.Code)
+	}
+
+	// 3c. Inactive RT -> denied (401/403; both fail-closed).
+	setupTenantIdentityWithRTCode(t, "user-inact", "member-inact", "rt-uuid-inact", "test-inact@example.com", "099", RoleBendahara, false)
+	claimsIn := TokenClaims{
+		UserID: testUUID("user-inact"),
+		MID:    testUUID("member-inact"),
+		RTID:   testUUID("rt-uuid-inact"),
+		Role:   "bendahara",
+	}
+	tokenIn, err := GenerateAccessToken(claimsIn)
+	if err != nil {
+		t.Fatalf("tokenIn err: %v", err)
+	}
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenIn)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden && rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 or 403 for inactive RT, got %d", rec.Code)
 	}
 
 	// 4. System-only super admin with no RTID is rejected on tenant routes
@@ -1367,7 +1410,8 @@ func TestRequireAllowedRT(t *testing.T) {
 		t.Errorf("expected 200 for super admin with allowed X-RT-ID, got %d", rec.Code)
 	}
 
-	// 6. Super admin with non-whitelisted RT via X-RT-ID is rejected
+	// 6. Super admin with X-RT-ID for an out-of-scope RT is rejected (fail-closed).
+	// rt-uuid-004 is NOT in the scoped handler's RTIDs list.
 	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
 	req.Header.Set("Authorization", "Bearer "+tokenSA)
 	req.Header.Set("X-RT-ID", testUUID("rt-uuid-004"))
@@ -1776,7 +1820,10 @@ func setupKetuaRTTestIdentity(t *testing.T, userID, membershipID, rtID string) (
 // readChain composes the exact middleware chain used by GET /api/v1/residents,
 // /api/v1/bills, and /api/v1/transactions so tests exercise the real protection.
 func readChain(pool *database.Pool, permission string, inner http.Handler) http.Handler {
-	return RequireAuth(RequireAllowedRT(pool)(RequirePermission(pool, permission)(RequireRole(RoleWarga, RoleBendahara, RolePengurus)(inner))))
+	// Tenant user: the RT scope is implicit to their own JWT membership.
+	// Empty scope would still allow tenant access (fail-open for tenant, deny for SA).
+	cfg := ScopingConfig{RTIDs: []string{testUUID("rt-krt-chain"), "a95c1cb5-2f67-4ea5-9197-bfec537b6d7b", "8dfa1e36-6727-45be-8fea-24d958efc155"}, RWIDs: []string{}}
+	return RequireAuth(RequireAllowedRT(pool, cfg)(RequirePermission(pool, permission)(RequireRole(RoleWarga, RoleBendahara, RolePengurus)(inner))))
 }
 
 func TestKetuaRTReadAccessChain(t *testing.T) {
@@ -1950,5 +1997,100 @@ func TestUnauthenticatedReadAccessDenied(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 for unauthenticated request, got %d", rec.Code)
+	}
+}
+
+// TestRequireAllowedRT_SuperAdminScopeFailClosed asserts that super admins
+// whose pinned RT is not in SCOPED_RT_IDS are denied (fail-closed).
+func TestRequireAllowedRT_SuperAdminScopeFailClosed(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	pool := testutil.GetTestPool(t)
+	oldPool := AuthDBPool
+	AuthDBPool = pool
+	t.Cleanup(func() { AuthDBPool = oldPool })
+
+	setupTenantIdentityWithRTCode(t, "user-sa-out", "member-sa-out", "rt-sa-out", "test-sa-out@example.com", "999", RoleBendahara, true)
+	claimsOut := TokenClaims{
+		UserID:  testUUID("user-sa-out"),
+		MID:     testUUID("member-sa-out"),
+		RTID:    testUUID("rt-sa-out"),
+		Role:    "bendahara",
+		SysRole: "super_admin",
+	}
+	tokenOut, err := GenerateAccessToken(claimsOut)
+	if err != nil {
+		t.Fatalf("tokenOut err: %v", err)
+	}
+
+	cfgOut := ScopingConfig{RTIDs: []string{testUUID("rt-sa-other")}, RWIDs: []string{}}
+	handlerOut := RequireAuth(RequireAllowedRT(pool, cfgOut)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	req := httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenOut)
+	rec := httptest.NewRecorder()
+	handlerOut.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for super_admin RT outside scope, got %d", rec.Code)
+	}
+
+	cfgOK := ScopingConfig{RTIDs: []string{testUUID("rt-sa-out")}, RWIDs: []string{}}
+	handlerOK := RequireAuth(RequireAllowedRT(pool, cfgOK)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenOut)
+	rec = httptest.NewRecorder()
+	handlerOK.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for super_admin RT inside scope, got %d", rec.Code)
+	}
+
+	cfgNil := ScopingConfig{}
+	handlerNil := RequireAuth(RequireAllowedRT(pool, cfgNil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	req = httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenOut)
+	rec = httptest.NewRecorder()
+	handlerNil.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for super_admin with NO scope configured, got %d", rec.Code)
+	}
+}
+
+// TestRequireAllowedRT_SuperAdmin_EmptyScopeFailsClosed verifies that an
+// empty SCOPED_RT_IDS enforces denial for super admins including when the
+// RT exists and is active.
+func TestRequireAllowedRT_SuperAdmin_EmptyScopeFailsClosed(t *testing.T) {
+	SigningSecret = []byte("test-signing-secret-at-least-16-chars")
+	pool := testutil.GetTestPool(t)
+	oldPool := AuthDBPool
+	AuthDBPool = pool
+	t.Cleanup(func() { AuthDBPool = oldPool })
+
+	setupTenantIdentityWithRTCode(t, "user-sa-empty", "member-sa-empty", "rt-sa-empty", "test-sa-empty@example.com", "a01", RoleBendahara, true)
+	claims := TokenClaims{
+		UserID:  testUUID("user-sa-empty"),
+		MID:     testUUID("member-sa-empty"),
+		RTID:    testUUID("rt-sa-empty"),
+		Role:    "bendahara",
+		SysRole: "super_admin",
+	}
+	token, err := GenerateAccessToken(claims)
+	if err != nil {
+		t.Fatalf("token err: %v", err)
+	}
+
+	cfgEmpty := ScopingConfig{RWIDs: []string{}}
+	handlerEmpty := RequireAuth(RequireAllowedRT(pool, cfgEmpty)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	req := httptest.NewRequest("GET", "/api/v1/bills", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handlerEmpty.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for super_admin with empty SCOPED_RT_IDS, got %d", rec.Code)
 	}
 }

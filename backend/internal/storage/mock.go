@@ -303,7 +303,7 @@ func (m *MockStorage) UploadCommunityImage(ctx context.Context, rtID, category, 
 	randomHex := hex.EncodeToString(randomBytes)
 
 	now := time.Now()
-	if category != "activity" && category != "announcement" && category != "banner" {
+	if category != "activity" && category != "announcement" && category != "banner" && category != "profile" && category != "avatar" && category != "resident" {
 		category = "general"
 	}
 	key := fmt.Sprintf("community/%s/%s/%d_%s%s", rtID, category, now.UnixNano(), randomHex, ext)

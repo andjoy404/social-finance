@@ -11,6 +11,7 @@ import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
+import 'package:social_finance/core/widgets/resident_avatar.dart';
 import 'package:social_finance/core/widgets/section_header.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/dashboard/data/community_repository.dart';
@@ -518,101 +519,145 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  // ── 3. Security Officer Status Card (Empty State Graceful) ──
+  // ── 3. Petugas Keamanan Sedang Bertugas ──
   Widget _buildSecurityCard(
     SecurityOnDutyInfo? security,
     ThemeData theme,
     bool isDark,
   ) {
-    final isAvailable = security?.isAvailable ?? false;
-    final message =
-        security?.message ?? 'Belum ada petugas aktif / jadwal shift saat ini';
-    final subtext =
-        security?.subtext ??
-        'Data shift terintegrasi langsung saat Modul Keamanan berjalan';
+    final officers = security?.officers ?? const <SecurityOfficer>[];
+    final isAvailable = (security?.isAvailable ?? false) && officers.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeader(title: 'Petugas Keamanan Bertugas'),
+        const SectionHeader(title: 'Petugas Keamanan Sedang Bertugas'),
         const SizedBox(height: _titleGap),
         AppCard(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: isAvailable
-                        ? AppColors.accent.withValues(alpha: 0.12)
-                        : (isDark
-                              ? Colors.grey.shade800
-                              : Colors.grey.shade200),
-                    borderRadius: BorderRadius.circular(AppRadius.base),
-                  ),
-                  child: Icon(
-                    Icons.shield_outlined,
-                    color: isAvailable ? AppColors.accent : Colors.grey,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
+            child: !isAvailable
+                ? Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isAvailable
-                                  ? AppColors.income.withValues(alpha: 0.15)
-                                  : (isDark
-                                        ? Colors.grey.shade800
-                                        : Colors.grey.shade200),
-                              borderRadius: BorderRadius.circular(AppRadius.xs),
-                            ),
-                            child: Text(
-                              isAvailable ? 'Shift Aktif' : 'Belum Ada Jadwal',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: isAvailable
-                                    ? AppColors.income
-                                    : (isDark
-                                          ? Colors.grey.shade400
-                                          : Colors.grey.shade700),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        message,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.grey.shade800
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(AppRadius.base),
+                        ),
+                        child: Icon(
+                          Icons.shield_outlined,
+                          color: Colors.grey,
+                          size: 28,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtext,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.textMutedColor(context),
-                          fontSize: 11,
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          'Tidak ada petugas keamanan yang sedang bertugas.',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var i = 0; i < officers.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 8),
+                        Builder(
+                          builder: (context) {
+                            final o = officers[i];
+                            final phone = o.phone?.trim();
+                            final hasPhone = phone != null && phone.isNotEmpty;
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: theme.colorScheme.outlineVariant,
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.base,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  ResidentAvatar(
+                                    name: o.name,
+                                    avatarPath: o.avatarPath,
+                                    size: 44,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.badge_outlined,
+                                              size: 14,
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                o.name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: theme
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        if (hasPhone) ...[
+                                          const SizedBox(height: 2),
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                Icons.phone_outlined,
+                                                size: 14,
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                phone,
+                                                style:
+                                                    theme.textTheme.bodySmall,
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ],
                   ),
-                ),
-              ],
-            ),
           ),
         ),
       ],
@@ -732,10 +777,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               },
               onPointerUp: (_) {
                 setState(
-                  () => _orgChartPointers = (_orgChartPointers - 1).clamp(
-                    0,
-                    99,
-                  ),
+                  () =>
+                      _orgChartPointers = (_orgChartPointers - 1).clamp(0, 99),
                 );
               },
               onPointerCancel: (_) {
@@ -774,12 +817,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-
   Color _getJabatanColor(String jabatan) {
-    final normalized = jabatan
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '_');
+    final normalized = jabatan.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      '_',
+    );
     switch (normalized) {
       case 'ketua':
       case 'ketua_rt':
@@ -996,10 +1038,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               Container(
                 width: 6,
                 height: 6,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               ),
               const SizedBox(width: 6),
               Text(
@@ -1189,8 +1228,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return m >= 1 && m <= 12 ? months[m] : '';
   }
 }
-
-
 
 class _OrgChartViewport extends StatefulWidget {
   final double viewportWidth;
@@ -1392,7 +1429,10 @@ List<OrgConnectorLine> computeOrgConnectorLines(
       for (final pr in parentRects) {
         lines.add(
           OrgConnectorLine(
-            points: [Offset(pr.center.dx, pr.bottom), Offset(pr.center.dx, busY)],
+            points: [
+              Offset(pr.center.dx, pr.bottom),
+              Offset(pr.center.dx, busY),
+            ],
             stroke: stroke,
           ),
         );
@@ -1511,8 +1551,7 @@ class _OrgChartWithConnectorsState extends State<_OrgChartWithConnectors> {
 
   List<List<String>> _tierPositionMatrix() {
     return [
-      for (final tier in widget.tiers)
-        [for (final node in tier) node.position],
+      for (final tier in widget.tiers) [for (final node in tier) node.position],
     ];
   }
 
@@ -1644,11 +1683,7 @@ class OrgConnectorsPainter extends CustomPainter {
         final p0 = line.points[i];
         final p1 = line.points[i + 1];
         final isHorizontal = (p0.dy - p1.dy).abs() < 0.05;
-        canvas.drawLine(
-          p0,
-          p1,
-          isHorizontal ? horizontalPaint : verticalPaint,
-        );
+        canvas.drawLine(p0, p1, isHorizontal ? horizontalPaint : verticalPaint);
       }
     }
   }

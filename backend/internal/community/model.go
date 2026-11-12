@@ -82,6 +82,7 @@ type Announcement struct {
 	Status          string          `json:"status"` // 'draft', 'scheduled', 'active', 'expired', 'archived'
 	PublishedAt     *time.Time      `json:"published_at,omitempty"`
 	SnapshotContent json.RawMessage `json:"snapshot_content,omitempty"`
+	IsPermanent     bool            `json:"is_permanent"`
 	CreatedBy       *string         `json:"created_by,omitempty"`
 	UpdatedBy       *string         `json:"updated_by,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
@@ -191,6 +192,7 @@ type SecurityOfficer struct {
 	ShiftEnd    string  `json:"shift_end"`
 	Status      string  `json:"status"` // 'hadir', 'terlambat', etc.
 	PhoneNumber *string `json:"phone_number,omitempty"`
+	AvatarPath  *string `json:"avatar_path,omitempty"`
 }
 
 // SecurityOnDutyInfo represents the on-duty security status on the Beranda.

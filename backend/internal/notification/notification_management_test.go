@@ -293,9 +293,9 @@ func setupManagementRouter(repo notification.Repository, svc notification.Servic
 	r.Get("/api/v1/notifications/detail/{id}", h.GetNotificationDetail)
 
 	// In-memory RT code lookup mirroring: SELECT rt, is_active FROM rts WHERE id = $1
-	allowedRTCodes := map[string]string{
-		"00000000-0000-0000-0000-000000000002": "002",
-		"00000000-0000-0000-0000-000000000003": "003",
+	allowedRTCodes := map[string]bool{
+		"00000000-0000-0000-0000-000000000002": true,
+		"00000000-0000-0000-0000-000000000003": true,
 	}
 
 	// requireAllowedRT is an inline middleware matching RequireAllowedRT(pool)
@@ -316,8 +316,7 @@ func setupManagementRouter(repo notification.Repository, svc notification.Servic
 				return
 			}
 
-			rtCode, found := allowedRTCodes[ac.RTID]
-			if !found || !auth.AllowedRTCodes[rtCode] {
+			if !allowedRTCodes[ac.RTID] {
 				http.Error(w, `{"error":{"code":"forbidden","message":"rt is not enabled or not allowed"}}`, http.StatusForbidden)
 				return
 			}

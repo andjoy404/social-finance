@@ -354,9 +354,8 @@ final homeDashboardFutureProvider =
           security: SecurityOnDutyInfo(
             isAvailable: false,
             officers: [],
-            message: 'Belum ada petugas aktif / jadwal shift saat ini',
-            subtext:
-                'Data shift terintegrasi langsung saat Modul Keamanan berjalan',
+            message: 'Tidak ada petugas keamanan yang sedang bertugas.',
+            subtext: '',
           ),
           organization: OrganizationStructure(),
           upcomingActivities: [],

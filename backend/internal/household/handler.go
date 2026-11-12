@@ -4,7 +4,6 @@ import (
 	"context"
 	crand "crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1480,6 +1479,12 @@ var validSpecialJabatans = map[string]bool{
 }
 
 // SpecialResidentCreateRequest is the body for POST /api/v1/residents/special.
+//
+// Password is the officer's initial login password (hashed with the same
+// auth.Hash used by every other account). It is required: before it existed
+// the handler silently generated a random password nobody knew, so newly
+// created officers could never log in.
+// IsActive is optional and defaults to true.
 type SpecialResidentCreateRequest struct {
 	RTID     string `json:"rt_id,omitempty"`
 	Jabatan  string `json:"jabatan"`
@@ -1487,6 +1492,8 @@ type SpecialResidentCreateRequest struct {
 	Nik      string `json:"nik"`
 	Phone    string `json:"phone"`
 	Email    string `json:"email"`
+	Password string `json:"password"`
+	IsActive *bool  `json:"is_active,omitempty"`
 }
 
 // CreateSpecialResident handles POST /api/v1/residents/special.
@@ -1523,7 +1530,9 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		httpx.WriteValidationError(w, "phone is required", nil)
 		return
 	}
-	canonPhone, phoneErr := NormalizePhone(req.Phone)
+	// Use the auth package's normalizer: it is the exact function the login
+	// path applies, so the stored phone and the login lookup can never diverge.
+	canonPhone, phoneErr := auth.NormalizePhone(req.Phone)
 	if phoneErr != nil {
 		httpx.WriteValidationError(w, phoneErr.Error(), nil)
 		return
@@ -1537,6 +1546,18 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	canonEmail := NormalizeEmail(req.Email)
+	if strings.TrimSpace(req.Password) == "" {
+		httpx.WriteValidationError(w, "password is required", nil)
+		return
+	}
+	if len(req.Password) < auth.MinPasswordLength {
+		httpx.WriteValidationError(w, fmt.Sprintf("password must be at least %d characters", auth.MinPasswordLength), nil)
+		return
+	}
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
 
 	// Resolve RTID: non-super-admin uses their authenticated RT.
 	// Super-admin without RTID must provide rt_id in the body.
@@ -1603,14 +1624,24 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	initialPassword := make([]byte, 32)
-	if _, err := crand.Read(initialPassword); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to generate initial password")
+	// Phone is a login identifier too, and the database has no unique index on
+	// it, so reject duplicates explicitly (UsersFindByPhone also matches
+	// legacy +62/62 variants and residents.phone, exactly like login does).
+	existingByPhone, phoneFindErr := auth.UsersFindByPhone(ctx, tx, canonPhone)
+	if phoneFindErr == nil && existingByPhone != nil {
+		httpx.WriteConflict(w, "phone number is already registered")
 		return
 	}
-	passwordHash, err := auth.Hash(base64.RawURLEncoding.EncodeToString(initialPassword))
+	if !errors.Is(phoneFindErr, auth.ErrUserNotFound) {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to check registered phone")
+		return
+	}
+
+	// The password the pengurus typed in the form is the one the officer logs
+	// in with; hashed with the same Argon2id/bcrypt routine as all accounts.
+	passwordHash, err := auth.Hash(req.Password)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to hash password")
+		httpx.WriteValidationError(w, err.Error(), nil)
 		return
 	}
 	userID, err := auth.CreateNewUser(ctx, tx, canonEmail, &canonPhone, passwordHash, strings.TrimSpace(req.FullName), "")
@@ -1622,13 +1653,19 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create user")
 		return
 	}
+	if !isActive {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET is_active = false, updated_at = now() WHERE id = $1`, userID); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to set account status")
+			return
+		}
+	}
 
 	// 2. Create a least-privilege warga membership with the special jabatan.
 	memQ := `
 		INSERT INTO user_rt_memberships (user_id, rt_id, role, jabatan, is_active)
-		VALUES ($1, $2, $3, $4, true)
+		VALUES ($1, $2, $3, $4, $5)
 	`
-	if _, err := tx.ExecContext(ctx, memQ, userID, rtID, string(auth.RoleWarga), req.Jabatan); err != nil {
+	if _, err := tx.ExecContext(ctx, memQ, userID, rtID, string(auth.RoleWarga), req.Jabatan, isActive); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to create membership")
 		return
 	}
@@ -1637,9 +1674,9 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	var resident Resident
 	err = tx.QueryRowContext(ctx,
 		`INSERT INTO residents (rt_id, user_id, full_name, phone, nik, email, is_active)
-		 VALUES ($1, $2, $3, $4, $5, $6, true)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id, rt_id, full_name, phone, nik, email, is_active, created_at, updated_at`,
-		rtID, userID, req.FullName, canonPhone, strings.TrimSpace(req.Nik), canonEmail,
+		rtID, userID, req.FullName, canonPhone, strings.TrimSpace(req.Nik), canonEmail, isActive,
 	).Scan(
 		&resident.ID, &resident.RTID, &resident.FullName, &resident.Phone,
 		&resident.Nik, &resident.Email, &resident.IsActive, &resident.CreatedAt, &resident.UpdatedAt,
@@ -1671,6 +1708,9 @@ type SpecialResidentUpdateRequest struct {
 	Email    *string `json:"email,omitempty"`
 	Jabatan  *string `json:"jabatan,omitempty"`
 	IsActive *bool   `json:"is_active,omitempty"`
+	// Password is optional: absent/empty keeps the current password, a value
+	// replaces it (min auth.MinPasswordLength chars, hashed with auth.Hash).
+	Password *string `json:"password,omitempty"`
 }
 
 // UpdateSpecialResident handles PATCH /api/v1/residents/special/:id.
@@ -1688,8 +1728,26 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// An empty password means "do not change it".
+	var newPasswordHash *string
+	if req.Password != nil && strings.TrimSpace(*req.Password) == "" {
+		req.Password = nil
+	}
+	if req.Password != nil {
+		if len(*req.Password) < auth.MinPasswordLength {
+			httpx.WriteValidationError(w, fmt.Sprintf("password must be at least %d characters", auth.MinPasswordLength), nil)
+			return
+		}
+		hashed, hashErr := auth.Hash(*req.Password)
+		if hashErr != nil {
+			httpx.WriteValidationError(w, hashErr.Error(), nil)
+			return
+		}
+		newPasswordHash = &hashed
+	}
+
 	// At least one field must be provided
-	if req.FullName == nil && req.Nik == nil && req.Phone == nil && req.Email == nil && req.Jabatan == nil && req.IsActive == nil {
+	if req.FullName == nil && req.Nik == nil && req.Phone == nil && req.Email == nil && req.Jabatan == nil && req.IsActive == nil && req.Password == nil {
 		httpx.WriteValidationError(w, "at least one field must be provided", nil)
 		return
 	}
@@ -1718,12 +1776,13 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	}
 	defer tx.Rollback()
 
-	// 1. Find the resident and verify it's a special resident (no household)
+	// 1. Find the resident and verify it's a special resident (no household).
+	// Inactive officers must stay editable so they can be re-activated.
 	var resident Resident
 	var userID sql.NullString
 	err = tx.QueryRowContext(ctx,
 		`SELECT id, rt_id, full_name, phone, nik, email, user_id, is_active, created_at, updated_at
-		 FROM residents WHERE id = $1 AND is_active = true`,
+		 FROM residents WHERE id = $1`,
 		id,
 	).Scan(
 		&resident.ID, &resident.RTID, &resident.FullName, &resident.Phone,
@@ -1761,6 +1820,25 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	}
 	rtID := resident.RTID
 
+	// Only genuine special officers may be edited here. Without this guard the
+	// password/status fields below could be applied to any household-less
+	// resident (e.g. a pengurus record), which is not what this endpoint is for.
+	if !userID.Valid {
+		httpx.WriteConflict(w, "not a special resident — no linked account")
+		return
+	}
+	var membershipJabatan sql.NullString
+	if err := tx.QueryRowContext(ctx,
+		`SELECT jabatan FROM user_rt_memberships WHERE user_id = $1 AND rt_id = $2 LIMIT 1`,
+		userID.String, rtID,
+	).Scan(&membershipJabatan); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to verify officer membership")
+		return
+	} else if errors.Is(err, sql.ErrNoRows) || !membershipJabatan.Valid || !validSpecialJabatans[membershipJabatan.String] {
+		httpx.WriteConflict(w, "not a special resident — membership is not an officer jabatan")
+		return
+	}
+
 	// 2. Update resident fields
 	hasChanges := false
 	var fields []updateField
@@ -1784,9 +1862,17 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 			httpx.WriteValidationError(w, "phone cannot be empty", nil)
 			return
 		}
-		normalized, normErr := NormalizePhone(trimmed)
+		// Same normalizer as login (auth.NormalizePhone) — see CreateSpecialResident.
+		normalized, normErr := auth.NormalizePhone(trimmed)
 		if normErr != nil {
 			httpx.WriteValidationError(w, normErr.Error(), nil)
+			return
+		}
+		if other, findErr := auth.UsersFindByPhone(ctx, tx, normalized); findErr == nil && other != nil && other.ID != userID.String {
+			httpx.WriteConflict(w, "phone number is already registered")
+			return
+		} else if findErr != nil && !errors.Is(findErr, auth.ErrUserNotFound) {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to check registered phone")
 			return
 		}
 		req.Phone = &normalized
@@ -1834,7 +1920,7 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 	if len(fields) > 0 {
 		query := `UPDATE residents SET ` + setClause(fields, 0) +
 			`, updated_at = now() WHERE id = $` + fmt.Sprint(len(fields)+1) +
-			` AND rt_id = $` + fmt.Sprint(len(fields)+2) + ` AND is_active = true`
+			` AND rt_id = $` + fmt.Sprint(len(fields)+2)
 		args = append(args, id, rtID)
 		result, execErr := tx.ExecContext(ctx, query, args...)
 		if execErr != nil {
@@ -1853,11 +1939,14 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		hasChanges = true
 	}
 
-	// 3. Update membership jabatan if provided
+	// 3. Update membership jabatan if provided. The membership is_active flag
+	// always follows the account status chosen in the form, so a deactivated
+	// officer is blocked at login (membership + user) and a re-activated one
+	// can log in again.
 	if req.Jabatan != nil {
 		memUpdateQ := `
 			UPDATE user_rt_memberships SET jabatan = $1, updated_at = now()
-			WHERE user_id = $2 AND rt_id = $3 AND is_active = true
+			WHERE user_id = $2 AND rt_id = $3
 		`
 		if _, err := tx.ExecContext(ctx, memUpdateQ, *req.Jabatan, userID.String, rtID); err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to update jabatan")
@@ -1865,9 +1954,19 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		}
 		hasChanges = true
 	}
+	if req.IsActive != nil {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE user_rt_memberships SET is_active = $1, updated_at = now() WHERE user_id = $2 AND rt_id = $3`,
+			*req.IsActive, userID.String, rtID,
+		); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to update membership status")
+			return
+		}
+		hasChanges = true
+	}
 
-	if userID.Valid && (req.FullName != nil || req.Phone != nil || req.Email != nil) {
-		var fullName, phone, email any
+	if userID.Valid && (req.FullName != nil || req.Phone != nil || req.Email != nil || req.IsActive != nil || newPasswordHash != nil) {
+		var fullName, phone, email, passwordHash, isActive any
 		if req.FullName != nil {
 			fullName = *req.FullName
 		}
@@ -1877,14 +1976,22 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		if req.Email != nil {
 			email = *req.Email
 		}
+		if newPasswordHash != nil {
+			passwordHash = *newPasswordHash
+		}
+		if req.IsActive != nil {
+			isActive = *req.IsActive
+		}
 		result, updateErr := tx.ExecContext(ctx, `
 			UPDATE users
 			SET full_name = COALESCE($2, full_name),
 			    phone = COALESCE($3, phone),
 			    email = COALESCE($4, email),
+			    password_hash = COALESCE($5, password_hash),
+			    is_active = COALESCE($6::boolean, is_active),
 			    updated_at = now()
-			WHERE id = $1 AND is_active = true
-		`, userID.String, fullName, phone, email)
+			WHERE id = $1
+		`, userID.String, fullName, phone, email, passwordHash, isActive)
 		if updateErr != nil {
 			if isPGUniqueViolation(updateErr) {
 				httpx.WriteConflict(w, "account profile conflicts with an existing user")
@@ -1901,6 +2008,16 @@ func (h *Handler) UpdateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		if rows == 0 {
 			httpx.WriteNotFound(w, "resident account not found")
 			return
+		}
+		hasChanges = true
+
+		// A new password or a deactivation must cut off sessions that were
+		// issued with the old credentials/status.
+		if newPasswordHash != nil || (req.IsActive != nil && !*req.IsActive) {
+			if err := auth.RevokeRefreshTokensByUserID(ctx, tx, userID.String); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to revoke sessions")
+				return
+			}
 		}
 	}
 
@@ -2175,7 +2292,6 @@ func canViewContact(ac *auth.AuthContext, rtID string) bool {
 	}
 	return true
 }
-
 
 func redactResidentsNik(residents []*Resident, ac *auth.AuthContext, rtID string) []*Resident {
 	if canViewNik(ac, rtID) {

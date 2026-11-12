@@ -32,9 +32,15 @@ func setupRouterTest(t *testing.T) (*database.Pool, http.Handler) {
 		RefreshLifetime: 7 * 24 * time.Hour,
 	})
 	authHandler := auth.NewHandler(pool, authSvc)
+	// Scope must contain both canonical seeded RTs (a95c1cb5 = RT 002 Urena,
+	// 8dfa1e36 = RT 001 Wisma Rukun Tunggal) so super-admins pinned to either
+	// pass the fail-closed scope check. RWIDs empty is fine for RT-only tests.
 	cfg := auth.ScopingConfig{
-		RTIDs: []string{"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b"},
-		RWIDs: []string{"00000000-0000-0000-0000-000000000000"},
+		RTIDs: []string{
+			"a95c1cb5-2f67-4ea5-9197-bfec537b6d7b",
+			"8dfa1e36-6727-45be-8fea-24d958efc155",
+		},
+		RWIDs: []string{},
 	}
 	router := buildRouter(pool, authHandler, &cfg, storage.NewMockStorage())
 	return pool, router

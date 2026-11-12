@@ -50,13 +50,15 @@ func TestDevSeed_ExecutionAndIdempotency(t *testing.T) {
 	if summary1.PositionMembershipsCount != 18 {
 		t.Errorf("expected 18 position memberships, got %d", summary1.PositionMembershipsCount)
 	}
-	// Expected counts after the community permission expansion
-	// (migration 068/070/072/076 add community permissions; seed expands accordingly).
-	if summary1.PermissionTypesCount != 30 {
-		t.Errorf("expected 30 permission types, got %d", summary1.PermissionTypesCount)
+	// Expected counts after the community and security permission expansion
+	// (community permissions plus the security attendance suite seeded in
+	// devseed: security.attendance, security.schedule.read, security.schedule.write,
+	// security.device.manage, security.correction, security.guest_book).
+	if summary1.PermissionTypesCount != 36 {
+		t.Errorf("expected 36 permission types, got %d", summary1.PermissionTypesCount)
 	}
-	if summary1.PositionPermissionsCount != 109 {
-		t.Errorf("expected 109 position permissions, got %d", summary1.PositionPermissionsCount)
+	if summary1.PositionPermissionsCount != 116 {
+		t.Errorf("expected 116 position permissions, got %d", summary1.PositionPermissionsCount)
 	}
 	if summary1.BillsCount != 0 {
 		t.Errorf("expected 0 bills, got %d", summary1.BillsCount)

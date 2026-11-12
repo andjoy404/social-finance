@@ -110,6 +110,21 @@ func makeSuperAdminToken(t *testing.T, userID string) string {
 // notifTestRTInPool creates an RT in the given pool, activates it, and returns its UUID.
 // Each call creates a fresh RW with a unique rw_number so that the combination
 // (rw, rt) is unique and the uniq_rts_active partial index is never violated.
+// testRegisteredRTIDs tracks RT UUIDs created by this file's helpers.
+// The router builder uses it when constructing scoped configs so that SA-pins
+// to dynamic RTs created during the same test pass; an empty registry yields
+// an empty scope (fail-closed).
+var testRegisteredRTIDs []string
+
+func notifTestRegisteredRTIDs() []string {
+	if len(testRegisteredRTIDs) == 0 {
+		return []string{}
+	}
+	result := make([]string, len(testRegisteredRTIDs))
+	copy(result, testRegisteredRTIDs)
+	return result
+}
+
 func notifTestRTInPool(t *testing.T, pool *database.Pool, label string) string {
 	t.Helper()
 
@@ -143,6 +158,7 @@ func notifTestRTInPool(t *testing.T, pool *database.Pool, label string) string {
 		t.Fatalf("set RT code for %s: %v", label, err)
 	}
 
+	testRegisteredRTIDs = append(testRegisteredRTIDs, id)
 	return id
 }
 
@@ -341,6 +357,15 @@ func getDeviceCountForUser(t *testing.T, pool *database.Pool, userID string) int
 // buildNotificationTestRouter constructs a chi router with the notification groups
 // that are security-critical, using production middleware.
 func buildNotificationTestRouter(pool *database.Pool) http.Handler {
+	// Tests that need SA-into-scope pinning must call buildNotificationTestRouterWithScope
+	// after creating the RTs they wish to permit. An empty scope (fail-closed) is
+	// the default because router construction order in legacy tests predates RT creation.
+	return buildNotificationTestRouterWithScope(pool, notifTestRegisteredRTIDs())
+}
+
+func buildNotificationTestRouterWithScope(pool *database.Pool, rtIDs []string) http.Handler {
+	scopedCfg := auth.ScopingConfig{RTIDs: rtIDs, RWIDs: []string{}}
+
 	notifRepo := notification.NewRepository(pool)
 	notifProvider := notification.NewFCMProvider("", "test")
 	notifSvc := notification.NewService(notifRepo, notifProvider)
@@ -351,7 +376,7 @@ func buildNotificationTestRouter(pool *database.Pool) http.Handler {
 	// Notification device/token management and history — RequireAuth + RequireAllowedRT
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, scopedCfg))
 		r.Post("/api/v1/notifications/devices", notifH.RegisterDevice)
 		r.Delete("/api/v1/notifications/devices", notifH.UnregisterDevice)
 		r.Get("/api/v1/notifications/detail/{id}", notifH.GetNotificationDetail)
@@ -370,7 +395,7 @@ func buildNotificationTestRouter(pool *database.Pool) http.Handler {
 	// Waste truck arrival and manual push: pengurus or security
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, scopedCfg))
 		r.Get("/api/v1/notifications/waste-truck/template", notifH.GetWasteTruckTemplate)
 		r.Get("/api/v1/notifications/waste-truck/history", notifH.ListWasteTruckHistory)
 		r.Post("/api/v1/notifications/waste-truck/upload-image", notifH.UploadImage)
@@ -381,7 +406,7 @@ func buildNotificationTestRouter(pool *database.Pool) http.Handler {
 	// Notification Management — RequireAuth + RequireAllowedRT + RequireNotificationAdmin
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, scopedCfg))
 		r.Use(auth.RequireNotificationAdmin(pool))
 
 		r.Get("/api/v1/notifications/system-types", notifH.GetSystemTypes)
@@ -393,7 +418,7 @@ func buildNotificationTestRouter(pool *database.Pool) http.Handler {
 	// This endpoint is used by ListManagementHistory which checks isOfficerUser() at the service layer.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(auth.RequireAllowedRT(pool))
+		r.Use(auth.RequireAllowedRT(pool, scopedCfg))
 		r.Get("/api/v1/notifications/management-history", notifH.ListManagementHistory)
 	})
 
@@ -1222,10 +1247,11 @@ func TestSuperAdmin_CannotAccessNonWhitelistedRT(t *testing.T) {
 
 func TestSuperAdmin_CannotAccessWithWhitelistedRT(t *testing.T) {
 	pool := setupNotificationTestPool(t)
-	router := buildNotificationTestRouter(pool)
 
-	// Create RT 002 (whitelisted)
+	// Create the RT first so the scoped router can include it (scope is explicit,
+	// fail-closed otherwise).
 	rt002 := notifTestRTInPool(t, pool, "sa-whitelisted")
+	router := buildNotificationTestRouterWithScope(pool, []string{rt002})
 	_, err := pool.Raw().ExecContext(context.Background(),
 		`UPDATE rts SET rt = '002' WHERE id = $1`, rt002)
 	if err != nil {
@@ -1594,9 +1620,10 @@ func TestRequireNotificationAdmin_KetuaAllowed(t *testing.T) {
 
 func TestRequireNotificationAdmin_SuperAdminAllowed(t *testing.T) {
 	pool := setupNotificationTestPool(t)
-	router := buildNotificationTestRouter(pool)
 
 	rtID := notifTestRTInPool(t, pool, "admin-sa")
+	// RT created before router so the scope includes it.
+	router := buildNotificationTestRouterWithScope(pool, []string{rtID})
 	_, err := pool.Raw().ExecContext(context.Background(),
 		`UPDATE rts SET rt = '002' WHERE id = $1`, rtID)
 	if err != nil {

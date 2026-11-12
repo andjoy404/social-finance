@@ -19,18 +19,11 @@ import {
   SafetyOutlined,
   HomeOutlined,
 } from '@ant-design/icons'
-import { Avatar } from 'antd'
+import { ResidentAvatar } from '@/components/ResidentAvatar'
 
 interface ProfileModalProps {
   open: boolean
   onClose: () => void
-}
-
-function getInitials(name?: string): string {
-  if (!name || !name.trim()) return ''
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 export function ProfileModal({ open, onClose }: ProfileModalProps) {
@@ -197,18 +190,11 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
             border: '1px solid var(--sf-border-subtle, rgba(255, 255, 255, 0.08))',
           }}
         >
-          <Avatar
-            size={54}
-            style={{
-              backgroundColor: 'var(--sf-accent, #3b82f6)',
-              fontSize: 20,
-              fontWeight: 600,
-              flexShrink: 0,
-            }}
-            icon={<UserOutlined />}
-          >
-            {getInitials(user.name)}
-          </Avatar>
+          <ResidentAvatar
+            name={user.name}
+            avatarPath={user.avatarPath ?? null}
+            size={84}
+          />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--sf-text-primary)' }}>
               {user.name}
