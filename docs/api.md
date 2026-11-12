@@ -1131,6 +1131,34 @@ Voluntary expiry rule:
     }
     ```
 
+### 10.4 Warga Import Commit (XLSX)
+- `POST /api/v1/warga/import/commit/xlsx` (Pengurus)
+  - Excel (.xlsx) variant of the bulk import. Parses `house_number, head_name, occupancy_status, address?, resident_name, nik?, phone?, email?, move_in_date?, jabatan?, password?`.
+  - Same atomic transaction semantics as 10.3.
+  - When an import moves a resident's `move_in_date` / `residency_periods.start_date` backwards (or otherwise causes previously non-obligatory `bills` to become obligatory), the backend reconciles bill obligations inside the same transaction and reports the change **per affected occupancy**.
+  - The response includes:
+    ```json
+    {
+      "status": "committed",
+      "imported_households": 1,
+      "imported_residents": 1,
+      "obligation_warnings": [
+        {
+          "household_occupancy_id": "…uuid…",
+          "house_number": "AW-01",
+          "resident_names": ["Budi A"],
+          "activated_periods": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"],
+          "activated_bill_count": 7,
+          "total_activated_amount": "700000.00"
+        }
+      ]
+    }
+    ```
+  - `obligation_warnings` is present **only** when the synchronization actually flipped bills to `is_obligatory = true` with outstanding balance (amount minus approved APPROVED payment allocations and direct APPROVED payments). Fully paid bills that become obligatory are not reported.
+  - Rows with no obligation change produce no warning; importing identical data again is idempotent and produces no warnings.
+  - If any part of the import transaction aborts (validation, sync failure), no warning is emitted and no obligation/bill state is visible outside the transaction.
+  - `total_activated_amount` is the sum of outstanding (amount minus approved paid) for the newly obligatory bills, formatted as `NUMERIC(15,2)` string.
+
 ---
 
 ## 11. Notification Management Endpoints

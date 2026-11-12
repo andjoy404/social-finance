@@ -569,6 +569,142 @@ describe('WargaImportModal Component', () => {
     })
   })
 
+  it('shows obligation warnings popup after successful commit with backend-provided warning', async () => {
+    vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [
+        {
+          row_number: 2,
+          house_number: 'AW-01',
+          head_name: 'Budi A',
+          occupancy_status: 'OWNER',
+          address: 'Jl. A1',
+          resident_name: 'Budi A',
+          nik: '3171010000007701',
+          phone: '085700000001',
+          email: 'budi.a.warn@test.com',
+        },
+      ],
+    })
+
+    const commitSpy = vi.spyOn(apiModule, 'apiCommitWargaImportXLSX').mockResolvedValue({
+      status: 'success',
+      imported_households: 1,
+      imported_residents: 1,
+      obligation_warnings: [
+        {
+          household_occupancy_id: 'occ-1',
+          house_number: 'AW-01',
+          resident_names: ['Budi A'],
+          activated_periods: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07'],
+          activated_bill_count: 7,
+          total_activated_amount: '700000.00',
+        },
+      ],
+    })
+
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="test-rt-id" />)
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Impor Sekarang/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Impor Sekarang/i }))
+
+    await waitFor(() => {
+      expect(commitSpy).toHaveBeenCalled()
+      expect(screen.getByText('Kewajiban Iuran Berubah')).toBeInTheDocument()
+      expect(screen.getAllByText(/1 warga mengalami perubahan kewajiban/i).length).toBeGreaterThanOrEqual(2)
+      expect(screen.getByText('Januari 2026 – Juli 2026')).toBeInTheDocument()
+      expect(screen.getByText('7 tagihan')).toBeInTheDocument()
+      expect(screen.getAllByText(/Rp\s?700.000/).length).toBeGreaterThan(0)
+    })
+
+    // Popup can be dismissed; trigger button remains on the success screen.
+    fireEvent.click(screen.getByRole('button', { name: /Mengerti/i }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /Kewajiban Iuran Berubah/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not show the obligation warnings popup when commit returns no warnings', async () => {
+    vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    const commitSpy = vi.spyOn(apiModule, 'apiCommitWargaImportXLSX').mockResolvedValue({
+      status: 'success',
+      imported_households: 1,
+      imported_residents: 1,
+    })
+
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="test-rt-id" />)
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Impor Sekarang/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Impor Sekarang/i }))
+
+    await waitFor(() => {
+      expect(commitSpy).toHaveBeenCalled()
+      expect(screen.queryByText('Kewajiban Iuran Berubah')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('obligation-warnings-trigger')).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not show the obligation warnings popup when the import fails', async () => {
+    const apiError = new apiModule.ApiError('validation_error', 'import_failed')
+
+    vi.spyOn(apiModule, 'apiPreviewWargaImportXLSX').mockResolvedValue({
+      total_rows: 1,
+      valid_rows: 1,
+      invalid_rows: 0,
+      errors: [],
+      preview_data: [],
+    })
+
+    vi.spyOn(apiModule, 'apiCommitWargaImportXLSX').mockRejectedValue(apiError)
+
+    render(<WargaImportModal open={true} onClose={() => {}} targetRtId="test-rt-id" />)
+
+    const file = new File(['valid'], 'warga.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pratinjau Data/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Impor Sekarang/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Impor Sekarang/i }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Kewajiban Iuran Berubah')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('obligation-warnings-trigger')).not.toBeInTheDocument()
+    })
+  })
+
   it('ketua RT preview button enabled with file even without targetRtId', async () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
       user: {

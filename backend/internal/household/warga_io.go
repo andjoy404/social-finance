@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
+	"social-finance/internal/finance"
 	httpx "social-finance/internal/http"
 )
 
@@ -71,11 +73,26 @@ type ImportPreviewResponse struct {
 	PreviewData []WargaPreviewRow `json:"preview_data"`
 }
 
+// ImportObligationWarning describes bills that became obligatory (Belum Bayar)
+// as a direct consequence of this import's synchronization of an occupancy.
+// It mirrors the consequence shown by the resident/household edit flow:
+// the user must see which months became due, how many bills were activated,
+// and the total new obligation — based on actual backend data, not estimates.
+type ImportObligationWarning struct {
+	HouseholdOccupancyID string   `json:"household_occupancy_id"`
+	HouseNumber          string   `json:"house_number,omitempty"`
+	ResidentNames        []string `json:"resident_names"`
+	ActivatedPeriods     []string `json:"activated_periods"`
+	ActivatedBillCount   int      `json:"activated_bill_count"`
+	TotalActivatedAmount string   `json:"total_activated_amount"` // NUMERIC(15,2) as string, e.g. "1500000.00"
+}
+
 // ImportCommitResponse returns summary after committing import.
 type ImportCommitResponse struct {
-	Status             string `json:"status"`
-	ImportedHouseholds int    `json:"imported_households"`
-	ImportedResidents  int    `json:"imported_residents"`
+	Status             string                    `json:"status"`
+	ImportedHouseholds int                       `json:"imported_households"`
+	ImportedResidents  int                       `json:"imported_residents"`
+	ObligationWarnings []ImportObligationWarning `json:"obligation_warnings,omitempty"`
 }
 
 // ParseWargaCSV reads and parses CSV input into WargaCSVRow items.
@@ -609,6 +626,232 @@ func ValidateAgainstDatabase(ctx context.Context, pool *database.Pool, rtID stri
 	return errorsList, nil
 }
 
+// syncOccupancyDatesAndBillsMeasured performs the same occupancy-bill
+// reconciliation as SyncOccupancyDatesAndBills, and additionally measures the
+// *actual* shift in obligatory bills for the occupancy within the same
+// transaction. It records which periods changed from is_obligatory=false
+// (Tidak Wajib) to is_obligatory=true (Belum Bayar), how many bills that is,
+// and the total amount — taken from the bills table after the sync, not from
+// Excel input.
+//
+// The sync itself is untouched: this wrapper only snapshots before and after
+// the underlying call, so billing behavior (FIFO, history, cancellations)
+// stays byte-for-byte identical.
+//
+// Returns nil when the import row does not change the set of obligatory
+// periods for the occupancy (e.g. re-import of identical data, or a change
+// that does not affect obligation) — such rows must NOT raise a warning.
+func syncOccupancyDatesAndBillsMeasured(
+	ctx context.Context,
+	tx *sql.Tx,
+	rtID, hoID string,
+	startDate *string,
+	endDate *string,
+	syncHeadResidencyPeriod bool,
+	houseNumber, residentName string,
+) (*ImportObligationWarning, error) {
+	if hoID == "" {
+		return nil, nil
+	}
+
+	// Snapshot whether ANY bills existed before this import row. The
+	// obligation warning is about *changed* obligation of an existing
+	// household (i.e. previously non-obligatory bills becoming obligatory);
+	// for a brand-new occupancy there is no prior billing history, so an
+	// entire set of newly created bills is not a "warning".
+	var billsBefore int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM bills WHERE household_occupancy_id = $1`,
+		hoID,
+	).Scan(&billsBefore); err != nil {
+		return nil, fmt.Errorf("count bills before sync (%s): %w", hoID, err)
+	}
+
+	// Snapshot the obligatory periods before reconciliation.
+	before := make(map[string]struct{})
+	beforeRows, err := tx.QueryContext(ctx,
+		`SELECT period FROM bills WHERE household_occupancy_id = $1 AND is_obligatory = true`,
+		hoID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot obligatory bills before sync (%s): %w", hoID, err)
+	}
+	for beforeRows.Next() {
+		var period string
+		if err := beforeRows.Scan(&period); err != nil {
+			_ = beforeRows.Close()
+			return nil, fmt.Errorf("scan obligatory bill period (%s): %w", hoID, err)
+		}
+		before[period] = struct{}{}
+	}
+	_ = beforeRows.Close()
+	if err := beforeRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate obligatory bills (%s): %w", hoID, err)
+	}
+
+	if billsBefore == 0 {
+		// Either run the sync without measurement (there is no "new"
+		// obligation relative to no prior history) and skip warning.
+		var err2 error
+		if (startDate == nil || strings.TrimSpace(*startDate) == "") &&
+			(endDate == nil || strings.TrimSpace(*endDate) == "") {
+			err2 = syncOccupancyBills(ctx, tx, rtID, hoID)
+		} else {
+			err2 = SyncOccupancyDatesAndBills(ctx, tx, rtID, hoID, startDate, endDate, syncHeadResidencyPeriod)
+		}
+		return nil, err2
+	}
+
+	// Run the actual, already-fixed billing reconciliation.
+	// When neither date is provided (i.e. import rows without move_in_date change),
+	// fall back to the plain billing sync — mirroring the behavior of the
+	// pre-existing "no-move_in_date" import path exactly.
+	if (startDate == nil || strings.TrimSpace(*startDate) == "") &&
+		(endDate == nil || strings.TrimSpace(*endDate) == "") {
+		err = syncOccupancyBills(ctx, tx, rtID, hoID)
+	} else {
+		err = SyncOccupancyDatesAndBills(ctx, tx, rtID, hoID, startDate, endDate, syncHeadResidencyPeriod)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Inspect the obligatory periods after reconciliation, including the
+	// approved totals paid against each bill. A bill that flipped from
+	// not-obligatory to obligatory but is already fully paid represents
+	// NO new obligation and must not be counted (e.g. bills paid before the
+	// Tanggal Mulai was moved backwards).
+	afterRows, err := tx.QueryContext(ctx,
+		`SELECT
+			b.period,
+			b.amount::numeric(15,2)::text,
+			COALESCE((
+				SELECT SUM(v.amount)
+				FROM (
+					SELECT p.amount
+					FROM payments p
+					WHERE p.bill_id = b.id AND p.status = 'APPROVED'
+					  AND NOT EXISTS (
+						SELECT 1 FROM payment_allocations pa
+						WHERE pa.payment_id = p.id AND pa.bill_id = b.id
+					  )
+					UNION ALL
+					SELECT pa.amount
+					FROM payment_allocations pa
+					JOIN payments p ON p.id = pa.payment_id
+					WHERE pa.bill_id = b.id AND p.status = 'APPROVED'
+				) v
+			), 0)::numeric(15,2)::text AS approved_paid
+		FROM bills b
+		WHERE b.household_occupancy_id = $1 AND b.is_obligatory = true`,
+		hoID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot obligatory bills after sync (%s): %w", hoID, err)
+	}
+	newly := make([]string, 0)
+	var totalCents int64
+	for afterRows.Next() {
+		var period, amountStr, approvedStr string
+		if err := afterRows.Scan(&period, &amountStr, &approvedStr); err != nil {
+			_ = afterRows.Close()
+			return nil, fmt.Errorf("scan obligatory bill after sync (%s): %w", hoID, err)
+		}
+		if _, ok := before[period]; ok {
+			// Already obligatory before this import row — not a new obligation.
+			continue
+		}
+		amountCents, _, err := finance.ParseMoney(amountStr)
+		if err != nil {
+			_ = afterRows.Close()
+			return nil, fmt.Errorf("parse bill amount %q for occupancy %s: %w", amountStr, hoID, err)
+		}
+		approvedCents, _, err := finance.ParseMoney(approvedStr)
+		if err != nil {
+			_ = afterRows.Close()
+			return nil, fmt.Errorf("parse approved paid %q for occupancy %s: %w", approvedStr, hoID, err)
+		}
+		outstandingCents := amountCents - approvedCents
+		if outstandingCents <= 0 {
+			// Newly marked obligatory but fully paid — not a new obligation.
+			continue
+		}
+		newly = append(newly, period)
+		totalCents += outstandingCents
+	}
+	_ = afterRows.Close()
+	if err := afterRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate obligatory bills after sync (%s): %w", hoID, err)
+	}
+	if len(newly) == 0 {
+		return nil, nil
+	}
+	sort.Strings(newly)
+	return &ImportObligationWarning{
+		HouseholdOccupancyID: hoID,
+		HouseNumber:          houseNumber,
+		ResidentNames:        normalizeNames([]string{residentName}),
+		ActivatedPeriods:     newly,
+		ActivatedBillCount:   len(newly),
+		TotalActivatedAmount: finance.FormatMoney(totalCents),
+	}, nil
+}
+
+// mergeObligationWarning folds two warnings that point at the same occupancy
+// into a single one: periods are unioned, names are de-duplicated. The final
+// total amount is recomputed against the merged period set by the caller.
+func mergeObligationWarning(dst map[string]*ImportObligationWarning, w *ImportObligationWarning) {
+	if w == nil {
+		return
+	}
+	if existing, ok := dst[w.HouseholdOccupancyID]; ok {
+		seenPeriod := make(map[string]struct{}, len(existing.ActivatedPeriods)+len(w.ActivatedPeriods))
+		periods := make([]string, 0, len(existing.ActivatedPeriods)+len(w.ActivatedPeriods))
+		for _, p := range append(existing.ActivatedPeriods, w.ActivatedPeriods...) {
+			if _, dup := seenPeriod[p]; !dup {
+				seenPeriod[p] = struct{}{}
+				periods = append(periods, p)
+			}
+		}
+		sort.Strings(periods)
+		seenName := make(map[string]struct{}, len(existing.ResidentNames)+len(w.ResidentNames))
+		names := make([]string, 0, len(existing.ResidentNames)+len(w.ResidentNames))
+		for _, n := range append(existing.ResidentNames, w.ResidentNames...) {
+			if _, dup := seenName[n]; !dup {
+				seenName[n] = struct{}{}
+				names = append(names, n)
+			}
+		}
+		existing.ActivatedPeriods = periods
+		existing.ActivatedBillCount = len(periods)
+		existing.ResidentNames = normalizeNames(names)
+		existingTotal, _, errA := finance.ParseMoney(existing.TotalActivatedAmount)
+		addedTotal, _, errB := finance.ParseMoney(w.TotalActivatedAmount)
+		if errA == nil && errB == nil {
+			existing.TotalActivatedAmount = finance.FormatMoney(existingTotal + addedTotal)
+		}
+		return
+	}
+	dst[w.HouseholdOccupancyID] = w
+}
+
+func normalizeNames(names []string) []string {
+	unique := make(map[string]struct{}, len(names))
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
+		}
+		if _, ok := unique[n]; ok {
+			continue
+		}
+		unique[n] = struct{}{}
+		out = append(out, n)
+	}
+	return out
+}
+
 // CommitWargaImport processes and inserts valid rows into the database atomically.
 func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID string, rows []WargaCSVRow) (*ImportCommitResponse, error) {
 	tx, err := pool.BeginTx(ctx)
@@ -649,6 +892,7 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 
 	importedHouseholds := 0
 	importedResidents := 0
+	warningsByOccupancy := make(map[string]*ImportObligationWarning)
 
 	for _, hnKey := range groupOrder {
 		grp := groups[hnKey]
@@ -757,10 +1001,11 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 
 			if err == nil {
 				// Existing resident in current occupancy — perform partial update per column
-				err = processExistingResident(ctx, tx, rtID, hoID, existingResID, res, occMoveInDate, importSuffix)
+				warning, err := processExistingResident(ctx, tx, rtID, hoID, existingResID, res, occMoveInDate, importSuffix, grp.HouseNumber)
 				if err != nil {
 					return nil, fmt.Errorf("update resident %s (row %d): %w", res.ResidentName, res.RowNumber, err)
 				}
+				mergeObligationWarning(warningsByOccupancy, warning)
 				continue
 			}
 
@@ -813,15 +1058,17 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 				}
 			}
 
+			var measured *ImportObligationWarning
+			var syncErr error
 			if res.MoveInDate != "" {
-				if err := SyncOccupancyDatesAndBills(ctx, tx, rtID, hoID, &res.MoveInDate, nil, false); err != nil {
-					return nil, fmt.Errorf("sync occupancy bills for %s (row %d): %w", res.ResidentName, res.RowNumber, err)
-				}
+				measured, syncErr = syncOccupancyDatesAndBillsMeasured(ctx, tx, rtID, hoID, &res.MoveInDate, nil, false, grp.HouseNumber, res.ResidentName)
 			} else {
-				if err := syncOccupancyBills(ctx, tx, rtID, hoID); err != nil {
-					return nil, fmt.Errorf("sync occupancy bills for %s (row %d): %w", res.ResidentName, res.RowNumber, err)
-				}
+				measured, syncErr = syncOccupancyDatesAndBillsMeasured(ctx, tx, rtID, hoID, nil, nil, false, grp.HouseNumber, res.ResidentName)
 			}
+			if syncErr != nil {
+				return nil, fmt.Errorf("sync occupancy bills for %s (row %d): %w", res.ResidentName, res.RowNumber, syncErr)
+			}
+			mergeObligationWarning(warningsByOccupancy, measured)
 		}
 	}
 
@@ -849,10 +1096,25 @@ func CommitWargaImport(ctx context.Context, pool *database.Pool, rtID, userID st
 		return nil, fmt.Errorf("commit warga import: %w", err)
 	}
 
+	// Ordering is deterministic: house number ascending (warnings were stored
+	// per occupancy, amounts already reflect the merged period sets).
+	occIDs := make([]string, 0, len(warningsByOccupancy))
+	for occID := range warningsByOccupancy {
+		occIDs = append(occIDs, occID)
+	}
+	sort.SliceStable(occIDs, func(i, j int) bool {
+		return warningsByOccupancy[occIDs[i]].HouseNumber < warningsByOccupancy[occIDs[j]].HouseNumber
+	})
+	merged := make([]ImportObligationWarning, 0, len(occIDs))
+	for _, occID := range occIDs {
+		merged = append(merged, *warningsByOccupancy[occID])
+	}
+
 	return &ImportCommitResponse{
 		Status:             "committed",
 		ImportedHouseholds: importedHouseholds,
 		ImportedResidents:  importedResidents,
+		ObligationWarnings: merged,
 	}, nil
 }
 
@@ -865,7 +1127,10 @@ func processExistingResident(
 	res WargaCSVRow,
 	occMoveInDate string,
 	importSuffix string,
-) error {
+	houseNumber string,
+) (*ImportObligationWarning, error) {
+	var warning *ImportObligationWarning
+
 	// --- 1. Move-in date: update current residency period and household occupancy start_date if provided ---
 	if res.MoveInDate != "" {
 		_, err := tx.ExecContext(ctx,
@@ -878,13 +1143,15 @@ func processExistingResident(
 			res.MoveInDate, resID, hoID,
 		)
 		if err != nil {
-			return fmt.Errorf("update residency start_date for %s: %w", res.ResidentName, err)
+			return nil, fmt.Errorf("update residency start_date for %s: %w", res.ResidentName, err)
 		}
 
 		// Synchronize household_occupancies.start_date (from head resident's active
 		// residency period) and reconcile bill obligations using the unified backend mechanism.
-		if err := SyncOccupancyDatesAndBills(ctx, tx, rtID, hoID, &res.MoveInDate, nil, false); err != nil {
-			return fmt.Errorf("sync bills for %s: %w", res.ResidentName, err)
+		var syncErr error
+		warning, syncErr = syncOccupancyDatesAndBillsMeasured(ctx, tx, rtID, hoID, &res.MoveInDate, nil, false, houseNumber, res.ResidentName)
+		if syncErr != nil {
+			return nil, fmt.Errorf("sync bills for %s: %w", res.ResidentName, syncErr)
 		}
 	}
 
@@ -895,7 +1162,7 @@ func processExistingResident(
 			`SELECT user_id FROM residents WHERE id = $1`, resID,
 		).Scan(&userID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("query user_id for resident %s: %w", res.ResidentName, err)
+			return nil, fmt.Errorf("query user_id for resident %s: %w", res.ResidentName, err)
 		}
 
 		if userID.Valid {
@@ -912,7 +1179,7 @@ func processExistingResident(
 				userID.String, rtID, res.Jabatan,
 			)
 			if err != nil {
-				return fmt.Errorf("insert membership jabatan for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("insert membership jabatan for %s: %w", res.ResidentName, err)
 			}
 			// Always update jabatan (insert or update)
 			_, err = tx.ExecContext(ctx,
@@ -922,7 +1189,7 @@ func processExistingResident(
 				userID.String, rtID, res.Jabatan,
 			)
 			if err != nil {
-				return fmt.Errorf("update membership jabatan for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("update membership jabatan for %s: %w", res.ResidentName, err)
 			}
 			if strings.TrimSpace(res.Phone) != "" {
 				if cp, err := NormalizePhone(res.Phone); err == nil {
@@ -936,7 +1203,7 @@ func processExistingResident(
 			// No existing user — create user with password and membership
 			pwHash, err := auth.Hash(res.Password)
 			if err != nil {
-				return fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
 			}
 
 			var userPhone *string
@@ -964,7 +1231,7 @@ func processExistingResident(
 				userEmail, userPhone, res.ResidentName, pwHash,
 			).Scan(&newUserID)
 			if err != nil {
-				return fmt.Errorf("create user for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("create user for %s: %w", res.ResidentName, err)
 			}
 
 			// Link resident to new user
@@ -973,7 +1240,7 @@ func processExistingResident(
 				newUserID, resID,
 			)
 			if err != nil {
-				return fmt.Errorf("link user to resident %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("link user to resident %s: %w", res.ResidentName, err)
 			}
 
 			// Create RT membership with jabatan
@@ -983,7 +1250,7 @@ func processExistingResident(
 				newUserID, rtID, res.Jabatan,
 			)
 			if err != nil {
-				return fmt.Errorf("create RT membership for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("create RT membership for %s: %w", res.ResidentName, err)
 			}
 		}
 	} else if res.Password != "" {
@@ -994,7 +1261,7 @@ func processExistingResident(
 			// User exists — update password
 			err = updateResidentPassword(ctx, tx, resID, res.Password)
 			if err != nil {
-				return fmt.Errorf("update password for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("update password for %s: %w", res.ResidentName, err)
 			}
 			if strings.TrimSpace(res.Phone) != "" {
 				if cp, err := NormalizePhone(res.Phone); err == nil {
@@ -1008,7 +1275,7 @@ func processExistingResident(
 			// Resident has no linked user — create user with password and link
 			pwHash, err := auth.Hash(res.Password)
 			if err != nil {
-				return fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("hash password for %s: %w", res.ResidentName, err)
 			}
 			var userPhone *string
 			if strings.TrimSpace(res.Phone) != "" {
@@ -1034,11 +1301,11 @@ func processExistingResident(
 				userEmail, userPhone, res.ResidentName, pwHash,
 			).Scan(&newUserID)
 			if err != nil {
-				return fmt.Errorf("create user for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("create user for %s: %w", res.ResidentName, err)
 			}
 			_, err = tx.ExecContext(ctx, `UPDATE residents SET user_id = $1 WHERE id = $2`, newUserID, resID)
 			if err != nil {
-				return fmt.Errorf("link user to resident %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("link user to resident %s: %w", res.ResidentName, err)
 			}
 			_, err = tx.ExecContext(ctx,
 				`INSERT INTO user_rt_memberships (user_id, rt_id, role, is_active)
@@ -1046,7 +1313,7 @@ func processExistingResident(
 				newUserID, rtID,
 			)
 			if err != nil {
-				return fmt.Errorf("create RT membership for %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("create RT membership for %s: %w", res.ResidentName, err)
 			}
 		}
 	}
@@ -1060,7 +1327,7 @@ func processExistingResident(
 			`SELECT user_id FROM residents WHERE id = $1`, resID,
 		).Scan(&userID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("query user_id for resident %s: %w", res.ResidentName, err)
+			return nil, fmt.Errorf("query user_id for resident %s: %w", res.ResidentName, err)
 		}
 
 		if userID.Valid {
@@ -1074,12 +1341,12 @@ func processExistingResident(
 			).Scan(&owningUserID)
 			if err == nil && owningUserID != "" && owningUserID != userID.String {
 				// Email already belongs to a different user — return error.
-				return fmt.Errorf(
+				return nil, fmt.Errorf(
 					"email '%s' is already used by another user; cannot update resident %s",
 					normalizedEmail, res.ResidentName,
 				)
 			} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("check email existence for resident %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("check email existence for resident %s: %w", res.ResidentName, err)
 			}
 			// Safe to update — either email is free or belongs to this user.
 			_, err = tx.ExecContext(ctx,
@@ -1089,15 +1356,15 @@ func processExistingResident(
 				normalizedEmail, userID.String,
 			)
 			if err != nil {
-				return fmt.Errorf("update email for resident %s: %w", res.ResidentName, err)
+				return nil, fmt.Errorf("update email for resident %s: %w", res.ResidentName, err)
 			}
 		} else {
 			// No linked user for this resident — cannot update email.
-			return fmt.Errorf("resident %s has no user account; email update requires an existing linked user", res.ResidentName)
+			return nil, fmt.Errorf("resident %s has no user account; email update requires an existing linked user", res.ResidentName)
 		}
 	}
 
-	return nil
+	return warning, nil
 }
 
 // createResidentUserAndMembership creates a new user account and RT membership for a new resident.

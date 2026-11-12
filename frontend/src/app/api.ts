@@ -2540,10 +2540,24 @@ export interface ApiWargaImportPreviewResponse {
   preview_data: ApiWargaImportRowData[]
 }
 
+// Obligation warnings returned by the XLSX import commit: when Tanggal Mulai
+// is moved backwards (or an occupancy's obligation window grows), the backend
+// reports the actual months that became wajib (Belum Bayar) after full
+// transactional billing sync. Never estimated by the frontend.
+export interface ApiWargaImportObligationWarning {
+  household_occupancy_id: string
+  house_number?: string
+  resident_names: string[]
+  activated_periods: string[] // "YYYY-MM"
+  activated_bill_count: number
+  total_activated_amount: string // NUMERIC(15,2) as string, e.g. "700000.00"
+}
+
 export interface ApiWargaImportCommitResponse {
   status: string
   imported_households: number
   imported_residents: number
+  obligation_warnings?: ApiWargaImportObligationWarning[]
 }
 
 export async function apiDownloadWargaTemplate(token: string): Promise<Blob> {
@@ -2664,6 +2678,8 @@ export async function apiCommitWargaImportXLSX(
     throw new ApiError(errCode, errMsg, details)
   }
 
+  // Refresh every iuran/peringatan surface (same mechanism as menu Warga edits).
+  notifyIuranDataUpdated()
   return body as ApiWargaImportCommitResponse
 }
 

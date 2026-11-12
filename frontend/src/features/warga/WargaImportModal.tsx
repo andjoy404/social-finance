@@ -9,8 +9,10 @@ import {
   apiCommitWargaImportXLSX,
   type ApiWargaImportPreviewResponse,
   type ApiWargaImportCommitResponse,
+  type ApiWargaImportObligationWarning,
   ApiError,
 } from '@/app/api'
+import { ImportObligationWarningsPopup } from './ImportObligationWarningsPopup'
 import {
   FileExcelOutlined,
   DownloadOutlined,
@@ -61,6 +63,8 @@ export function WargaImportModal({
   const [error, setError] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<ApiWargaImportPreviewResponse | null>(null)
   const [commitResult, setCommitResult] = useState<ApiWargaImportCommitResponse | null>(null)
+  const [obligationWarnings, setObligationWarnings] = useState<ApiWargaImportObligationWarning[]>([])
+  const [showObligationPopup, setShowObligationPopup] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   // Track which RT the preview was taken against — prevents preview/commit RT mismatch
   const [previewRtId, setPreviewRtId] = useState<string | null>(null)
@@ -72,6 +76,8 @@ export function WargaImportModal({
     setSelectedFile(null)
     setPreviewResult(null)
     setCommitResult(null)
+    setObligationWarnings([])
+    setShowObligationPopup(false)
     setError(null)
     setIsDragOver(false)
     setPreviewRtId(null)
@@ -225,6 +231,9 @@ export function WargaImportModal({
       const rtId = isSuperAdmin ? targetRtId : undefined
       const res = await apiCommitWargaImportXLSX(pair.accessToken, selectedFile, rtId)
       setCommitResult(res)
+      const warnings = res.obligation_warnings ?? []
+      setObligationWarnings(warnings)
+      setShowObligationPopup(warnings.length > 0)
       setStep('success')
     } catch (err) {
       if (err instanceof ApiError) {
@@ -238,6 +247,12 @@ export function WargaImportModal({
   }
 
   return (
+    <>
+    <ImportObligationWarningsPopup
+      open={showObligationPopup}
+      onClose={() => setShowObligationPopup(false)}
+      warnings={obligationWarnings}
+    />
     <Modal open={open} onClose={handleClose} width={700}>
       <ModalHeader
         title="Import Data Warga"
@@ -624,7 +639,7 @@ export function WargaImportModal({
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--sf-text)' }}>
               Import Data Berhasil!
             </div>
-            <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', maxWidth: 420 }}>
+            <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', maxWidth: 440 }}>
               {commitResult ? (
                 <>
                   Berhasil menambahkan{' '}
@@ -641,6 +656,30 @@ export function WargaImportModal({
                 'Data warga berhasil diimpor ke sistem.'
               )}
             </div>
+
+            {obligationWarnings.length > 0 && (
+              <button
+                type="button"
+                className="sf-btn-secondary"
+                data-testid="obligation-warnings-trigger"
+                onClick={() => setShowObligationPopup(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  border: '1px solid var(--sf-warning, #ff9830)',
+                  background: 'var(--sf-warning-soft, rgba(255, 152, 48, 0.10))',
+                  color: 'var(--sf-text)',
+                  fontWeight: 600,
+                  marginTop: 4,
+                }}
+              >
+                <ExclamationCircleOutlined />
+                {obligationWarnings.length === 1
+                  ? '1 warga mengalami perubahan kewajiban iuran — lihat rincian'
+                  : `${obligationWarnings.length} warga mengalami perubahan kewajiban iuran — lihat rincian`}
+              </button>
+            )}
           </div>
         )}
       </ModalBody>
@@ -716,5 +755,6 @@ export function WargaImportModal({
         )}
       </ModalFooter>
     </Modal>
+    </>
   )
 }
