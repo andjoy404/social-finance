@@ -385,6 +385,8 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           role == AppRole.bendahara ||
           role == AppRole.pengurus ||
           jabatan == 'ketua' ||
+          jabatan == 'wakil_ketua' ||
+          jabatan == 'sekretaris' ||
           jabatan == 'bendahara';
       if (!canAccess) {
         return '/home';
@@ -832,6 +834,8 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
                 role == AppRole.bendahara ||
                 role == AppRole.pengurus ||
                 jabatan == 'ketua' ||
+                jabatan == 'wakil_ketua' ||
+                jabatan == 'sekretaris' ||
                 jabatan == 'bendahara';
             if (!canAccess) {
               return '/home';
