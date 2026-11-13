@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import dayjs from 'dayjs'
+import customParseFormat from 'dayjs/plugin/customParseFormat'
+
+dayjs.extend(customParseFormat)
 import {
   Alert,
   Badge,
@@ -66,6 +69,7 @@ import {
   apiRotateDevicePairing,
   apiUpdateSecurityShift,
   apiUpdateSecuritySchedule,
+  formatTimeHHMM,
   type AttendanceCorrection,
   type AttendanceRecord,
   type DeviceProvisionResult,
@@ -387,10 +391,12 @@ export function KelolaKeamananPage() {
 
   const handleOpenEditShift = (shift: ShiftConfig) => {
     setEditingShift(shift)
+    const startTimeStr = formatTimeHHMM(shift.start_time)
+    const endTimeStr = formatTimeHHMM(shift.end_time)
     shiftForm.setFieldsValue({
       ...shift,
-      start_time: dayjs(shift.start_time.slice(0, 5), 'HH:mm'),
-      end_time: dayjs(shift.end_time.slice(0, 5), 'HH:mm'),
+      start_time: startTimeStr ? dayjs(startTimeStr, 'HH:mm') : undefined,
+      end_time: endTimeStr ? dayjs(endTimeStr, 'HH:mm') : undefined,
     })
     setShiftModalOpen(true)
   }
@@ -399,11 +405,16 @@ export function KelolaKeamananPage() {
     try {
       const vals = await shiftForm.validateFields()
       setSubmitting(true)
+      const payload = {
+        ...vals,
+        start_time: formatTimeHHMM(vals.start_time),
+        end_time: formatTimeHHMM(vals.end_time),
+      }
       if (editingShift) {
-        await apiUpdateSecurityShift(editingShift.id, vals)
+        await apiUpdateSecurityShift(editingShift.id, payload)
         msgApi.success('Konfigurasi shift diperbarui (versi baru tercatat)')
       } else {
-        await apiCreateSecurityShift(vals)
+        await apiCreateSecurityShift(payload)
         msgApi.success('Shift keamanan berhasil dibuat')
       }
       setShiftModalOpen(false)
@@ -420,12 +431,18 @@ export function KelolaKeamananPage() {
     try {
       const vals = await scheduleForm.validateFields()
       setSubmitting(true)
+      const startDateStr = dayjs.isDayjs(vals.start_date)
+        ? vals.start_date.format('YYYY-MM-DD')
+        : (vals.start_date || '')
+      const endDateStr = dayjs.isDayjs(vals.end_date)
+        ? vals.end_date.format('YYYY-MM-DD')
+        : (vals.end_date || '')
       if (editingSchedule) {
         await apiUpdateSecuritySchedule(editingSchedule.id, {
           user_id: vals.user_id,
           shift_config_id: vals.shift_config_id,
-          start_date: vals.start_date,
-          end_date: vals.end_date,
+          start_date: startDateStr,
+          end_date: endDateStr,
           notes: vals.notes || null,
         })
         msgApi.success('Jadwal petugas keamanan diperbarui')
@@ -433,8 +450,8 @@ export function KelolaKeamananPage() {
         await apiCreateSecuritySchedule({
           user_id: vals.user_id,
           shift_config_id: vals.shift_config_id,
-          start_date: vals.start_date,
-          end_date: vals.end_date,
+          start_date: startDateStr,
+          end_date: endDateStr,
           notes: vals.notes || null,
         })
         msgApi.success('Jadwal petugas keamanan ditambahkan')
@@ -679,7 +696,7 @@ export function KelolaKeamananPage() {
     {
       title: 'Jam Tugas',
       key: 'hours',
-      render: (_, row) => `${row.start_time.slice(0, 5)} - ${row.end_time.slice(0, 5)} WIB`,
+      render: (_, row) => `${formatTimeHHMM(row.start_time)} - ${formatTimeHHMM(row.end_time)} WIB`,
     },
     {
       title: 'Toleransi / Cutoff',
@@ -719,7 +736,7 @@ export function KelolaKeamananPage() {
         <Space direction="vertical" size={0}>
           <span>{row.shift_name}</span>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {row.start_time.slice(0, 5)} - {row.end_time.slice(0, 5)} (v{row.shift_version})
+            {formatTimeHHMM(row.start_time)} - {formatTimeHHMM(row.end_time)} (v{row.shift_version})
           </Text>
         </Space>
       ),
@@ -855,7 +872,7 @@ export function KelolaKeamananPage() {
     {
       title: 'Shift',
       key: 'shift',
-      render: (_, row) => `${row.shift_name} (${row.start_time.slice(0, 5)}-${row.end_time.slice(0, 5)})`,
+      render: (_, row) => `${row.shift_name} (${formatTimeHHMM(row.start_time)}-${formatTimeHHMM(row.end_time)})`,
     },
     {
       title: 'Status',
@@ -1596,7 +1613,7 @@ export function KelolaKeamananPage() {
                 .filter((s) => s.is_active)
                 .map((s) => ({
                   value: s.id,
-                  label: `${s.name} (${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)})`,
+                  label: `${s.name} (${formatTimeHHMM(s.start_time)}-${formatTimeHHMM(s.end_time)})`,
                 }))}
             />
           </Form.Item>

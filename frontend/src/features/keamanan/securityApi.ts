@@ -1,4 +1,8 @@
+import dayjs from 'dayjs'
+import customParseFormat from 'dayjs/plugin/customParseFormat'
 import { ApiError, authenticatedApiRequest, getSessionPair } from '@/app/api'
+
+dayjs.extend(customParseFormat)
 
 const BASE = '/api/v1'
 
@@ -250,10 +254,73 @@ export async function apiListSecurityShifts(activeOnly = false): Promise<ShiftCo
   return d.data ?? []
 }
 
-export async function apiCreateSecurityShift(payload: {
+/**
+ * Normalizes any time representation (Dayjs-like object, native Date, or string like "HH:mm:ss" or "HH:mm")
+ * into standard "HH:mm" string format using local time components.
+ * Prevents timezone shifting caused by toISOString() or UTC conversion.
+ */
+export function formatTimeHHMM(val: unknown): string {
+  if (!val) return ''
+
+  // 1. Dayjs-like object with .format
+  if (
+    typeof val === 'object' &&
+    val !== null &&
+    'format' in val &&
+    typeof (val as { format: unknown }).format === 'function'
+  ) {
+    const formatted = (val as { format: (fmt: string) => string }).format('HH:mm')
+    if (formatted && formatted !== 'Invalid Date') {
+      return formatted
+    }
+    const maybeObj = val as { $H?: number; $m?: number; hour?: () => number; minute?: () => number }
+    if (typeof maybeObj.$H === 'number' && typeof maybeObj.$m === 'number') {
+      return `${String(maybeObj.$H).padStart(2, '0')}:${String(maybeObj.$m).padStart(2, '0')}`
+    }
+    if (typeof maybeObj.hour === 'function' && typeof maybeObj.minute === 'function') {
+      const h = maybeObj.hour()
+      const m = maybeObj.minute()
+      if (!isNaN(h) && !isNaN(m)) {
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+      }
+    }
+  }
+
+  // 2. Native JS Date object (extract local hours and minutes)
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return ''
+    const hours = String(val.getHours()).padStart(2, '0')
+    const minutes = String(val.getMinutes()).padStart(2, '0')
+    return `${hours}:${minutes}`
+  }
+
+  // 3. String representation
+  if (typeof val === 'string') {
+    const trimmed = val.trim()
+    // Match "HH:mm" or "HH:mm:ss"
+    const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
+    if (match) {
+      const h = match[1].padStart(2, '0')
+      const m = match[2]
+      return `${h}:${m}`
+    }
+
+    // Match ISO timestamp or datetime string (e.g. 2026-11-13T23:00:00.000Z)
+    const d = new Date(trimmed)
+    if (!isNaN(d.getTime())) {
+      const hours = String(d.getHours()).padStart(2, '0')
+      const minutes = String(d.getMinutes()).padStart(2, '0')
+      return `${hours}:${minutes}`
+    }
+  }
+
+  return ''
+}
+
+export interface SecurityShiftPayload {
   name: string
-  start_time: string
-  end_time: string
+  start_time: string | unknown
+  end_time: string | unknown
   crosses_midnight: boolean
   lateness_tolerance_minutes: number
   check_in_window_before_minutes: number
@@ -261,34 +328,35 @@ export async function apiCreateSecurityShift(payload: {
   absent_cutoff_minutes: number
   missing_checkout_cutoff_minutes: number
   is_active?: boolean
-}): Promise<ShiftConfig> {
+}
+
+export async function apiCreateSecurityShift(payload: SecurityShiftPayload): Promise<ShiftConfig> {
+  const normalizedPayload = {
+    ...payload,
+    start_time: formatTimeHHMM(payload.start_time),
+    end_time: formatTimeHHMM(payload.end_time),
+  }
   const res = await authenticatedApiRequest(`${BASE}/security/shifts`, {
     method: 'POST',
     headers: authHeaders(true),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(normalizedPayload),
   })
   return parseOrThrow(res, 'Gagal membuat shift')
 }
 
 export async function apiUpdateSecurityShift(
   id: string,
-  payload: {
-    name: string
-    start_time: string
-    end_time: string
-    crosses_midnight: boolean
-    lateness_tolerance_minutes: number
-    check_in_window_before_minutes: number
-    check_in_window_after_minutes: number
-    absent_cutoff_minutes: number
-    missing_checkout_cutoff_minutes: number
-    is_active?: boolean
-  },
+  payload: SecurityShiftPayload,
 ): Promise<ShiftConfig> {
+  const normalizedPayload = {
+    ...payload,
+    start_time: formatTimeHHMM(payload.start_time),
+    end_time: formatTimeHHMM(payload.end_time),
+  }
   const res = await authenticatedApiRequest(`${BASE}/security/shifts/${id}`, {
     method: 'PUT',
     headers: authHeaders(true),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(normalizedPayload),
   })
   return parseOrThrow(res, 'Gagal memperbarui shift')
 }

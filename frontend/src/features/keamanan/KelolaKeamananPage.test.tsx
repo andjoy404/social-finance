@@ -13,6 +13,8 @@ vi.mock('./securityApi', async () => {
     apiGetSecurityDashboard: vi.fn(),
     apiListSecurityOfficers: vi.fn(),
     apiListSecurityShifts: vi.fn(),
+    apiCreateSecurityShift: vi.fn(),
+    apiUpdateSecurityShift: vi.fn(),
     apiListSecuritySchedules: vi.fn(),
     apiCreateSecuritySchedule: vi.fn(),
     apiGetSecuritySchedule: vi.fn(),
@@ -97,6 +99,8 @@ describe('KelolaKeamananPage', () => {
       },
     ])
     vi.mocked(SecurityApi.apiListSecurityShifts).mockResolvedValue([])
+    vi.mocked(SecurityApi.apiCreateSecurityShift).mockResolvedValue({} as SecurityApi.ShiftConfig)
+    vi.mocked(SecurityApi.apiUpdateSecurityShift).mockResolvedValue({} as SecurityApi.ShiftConfig)
     vi.mocked(SecurityApi.apiCreateSecuritySchedule).mockResolvedValue({} as SecurityApi.SecuritySchedule)
     vi.mocked(SecurityApi.apiGetSecuritySchedule).mockResolvedValue([])
     vi.mocked(SecurityApi.apiUpdateSecuritySchedule).mockResolvedValue({} as SecurityApi.SecuritySchedule)
@@ -225,5 +229,161 @@ describe('KelolaKeamananPage', () => {
       expect(screen.getByText('PAIR-SECRET-XYZ')).toBeInTheDocument()
       expect(screen.getByText('Token ini hanya ditampilkan satu kali.')).toBeInTheDocument()
     })
+  })
+
+  it('displays backend HH:MM:SS as HH:MM in shift list table without seconds', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: ketuaUser,
+      loading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    } as never)
+    vi.mocked(SecurityApi.apiListSecurityShifts).mockResolvedValue([
+      {
+        id: 'shift-1',
+        rt_id: 'rt-002',
+        name: 'Shift Pagi',
+        start_time: '08:00:00',
+        end_time: '16:00:00',
+        crosses_midnight: false,
+        lateness_tolerance_minutes: 15,
+        check_in_window_before_minutes: 30,
+        check_in_window_after_minutes: 60,
+        absent_cutoff_minutes: 60,
+        missing_checkout_cutoff_minutes: 120,
+        is_active: true,
+        version: 1,
+        created_at: '2026-11-12T00:00:00Z',
+        updated_at: '2026-11-12T00:00:00Z',
+      },
+      {
+        id: 'shift-2',
+        rt_id: 'rt-002',
+        name: 'Shift Malam',
+        start_time: '23:00:00',
+        end_time: '07:00:00',
+        crosses_midnight: true,
+        lateness_tolerance_minutes: 15,
+        check_in_window_before_minutes: 30,
+        check_in_window_after_minutes: 60,
+        absent_cutoff_minutes: 60,
+        missing_checkout_cutoff_minutes: 120,
+        is_active: true,
+        version: 1,
+        created_at: '2026-11-12T00:00:00Z',
+        updated_at: '2026-11-12T00:00:00Z',
+      },
+    ])
+
+    render(<KelolaKeamananPage />)
+    fireEvent.click(await screen.findByText('Pengaturan Shift'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Shift Pagi')).toBeInTheDocument()
+      expect(screen.getByText('08:00 - 16:00 WIB')).toBeInTheDocument()
+      expect(screen.getByText('Shift Malam')).toBeInTheDocument()
+      expect(screen.getByText('23:00 - 07:00 WIB')).toBeInTheDocument()
+    })
+  })
+
+  it('Ubah Shift normalizes backend HH:MM:SS and sends HH:MM payload without ISO-8601 timestamp', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: ketuaUser,
+      loading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    } as never)
+    vi.mocked(SecurityApi.apiListSecurityShifts).mockResolvedValue([
+      {
+        id: 'shift-1',
+        rt_id: 'rt-002',
+        name: 'Shift Pagi',
+        start_time: '08:00:00',
+        end_time: '16:00:00',
+        crosses_midnight: false,
+        lateness_tolerance_minutes: 15,
+        check_in_window_before_minutes: 30,
+        check_in_window_after_minutes: 60,
+        absent_cutoff_minutes: 60,
+        missing_checkout_cutoff_minutes: 120,
+        is_active: true,
+        version: 1,
+        created_at: '2026-11-12T00:00:00Z',
+        updated_at: '2026-11-12T00:00:00Z',
+      },
+    ])
+
+    render(<KelolaKeamananPage />)
+    fireEvent.click(await screen.findByText('Pengaturan Shift'))
+    await waitFor(() => {
+      expect(screen.getByText('Shift Pagi')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Ubah'))
+    await waitFor(() => {
+      expect(screen.getByText('Ubah Shift: Shift Pagi')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Simpan'))
+
+    await waitFor(() => {
+      expect(SecurityApi.apiUpdateSecurityShift).toHaveBeenCalledTimes(1)
+    })
+
+    const [id, payload] = vi.mocked(SecurityApi.apiUpdateSecurityShift).mock.calls[0]
+    expect(id).toBe('shift-1')
+    expect(payload.name).toBe('Shift Pagi')
+    expect(payload.start_time).toBe('08:00')
+    expect(payload.end_time).toBe('16:00')
+
+    // Verify payload serialization has no ISO-8601 timestamps
+    const jsonStr = JSON.stringify(payload)
+    expect(jsonStr).not.toContain('T')
+    expect(jsonStr).not.toContain('Z')
+    expect(jsonStr).not.toMatch(/\d{4}-\d{2}-\d{2}T/)
+  })
+
+  it('Tambah Shift sends HH:MM payload without ISO-8601 timestamp', async () => {
+    vi.spyOn(AuthModule, 'useAuth').mockReturnValue({
+      user: ketuaUser,
+      loading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    } as never)
+
+    render(<KelolaKeamananPage />)
+    fireEvent.click(await screen.findByText('Pengaturan Shift'))
+    await waitFor(() => {
+      expect(screen.getByText('Tambah Shift')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Tambah Shift'))
+    await waitFor(() => {
+      expect(screen.getByText('Tambah Shift Keamanan')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('Contoh: Shift Malam'), {
+      target: { value: 'Shift Baru' },
+    })
+
+    fireEvent.click(screen.getByText('Simpan'))
+
+    await waitFor(() => {
+      expect(SecurityApi.apiCreateSecurityShift).toHaveBeenCalledTimes(1)
+    })
+
+    const payload = vi.mocked(SecurityApi.apiCreateSecurityShift).mock.calls[0][0]
+    expect(payload.name).toBe('Shift Baru')
+    expect(payload.start_time).toBe('20:00')
+    expect(payload.end_time).toBe('06:00')
+
+    // Verify payload serialization has no ISO-8601 timestamps
+    const jsonStr = JSON.stringify(payload)
+    expect(jsonStr).not.toContain('T')
+    expect(jsonStr).not.toContain('Z')
+    expect(jsonStr).not.toMatch(/\d{4}-\d{2}-\d{2}T/)
   })
 })
