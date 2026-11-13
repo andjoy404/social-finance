@@ -75,11 +75,11 @@ func createRTUser(t *testing.T, pool *database.Pool, rtID string, role auth.Role
 		_, _ = pool.Raw().ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	})
 	token, err := auth.GenerateAccessToken(auth.TokenClaims{
-		UserID:   userID,
-		MID:      mid,
-		RTID:     rtID,
-		Role:     string(role),
-		Jabatan:  string(jabatan),
+		UserID:  userID,
+		MID:     mid,
+		RTID:    rtID,
+		Role:    string(role),
+		Jabatan: string(jabatan),
 	})
 	if err != nil {
 		t.Fatalf("token: %v", err)
@@ -102,9 +102,9 @@ func createSATokenWithRT(t *testing.T, pool *database.Pool, rtID string) string 
 		_, _ = pool.Raw().ExecContext(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
 	})
 	token, err := auth.GenerateAccessToken(auth.TokenClaims{
-		UserID: userID,
+		UserID:  userID,
 		SysRole: string(auth.SystemRoleSuperAdmin),
-		RTID:   rtID,
+		RTID:    rtID,
 	})
 	if err != nil {
 		t.Fatalf("SA token: %v", err)

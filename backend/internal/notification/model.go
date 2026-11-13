@@ -24,6 +24,15 @@ const (
 	// EventOverdue3Months is the auto reminder sent when an obligatory bill is > 3 calendar months past due_date (and monthly thereafter).
 	EventOverdue3Months = "iuran_overdue_3_months"
 
+	// Activity events (kegiatan). Customizable, can be scheduled one-shot via
+	// notification_schedules.activity_id + execution_at and fired immediately
+	// from the community activity lifecycle.
+	EventActivityCreated   = "activity_created"
+	EventActivityUpdated   = "activity_updated"
+	EventActivityReminder  = "activity_reminder"
+	EventActivityCancelled = "activity_cancelled"
+	EventActivityCompleted = "activity_completed"
+
 	// RW notification event types
 	EventRWCashIn  = "rw_cash_in"
 	EventRWCashOut = "rw_cash_out"
@@ -220,8 +229,9 @@ type NotificationLogEntry struct {
 // WasteTruckArrivalRecipient contains a current household resident and their
 // active devices. Residents without a device are retained for history.
 type WasteTruckArrivalRecipient struct {
-	UserID string
-	Tokens []string
+	UserID       string
+	UserFullName string
+	Tokens       []string
 }
 
 // WasteTruckDispatchEntry is an audit record for a sender's waste-truck dispatch.
@@ -247,16 +257,20 @@ type ScheduleExecutionSummary struct {
 
 // NotificationSchedule represents a configurable notification schedule row.
 type NotificationSchedule struct {
-	ID                  string                    `json:"id"`
-	RTID                string                    `json:"rt_id"`
-	EventType           string                    `json:"event_type"`
-	TemplateID          string                    `json:"template_id"`
-	Name                string                    `json:"name"`
-	IsActive            bool                      `json:"is_active"`
-	SendDays            []int                     `json:"send_days"`
-	SendHour            int                       `json:"send_hour"`
-	SendMinute          int                       `json:"send_minute"`
-	Timezone            string                    `json:"timezone"`
+	ID         string `json:"id"`
+	RTID       string `json:"rt_id"`
+	EventType  string `json:"event_type"`
+	TemplateID string `json:"template_id"`
+	Name       string `json:"name"`
+	IsActive   bool   `json:"is_active"`
+	SendDays   []int  `json:"send_days"`
+	SendHour   int    `json:"send_hour"`
+	SendMinute int    `json:"send_minute"`
+	Timezone   string `json:"timezone"`
+	// ActivityID — when set, this schedule is a one-shot reminder tied to a specific activity (kegiatan).
+	ActivityID *string `json:"activity_id,omitempty"`
+	// ExecutionAt — absolute time at which a one-shot activity reminder should fire (null for recurring schedules).
+	ExecutionAt         *time.Time                `json:"execution_at,omitempty"`
 	LastExecutedAt      *time.Time                `json:"last_executed_at,omitempty"`
 	LastExecutedStatus  *string                   `json:"last_executed_status,omitempty"`
 	LastExecutedError   *string                   `json:"last_executed_error,omitempty"`
@@ -277,16 +291,22 @@ type CreateScheduleInput struct {
 	SendHour   int    `json:"send_hour"`
 	SendMinute int    `json:"send_minute"`
 	Timezone   string `json:"timezone"`
+	// ActivityID is only valid for the activity_reminder event (one-shot reminder tied to an activity).
+	ActivityID *string `json:"activity_id,omitempty"`
+	// ExecutionAt is only valid for the activity_reminder event — absolute time the reminder fires.
+	ExecutionAt *time.Time `json:"execution_at,omitempty"`
 }
 
 // UpdateScheduleInput represents payload to edit an existing schedule.
 type UpdateScheduleInput struct {
-	Name       *string `json:"name,omitempty"`
-	IsActive   *bool   `json:"is_active,omitempty"`
-	SendDays   *[]int  `json:"send_days,omitempty"`
-	SendHour   *int    `json:"send_hour,omitempty"`
-	SendMinute *int    `json:"send_minute,omitempty"`
-	Timezone   *string `json:"timezone,omitempty"`
+	Name        *string    `json:"name,omitempty"`
+	IsActive    *bool      `json:"is_active,omitempty"`
+	SendDays    *[]int     `json:"send_days,omitempty"`
+	SendHour    *int       `json:"send_hour,omitempty"`
+	SendMinute  *int       `json:"send_minute,omitempty"`
+	Timezone    *string    `json:"timezone,omitempty"`
+	ActivityID  *string    `json:"activity_id,omitempty"`
+	ExecutionAt *time.Time `json:"execution_at,omitempty"`
 }
 
 // IuranReminderRecipient represents a warga + bill that should receive the
@@ -349,6 +369,7 @@ func ComputeScheduleConfigHash(
 	sendDays []int,
 	sendHour, sendMinute int,
 	timezone string,
+	extra ...string,
 ) string {
 	rt := strings.TrimSpace(strings.ToLower(rtID))
 	ev := strings.TrimSpace(eventType)
@@ -381,6 +402,11 @@ func ComputeScheduleConfigHash(
 		"rt_id=%s|event_type=%s|template_id=%s|send_days=[%s]|send_hour=%d|send_minute=%d|timezone=%s",
 		rt, ev, tmpl, strings.Join(daysStr, ","), sendHour, sendMinute, tz,
 	)
+	for _, e := range extra {
+		if strings.TrimSpace(e) != "" {
+			canonical += "|activity=" + strings.TrimSpace(e)
+		}
+	}
 
 	h := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(h[:16]) // 32 hex chars
@@ -391,9 +417,17 @@ func ComputeScheduleConfigHashFromSchedule(s *NotificationSchedule) string {
 	if s == nil {
 		return ""
 	}
+	extra := []string{}
+	if s.ActivityID != nil && strings.TrimSpace(*s.ActivityID) != "" {
+		extra = append(extra, "activity_id:"+strings.TrimSpace(*s.ActivityID))
+	}
+	if s.ExecutionAt != nil {
+		extra = append(extra, "execution_at:"+s.ExecutionAt.UTC().Format(time.RFC3339))
+	}
 	return ComputeScheduleConfigHash(
 		s.RTID, s.EventType, s.TemplateID,
 		s.SendDays, s.SendHour, s.SendMinute, s.Timezone,
+		extra...,
 	)
 }
 

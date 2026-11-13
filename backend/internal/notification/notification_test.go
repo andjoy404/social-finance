@@ -68,7 +68,7 @@ func newInMemoryRepo() *inMemoryRepo {
 			errorDetail *string
 			summary     *notification.ScheduleExecutionSummary
 		}),
-		dispatchUpdates:  make(chan string, 8),
+		dispatchUpdates: make(chan string, 8),
 	}
 }
 
@@ -355,9 +355,9 @@ func (r *inMemoryRepo) GetRWTemplateByID(ctx context.Context, rwID, id string) (
 
 func (r *inMemoryRepo) CreateRWTemplate(ctx context.Context, rwID string, in notification.CreateTemplateInput, allowedVars []string) (*notification.NotificationTemplate, error) {
 	return &notification.NotificationTemplate{
-		ID:       "rw-tmpl-1",
-		RWID:     rwID,
-		Name:     in.Name,
+		ID:        "rw-tmpl-1",
+		RWID:      rwID,
+		Name:      in.Name,
 		EventType: in.EventType,
 		Channel:   in.Channel,
 		Title:     in.Title,
@@ -389,7 +389,6 @@ func (r *inMemoryRepo) ToggleRWTemplateActive(ctx context.Context, rwID, id stri
 func (r *inMemoryRepo) DeleteRWTemplate(ctx context.Context, rwID, id string) error {
 	return nil
 }
-
 
 func (r *inMemoryRepo) ListLogs(ctx context.Context, rtID, userID, eventType, status string, isOfficer bool, offset, limit int) ([]notification.NotificationLogEntry, int, error) {
 	return []notification.NotificationLogEntry{}, 0, nil
@@ -2789,4 +2788,36 @@ func TestExecuteSchedule_PartialFailure(t *testing.T) {
 		repo.scheduleFailures["schedule:"+created.ID+":2026-11-05:user-b"] == "" {
 		t.Fatalf("partial result must retain explicit per-recipient provider evidence: statuses=%v reasons=%v", repo.scheduleStatuses, repo.scheduleFailures)
 	}
+}
+
+func (r *inMemoryRepo) DeactivateSchedule(ctx context.Context, rtID, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s, ok := r.schedules[id]; ok && s.RTID == rtID {
+		s.IsActive = false
+	}
+	return nil
+}
+
+func (r *inMemoryRepo) CancelSchedulesForActivity(ctx context.Context, rtID, activityID string) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var n int64
+	for _, s := range r.schedules {
+		if s.RTID == rtID && s.ActivityID != nil && *s.ActivityID == activityID && s.IsActive {
+			s.IsActive = false
+			n++
+		}
+	}
+	return n, nil
+}
+
+// Mock ActivityInfoFetch: no stored fixtures by default — tests that need
+// activities should extend the mock instead of relying on this stub.
+func (r *inMemoryRepo) ActivityInfoFetch(ctx context.Context, rtID, activityID string) (*notification.ActivityPayload, error) {
+	return nil, sql.ErrNoRows
+}
+
+func (r *inMemoryRepo) ListActivityStateCandidates(ctx context.Context, now time.Time) ([]notification.ActivityPayload, error) {
+	return nil, nil
 }

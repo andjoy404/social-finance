@@ -371,6 +371,7 @@ export function AnnouncementModal({
               </label>
               <input
                 type="datetime-local"
+                className="sf-form-input"
                 value={scheduledStart}
                 onChange={(e) => setScheduledStart(e.target.value)}
                 style={{
@@ -391,6 +392,7 @@ export function AnnouncementModal({
               </label>
               <input
                 type="datetime-local"
+                className="sf-form-input"
                 value={scheduledEnd}
                 onChange={(e) => setScheduledEnd(e.target.value)}
                 style={{
@@ -414,6 +416,7 @@ export function AnnouncementModal({
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <input
                 type="file"
+                className="sf-form-file"
                 accept="image/png,image/jpeg,image/webp"
                 onChange={handleImageUpload}
                 disabled={uploading}

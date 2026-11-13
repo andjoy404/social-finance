@@ -62,9 +62,9 @@ func TestActivityDynamicStatus(t *testing.T) {
 	endsFuture := now.Add(1 * time.Hour)
 
 	tests := []struct {
-		name   string
-		act    Activity
-		want   string
+		name string
+		act  Activity
+		want string
 	}{
 		{
 			name: "upcoming when start is in the future",

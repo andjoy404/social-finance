@@ -19,9 +19,12 @@ import 'package:social_finance/core/widgets/community_image.dart';
 import 'package:social_finance/features/dashboard/data/models/community_models.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
+import 'package:social_finance/features/fund_location/presentation/widgets/public_rekening_list.dart';
 
 const _sectionGap = AppSpacing.lg;
 const _titleGap = AppSpacing.sm;
+
+/// Beranda: hanya daftar Lokasi Dana kategori Rekening yang aktif.
 
 class DashboardScreen extends ConsumerStatefulWidget {
   final Future<void> Function()? onRefreshOverride;
@@ -162,7 +165,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
               const SizedBox(height: _sectionGap),
 
-              // ── 3. Security Officer Status (Empty state waiting for Security Module) ──
+              // ── 2.5. Rekening Dana (Lokasi Dana Rekening) — hanya Pengurus/Bendahara ──
+              _buildRekeningSection(theme, isDark),
               dashboardAsync.when(
                 data: (data) =>
                     _buildSecurityCard(data.security, theme, isDark),
@@ -202,6 +206,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // ── 2.5 Rekening Dana (public, all roles) ──
+  Widget _buildRekeningSection(ThemeData theme, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'Rekening RT'),
+        const SizedBox(height: _titleGap),
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: const PublicRekeningList(),
+          ),
+        ),
+        const SizedBox(height: _sectionGap),
+      ],
     );
   }
 
@@ -532,16 +555,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionHeader(title: 'Petugas Keamanan Sedang Bertugas'),
-        const SizedBox(height: _titleGap),
+        const SizedBox(height: AppSpacing.xs),
         AppCard(
+          padding: EdgeInsets.zero,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: !isAvailable
                 ? Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(10),
+                        padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           color: isDark
                               ? Colors.grey.shade800
@@ -551,10 +575,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         child: Icon(
                           Icons.shield_outlined,
                           color: Colors.grey,
-                          size: 28,
+                          size: 22,
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           'Tidak ada petugas keamanan yang sedang bertugas.',
@@ -569,7 +593,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       for (var i = 0; i < officers.length; i++) ...[
-                        if (i > 0) const SizedBox(height: 8),
+                        if (i > 0) const SizedBox(height: 6),
                         Builder(
                           builder: (context) {
                             final o = officers[i];
@@ -578,11 +602,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             return Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
-                                vertical: 8,
+                                vertical: 5,
                               ),
                               decoration: BoxDecoration(
+                                color: AppColors.accent.withValues(alpha: 0.05),
                                 border: Border.all(
-                                  color: theme.colorScheme.outlineVariant,
+                                  color: AppColors.accent.withValues(alpha: 0.35),
+                                  width: 1.2,
                                 ),
                                 borderRadius: BorderRadius.circular(
                                   AppRadius.base,
@@ -593,7 +619,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   ResidentAvatar(
                                     name: o.name,
                                     avatarPath: o.avatarPath,
-                                    size: 44,
+                                    size: 38,
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
@@ -606,9 +632,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                             Icon(
                                               Icons.badge_outlined,
                                               size: 14,
-                                              color: theme
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
+                                              color: AppColors.accent,
                                             ),
                                             const SizedBox(width: 6),
                                             Expanded(
@@ -634,15 +658,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                               Icon(
                                                 Icons.phone_outlined,
                                                 size: 14,
-                                                color: theme
-                                                    .colorScheme
-                                                    .onSurfaceVariant,
+                                                color: AppColors.success,
                                               ),
                                               const SizedBox(width: 6),
                                               Text(
                                                 phone,
                                                 style:
-                                                    theme.textTheme.bodySmall,
+                                                    theme.textTheme.bodySmall?.copyWith(
+                                                  color: AppColors.success,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
                                               ),
                                             ],
                                           ),

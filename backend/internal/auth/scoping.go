@@ -308,6 +308,7 @@ var rwPermissionMapReadOnly = map[string][]string{
 	"bendahara":   {PermissionRWDashboardRead},
 	"anggota":     {PermissionRWDashboardRead},
 	"pengurus":    {PermissionRWDashboardRead},
+	"perangkat":   {PermissionRWDashboardRead},
 }
 
 // rwPermissionMap defines RW-specific permissions mapped by explicit RW jabatan.

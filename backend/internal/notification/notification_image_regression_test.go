@@ -185,26 +185,26 @@ func TestImage_GetPathTraversal_Rejected(t *testing.T) {
 	// are rejected at the HTTP level (404 for unmatchable routes, 400 for handler validation).
 
 	tests := []struct {
-		name    string
-		path    string
-		wantOK  bool
+		name   string
+		path   string
+		wantOK bool
 	}{
 		// These paths are rejected by Chi's router before reaching handler
 		{
-			name:    "Chi rejects parent directory traversal",
-			path:    "/api/v1/notifications/images/../../etc/passwd",
-			wantOK:  false,
+			name:   "Chi rejects parent directory traversal",
+			path:   "/api/v1/notifications/images/../../etc/passwd",
+			wantOK: false,
 		},
 		{
-			name:    "Chi rejects double parent traversal",
-			path:    "/api/v1/notifications/images/../../../etc/shadow",
-			wantOK:  false,
+			name:   "Chi rejects double parent traversal",
+			path:   "/api/v1/notifications/images/../../../etc/shadow",
+			wantOK: false,
 		},
 		// These paths pass through Chi to handler validation
 		{
-			name:    "handler rejects backslash traversal",
-			path:    "/api/v1/notifications/images/..\\..\\etc\\passwd",
-			wantOK:  false,
+			name:   "handler rejects backslash traversal",
+			path:   "/api/v1/notifications/images/..\\..\\etc\\passwd",
+			wantOK: false,
 		},
 	}
 
@@ -357,7 +357,7 @@ func TestImage_UploadRejectsEmptyRT(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/api/v1/notifications/upload-image", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
- req.Header.Set("X-RT-ID", "rt-002")
+	req.Header.Set("X-RT-ID", "rt-002")
 	ac := &auth.AuthContext{
 		UserID: "test-user",
 		RTID:   "",
@@ -415,7 +415,7 @@ func TestImage_UploadRequiresValidEventType(t *testing.T) {
 
 			req := httptest.NewRequest("POST", "/api/v1/notifications/upload-image", body)
 			req.Header.Set("Content-Type", writer.FormDataContentType())
-   req.Header.Set("X-RT-ID", "rt-002")
+			req.Header.Set("X-RT-ID", "rt-002")
 			ac := &auth.AuthContext{
 				UserID:     "test-user",
 				RTID:       "rt-002",
@@ -448,7 +448,7 @@ func TestImage_UploadRequiresOfficer(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/api/v1/notifications/upload-image", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
- req.Header.Set("X-RT-ID", "rt-002")
+	req.Header.Set("X-RT-ID", "rt-002")
 	ac := &auth.AuthContext{
 		UserID:     "warga-001",
 		RTID:       "rt-002",
@@ -485,7 +485,7 @@ func TestImage_UploadRejectsOversizedFile(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/api/v1/notifications/upload-image", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
- req.Header.Set("X-RT-ID", "rt-002")
+	req.Header.Set("X-RT-ID", "rt-002")
 	ac := &auth.AuthContext{
 		UserID:     "test-user",
 		RTID:       "rt-002",
@@ -518,7 +518,7 @@ func TestImage_UploadRejectsNonImageFile(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/api/v1/notifications/upload-image", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
- req.Header.Set("X-RT-ID", "rt-002")
+	req.Header.Set("X-RT-ID", "rt-002")
 	ac := &auth.AuthContext{
 		UserID:     "test-user",
 		RTID:       "rt-002",
@@ -658,7 +658,7 @@ func TestImage_UploadZeroSideEffectOnRejection(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/api/v1/notifications/upload-image", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
- req.Header.Set("X-RT-ID", "rt-002")
+	req.Header.Set("X-RT-ID", "rt-002")
 	ac := &auth.AuthContext{
 		UserID:     "test-user",
 		RTID:       "rt-002",

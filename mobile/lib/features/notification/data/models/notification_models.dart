@@ -356,6 +356,8 @@ class NotificationSchedule {
   final int sendHour;
   final int sendMinute;
   final String timezone;
+  final String? activityId;
+  final DateTime? executionAt;
   final DateTime? lastExecutedAt;
   final String? lastExecutedStatus;
   final String? lastExecutedError;
@@ -374,6 +376,8 @@ class NotificationSchedule {
     required this.sendHour,
     required this.sendMinute,
     required this.timezone,
+    this.activityId,
+    this.executionAt,
     this.lastExecutedAt,
     this.lastExecutedStatus,
     this.lastExecutedError,
@@ -398,6 +402,10 @@ class NotificationSchedule {
       sendHour: (json['send_hour'] as num?)?.toInt() ?? 0,
       sendMinute: (json['send_minute'] as num?)?.toInt() ?? 0,
       timezone: json['timezone'] as String? ?? 'Asia/Jakarta',
+      activityId: json['activity_id'] as String?,
+      executionAt: json['execution_at'] != null
+          ? DateTime.tryParse(json['execution_at'].toString())
+          : null,
       lastExecutedAt: json['last_executed_at'] != null
           ? DateTime.tryParse(json['last_executed_at'].toString())
           : null,
@@ -429,7 +437,9 @@ class NotificationSchedule {
     'send_hour': sendHour,
     'send_minute': sendMinute,
     'timezone': timezone,
-    'last_executed_at': lastExecutedAt?.toIso8601String(),
+    if (activityId != null) 'activity_id': activityId,
+    if (executionAt != null) 'execution_at': executionAt!.toUtc().toIso8601String(),
+    'last_executed_at': lastExecutedAt?.toUtc().toIso8601String(),
     'last_executed_status': lastExecutedStatus,
     'last_executed_error': lastExecutedError,
     'last_executed_summary': lastExecutedSummary?.toJson(),
@@ -448,6 +458,8 @@ class NotificationSchedule {
     int? sendHour,
     int? sendMinute,
     String? timezone,
+    String? activityId,
+    DateTime? executionAt,
     DateTime? lastExecutedAt,
     String? lastExecutedStatus,
     String? lastExecutedError,
@@ -466,6 +478,8 @@ class NotificationSchedule {
       sendHour: sendHour ?? this.sendHour,
       sendMinute: sendMinute ?? this.sendMinute,
       timezone: timezone ?? this.timezone,
+      activityId: activityId ?? this.activityId,
+      executionAt: executionAt ?? this.executionAt,
       lastExecutedAt: lastExecutedAt ?? this.lastExecutedAt,
       lastExecutedStatus: lastExecutedStatus ?? this.lastExecutedStatus,
       lastExecutedError: lastExecutedError ?? this.lastExecutedError,
@@ -485,6 +499,8 @@ class CreateNotificationScheduleInput {
   final int sendHour;
   final int sendMinute;
   final String timezone;
+  final String? activityId;
+  final DateTime? executionAt;
 
   const CreateNotificationScheduleInput({
     required this.eventType,
@@ -494,6 +510,8 @@ class CreateNotificationScheduleInput {
     required this.sendHour,
     required this.sendMinute,
     this.timezone = 'Asia/Jakarta',
+    this.activityId,
+    this.executionAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -504,6 +522,8 @@ class CreateNotificationScheduleInput {
     'send_hour': sendHour,
     'send_minute': sendMinute,
     'timezone': timezone,
+    if (activityId != null) 'activity_id': activityId,
+    if (executionAt != null) 'execution_at': executionAt!.toUtc().toIso8601String(),
   };
 }
 
@@ -515,6 +535,8 @@ class UpdateNotificationScheduleInput {
   final int? sendHour;
   final int? sendMinute;
   final String? timezone;
+  final String? activityId;
+  final DateTime? executionAt;
 
   const UpdateNotificationScheduleInput({
     this.name,
@@ -523,6 +545,8 @@ class UpdateNotificationScheduleInput {
     this.sendHour,
     this.sendMinute,
     this.timezone,
+    this.activityId,
+    this.executionAt,
   });
 
   Map<String, dynamic> toJson() {
@@ -533,6 +557,8 @@ class UpdateNotificationScheduleInput {
     if (sendHour != null) map['send_hour'] = sendHour;
     if (sendMinute != null) map['send_minute'] = sendMinute;
     if (timezone != null) map['timezone'] = timezone;
+    if (activityId != null) map['activity_id'] = activityId;
+    if (executionAt != null) map['execution_at'] = executionAt!.toUtc().toIso8601String();
     return map;
   }
 }

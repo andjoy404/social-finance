@@ -52,6 +52,13 @@ type Service interface {
 	UpdateSchedule(ctx context.Context, rtID, id, userID string, in UpdateScheduleInput) (*NotificationSchedule, error)
 	DeleteSchedule(ctx context.Context, rtID, id string) error
 	ToggleScheduleActive(ctx context.Context, rtID, id, userID string) (*NotificationSchedule, error)
+	// NotifyActivityEvent fires an immediate activity lifecycle event to all active RT members.
+	NotifyActivityEvent(ctx context.Context, p ActivityPayload, eventType string) error
+	// CancelActivityPendingSchedules deactivates all pending one-shot activity reminders.
+	CancelActivityPendingSchedules(ctx context.Context, rtID, activityID string) error
+	// RunActivityMaintenance sweeps activities whose lifecycle has terminated and fires
+	// the corresponding lifecycle notification exactly once (idempotent).
+	RunActivityMaintenance(ctx context.Context) error
 	// GetDueSchedules returns active schedules due for execution at the given time.
 	GetDueSchedules(ctx context.Context, now time.Time) ([]*NotificationSchedule, error)
 	// ExecuteSchedule runs a single schedule: resolves recipients, sends pushes,
@@ -860,6 +867,71 @@ var SystemNotificationTypes = []SystemNotificationType{
 		SupportsTest:     false,
 	},
 	{
+		EventType:        EventActivityCreated,
+		Name:             "Kegiatan Baru Diterbitkan",
+		Trigger:          "Kegiatan diterbitkan/dipublikasikan oleh Pengurus RT",
+		Channel:          "push",
+		RecipientsRule:   "Seluruh warga terdaftar di RT tersebut",
+		DefaultTitle:     "Kegiatan Baru: {{nama_kegiatan}}",
+		DefaultBody:      "Agenda kegiatan baru telah diterbitkan. Silakan cek menu Kegiatan untuk rinciannya.",
+		AllowedVariables: []string{"nama_kegiatan", "deskripsi_kegiatan", "tanggal_kegiatan", "jam_kegiatan", "lokasi_kegiatan", "penyelenggara", "nama_warga"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     true,
+	},
+	{
+		EventType:        EventActivityUpdated,
+		Name:             "Kegiatan Diperbarui",
+		Trigger:          "Informasi kegiatan diperbarui oleh Pengurus RT",
+		Channel:          "push",
+		RecipientsRule:   "Seluruh warga terdaftar di RT tersebut",
+		DefaultTitle:     "Kegiatan Diperbarui: {{nama_kegiatan}}",
+		DefaultBody:      "Informasi kegiatan telah diperbarui. Silakan cek menu Kegiatan untuk rincian terbaru.",
+		AllowedVariables: []string{"nama_kegiatan", "deskripsi_kegiatan", "tanggal_kegiatan", "jam_kegiatan", "lokasi_kegiatan", "penyelenggara", "nama_warga"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     true,
+	},
+	{
+		EventType:        EventActivityReminder,
+		Name:             "Pengingat Kegiatan (H-<D>)",
+		Trigger:          "Otomatis sesuai penjadwalan satu kali yang terhubung dengan kegiatan (H-3, H-1, Hari H, atau jam tertentu)",
+		Channel:          "push",
+		RecipientsRule:   "Seluruh warga terdaftar di RT tersebut",
+		DefaultTitle:     "Pengingat Kegiatan: {{nama_kegiatan}}",
+		DefaultBody:      "Pengingat: kegiatan ini akan segera dilaksanakan pada {{tanggal_kegiatan}} {{jam_kegiatan}}. Lokasi: {{lokasi_kegiatan}}.",
+		AllowedVariables: []string{"nama_kegiatan", "deskripsi_kegiatan", "tanggal_kegiatan", "jam_kegiatan", "lokasi_kegiatan", "penyelenggara", "nama_warga"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     true,
+	},
+	{
+		EventType:        EventActivityCancelled,
+		Name:             "Kegiatan Dibatalkan",
+		Trigger:          "Kegiatan dibatalkan oleh Pengurus RT",
+		Channel:          "push",
+		RecipientsRule:   "Seluruh warga terdaftar di RT tersebut",
+		DefaultTitle:     "Kegiatan Dibatalkan: {{nama_kegiatan}}",
+		DefaultBody:      "Mohon maaf, kegiatan {{nama_kegiatan}} telah dibatalkan oleh Pengurus RT.",
+		AllowedVariables: []string{"nama_kegiatan", "deskripsi_kegiatan", "tanggal_kegiatan", "jam_kegiatan", "lokasi_kegiatan", "penyelenggara", "nama_warga"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     true,
+	},
+	{
+		EventType:        EventActivityCompleted,
+		Name:             "Kegiatan Selesai",
+		Trigger:          "Kegiatan berakhir/selesai (ends_at telah lewat)",
+		Channel:          "push",
+		RecipientsRule:   "Seluruh warga terdaftar di RT tersebut",
+		DefaultTitle:     "Kegiatan Selesai: {{nama_kegiatan}}",
+		DefaultBody:      "Kegiatan {{nama_kegiatan}} telah selesai dilaksanakan. Terima kasih atas partisipasi warga.",
+		AllowedVariables: []string{"nama_kegiatan", "deskripsi_kegiatan", "tanggal_kegiatan", "jam_kegiatan", "lokasi_kegiatan", "penyelenggara", "nama_warga"},
+		IsConfigurable:   true,
+		SupportsImage:    false,
+		SupportsTest:     true,
+	},
+	{
 		EventType:        EventOverdue3Months,
 		Name:             "Pengingat Tunggakan Iuran (3 Bulan+)",
 		Trigger:          "Otomatis dikirim saat tagihan iuran wajib menunggak minimal 3 bulan kalender setelah jatuh tempo, dan diulang setiap bulan selama belum lunas",
@@ -1451,6 +1523,69 @@ func (s *service) GetDueSchedules(ctx context.Context, now time.Time) ([]*Notifi
 	return s.repo.GetDueSchedules(ctx, now)
 }
 
+// SweepActivityState scans published activities whose lifecycle has terminated
+// (ends_at passed, or status == 'cancelled') and:
+//  1. Fires the matching lifecycle notification exactly once per activity.
+//  2. Deactivates any still-active one-shot reminder schedules attached to those activities.
+//
+// The event notification is idempotent — calling this method repeatedly does not resend.
+func (s *service) SweepActivityState(ctx context.Context) error {
+	candidates, err := s.repo.ListActivityStateCandidates(ctx, time.Now())
+	if err != nil {
+		return fmt.Errorf("sweep activity candidates: %w", err)
+	}
+	now := time.Now()
+	for _, ac := range candidates {
+		eventType := EventActivityCompleted
+		if ac.IsActivityCancelled() {
+			eventType = EventActivityCancelled
+		}
+
+		// Deactivate pending one-shot schedules for this activity.
+		if _, err := s.repo.CancelSchedulesForActivity(ctx, ac.RTID, ac.ID); err != nil {
+			slog.Warn("failed to cancel schedules for terminated activity", "activity_id", ac.ID, "rt_id", ac.RTID, "error", err)
+		}
+
+		// Idempotency: a matching notification must only be fired once per activity.
+		broadcastID := "activity_sweep:" + ac.ID + ":" + eventType
+		compilerTitle, compilerBody, _ := buildActivityDispatch(ctx, s, ac.RTID, eventType, ac, ac.Title)
+
+		minimalPayload := NotificationPayload{
+			Type:     eventType,
+			RTID:     ac.RTID,
+			Title:    compilerTitle,
+			Body:     compilerBody,
+			DeepLink: "/kegiatan/" + ac.ID,
+			SentAt:   now.UTC().Format(time.RFC3339Nano),
+		}
+		payloadMap := minimalPayload.ToMap()
+		payloadMap["activity_id"] = ac.ID
+		payloadMap["activity_type"] = eventType
+		payloadMap["date_time"] = now.UTC().Format(time.RFC3339Nano)
+
+		ok, err := s.repo.CheckAndRecordDedup(ctx, ac.RTID, "", eventType, broadcastID, compilerTitle, compilerBody, payloadMap)
+		if err != nil {
+			slog.Warn("failed to record activity sweep dedup", "activity_id", ac.ID, "event_type", eventType, "error", err)
+			continue
+		}
+		if !ok {
+			// Already fired before — nothing more to do for this activity.
+			continue
+		}
+
+		if err := s.broadcastActivityEvent(ctx, ac, eventType, "", broadcastID); err != nil {
+			slog.Warn("failed to broadcast activity lifecycle event", "activity_id", ac.ID, "event_type", eventType, "error", err)
+		}
+	}
+	return nil
+}
+
+// RunActivityMaintenance is the entry point for the scheduler to age out
+// activity-linked schedules and fire lifecycle events.
+func (s *service) RunActivityMaintenance(ctx context.Context) error {
+	return s.SweepActivityState(ctx)
+}
+
 // BuildScheduleDedupKey constructs a deterministic deduplication key for a scheduled notification delivery.
 // It preserves the prefix format `schedule:<schedule_id>:<exec_date>:<user_id>...` (or with `:c_<config_hash>`)
 // required by ListSchedulerHistory and GetSchedulerRecipientDetail while incorporating eventType, periodKey,
@@ -1647,6 +1782,13 @@ func (s *service) resolveOverdueOrUpcomingRecipientGroups(
 func (s *service) ExecuteSchedule(ctx context.Context, schedule *NotificationSchedule, now time.Time) (int, error) {
 	if schedule == nil {
 		return 0, errors.New("schedule is required")
+	}
+
+	// One-shot activity-linked reminder dispatch. These schedules are not driven
+	// by the day-of-month cadence — they fire once at execution_at and deactivate
+	// themselves, and they honor activity cancellation/completion lifecycle.
+	if schedule.ActivityID != nil && *schedule.ActivityID != "" {
+		return 0, s.executeActivityReminder(ctx, schedule, now)
 	}
 
 	rtID := schedule.RTID

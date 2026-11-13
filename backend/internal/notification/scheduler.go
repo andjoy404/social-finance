@@ -19,13 +19,13 @@ const schedulerTickInterval = 1 * time.Minute
 // notification_logs, so at most one instance delivers a given schedule on a
 // given execution date.
 type Scheduler struct {
-	pool   *database.Pool
-	svc    Service
-	env    string
+	pool *database.Pool
+	svc  Service
+	env  string
 
-	mu     sync.Mutex
+	mu      sync.Mutex
 	running bool
-	stop   chan struct{}
+	stop    chan struct{}
 }
 
 // NewScheduler creates a scheduler. It is disabled in the "test" environment
@@ -33,10 +33,10 @@ type Scheduler struct {
 // pushes.
 func NewScheduler(pool *database.Pool, svc Service, appEnv string) *Scheduler {
 	return &Scheduler{
-		pool:  pool,
-		svc:   svc,
-		env:   appEnv,
-		stop:  make(chan struct{}),
+		pool: pool,
+		svc:  svc,
+		env:  appEnv,
+		stop: make(chan struct{}),
 	}
 }
 
@@ -94,6 +94,12 @@ func (sch *Scheduler) loop(ctx context.Context) {
 // given local time (computed in each schedule's own timezone) and executes each
 // one. Per-schedule execution is guarded by an advisory lock + dedup key.
 func (sch *Scheduler) runOnce(ctx context.Context, now time.Time) {
+	// Age out activity-linked schedules whose activity has terminated, fire
+	// lifecycle events for completed/cancelled activities.
+	if err := sch.svc.RunActivityMaintenance(ctx); err != nil {
+		slog.Error("failed to run activity maintenance", "error", err)
+	}
+
 	schedules, err := sch.svc.GetDueSchedules(ctx, now)
 	if err != nil {
 		slog.Error("failed to fetch due notification schedules", "error", err)

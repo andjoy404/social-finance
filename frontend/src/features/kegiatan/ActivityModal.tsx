@@ -200,6 +200,7 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
               </label>
               <input
                 type="datetime-local"
+                className="sf-form-input"
                 value={startsAt}
                 onChange={(e) => setStartsAt(e.target.value)}
                 required
@@ -221,6 +222,7 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
               </label>
               <input
                 type="datetime-local"
+                className="sf-form-input"
                 value={endsAt}
                 onChange={(e) => setEndsAt(e.target.value)}
                 style={{
@@ -288,6 +290,7 @@ export function ActivityModal({ activity, onClose, onSuccess }: ActivityModalPro
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <input
                 type="file"
+                className="sf-form-file"
                 accept="image/png,image/jpeg,image/webp"
                 onChange={handleImageUpload}
                 disabled={uploading}

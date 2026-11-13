@@ -68,6 +68,16 @@ type Repository interface {
 	// UpdateScheduleExecutedDetailed records execution time, status, safe error detail, execution summary metrics,
 	// and persists the configuration version execution record.
 	UpdateScheduleExecutedDetailed(ctx context.Context, scheduleID, rtID string, at time.Time, status string, errorDetail *string, summary *ScheduleExecutionSummary, configHash ...string) error
+	// ActivityInfoFetch returns the notification-relevant projection of an activity.
+	ActivityInfoFetch(ctx context.Context, rtID, activityID string) (*ActivityPayload, error)
+	// ListActivityStateCandidates returns published activities that may need
+	// a lifecycle event (cancelled or completed) notification sweep.
+	ListActivityStateCandidates(ctx context.Context, now time.Time) ([]ActivityPayload, error)
+	// DeactivateSchedule marks an active one-shot schedule as inactive.
+	DeactivateSchedule(ctx context.Context, rtID, id string) error
+	// CancelSchedulesForActivity deactivates all pending schedules tied to an activity.
+	// Returns the number of schedules that were deactivated.
+	CancelSchedulesForActivity(ctx context.Context, rtID, activityID string) (int64, error)
 	// RecordScheduleExecution persists an execution instance in notification_schedule_executions
 	// with unique constraint (schedule_id, exec_date, config_hash).
 	RecordScheduleExecution(ctx context.Context, scheduleID, rtID string, execDate time.Time, configHash, status string, errorDetail *string, summary *ScheduleExecutionSummary) error
@@ -377,7 +387,7 @@ func (r *pgRepository) GetTokensForWasteTruckArrival(ctx context.Context, rtID s
 
 func (r *pgRepository) GetWasteTruckArrivalRecipients(ctx context.Context, rtID string) ([]WasteTruckArrivalRecipient, error) {
 	query := `
-		SELECT DISTINCT u.id::text, ud.fcm_token
+		SELECT DISTINCT u.id::text, COALESCE(u.full_name, ''), ud.fcm_token
 		FROM users u
 		JOIN user_rt_memberships urm ON urm.user_id = u.id
 		  AND urm.rt_id = $1 AND urm.is_active = true
@@ -412,7 +422,7 @@ func (r *pgRepository) GetWasteTruckArrivalRecipients(ctx context.Context, rtID 
 
 func (r *pgRepository) GetRTBroadcastRecipients(ctx context.Context, rtID string) ([]WasteTruckArrivalRecipient, error) {
 	rows, err := r.pool.Raw().QueryContext(ctx, `
-		SELECT DISTINCT u.id::text, ud.fcm_token
+		SELECT DISTINCT u.id::text, COALESCE(u.full_name, ''), ud.fcm_token
 		FROM user_rt_memberships urm
 		JOIN users u ON u.id = urm.user_id AND u.is_active = true
 		LEFT JOIN user_devices ud ON ud.user_id = u.id AND ud.is_active = true
@@ -433,16 +443,16 @@ func scanNotificationRecipients(rows *sql.Rows) ([]WasteTruckArrivalRecipient, e
 	recipients := make([]WasteTruckArrivalRecipient, 0)
 	byUser := make(map[string]int)
 	for rows.Next() {
-		var userID string
+		var userID, fullName string
 		var token sql.NullString
-		if err := rows.Scan(&userID, &token); err != nil {
+		if err := rows.Scan(&userID, &fullName, &token); err != nil {
 			return nil, err
 		}
 		index, ok := byUser[userID]
 		if !ok {
 			index = len(recipients)
 			byUser[userID] = index
-			recipients = append(recipients, WasteTruckArrivalRecipient{UserID: userID})
+			recipients = append(recipients, WasteTruckArrivalRecipient{UserID: userID, UserFullName: fullName})
 		}
 		if token.Valid {
 			recipients[index].Tokens = append(recipients[index].Tokens, token.String)
@@ -580,12 +590,18 @@ func (r *pgRepository) RecordBroadcastRecipientDelivery(
 	if image := strings.TrimSpace(payload["image_url"]); image != "" {
 		imageURL = &image
 	}
+	var senderParam any
+	if s := strings.TrimSpace(senderUserID); s == "" {
+		senderParam = nil
+	} else {
+		senderParam = s
+	}
 	_, err = r.pool.Raw().ExecContext(ctx, `
 		INSERT INTO notification_logs
 			(rt_id, user_id, sender_user_id, event_type, dedup_key, title, body, payload, status, image_url)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (dedup_key) DO NOTHING
-	`, rtID, recipientUserID, senderUserID, eventType,
+	`, rtID, recipientUserID, senderParam, eventType,
 		"recipient:"+eventType+":"+broadcastID+":"+recipientUserID,
 		title, body, payloadJSON, status, imageURL)
 	return err
@@ -1124,7 +1140,6 @@ func (r *pgRepository) DeleteRWTemplate(ctx context.Context, rwID, id string) er
 	return nil
 }
 
-
 func (r *pgRepository) CreateSchedule(ctx context.Context, rtID, userID string, in CreateScheduleInput) (*NotificationSchedule, error) {
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, errors.New("nama jadwal wajib diisi")
@@ -1135,12 +1150,14 @@ func (r *pgRepository) CreateSchedule(ctx context.Context, rtID, userID string, 
 	if strings.TrimSpace(in.TemplateID) == "" {
 		return nil, errors.New("template wajib dipilih")
 	}
-	if len(in.SendDays) == 0 {
-		return nil, errors.New("minimal satu tanggal pengiriman wajib diisi")
-	}
-	for _, d := range in.SendDays {
-		if d < 1 || d > 31 {
-			return nil, fmt.Errorf("tanggal pengiriman %d tidak valid (harus 1-31)", d)
+	if !strings.EqualFold(strings.TrimSpace(in.EventType), EventActivityReminder) {
+		if len(in.SendDays) == 0 {
+			return nil, errors.New("minimal satu tanggal pengiriman wajib diisi")
+		}
+		for _, d := range in.SendDays {
+			if d < 1 || d > 31 {
+				return nil, fmt.Errorf("tanggal pengiriman %d tidak valid (harus 1-31)", d)
+			}
 		}
 	}
 	if in.SendHour < 0 || in.SendHour > 23 {
@@ -1161,6 +1178,51 @@ func (r *pgRepository) CreateSchedule(ctx context.Context, rtID, userID string, 
 		return nil, fmt.Errorf("marshal send_days: %w", err)
 	}
 
+	// Event-specific validation
+	if strings.EqualFold(strings.TrimSpace(in.EventType), EventActivityReminder) {
+		if in.ActivityID == nil || strings.TrimSpace(*in.ActivityID) == "" {
+			return nil, errors.New("activity_reminder membutuhkan activity_id kegiatan yang valid")
+		}
+		if in.ExecutionAt == nil || !in.ExecutionAt.After(time.Now()) {
+			return nil, errors.New("activity_reminder membutuhkan execution_at berupa waktu mendatang")
+		}
+		var activityOK bool
+		if err := r.pool.Raw().QueryRowContext(ctx,
+			`SELECT EXISTS (
+				SELECT 1 FROM activities
+				WHERE id = $1 AND rt_id = $2
+				  AND publication_status = 'published'
+				  AND status <> 'cancelled'
+			)`,
+			strings.TrimSpace(*in.ActivityID), rtID,
+		).Scan(&activityOK); err != nil {
+			return nil, fmt.Errorf("verify activity: %w", err)
+		}
+		if !activityOK {
+			return nil, fmt.Errorf("activity reminder hanya dapat dibuat untuk kegiatan yang diterbitkan dan masih aktif")
+		}
+		// send_days is meaningless for one-shot reminders — normalize to empty list
+		in.SendDays = []int{}
+		daysJSON = []byte("[]")
+	} else {
+		if in.ActivityID != nil || in.ExecutionAt != nil {
+			return nil, fmt.Errorf("activity_id/execution_at hanya berlaku untuk event activity_reminder")
+		}
+	}
+
+	var activityIDArg any
+	if in.ActivityID != nil && strings.TrimSpace(*in.ActivityID) != "" {
+		activityIDArg = strings.TrimSpace(*in.ActivityID)
+	} else {
+		activityIDArg = nil
+	}
+	var executionAtArg any
+	if in.ExecutionAt != nil {
+		executionAtArg = in.ExecutionAt.UTC()
+	} else {
+		executionAtArg = nil
+	}
+
 	var s NotificationSchedule
 	var daysRaw []byte
 	var lastExecutedStatus *string
@@ -1169,16 +1231,16 @@ func (r *pgRepository) CreateSchedule(ctx context.Context, rtID, userID string, 
 	var createdBy, updatedBy *string
 	query := `
 		INSERT INTO notification_schedules
-			(rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, true, $5::jsonb, $6, $7, $8, $9, $10)
-		RETURNING id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
+			(rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, activity_id, execution_at, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, true, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, activity_id, execution_at, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
 	`
 	var userParam any
 	if strings.TrimSpace(userID) != "" {
 		userParam = strings.TrimSpace(userID)
 	}
-	err = r.pool.Raw().QueryRowContext(ctx, query, rtID, in.EventType, in.TemplateID, in.Name, daysJSON, in.SendHour, in.SendMinute, in.Timezone, userParam, userParam).Scan(
-		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &lastExecutedStatus, &lastExecutedError, &summaryRaw, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
+	err = r.pool.Raw().QueryRowContext(ctx, query, rtID, in.EventType, in.TemplateID, in.Name, daysJSON, in.SendHour, in.SendMinute, in.Timezone, activityIDArg, executionAtArg, userParam, userParam).Scan(
+		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.ActivityID, &s.ExecutionAt, &s.LastExecutedAt, &lastExecutedStatus, &lastExecutedError, &summaryRaw, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create schedule: %w", err)
@@ -1207,7 +1269,7 @@ func (r *pgRepository) CreateSchedule(ctx context.Context, rtID, userID string, 
 
 func (r *pgRepository) GetSchedule(ctx context.Context, rtID, id string) (*NotificationSchedule, error) {
 	query := `
-		SELECT id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
+		SELECT id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, activity_id, execution_at, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
 		FROM notification_schedules WHERE id = $1 AND rt_id = $2 LIMIT 1
 	`
 	return r.scanSchedule(ctx, r.pool.Raw().QueryRowContext(ctx, query, id, rtID))
@@ -1215,7 +1277,7 @@ func (r *pgRepository) GetSchedule(ctx context.Context, rtID, id string) (*Notif
 
 func (r *pgRepository) ListSchedules(ctx context.Context, rtID, eventType string, isActive *bool) ([]*NotificationSchedule, error) {
 	query := `
-		SELECT id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
+		SELECT id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, activity_id, execution_at, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
 		FROM notification_schedules WHERE rt_id = $1
 	`
 	args := []any{rtID}
@@ -1305,6 +1367,39 @@ func (r *pgRepository) UpdateSchedule(ctx context.Context, rtID, id, userID stri
 		return nil, fmt.Errorf("marshal send_days: %w", err)
 	}
 
+	// Resolve activity-linked fields
+	var activityIDValue any
+	if in.ActivityID == nil {
+		if existing.ActivityID != nil {
+			activityIDValue = *existing.ActivityID
+		} else {
+			activityIDValue = nil
+		}
+	} else if strings.TrimSpace(*in.ActivityID) == "" {
+		activityIDValue = nil
+	} else {
+		activityIDValue = strings.TrimSpace(*in.ActivityID)
+	}
+
+	var executionAtValue any
+	if in.ExecutionAt == nil {
+		if existing.ExecutionAt != nil {
+			executionAtValue = existing.ExecutionAt.UTC()
+		} else {
+			executionAtValue = nil
+		}
+	} else {
+		executionAtValue = in.ExecutionAt.UTC()
+	}
+
+	eventType := existing.EventType
+	if !strings.EqualFold(strings.TrimSpace(eventType), EventActivityReminder) {
+		activityIDValue = nil
+		executionAtValue = nil
+	} else if activityIDValue == nil {
+		return nil, fmt.Errorf("activity_reminder membutuhkan activity_id kegiatan yang valid")
+	}
+
 	var s NotificationSchedule
 	var daysRaw []byte
 	var lastExecutedStatus *string
@@ -1313,16 +1408,16 @@ func (r *pgRepository) UpdateSchedule(ctx context.Context, rtID, id, userID stri
 	var createdBy, updatedBy *string
 	query := `
 		UPDATE notification_schedules
-		SET name = $1, is_active = $2, send_days = $3::jsonb, send_hour = $4, send_minute = $5, timezone = $6, updated_at = CURRENT_TIMESTAMP, updated_by = $7
-		WHERE id = $8 AND rt_id = $9
-		RETURNING id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
+		SET name = $1, is_active = $2, send_days = $3::jsonb, send_hour = $4, send_minute = $5, timezone = $6, activity_id = $7, execution_at = $8, updated_at = CURRENT_TIMESTAMP, updated_by = $9
+		WHERE id = $10 AND rt_id = $11
+		RETURNING id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, activity_id, execution_at, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
 	`
 	var userParam any
 	if strings.TrimSpace(userID) != "" {
 		userParam = strings.TrimSpace(userID)
 	}
-	err = r.pool.Raw().QueryRowContext(ctx, query, name, isActive, daysJSON, sendHour, sendMinute, timezone, userParam, id, rtID).Scan(
-		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.LastExecutedAt, &lastExecutedStatus, &lastExecutedError, &summaryRaw, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
+	err = r.pool.Raw().QueryRowContext(ctx, query, name, isActive, daysJSON, sendHour, sendMinute, timezone, activityIDValue, executionAtValue, userParam, id, rtID).Scan(
+		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive, &daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone, &s.ActivityID, &s.ExecutionAt, &s.LastExecutedAt, &lastExecutedStatus, &lastExecutedError, &summaryRaw, &s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update schedule: %w", err)
@@ -1425,7 +1520,7 @@ func (r *pgRepository) ToggleScheduleActive(ctx context.Context, rtID, id, userI
 
 func (r *pgRepository) GetDueSchedules(ctx context.Context, now time.Time) ([]*NotificationSchedule, error) {
 	query := `
-		SELECT id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
+		SELECT id, rt_id, event_type, template_id, name, is_active, send_days, send_hour, send_minute, timezone, activity_id, execution_at, last_executed_at, last_executed_status, last_executed_error, last_executed_summary, created_at, updated_at, created_by, updated_by
 		FROM notification_schedules WHERE is_active = true
 	`
 	rows, err := r.pool.Raw().QueryContext(ctx, query)
@@ -1534,6 +1629,19 @@ func (r *pgRepository) shouldExecuteNow(s *NotificationSchedule, now time.Time, 
 		if done {
 			return false
 		}
+	}
+
+	// One-shot activity-linked reminder — due the moment execution_at passes.
+	if s.ExecutionAt != nil {
+		if s.ExecutionAt.After(now) {
+			return false
+		}
+		// Check if already executed at the one-shot's calendar date.
+		execDate := s.ExecutionAt.In(loc).Format("2006-01-02")
+		if set != nil {
+			return !set[s.ID+":"+execDate+":"+configHash]
+		}
+		return true
 	}
 
 	if !isDayDue(s.SendDays, local) {
@@ -1714,6 +1822,30 @@ func (r *pgRepository) IsScheduleExecutionDone(
 		return false, fmt.Errorf("check schedule execution done: %w", err)
 	}
 	return exists, nil
+}
+
+// DeactivateSchedule marks an active one-shot schedule as inactive.
+
+func (r *pgRepository) DeactivateSchedule(ctx context.Context, rtID, id string) error {
+	_, err := r.pool.Raw().ExecContext(ctx,
+		`UPDATE notification_schedules SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND rt_id = $2`,
+		id, rtID,
+	)
+	return err
+}
+
+// CancelSchedulesForActivity deactivates all pending schedules tied to an activity.
+// Returns the number of schedules that were deactivated. History is preserved.
+func (r *pgRepository) CancelSchedulesForActivity(ctx context.Context, rtID, activityID string) (int64, error) {
+	res, err := r.pool.Raw().ExecContext(ctx,
+		`UPDATE notification_schedules SET is_active = false, updated_at = CURRENT_TIMESTAMP
+		 WHERE activity_id = $1 AND rt_id = $2 AND is_active = true`,
+		activityID, rtID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("cancel schedules for activity %s: %w", activityID, err)
+	}
+	return res.RowsAffected()
 }
 
 func (r *pgRepository) UpdateScheduleExecutedDetailed(
@@ -2031,6 +2163,7 @@ func (r *pgRepository) scanSchedule(ctx context.Context, row scannable) (*Notifi
 	err := row.Scan(
 		&s.ID, &s.RTID, &s.EventType, &s.TemplateID, &s.Name, &s.IsActive,
 		&daysRaw, &s.SendHour, &s.SendMinute, &s.Timezone,
+		&s.ActivityID, &s.ExecutionAt,
 		&s.LastExecutedAt, &lastExecutedStatus,
 		&lastExecutedError, &summaryRaw,
 		&s.CreatedAt, &s.UpdatedAt, &createdBy, &updatedBy,

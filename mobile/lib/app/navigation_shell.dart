@@ -233,6 +233,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
         _wargaTab,
+        if (rwMemberships.isNotEmpty) _rwDataTab,
         if (canMonitoring && jabatan != 'ketua') _monitoringTab,
         // Ketua RT: open editable Sampah when the user has notes.write,
         // otherwise fall back to read-only view.
@@ -248,7 +249,6 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                 ),
         if (canSecurityManage) _securityManagementTab,
         if (canGuestBook && jabatan != 'ketua') _securityGuestBookTab,
-        if (rwMemberships.isNotEmpty) _rwDataTab,
         _pengumumanTab,
         _kegiatanTab,
         if (canNotifikasi) _notifikasiTab,
@@ -299,6 +299,7 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
         if (canLokasiDana) _lokasiTab,
         _iuranTab,
         _wargaTab,
+        if (rwMemberships.isNotEmpty) _rwDataTab,
         if (canMonitoring && jabatan != 'ketua') _monitoringTab,
         // Ketua RT: open editable Sampah when the user has notes.write,
         // otherwise fall back to read-only view.
@@ -314,7 +315,6 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
                 ),
         if (canSecurityManage) _securityManagementTab,
         if (canGuestBook && jabatan != 'ketua') _securityGuestBookTab,
-        if (rwMemberships.isNotEmpty) _rwDataTab,
         _pengumumanTab,
         _kegiatanTab,
         if (canNotifikasi) _notifikasiTab,

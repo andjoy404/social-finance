@@ -954,6 +954,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireAllowedRT(pool, *scopingCfg))
 		r.Get("/api/v1/fund-locations", locH.ListLocations)
+		r.Get("/api/v1/fund-locations/rekening/public", locH.ListPublicRekening)
 		r.Post("/api/v1/fund-locations", locH.CreateLocation)
 		r.Get("/api/v1/fund-locations/{id}", locH.GetLocation)
 		r.Patch("/api/v1/fund-locations/{id}", locH.UpdateLocation)
@@ -1123,6 +1124,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 	// ── Community Module (Beranda, Kegiatan, Pengumuman, Banner) ─────────
 	communityRepo := community.NewRepository(pool)
 	communitySvc := community.NewService(communityRepo, store)
+	communitySvc.WithActivityNotifier(activityNotifierAdapter{svc: notifSvc})
 	securityRepo := security.NewRepository(pool)
 	securitySvc := security.NewService(securityRepo)
 	communitySvc.WithOnDutyReader(func(ctx context.Context, rtID string) ([]community.SecurityOfficer, error) {
@@ -1331,4 +1333,33 @@ func runDevSeed() error {
 	}
 	fmt.Printf("devseed completed successfully: %+v\n", summary)
 	return nil
+}
+
+type activityNotifierAdapter struct {
+	svc notification.Service
+}
+
+func (a activityNotifierAdapter) NotifyActivityEvent(ctx context.Context, p community.ActivityNotificationPayload, eventType string) error {
+	payload := notification.ActivityPayload{
+		ID:                p.ID,
+		RTID:              p.RTID,
+		Title:             p.Title,
+		Description:       p.Description,
+		Location:          p.Location,
+		Organizer:         p.Organizer,
+		StartsAt:          p.StartsAt,
+		Status:            p.Status,
+		PublicationStatus: p.PublicationStatus,
+		CreatedAt:         p.CreatedAt,
+		UpdatedAt:         p.UpdatedAt,
+	}
+	if p.EndsAt != nil {
+		ends := *p.EndsAt
+		payload.EndsAt = &ends
+	}
+	return a.svc.NotifyActivityEvent(ctx, payload, eventType)
+}
+
+func (a activityNotifierAdapter) CancelActivityPendingSchedules(ctx context.Context, rtID, activityID string) error {
+	return a.svc.CancelActivityPendingSchedules(ctx, rtID, activityID)
 }

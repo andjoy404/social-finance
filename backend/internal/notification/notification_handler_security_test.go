@@ -931,3 +931,11 @@ func nowPtr() *time.Time {
 	t := time.Now()
 	return &t
 }
+
+func (r *deviceAwareRepo) ActivityInfoFetch(ctx context.Context, rtID, activityID string) (*notification.ActivityPayload, error) {
+	return nil, sql.ErrNoRows
+}
+
+func (r *deviceAwareRepo) ListActivityStateCandidates(ctx context.Context, now time.Time) ([]notification.ActivityPayload, error) {
+	return nil, nil
+}

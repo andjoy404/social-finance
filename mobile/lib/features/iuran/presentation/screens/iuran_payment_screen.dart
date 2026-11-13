@@ -1,6 +1,10 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'package:social_finance/features/fund_location/presentation/widgets/public_rekening_list.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -737,57 +741,6 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
 
               const SizedBox(height: AppSpacing.md),
 
-              // ── Tanggal Pembayaran (otomatis hari ini) ──
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Tanggal Pembayaran',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.sm,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppColors.lightBorder),
-                      borderRadius: BorderRadius.circular(AppRadius.base),
-                      color: isDark
-                          ? AppColors.darkSurface
-                          : AppColors.lightSurface,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 20,
-                          color: AppColors.accent,
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: Text(
-                            _tanggalCtrl.text.isEmpty
-                                ? 'Pilih tanggal'
-                                : _tanggalCtrl.text,
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              color: isDark
-                                  ? AppColors.darkTextMuted
-                                  : AppColors.lightTextMuted,
-                            ),
-                          ),
-                        ),
-                        const Icon(Icons.lock, size: 16, color: Colors.grey),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.md),
-
               // ── Metode Pembayaran ──
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -799,34 +752,43 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xs),
-                  SegmentedButton<PaymentMethod>(
-                    segments: [
-                      ButtonSegment(
-                        value: PaymentMethod.cash,
-                        label: const Text('Tunai'),
-                        icon: const Icon(
-                          Icons.payments_outlined,
-                          color: AppColors.info,
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 220,
+                        child: SegmentedButton<PaymentMethod>(
+                          segments: [
+                            ButtonSegment(
+                              value: PaymentMethod.cash,
+                              label: const Text('Tunai'),
+                              icon: const Icon(
+                                Icons.payments_outlined,
+                                color: AppColors.info,
+                              ),
+                            ),
+                            ButtonSegment(
+                              value: PaymentMethod.transfer,
+                              label: const Text('Transfer'),
+                              icon: const Icon(
+                                Icons.account_balance_outlined,
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          ],
+                          selected: {_selectedMethod ?? PaymentMethod.transfer},
+                          onSelectionChanged: (selection) {
+                            setState(() {
+                              _selectedMethod = selection.first;
+                            });
+                          },
+                          style: SegmentedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.lightBorder),
+                          ),
                         ),
                       ),
-                      ButtonSegment(
-                        value: PaymentMethod.transfer,
-                        label: const Text('Transfer'),
-                        icon: const Icon(
-                          Icons.account_balance_outlined,
-                          color: AppColors.accent,
-                        ),
-                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: _RekeningBar()),
                     ],
-                    selected: {_selectedMethod ?? PaymentMethod.transfer},
-                    onSelectionChanged: (selection) {
-                      setState(() {
-                        _selectedMethod = selection.first;
-                      });
-                    },
-                    style: SegmentedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.lightBorder),
-                    ),
                   ),
                 ],
               ),
@@ -893,6 +855,57 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                 controller: _catatanCtrl,
                 label: 'Catatan Pembayaran',
                 hintText: 'Catatan opsional (mis: bayar via transfer)',
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // ── Tanggal Pembayaran (otomatis hari ini) ──
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tanggal Pembayaran',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.darkBorder),
+                      borderRadius: BorderRadius.circular(AppRadius.base),
+                      color: isDark
+                          ? AppColors.darkSurface
+                          : AppColors.lightSurface,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 20,
+                          color: AppColors.accent,
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Text(
+                            _tanggalCtrl.text.isEmpty
+                                ? 'Pilih tanggal'
+                                : _tanggalCtrl.text,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkTextMuted
+                                  : AppColors.lightTextMuted,
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.lock, size: 16, color: Colors.grey),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: AppSpacing.lg),
 
@@ -1214,7 +1227,7 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(AppRadius.base),
-                    borderSide: const BorderSide(color: AppColors.lightBorder),
+                    borderSide: BorderSide(color: AppColors.accent),
                   ),
                 ),
                 items: [
@@ -1393,4 +1406,116 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
       ),
     ),
   );
+}
+
+/// Compact rekening info — 3 baris vertikal.
+class _RekeningBar extends ConsumerWidget {
+  const _RekeningBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(publicRekeningProvider);
+    return async.when(
+      data: (list) {
+        if (list.isEmpty) return const SizedBox.shrink();
+        final first = list.first;
+        final name = (first.name ?? '').trim();
+        final bank = (first.bankName ?? '').trim();
+        final number = (first.accountNumber ?? '').trim();
+        final holder = (first.accountHolder ?? '').trim();
+        return GestureDetector(
+          onTap: number.isNotEmpty
+              ? () {
+                  Clipboard.setData(ClipboardData(text: number));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Nomor rekening $number disalin'),
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              border: Border.all(
+                color: AppColors.accent.withValues(alpha: 0.25),
+                width: 0.5,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 1. Nama Rekening
+                Text(
+                  name.isEmpty ? 'Rekening RT' : name,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFA970FF),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                // 2. Bank • Nomor Rekening + Copy
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        [bank, number].where((s) => s.isNotEmpty).join('  •  '),
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontFamily: 'monospace',
+                          color: Color(0xFFE0E0E0),
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (number.isNotEmpty) ...[
+                      const SizedBox(width: 2),
+                      GestureDetector(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: number));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Nomor rekening $number disalin'),
+                              behavior: SnackBarBehavior.floating,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        child: const Icon(
+                          Icons.copy,
+                          size: 12,
+                          color: Color(0xFF8B8B9E),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                // 3. A/N
+                Text(
+                  holder.isNotEmpty ? 'A/N $holder' : '',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    color: Color(0xFF8B8B9E),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
 }

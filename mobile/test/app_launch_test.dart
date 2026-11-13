@@ -24,6 +24,8 @@ import 'package:social_finance/core/utils/rupiah_formatter.dart';
 import 'package:social_finance/features/kas/data/kas_api_models.dart';
 import 'package:social_finance/features/warga/data/api_warga_models.dart';
 import 'package:social_finance/features/warga/data/warga_providers.dart';
+import 'package:social_finance/features/fund_location/data/models/fund_location_models.dart';
+import 'package:social_finance/features/fund_location/data/fund_location_repository.dart';
 
 AuthRepository _createTestAuthRepo([Map<String, dynamic>? initialData]) {
   final client = ApiClient(baseUrl: 'http://test.local');
@@ -63,6 +65,16 @@ class _MockWargaNotifierForLaunch extends WargaListNotifier {
   }
 }
 
+final List<PublicRekening> _launchRekeningFixtures = [
+  const PublicRekening(
+    id: 'loc-launch',
+    name: 'BCA Operasional RT',
+    bankName: 'BCA',
+    accountNumber: '1234567890',
+    accountHolder: 'RT 002',
+  ),
+];
+
 Widget _dashboardViaMaterialApp() {
   return rp.ProviderScope(
     overrides: [
@@ -92,6 +104,7 @@ Widget _communityDashboardViaMaterialApp() {
         });
       })),
       wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
+      publicRekeningProvider.overrideWith((ref) async => _launchRekeningFixtures),
     ],
     child: MaterialApp(home: const DashboardScreen()),
   );
@@ -362,6 +375,7 @@ void main() {
             });
           })),
           wargaListProvider.overrideWith(() => _MockWargaNotifierForLaunch()),
+          publicRekeningProvider.overrideWith((ref) async => _launchRekeningFixtures),
         ],
         child: MaterialApp(
           home: SizedBox(width: 360, child: const DashboardScreen()),

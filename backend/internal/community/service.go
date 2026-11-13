@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"regexp"
 	"sort"
@@ -39,11 +40,36 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 // OnDutyReaderFunc injects live on-duty security officers from the security module without cyclic imports.
 type OnDutyReaderFunc func(ctx context.Context, rtID string) ([]SecurityOfficer, error)
 
+// ActivityNotifier is implemented by the notification module to fan activity
+// lifecycle events (created/updated/reminder/cancelled/completed) and to cancel
+// pending activity reminders when the activity is cancelled or completes.
+type ActivityNotifier interface {
+	NotifyActivityEvent(ctx context.Context, p ActivityNotificationPayload, eventType string) error
+	CancelActivityPendingSchedules(ctx context.Context, rtID, activityID string) error
+}
+
+// ActivityNotificationPayload is the community package's view of an activity for notifying.
+type ActivityNotificationPayload struct {
+	ID                string
+	RTID              string
+	Title             string
+	Description       *string
+	Location          *string
+	Organizer         *string
+	StartsAt          time.Time
+	EndsAt            *time.Time
+	Status            string
+	PublicationStatus string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 // Service provides business logic for community features.
 type Service struct {
-	repo         *Repository
-	storage      storage.Service
-	onDutyReader OnDutyReaderFunc
+	repo             *Repository
+	storage          storage.Service
+	onDutyReader     OnDutyReaderFunc
+	activityNotifier ActivityNotifier
 }
 
 // NewService creates a new community Service.
@@ -57,6 +83,53 @@ func NewService(repo *Repository, store storage.Service) *Service {
 // WithOnDutyReader attaches a security module reader for live on-duty officer status on Beranda.
 func (s *Service) WithOnDutyReader(fn OnDutyReaderFunc) {
 	s.onDutyReader = fn
+}
+
+// WithActivityNotifier attaches the notification module notifier for activity lifecycle events.
+func (s *Service) WithActivityNotifier(n ActivityNotifier) {
+	s.activityNotifier = n
+}
+
+// activityNotificationPayload maps a domain Activity into the notifier payload.
+func activityNotificationPayload(a *Activity) ActivityNotificationPayload {
+	out := ActivityNotificationPayload{
+		ID:                a.ID,
+		RTID:              a.RTID,
+		Title:             a.Title,
+		Description:       a.Description,
+		Location:          a.Location,
+		Organizer:         a.Organizer,
+		StartsAt:          a.StartsAt,
+		Status:            a.Status,
+		PublicationStatus: a.PublicationStatus,
+		CreatedAt:         a.CreatedAt,
+		UpdatedAt:         a.UpdatedAt,
+	}
+	if a.EndsAt != nil {
+		out.EndsAt = a.EndsAt
+	}
+	return out
+}
+
+// notifyActivityEvent reports an activity lifecycle event to the notification module.
+// Best-effort: delivery failure must not roll back the activity transaction.
+func (s *Service) notifyActivityEvent(ctx context.Context, a *Activity, eventType string) {
+	if s.activityNotifier == nil || a == nil {
+		return
+	}
+	if err := s.activityNotifier.NotifyActivityEvent(ctx, activityNotificationPayload(a), eventType); err != nil {
+		slog.Warn("activity event notification failed", "activity_id", a.ID, "event_type", eventType, "error", err)
+	}
+}
+
+// cancelActivitySchedules requests cancellation of pending one-shot schedules for an activity.
+func (s *Service) cancelActivitySchedules(ctx context.Context, a *Activity) {
+	if s.activityNotifier == nil || a == nil {
+		return
+	}
+	if err := s.activityNotifier.CancelActivityPendingSchedules(ctx, a.RTID, a.ID); err != nil {
+		slog.Warn("activity schedule cancellation failed", "activity_id", a.ID, "error", err)
+	}
 }
 
 // ValidateDeepLink ensures that a deep link is safe and internal.
@@ -232,6 +305,9 @@ func (s *Service) CreateActivity(ctx context.Context, rtID, userID string, req C
 		return nil, err
 	}
 
+	if a.PublicationStatus == "published" {
+		s.notifyActivityEvent(ctx, &a, "activity_created")
+	}
 	return &a, nil
 }
 
@@ -300,6 +376,9 @@ func (s *Service) UpdateActivity(ctx context.Context, rtID, id, userID string, r
 		return nil, err
 	}
 
+	if existing.PublicationStatus == "published" {
+		s.notifyActivityEvent(ctx, existing, "activity_updated")
+	}
 	return existing, nil
 }
 
@@ -331,7 +410,12 @@ func (s *Service) PublishActivity(ctx context.Context, rtID, id, userID string) 
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	s.notifyActivityEvent(ctx, a, "activity_created")
+	return nil
 }
 
 func (s *Service) CancelActivity(ctx context.Context, rtID, id, userID string) error {
@@ -347,11 +431,26 @@ func (s *Service) CancelActivity(ctx context.Context, rtID, id, userID string) e
 		}
 		return err
 	}
+	// Fetch payload BEFORE commit so title/details are available for the notification.
+	after, err := s.repo.GetActivityByID(ctx, tx, rtID, id)
+	if err != nil {
+		after = nil
+	}
+
 	// Hide the banner but keep the row (publish history) intact.
 	if err := s.repo.DeactivateBannerBySource(ctx, tx, rtID, "activity", id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	if after != nil {
+		after.Status = "cancelled"
+		s.notifyActivityEvent(ctx, after, "activity_cancelled")
+		s.cancelActivitySchedules(ctx, after)
+	}
+	return nil
 }
 
 func (s *Service) DeleteActivity(ctx context.Context, rtID, id string) error {

@@ -157,11 +157,11 @@ export function RwDashboard({
 
   const totalIncomeNum = isAllPeriods
     ? parseFloat(dashboardData?.total_income || kasReport?.total_income || '0') || 0
-    : parseFloat(kasReport?.total_income || '0') || 0
+    : parseFloat(kasReport?.total_income || dashboardData?.total_income || '0') || 0
 
   const totalExpenseNum = isAllPeriods
     ? parseFloat(dashboardData?.total_expense || kasReport?.total_expense || '0') || 0
-    : parseFloat(kasReport?.total_expense || '0') || 0
+    : parseFloat(kasReport?.total_expense || dashboardData?.total_expense || '0') || 0
 
   const netBalNum = totalIncomeNum - totalExpenseNum
   const totalSaldoNum = openingBalNum + netBalNum

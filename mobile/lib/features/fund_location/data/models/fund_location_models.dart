@@ -28,6 +28,34 @@ enum FundLocationCategory {
   }
 }
 
+
+/// Minimal balance-free view of an active Rekening (public to all RT members).
+@immutable
+class PublicRekening {
+  final String id;
+  final String name;
+  final String? bankName;
+  final String? accountNumber;
+  final String? accountHolder;
+
+  const PublicRekening({
+    required this.id,
+    required this.name,
+    this.bankName,
+    this.accountNumber,
+    this.accountHolder,
+  });
+
+  factory PublicRekening.fromJson(Map<String, dynamic> json) {
+    return PublicRekening(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '-',
+      bankName: json['bank_name'] as String?,
+      accountNumber: json['account_number'] as String?,
+      accountHolder: json['account_holder'] as String?,
+    );
+  }
+}
 @immutable
 class FundLocation {
   final String id;

@@ -4,17 +4,11 @@ import { useAuth } from '@/app/AuthContext'
 import { Sidebar } from '@/components/Sidebar'
 import { OverdueWarningCard } from '@/components/OverdueWarningCard'
 import { ThemeMenu } from '@/components/ThemeMenu'
+import { ResidentAvatar } from '@/components/ResidentAvatar'
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
-import { Dropdown, Avatar } from 'antd'
+import { Dropdown } from 'antd'
 import logoImg from '@/assets/logo.png'
 import { ProfileModal } from '@/features/profile/ProfileModal'
-
-function getInitials(name?: string): string {
-  if (!name || !name.trim()) return ''
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
 
 export function AppLayout() {
   const { user, logout } = useAuth()
@@ -70,17 +64,12 @@ export function AppLayout() {
             overlayClassName="sf-user-dropdown-menu"
           >
             <div className="header-user-btn">
-              <Avatar
+              <ResidentAvatar
+                name={user.name}
+                avatarPath={user.avatarPath ?? null}
                 size={28}
-                style={{
-                  backgroundColor: 'var(--sf-accent)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                }}
-                icon={<UserOutlined />}
-              >
-                {getInitials(user.name)}
-              </Avatar>
+                className="header-user-avatar"
+              />
               <div className="header-user-info">
                 <span className="header-user-name">{user.name}</span>
                 <span className="header-user-role">{user.role}</span>

@@ -1287,6 +1287,50 @@ Accessible strictly to **SUPER_ADMIN** and **Ketua RT** (`jabatan: ketua`).
   - Returns individual recipient delivery results for a specific schedule execution.
   - Query parameters: `exec_date` (required, YYYY-MM-DD), `config_hash` (optional, filters to a specific configuration version).
 
+### 11.16 Activity (Kegiatan) Notifications
+Activity lifecycle events are first-class, customizable notification events. Like other notification events, they honor RT scope and the `notification.manage` permission for management surfaces (creation/toggling/deleting templates and schedules).
+
+Event types:
+| Event | Trigger | Audience |
+|---|---|---|
+| `activity_created` | Pengurus RT creates or publishes an activity | Seluruh warga RT |
+| `activity_updated` | Pengurus RT updates an activity | Seluruh warga RT |
+| `activity_reminder` | One-shot schedule tied to a specific activity fires at `execution_at` | Seluruh warga RT |
+| `activity_cancelled` | Pengurus RT cancels an activity | Seluruh warga RT |
+| `activity_completed` | Activity ends (`ends_at` telah lewat) | Seluruh warga RT |
+
+Permitted variables (all activity events):
+- `{{nama_kegiatan}}` — the activity title.
+- `{{deskripsi_kegiatan}}` — the activity description (em dash if missing).
+- `{{tanggal_kegiatan}}` — starts_at date in Asia/Jakarta (`2 January 2006`).
+- `{{jam_kegiatan}}` — starts_at time in Asia/Jakarta (`15:04`).
+- `{{lokasi_kegiatan}}` — activity location.
+- `{{penyelenggara}}` — activity organizer or issuing party.
+- `{{nama_warga}}` — recipient's full name (per-recipient rendering).
+
+**One-shot activity reminders.** `activity_reminder` schedules are created with `activity_id` + absolute `execution_at`, have no `send_days` semantics, and deactivate themselves after firing or after the activity terminates. When the activity is cancelled or completes (`ends_at` elapsed) the pending schedule is deactivated and `'skipped'` is recorded in `notification_schedule_executions`. History rows in `notification_logs` are never deleted — a cancellation is recorded as a new `activity_cancelled` log row.
+
+Schedule endpoint bodies now accept:
+```json
+{
+  "name": "Pengingat H-3 Kegiatan",
+  "event_type": "activity_reminder",
+  "template_id": "<template id>",
+  "send_days": [],
+  "send_hour": 8,
+  "send_minute": 0,
+  "timezone": "Asia/Jakarta",
+  "activity_id": "<activity id>",
+  "execution_at": "2026-11-20T09:00:00+07:00"
+}
+```
+Constraints:
+- `activity_reminder` requires a valid, published, uncancelled activity in the same RT.
+- `execution_at` must be in the future at creation time.
+- The schedule is disabled as soon as the activity is cancelled, or as soon as its `ends_at` elapses. Editing the activity later (or re-creating it) does **not** re-arm cancelled schedules — residual reminders must be created anew.
+- Activity events are per-recipient fan-out; the body is rendered per user so `{{nama_warga}}` resolves to that user's name.
+
+
 ---
 
 ## 12. RW Finance & Fund Locations API

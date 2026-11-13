@@ -15,12 +15,12 @@ import (
 // schedulerRegressionRepo is a mock repository implementing Repository and OverdueReminderRepository
 // for scheduler regression tests covering all 17 required scenarios.
 type schedulerRegressionRepo struct {
-	templates        map[string]*notification.NotificationTemplate
-	schedules        map[string]*notification.NotificationSchedule
-	devices          map[string][]string // userID -> tokens
-	logs             []notification.NotificationLogEntry
-	iuranRecipients  map[string][]*notification.IuranReminderRecipient // rtID -> recipients
-	evalBills        map[string][]finance.BillEvaluationInput          // rtID -> bills
+	templates         map[string]*notification.NotificationTemplate
+	schedules         map[string]*notification.NotificationSchedule
+	devices           map[string][]string // userID -> tokens
+	logs              []notification.NotificationLogEntry
+	iuranRecipients   map[string][]*notification.IuranReminderRecipient // rtID -> recipients
+	evalBills         map[string][]finance.BillEvaluationInput          // rtID -> bills
 	executedSchedules map[string]struct {
 		at      time.Time
 		status  string
@@ -37,12 +37,12 @@ type schedulerRegressionRepo struct {
 
 func newSchedulerRegressionRepo() *schedulerRegressionRepo {
 	return &schedulerRegressionRepo{
-		templates:        make(map[string]*notification.NotificationTemplate),
-		schedules:        make(map[string]*notification.NotificationSchedule),
-		devices:          make(map[string][]string),
-		logs:             make([]notification.NotificationLogEntry, 0),
-		iuranRecipients:  make(map[string][]*notification.IuranReminderRecipient),
-		evalBills:        make(map[string][]finance.BillEvaluationInput),
+		templates:       make(map[string]*notification.NotificationTemplate),
+		schedules:       make(map[string]*notification.NotificationSchedule),
+		devices:         make(map[string][]string),
+		logs:            make([]notification.NotificationLogEntry, 0),
+		iuranRecipients: make(map[string][]*notification.IuranReminderRecipient),
+		evalBills:       make(map[string][]finance.BillEvaluationInput),
 		executedSchedules: make(map[string]struct {
 			at      time.Time
 			status  string
@@ -197,7 +197,6 @@ func (r *schedulerRegressionRepo) ToggleRWTemplateActive(ctx context.Context, rw
 func (r *schedulerRegressionRepo) DeleteRWTemplate(ctx context.Context, rwID, id string) error {
 	return nil
 }
-
 
 func (r *schedulerRegressionRepo) CreateSchedule(ctx context.Context, rtID, userID string, in notification.CreateScheduleInput) (*notification.NotificationSchedule, error) {
 	s := &notification.NotificationSchedule{
@@ -1302,4 +1301,30 @@ func TestNotificationScheduler_17_Mandatory_Regression_Scenarios(t *testing.T) {
 			t.Fatalf("expected only u-valid to receive notification, got logs: %+v", repo.logs)
 		}
 	})
+}
+
+func (r *schedulerRegressionRepo) DeactivateSchedule(ctx context.Context, rtID, id string) error {
+	if s, ok := r.schedules[id]; ok && s.RTID == rtID {
+		s.IsActive = false
+	}
+	return nil
+}
+
+func (r *schedulerRegressionRepo) CancelSchedulesForActivity(ctx context.Context, rtID, activityID string) (int64, error) {
+	var n int64
+	for _, s := range r.schedules {
+		if s.RTID == rtID && s.ActivityID != nil && *s.ActivityID == activityID && s.IsActive {
+			s.IsActive = false
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (r *schedulerRegressionRepo) ActivityInfoFetch(ctx context.Context, rtID, activityID string) (*notification.ActivityPayload, error) {
+	return nil, sql.ErrNoRows
+}
+
+func (r *schedulerRegressionRepo) ListActivityStateCandidates(ctx context.Context, now time.Time) ([]notification.ActivityPayload, error) {
+	return nil, nil
 }

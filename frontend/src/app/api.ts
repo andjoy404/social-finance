@@ -3006,6 +3006,8 @@ export interface ApiNotificationSchedule {
   send_hour: number
   send_minute: number
   timezone: string
+  activity_id?: string | null
+  execution_at?: string | null
   last_executed_at?: string | null
   last_executed_status?: string | null
   last_executed_error?: string | null
@@ -3022,6 +3024,8 @@ export interface ApiCreateNotificationScheduleBody {
   send_hour: number
   send_minute: number
   timezone?: string
+  activity_id?: string | null
+  execution_at?: string | null
 }
 
 export interface ApiUpdateNotificationScheduleBody {
@@ -3031,6 +3035,8 @@ export interface ApiUpdateNotificationScheduleBody {
   send_hour?: number
   send_minute?: number
   timezone?: string
+  activity_id?: string | null
+  execution_at?: string | null
 }
 
 export interface ApiPaginatedSchedules {

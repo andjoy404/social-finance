@@ -45,6 +45,8 @@ import {
   type ApiNotificationLog,
   type ApiNotificationSchedule,
   type ApiCreateNotificationScheduleBody,
+  type CommunityActivity,
+  apiListActivities,
 } from '@/app/api'
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
 import { renderNotificationBody } from './notificationUrl'
@@ -125,7 +127,10 @@ export function NotificationScreen() {
     send_minute: 0,
     timezone: 'Asia/Jakarta',
     is_active: true,
+    activity_id: '',
+    execution_at: '', // datetime-local (YYYY-MM-DDTHH:mm)
   })
+  const [activities, setActivities] = useState<CommunityActivity[]>([])
   const [scheduleFormSubmitting, setScheduleFormSubmitting] = useState(false)
   const [scheduleFormError, setScheduleFormError] = useState<string | null>(null)
 
@@ -175,7 +180,16 @@ export function NotificationScreen() {
   const [formSubmitting, setFormSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const knownEventNames: Record<string, string> = {
+  // Convert ISO 8601 datetime to a local "YYYY-MM-DDTHH:mm" string usable by <input type="datetime-local" />.
+function toLocalDateTimeInput(d?: string | null): string {
+  if (!d) return ''
+  const t = new Date(d)
+  if (Number.isNaN(t.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:${pad(t.getMinutes())}`
+}
+
+const knownEventNames: Record<string, string> = {
     iuran_bill_created: 'Tagihan Iuran Baru',
     iuran_payment_reminder: 'Pengingat Pembayaran Iuran',
     iuran_upcoming_due_3_months: 'Pengingat Pembayaran Iuran (3 Bulan Sebelum Jatuh Tempo)',
@@ -284,30 +298,55 @@ export function NotificationScreen() {
       setScheduleFormError('Template wajib dipilih')
       return
     }
-    if (scheduleForm.send_days.length === 0) {
+    const isActivityReminder = scheduleForm.event_type === 'activity_reminder'
+    if (isActivityReminder) {
+      if (!scheduleForm.activity_id) {
+        setScheduleFormError('Pilih kegiatan yang valid untuk pengingat ini')
+        return
+      }
+      if (!scheduleForm.execution_at) {
+        setScheduleFormError('Pilih waktu pengiriman pengingat')
+        return
+      }
+      const ts = new Date(scheduleForm.execution_at).getTime()
+      if (!Number.isFinite(ts) || ts <= Date.now()) {
+        setScheduleFormError('Waktu pengiriman harus di masa depan')
+        return
+      }
+    } else if (scheduleForm.send_days.length === 0) {
       setScheduleFormError('Pilih minimal satu tanggal pengiriman')
       return
     }
 
     setScheduleFormSubmitting(true)
     try {
+      const isActivityReminder = scheduleForm.event_type === 'activity_reminder'
+      const activityId = isActivityReminder ? (scheduleForm.activity_id || null) : null
+      const executionAt = isActivityReminder && scheduleForm.execution_at
+        ? new Date(scheduleForm.execution_at).toISOString()
+        : null
+      const sendDays = isActivityReminder ? [] : scheduleForm.send_days
       const body: ApiCreateNotificationScheduleBody = {
         event_type: scheduleForm.event_type,
         template_id: scheduleForm.template_id,
         name: scheduleForm.name.trim(),
-        send_days: scheduleForm.send_days,
+        send_days: sendDays,
         send_hour: scheduleForm.send_hour,
         send_minute: scheduleForm.send_minute,
         timezone: scheduleForm.timezone || 'Asia/Jakarta',
+        activity_id: activityId,
+        execution_at: executionAt,
       }
       if (editingSchedule) {
         await apiUpdateNotificationSchedule(token, editingSchedule.id, {
           name: scheduleForm.name.trim(),
           is_active: scheduleForm.is_active,
-          send_days: scheduleForm.send_days,
+          send_days: sendDays,
           send_hour: scheduleForm.send_hour,
           send_minute: scheduleForm.send_minute,
           timezone: scheduleForm.timezone || 'Asia/Jakarta',
+          activity_id: activityId,
+          execution_at: executionAt,
         })
       } else {
         await apiCreateNotificationSchedule(token, body)
@@ -323,6 +362,8 @@ export function NotificationScreen() {
         send_minute: 0,
         timezone: 'Asia/Jakarta',
         is_active: true,
+        activity_id: '',
+        execution_at: '',
       })
       await loadSchedules()
       setSuccessMsg(`Jadwal ${editingSchedule ? 'diperbarui' : 'dibuat'} berhasil`)
@@ -442,6 +483,26 @@ export function NotificationScreen() {
   }
 
   // Open Schedule Create Modal
+  // Load upcoming/ongoing published activities when the modal opens or the user switches to activity_reminder.
+  useEffect(() => {
+    if (!showScheduleModal) return
+    const ev = scheduleForm.event_type
+    if (ev !== 'activity_reminder') return
+    const token = getSessionPair()?.accessToken
+    if (!token) return
+    let cancelled = false
+    apiListActivities(token, { status: 'upcoming', publication_status: 'published', page_size: 100 })
+      .then((res) => {
+        if (cancelled) return
+        const sorted = [...res.data].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
+        setActivities(sorted)
+      })
+      .catch(() => setActivities([]))
+    return () => { cancelled = true }
+    // intentionally depend on modal visibility + event type to avoid over-fetching
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showScheduleModal, scheduleForm.event_type])
+
   const handleOpenScheduleCreate = () => {
     setEditingSchedule(null)
     const defaultEv = schedulableSystemTypes[0]?.event_type || 'iuran_payment_reminder'
@@ -454,6 +515,8 @@ export function NotificationScreen() {
       send_minute: 0,
       timezone: 'Asia/Jakarta',
       is_active: true,
+      activity_id: '',
+      execution_at: '',
     })
     setShowScheduleModal(true)
   }
@@ -1131,6 +1194,8 @@ export function NotificationScreen() {
                         send_minute: 0,
                         timezone: 'Asia/Jakarta',
                         is_active: true,
+                        activity_id: '',
+                        execution_at: '',
                       })
                       setShowScheduleModal(true)
                     }}
@@ -1296,6 +1361,8 @@ export function NotificationScreen() {
                                       send_minute: s.send_minute,
                                       timezone: s.timezone,
                                       is_active: s.is_active,
+                                      activity_id: s.activity_id ?? '',
+                                      execution_at: toLocalDateTimeInput(s.execution_at),
                                     })
                                     setShowScheduleModal(true)
                                   }}
@@ -2159,6 +2226,47 @@ export function NotificationScreen() {
                 </select>
               </div>
 
+              {scheduleForm.event_type === 'activity_reminder' ? (
+                <>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                      Kegiatan yang Diingatkan
+                    </label>
+                    <select
+                      value={scheduleForm.activity_id}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, activity_id: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                    >
+                      <option value="">{activities.length === 0 ? 'Tidak ada kegiatan terbit — buat kegiatan dahulu' : '-- Pilih kegiatan --'}</option>
+                      {activities.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.title} — {new Date(a.starts_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 4 }}>
+                      Hanya kegiatan yang sudah diterbitkan (publikasi) yang dapat dipakai untuk pengingat.
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                      Waktu Pengiriman Pengingat
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={scheduleForm.execution_at}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, execution_at: e.target.value })}
+                      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
+                    />
+                    <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 4 }}>
+                      Pengingat akan dikirim otomatis pada waktu ini — satu kali saja. Setelah kegiatan selesai atau dibatalkan, jadwal ini otomatis nonaktif.
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {scheduleForm.event_type === 'activity_reminder' ? null : (
               <div style={{ marginBottom: 14 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                   Tanggal Pengiriman (1-31)
@@ -2198,7 +2306,10 @@ export function NotificationScreen() {
                   </div>
                 )}
               </div>
+              )}
 
+              {scheduleForm.event_type === 'activity_reminder' ? null : (
+              <>
               <div style={{ marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
@@ -2246,6 +2357,8 @@ export function NotificationScreen() {
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
                 />
               </div>
+              </>
+              )}
 
               <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input

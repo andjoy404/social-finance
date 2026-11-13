@@ -71,26 +71,86 @@ class _RwDashboardScreenState extends ConsumerState<RwDashboardScreen>
       final api = ref.read(rwApiClientProvider);
       final periodStr = _formatPeriod();
 
+      // Read-only RT officials (rt_inferred membership) may only read Beranda
+      // (rw.dashboard.read). KAS/transaction endpoints require rw.kas.read and
+      // are denied by the backend — mirror the web, which also renders Beranda
+      // without transactions for these users.
+      final user = ref.read(authRepositoryProvider)?.valueOrNull;
+      final hasFeatureAccess =
+          rwMembershipHasFeatureAccess(user, widget.rwId);
+
       final dashboardFuture = api.getDashboard(
         widget.rwId,
         period: periodStr,
       );
-      final recentTxFuture = api.getTransactions(
-        rwId: widget.rwId,
-        page: 1,
-        pageSize: 5,
-      );
-      final yearTxFuture = api.getTransactions(
-        rwId: widget.rwId,
-        startDate: '${_activeDate.year}-01-01',
-        endDate: '${_activeDate.year}-12-31',
-        pageSize: 100,
-      );
+
+      Future<RwTransactionsResponse> fetchRecentTx() async {
+        if (!hasFeatureAccess) {
+          return const RwTransactionsResponse(
+            data: [],
+            pagination: RwPaginationInfo(
+              page: 1,
+              pageSize: 5,
+              total: 0,
+              totalPages: 0,
+            ),
+          );
+        }
+        try {
+          return await api.getTransactions(
+            rwId: widget.rwId,
+            page: 1,
+            pageSize: 5,
+          );
+        } catch (_) {
+          return const RwTransactionsResponse(
+            data: [],
+            pagination: RwPaginationInfo(
+              page: 1,
+              pageSize: 5,
+              total: 0,
+              totalPages: 0,
+            ),
+          );
+        }
+      }
+
+      Future<RwTransactionsResponse> fetchYearTx() async {
+        if (!hasFeatureAccess) {
+          return const RwTransactionsResponse(
+            data: [],
+            pagination: RwPaginationInfo(
+              page: 1,
+              pageSize: 100,
+              total: 0,
+              totalPages: 0,
+            ),
+          );
+        }
+        try {
+          return await api.getTransactions(
+            rwId: widget.rwId,
+            startDate: '${_activeDate.year}-01-01',
+            endDate: '${_activeDate.year}-12-31',
+            pageSize: 100,
+          );
+        } catch (_) {
+          return const RwTransactionsResponse(
+            data: [],
+            pagination: RwPaginationInfo(
+              page: 1,
+              pageSize: 100,
+              total: 0,
+              totalPages: 0,
+            ),
+          );
+        }
+      }
 
       final results = await Future.wait([
         dashboardFuture,
-        recentTxFuture,
-        yearTxFuture,
+        fetchRecentTx(),
+        fetchYearTx(),
       ]);
 
       if (mounted) {

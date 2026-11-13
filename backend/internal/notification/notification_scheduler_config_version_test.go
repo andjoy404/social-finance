@@ -10,10 +10,10 @@ import (
 )
 
 // TestScheduleConfigHash_DimensionsAndInvariance verifies that:
-// 1. Every functional dimension (send_hour, send_minute, send_days, timezone, event_type, template_id, rt_id)
-//    changes the configuration hash.
-// 2. Metadata changes (name, description, is_active, updated_at, last_executed_at) DO NOT change the hash.
-// 3. send_days sorting and deduplication produces invariant hashes.
+//  1. Every functional dimension (send_hour, send_minute, send_days, timezone, event_type, template_id, rt_id)
+//     changes the configuration hash.
+//  2. Metadata changes (name, description, is_active, updated_at, last_executed_at) DO NOT change the hash.
+//  3. send_days sorting and deduplication produces invariant hashes.
 func TestScheduleConfigHash_DimensionsAndInvariance(t *testing.T) {
 	base := notification.NotificationSchedule{
 		ID:         "3ecb113a-2580-40e1-b3dd-9159fd5cc9fe",
@@ -505,10 +505,10 @@ func TestScenarioE_DeactivationReactivation_DoesNotReExecute(t *testing.T) {
 }
 
 // TestScenarioG_AdvisoryLockAndUniqueConstraint verifies concurrency protection:
-// 1. Simultaneous ExecuteSchedule calls for the same schedule and config version
-//    do not double-send or create conflicting executions.
-// 2. The PostgreSQL table notification_schedule_executions rejects duplicate
-//    (schedule_id, exec_date, config_hash) inserts at the database level.
+//  1. Simultaneous ExecuteSchedule calls for the same schedule and config version
+//     do not double-send or create conflicting executions.
+//  2. The PostgreSQL table notification_schedule_executions rejects duplicate
+//     (schedule_id, exec_date, config_hash) inserts at the database level.
 func TestScenarioG_AdvisoryLockAndUniqueConstraint(t *testing.T) {
 	pool := notifTestPool(t)
 	db := pool.Raw()

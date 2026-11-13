@@ -7,31 +7,44 @@ import (
 )
 
 var (
-	ErrNotFound                   = errors.New("fund location not found")
-	ErrDuplicateName              = errors.New("location with this name already exists in RT")
+	ErrNotFound                    = errors.New("fund location not found")
+	ErrDuplicateName               = errors.New("location with this name already exists in RT")
 	ErrCannotDeactivateWithBalance = errors.New("cannot deactivate location with positive balance")
-	ErrSameLocationTransfer       = errors.New("source and destination location must be different")
-	ErrInsufficientFunds          = errors.New("insufficient funds in source location")
-	ErrInsufficientReversal       = errors.New("insufficient balance in recipient location for reversal")
-	ErrAlreadyReversed            = errors.New("transfer has already been reversed")
-	ErrCannotReverseReversal      = errors.New("cannot reverse a reversal transfer")
-	ErrInactiveLocation           = errors.New("location is inactive")
-	ErrInvalidCategory            = errors.New("invalid category: must be rekening, brankas, or coh")
-	ErrMissingBankName            = errors.New("bank name is required for category rekening")
-	ErrInvalidAmount              = errors.New("amount must be greater than zero")
-	ErrInsufficientUnallocated    = errors.New("opening balance cannot exceed unallocated cash balance")
-	ErrInvalidMethodCategoryMatch = errors.New("payment method does not match fund location category")
-	ErrSuperAdminWriteBlocked     = errors.New("super_admin cannot perform write mutations on fund locations")
-	ErrWargaBlocked               = errors.New("warga cannot access fund locations")
+	ErrSameLocationTransfer        = errors.New("source and destination location must be different")
+	ErrInsufficientFunds           = errors.New("insufficient funds in source location")
+	ErrInsufficientReversal        = errors.New("insufficient balance in recipient location for reversal")
+	ErrAlreadyReversed             = errors.New("transfer has already been reversed")
+	ErrCannotReverseReversal       = errors.New("cannot reverse a reversal transfer")
+	ErrInactiveLocation            = errors.New("location is inactive")
+	ErrInvalidCategory             = errors.New("invalid category: must be rekening, brankas, or coh")
+	ErrMissingBankName             = errors.New("bank name is required for category rekening")
+	ErrInvalidAmount               = errors.New("amount must be greater than zero")
+	ErrInsufficientUnallocated     = errors.New("opening balance cannot exceed unallocated cash balance")
+	ErrInvalidMethodCategoryMatch  = errors.New("payment method does not match fund location category")
+	ErrSuperAdminWriteBlocked      = errors.New("super_admin cannot perform write mutations on fund locations")
+	ErrWargaBlocked                = errors.New("warga cannot access fund locations")
 )
 
 type Category string
 
 const (
 	CategoryRekening Category = "rekening"
-	CategoryBrankas Category = "brankas"
+	CategoryBrankas  Category = "brankas"
 	CategoryCOH      Category = "coh"
 )
+
+// PublicRekeningView is the balance-free shape of an active Rekening that
+// is safe to expose to every authenticated member of a tenant RT (for example,
+// warga who needs the account number to transfer an iuran payment).
+// It deliberately EXCLUDES current_balance, rt_id, timestamps — anything
+// unrelated to actually making a transfer.
+type PublicRekeningView struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	BankName      *string `json:"bank_name,omitempty"`
+	AccountNumber *string `json:"account_number,omitempty"`
+	AccountHolder *string `json:"account_holder,omitempty"`
+}
 
 type FundLocation struct {
 	ID             string    `json:"id"`
@@ -101,8 +114,8 @@ type FundTransfer struct {
 	ReversesTransferID *string   `json:"reverses_transfer_id,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 
-	FromLocationName   *string   `json:"from_location_name,omitempty"`
-	ToLocationName     *string   `json:"to_location_name,omitempty"`
+	FromLocationName *string `json:"from_location_name,omitempty"`
+	ToLocationName   *string `json:"to_location_name,omitempty"`
 }
 
 type CreateFundTransferInput struct {

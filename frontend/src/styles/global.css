@@ -1615,6 +1615,62 @@ input[type="date"].sf-form-input::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
 
+/* ── datetime-local inputs (Jadwal Mulai / Berakhir, Waktu Mulai / Selesai) ── */
+
+input[type="datetime-local"].sf-form-input {
+  color-scheme: light dark;
+  position: relative;
+}
+
+[data-theme='dark'] input[type="datetime-local"].sf-form-input {
+  color-scheme: dark;
+}
+
+[data-theme='light'] input[type="datetime-local"].sf-form-input {
+  color-scheme: light;
+}
+
+input[type="datetime-local"].sf-form-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.75;
+  padding: 2px;
+  border-radius: var(--sf-radius-sm);
+  transition: opacity 150ms ease;
+  background: var(--sf-accent);
+}
+
+input[type="datetime-local"].sf-form-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* ── File upload button — "Choose file" follows theme ── */
+
+input[type="file"].sf-form-file {
+  color: var(--sf-text);
+}
+
+input[type="file"].sf-form-file::-webkit-file-upload-button {
+  cursor: pointer;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--sf-accent);
+  background: var(--sf-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--sf-accent) 38%, var(--sf-border));
+  border-radius: var(--sf-radius-sm);
+  transition: all 150ms ease;
+}
+
+input[type="file"].sf-form-file::-webkit-file-upload-button:hover {
+  background: color-mix(in srgb, var(--sf-accent) 20%, var(--sf-accent-soft));
+  border-color: var(--sf-accent);
+}
+
+input[type="file"].sf-form-file::-webkit-file-upload-button:active {
+  transform: translateY(0.5px);
+}
+
 .sf-form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

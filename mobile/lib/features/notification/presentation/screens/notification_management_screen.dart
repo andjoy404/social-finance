@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'package:social_finance/features/dashboard/data/community_repository.dart';
+import 'package:social_finance/features/dashboard/data/models/community_models.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -2633,6 +2635,21 @@ class _NotificationManagementScreenState
     var sendHour = schedule?.sendHour ?? 8;
     var sendMinute = schedule?.sendMinute ?? 0;
     var isActive = schedule?.isActive ?? true;
+    var selectedActivityId = schedule?.activityId;
+    var executionAt = schedule?.executionAt;
+    List<CommunityActivity> activities = const [];
+    try {
+      final page = await ref.read(communityRepositoryProvider).listActivities(
+        status: 'upcoming',
+        publicationStatus: 'published',
+        pageSize: 100,
+      );
+      activities = page.items
+          .where((a) => a.publicationStatus == 'published')
+          .toList();
+    } catch (_) {
+      activities = const [];
+    }
 
     // Fetch system types and templates upfront.
     List<SystemNotificationType> systemTypes = [];
@@ -2739,6 +2756,98 @@ class _NotificationManagementScreenState
                           style: TextStyle(color: AppColors.danger),
                         ),
                       const SizedBox(height: 12),
+                      // Activity-reminder section — shown for eventType == activity_reminder.
+                      if (selectedEventType == 'activity_reminder') ...[
+                        DropdownButtonFormField<String>(
+                          value: selectedActivityId,
+                          isExpanded: true,
+                          items: activities
+                              .map(
+                                (a) => DropdownMenuItem<String>(
+                                  value: a.id,
+                                  child: Text(
+                                    '${a.title} · ${formatJakartaIsoDateHour(a.startDate)}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          decoration: const InputDecoration(
+                            labelText: 'Kegiatan yang Diingatkan *',
+                            hintText: 'Pilih kegiatan terbit (publikasi)',
+                          ),
+                          onChanged: (v) {
+                            setSheetState(() => selectedActivityId = v);
+                          },
+                        ),
+                        if (activities.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Belum ada kegiatan terbit — buat kegiatan dahulu.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.danger,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          onTap: () async {
+                            final now = DateTime.now();
+                            final initialDate =
+                                executionAt ?? now.add(const Duration(days: 3));
+                            final pickedDate = await showDatePicker(
+                              context: dialogContext,
+                              initialDate: initialDate,
+                              firstDate: now,
+                              lastDate: DateTime(now.year + 5),
+                            );
+                            if (pickedDate == null || !dialogContext.mounted) {
+                              return;
+                            }
+                            final pickedTime = await showTimePicker(
+                              context: dialogContext,
+                              initialTime: TimeOfDay.fromDateTime(initialDate),
+                            );
+                            if (pickedTime == null || !dialogContext.mounted) {
+                              return;
+                            }
+                            setSheetState(() {
+                              executionAt = DateTime(
+                                pickedDate.year,
+                                pickedDate.month,
+                                pickedDate.day,
+                                pickedTime.hour,
+                                pickedTime.minute,
+                              );
+                            });
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Waktu Pengiriman Pengingat *',
+                              hintText: 'Ketuk untuk memilih tanggal dan jam',
+                            ),
+                            child: Text(
+                              executionAt != null
+                                  ? formatJakartaIsoDateHour(executionAt!)
+                                  : 'Belum dipilih',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Hanya kegiatan yang sudah diterbitkan (publikasi) yang dapat '
+                          'dipakai untuk pengingat.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xff8a9ab0),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      // Send days — hidden for activity_reminder
+                      if (selectedEventType != 'activity_reminder') ...[
                       // Send days
                       const Text(
                         'Tanggal Pengiriman (1-31)',
@@ -2772,8 +2881,10 @@ class _NotificationManagementScreenState
                           );
                         }),
                       ),
+                      ],
                       const SizedBox(height: 12),
-                      // Time + timezone
+                      // Time + timezone — hidden for activity_reminder
+                      if (selectedEventType != 'activity_reminder') ...[
                       Row(
                         children: [
                           Expanded(
@@ -2826,6 +2937,7 @@ class _NotificationManagementScreenState
                           ),
                         ],
                       ),
+                      ],
                       const SizedBox(height: 12),
                       SwitchListTile(
                         title: const Text('Aktif'),
@@ -2861,7 +2973,41 @@ class _NotificationManagementScreenState
                             );
                             return;
                           }
-                          if (selectedDays.isEmpty) {
+                          final isActivityReminder =
+                              selectedEventType == 'activity_reminder';
+                          if (isActivityReminder) {
+                            if (selectedActivityId == null ||
+                                selectedActivityId!.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Pilih kegiatan yang valid untuk pengingat ini',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            if (executionAt == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Pilih waktu pengiriman pengingat',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            if (!executionAt!.isAfter(DateTime.now())) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Waktu pengiriman harus di masa depan',
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                          } else if (selectedDays.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
@@ -2891,10 +3037,14 @@ class _NotificationManagementScreenState
                               eventType: selectedEventType!,
                               templateId: selectedTemplateId!,
                               name: nameCtrl.text.trim(),
-                              sendDays: selectedDays.toList()..sort(),
+                              sendDays: isActivityReminder
+                                  ? const []
+                                  : (selectedDays.toList()..sort()),
                               sendHour: sendHour,
                               sendMinute: sendMinute,
                               timezone: tz,
+                              activityId: isActivityReminder ? selectedActivityId : null,
+                              executionAt: isActivityReminder ? executionAt : null,
                             );
                             if (isEdit) {
                               await repo.updateSchedule(
@@ -2902,10 +3052,14 @@ class _NotificationManagementScreenState
                                 UpdateNotificationScheduleInput(
                                   name: nameCtrl.text.trim(),
                                   isActive: isActive,
-                                  sendDays: selectedDays.toList()..sort(),
+                                  sendDays: isActivityReminder
+                                      ? const []
+                                      : (selectedDays.toList()..sort()),
                                   sendHour: sendHour,
                                   sendMinute: sendMinute,
                                   timezone: tz,
+                                  activityId: isActivityReminder ? selectedActivityId : null,
+                                  executionAt: isActivityReminder ? executionAt : null,
                                 ),
                               );
                             } else {
