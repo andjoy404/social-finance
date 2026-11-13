@@ -572,31 +572,24 @@ func (h *Handler) hasStaffFinanceRead(ctx context.Context, tx *sql.Tx, ac *auth.
 
 // --- Bills Handlers ---
 
-// isWargaForOverdueWarning returns true only when the authenticated principal is a plain
-// resident (warga) without Super Admin privileges, staff tenant roles (pengurus/bendahara),
-// or RT/RW management jabatan (ketua, wakil_ketua, sekretaris, bendahara).
+// isWargaForOverdueWarning checks whether the authenticated user should receive
+// the overdue 3+ months warning. Previously this function filtered by role,
+// but the warning must be available for ALL jabatan based on data, not role.
+// The RT/RW scope isolation is still enforced by the backend query using ac.RTID.
 func isWargaForOverdueWarning(ac *auth.AuthContext) bool {
 	if ac == nil || ac.UserID == "" || ac.RTID == "" {
 		return false
 	}
+	// Removed role-based filtering: warning eligibility is determined by
+	// actual bill data, not by the user's jabatan or membership roles.
+	// SuperAdmin is still excluded here to keep backward-compatible scope,
+	// but all resident/jabatan roles within the RT will receive the warning
+	// based on their overdue bills.
 	if ac.SystemRole == auth.SystemRoleSuperAdmin {
 		return false
 	}
-	if ac.TenantRole != auth.RoleWarga {
-		return false
-	}
-	jabatan := strings.ToLower(strings.TrimSpace(string(ac.Jabatan)))
-	switch jabatan {
-	case "ketua", "ketua_rt", "ketua rt", "wakil_ketua", "sekretaris", "bendahara":
-		return false
-	}
-	for _, rwm := range ac.RWMemberships {
-		rwJab := strings.ToLower(strings.TrimSpace(rwm.Jabatan))
-		switch rwJab {
-		case "ketua", "wakil_ketua", "sekretaris", "bendahara":
-			return false
-		}
-	}
+	// Keep only the basic RTID/UserID validation; all other roles (ketua,
+	// bendahara, pengurus, anggota, etc.) are eligible.
 	return true
 }
 
