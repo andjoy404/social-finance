@@ -140,6 +140,43 @@ class RwKasReport {
   }
 }
 
+/// Detailed kas report (GET /kas/report) with the period context of the
+/// computation. Opening balance here is carry-forward: RW opening balance
+/// plus net posted movements strictly before the window start.
+class RwKasReportDetail extends RwKasReport {
+  final String period;
+  final String startDate;
+  final String endDate;
+
+  const RwKasReportDetail({
+    required this.period,
+    required this.startDate,
+    required this.endDate,
+    super.openingBalance,
+    required super.totalIncome,
+    required super.totalExpense,
+    required super.netBalance,
+    super.totalBalance,
+    required super.transactionCount,
+  });
+
+  factory RwKasReportDetail.fromJson(Map<String, dynamic> json) {
+    return RwKasReportDetail(
+      period: json['period'] as String? ?? '',
+      startDate: json['start_date'] as String? ?? '',
+      endDate: json['end_date'] as String? ?? '',
+      openingBalance: json['opening_balance'] as String? ?? '0.00',
+      totalIncome: json['total_income'] as String? ?? '0.00',
+      totalExpense: json['total_expense'] as String? ?? '0.00',
+      netBalance: json['net_balance'] as String? ?? '0.00',
+      totalBalance: json['total_balance'] as String? ??
+          json['net_balance'] as String? ??
+          '0.00',
+      transactionCount: (json['transaction_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Transaction — from an RT within the RW
 // ---------------------------------------------------------------------------

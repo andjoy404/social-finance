@@ -992,6 +992,7 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Patch("/api/v1/rw/{rwId}/notifications/templates/{id}/toggle", rwHandler.ToggleRWTemplateActive)
 		r.Delete("/api/v1/rw/{rwId}/notifications/templates/{id}", rwHandler.DeleteRWTemplate)
 		r.Get("/api/v1/rw/{rwId}/kas", rwHandler.GetKAS)
+		r.Get("/api/v1/rw/{rwId}/kas/report", rwHandler.GetKASReportDetail)
 		r.Post("/api/v1/rw/{rwId}/kas", rwHandler.CreateKASTransaction)
 		r.Get("/api/v1/rw/{rwId}/rts", rwHandler.GetRTRs)
 		r.Post("/api/v1/rw/{rwId}/opening-balance", rwHandler.UpdateOpeningBalance)

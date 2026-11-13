@@ -13,7 +13,9 @@ import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/rw/data/rw_models.dart';
+import 'package:social_finance/features/rw/data/rw_api_client.dart';
 import 'package:social_finance/features/rw/data/rw_providers.dart';
+import 'package:social_finance/features/rw/presentation/screens/rw_kas_report_screen.dart';
 /// KAS screen untuk konteks RW — catatan transaksi KAS RW dan riwayat.
 class RwKasScreen extends ConsumerStatefulWidget {
   final String rwId;
@@ -29,10 +31,11 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
-  RwKasReport? _kasReport;
+  RwKasReportDetail? _kasReport;
   List<RwTransaction> _transactions = [];
   List<RwRtInfo> _rts = [];
   List<RwFinancialCategory> _expenseCategories = [];
+  List<RwFinancialCategory> _allCategories = [];
   bool _isLoading = true;
   String? _error;
   int _selectedMonth = DateTime.now().month;
@@ -40,10 +43,76 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
   bool _isAllPeriods = false;
   String _searchQuery = '';
   String _filterArus = 'all';
+  String _filterMetode = 'all';
+  String _filterCategoryId = 'all';
+  bool _isDateRangeActive = false;
+  DateTime? _dateRangeStart;
+  DateTime? _dateRangeEnd;
 
   String get _periodKey {
     if (_isAllPeriods) return 'all';
     return '$_selectedYear-${_selectedMonth.toString().padLeft(2, '0')}';
+  }
+
+  bool _canViewReportRw(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    if (user['system_role'] == 'super_admin') return true;
+    final memberships = (user['rw_memberships'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ??
+        const <Map<String, dynamic>>[];
+    return memberships.any(
+        (m) => (m['rw_id'] ?? m['rwId']) == widget.rwId);
+  }
+
+  void _openKasReport(BuildContext context) {
+    final start = _isDateRangeActive ? _dateRangeStart : null;
+    final end = _isDateRangeActive ? _dateRangeEnd : null;
+    final period = (!_isDateRangeActive && !_isAllPeriods) ? _periodKey : null;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RwKasReportScreen(
+          rwId: widget.rwId,
+          period: period,
+          startDate: start?.toIso8601String().substring(0, 10),
+          endDate: end?.toIso8601String().substring(0, 10),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final pickedStart = await showDatePicker(
+      context: context,
+      initialDate: _dateRangeStart ?? now,
+      firstDate: DateTime(2000),
+      lastDate: now,
+    );
+    if (pickedStart == null || !mounted) return;
+    final pickedEnd = await showDatePicker(
+      context: context,
+      initialDate: _dateRangeEnd ?? pickedStart,
+      firstDate: pickedStart,
+      lastDate: now,
+    );
+    if (pickedEnd == null || !mounted) return;
+    setState(() {
+      _dateRangeStart = pickedStart;
+      _dateRangeEnd = pickedEnd;
+      _isDateRangeActive = true;
+      _isAllPeriods = false;
+    });
+    _fetchData();
+  }
+
+  void _clearDateRange() {
+    setState(() {
+      _isDateRangeActive = false;
+      _dateRangeStart = null;
+      _dateRangeEnd = null;
+    });
+    _fetchData();
   }
 
   bool _canCreateRw(Map<String, dynamic>? user) {
@@ -75,24 +144,43 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     });
     try {
       final api = ref.read(rwApiClientProvider);
-      final period = _isAllPeriods ? 'all' : _periodKey;
+      final useMonth = !_isAllPeriods && !_isDateRangeActive;
+      final periodParam = useMonth ? _periodKey : null;
+      final startDate = (_isDateRangeActive && _dateRangeStart != null)
+          ? _dateRangeStart!.toIso8601String().substring(0, 10)
+          : null;
+      final endDate = (_isDateRangeActive && _dateRangeEnd != null)
+          ? _dateRangeEnd!.toIso8601String().substring(0, 10)
+          : null;
+
+      // Fetch ALL posted transactions in the window (client-side pagination
+      // of the paginated API, mirroring the RT kas implementation). Empty
+      // period param = all-time cumulative.
+      final txsFuture = _fetchAllTransactions(
+        api,
+        period: periodParam,
+        startDate: startDate,
+        endDate: endDate,
+      );
+
       final results = await Future.wait([
-        api.getKas(widget.rwId, period: period),
-        api.getTransactions(
-          rwId: widget.rwId,
-          period: period,
-          page: 1,
-          pageSize: 100,
+        api.getKasReportDetail(
+          widget.rwId,
+          period: periodParam,
+          startDate: startDate,
+          endDate: endDate,
         ),
+        txsFuture,
         api.getRTRs(widget.rwId),
         api.getCategories(isActive: true),
       ]);
       if (mounted) {
         setState(() {
-          _kasReport = results[0] as RwKasReport;
-          _transactions = (results[1] as RwTransactionsResponse).data;
+          _kasReport = results[0] as RwKasReportDetail;
+          _transactions = results[1] as List<RwTransaction>;
           _rts = (results[2] as List<RwRtInfo>);
-          _expenseCategories = (results[3] as List<RwFinancialCategory>)
+          _allCategories = results[3] as List<RwFinancialCategory>;
+          _expenseCategories = _allCategories
               .where((c) => c.type == 'expense')
               .toList();
         });
@@ -104,16 +192,55 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
     }
   }
 
+  Future<List<RwTransaction>> _fetchAllTransactions(
+    RwApiClient api, {
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
+    final out = <RwTransaction>[];
+    var page = 1;
+    var totalPages = 1;
+    do {
+      final resp = await api.getTransactions(
+        rwId: widget.rwId,
+        period: period,
+        startDate: startDate,
+        endDate: endDate,
+        page: page,
+        pageSize: 100,
+      );
+      out.addAll(resp.data);
+      totalPages = resp.pagination.totalPages;
+      page++;
+    } while (page <= totalPages);
+    return out;
+  }
+
   List<RwTransaction> get _filteredTransactions {
     var txs = _transactions;
     if (_filterArus != 'all') {
       txs = txs.where((t) => t.type == _filterArus).toList();
+    }
+    if (_filterCategoryId != 'all') {
+      txs = txs.where((t) => t.categoryId == _filterCategoryId).toList();
+    }
+    if (_filterMetode != 'all') {
+      const cashLike = ['CASH', 'TUNAI'];
+      const transferLike = ['TRANSFER', 'BANK', 'BANK_TRANSFER', 'QRIS'];
+      txs = txs.where((t) {
+        final m = (t.paymentMethod ?? '').trim().toUpperCase();
+        if (_filterMetode == 'CASH') return cashLike.contains(m);
+        if (_filterMetode == 'TRANSFER') return transferLike.contains(m);
+        return true;
+      }).toList();
     }
     if (_searchQuery.isNotEmpty) {
       final q = _searchQuery.toLowerCase();
       txs = txs.where((t) =>
           t.description.toLowerCase().contains(q) ||
           (t.referenceNo ?? '').toLowerCase().contains(q) ||
+          (t.categoryName ?? '').toLowerCase().contains(q) ||
           t.rtName.toLowerCase().contains(q) ||
           (t.locationName ?? '').toLowerCase().contains(q)).toList();
     }
@@ -172,6 +299,14 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                           ],
                         ),
                       ),
+                      if (_canViewReportRw(user))
+                        IconButton(
+                          key: const Key('rw-kas-report-btn'),
+                          icon: const Icon(Icons.assessment_outlined,
+                              color: AppColors.accent),
+                          tooltip: 'Laporan KAS',
+                          onPressed: () => _openKasReport(context),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -237,6 +372,15 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
         automaticallyImplyLeading: true,
         centerTitle: false,
         title: MenuAppBarTitle(title: 'KAS RW', rw: rwNumberText),
+        actions: [
+          if (_canViewReportRw(user))
+            IconButton(
+              key: const Key('rw-kas-report-btn'),
+              icon: const Icon(Icons.assessment_outlined),
+              tooltip: 'Laporan KAS',
+              onPressed: () => _openKasReport(context),
+            ),
+        ],
       ),
       body: body,
     );
@@ -554,7 +698,9 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(
-                          _isAllPeriods ? 'Semua Periode' : '${_monthName(_selectedMonth)} $_selectedYear',
+                          _isDateRangeActive
+                              ? 'Rentang Tanggal'
+                              : (_isAllPeriods ? 'Semua Periode' : '${_monthName(_selectedMonth)} $_selectedYear'),
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: infoStyle.text),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -570,7 +716,10 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
             const SizedBox(width: 8),
             GestureDetector(
               onTap: () {
-                setState(() => _isAllPeriods = !_isAllPeriods);
+                setState(() {
+                  _isAllPeriods = !_isAllPeriods;
+                  _isDateRangeActive = false;
+                });
                 _fetchData();
               },
               child: Container(
@@ -596,7 +745,107 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
                 ),
               ),
             ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _pickDateRange,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: _isDateRangeActive
+                      ? accentStyle.background
+                      : (isDark ? AppColors.darkSurfaceHover : AppColors.lightSurfaceHover),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                    color: _isDateRangeActive
+                        ? accentStyle.border
+                        : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
+                  ),
+                ),
+                child: Text(
+                  'Rentang',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _isDateRangeActive ? accentStyle.text : (isDark ? AppColors.darkText : AppColors.lightText),
+                  ),
+                ),
+              ),
+            ),
           ],
+        ),
+        if (_isDateRangeActive) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: accentStyle.background,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: accentStyle.border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.date_range, size: 14, color: accentStyle.text),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '${_formatDate(_dateRangeStart!)} — ${_formatDate(_dateRangeEnd!)}',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: accentStyle.text),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: 'Hapus rentang tanggal',
+                onPressed: _clearDateRange,
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _filterMetode,
+          decoration: const InputDecoration(
+            labelText: 'Metode Pembayaran',
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'all', child: Text('Semua Metode')),
+            DropdownMenuItem(value: 'CASH', child: Text('Tunai')),
+            DropdownMenuItem(value: 'TRANSFER', child: Text('Transfer')),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => _filterMetode = v);
+          },
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _filterCategoryId,
+          decoration: const InputDecoration(
+            labelText: 'Kategori',
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem(value: 'all', child: Text('Semua Kategori')),
+            ..._allCategories.map(
+              (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
+            ),
+          ],
+          onChanged: (v) {
+            if (v != null) setState(() => _filterCategoryId = v);
+          },
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
@@ -718,6 +967,7 @@ class _RwKasScreenState extends ConsumerState<RwKasScreen>
       _selectedYear = pickedYear;
       _selectedMonth = pickedMonth;
       _isAllPeriods = false;
+      _isDateRangeActive = false;
     });
     _fetchData();
   }

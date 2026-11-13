@@ -115,6 +115,31 @@ class RwApiClient {
     }
   }
 
+  /// GET /api/v1/rw/{rwId}/kas/report
+  ///
+  /// Period-consistent kas report used by Laporan KAS RW: carry-forward
+  /// opening balance plus posted income/expense and closing balance.
+  Future<RwKasReportDetail> getKasReportDetail(
+    String rwId, {
+    String? period,
+    String? startDate,
+    String? endDate,
+  }) async {
+    final query = <String, dynamic>{};
+    if (period != null && period.isNotEmpty) query['period'] = period;
+    if (startDate != null && startDate.isNotEmpty) query['start_date'] = startDate;
+    if (endDate != null && endDate.isNotEmpty) query['end_date'] = endDate;
+
+    final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/kas/report';
+    try {
+      final response = await _apiClient.get(url, queryParameters: query);
+      final data = response.data as Map<String, dynamic>;
+      return RwKasReportDetail.fromJson(data['data'] as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   /// GET /api/v1/rw/{rwId}/kas/transactions
   Future<RwTransactionsResponse> getTransactions({
     required String rwId,
@@ -123,6 +148,8 @@ class RwApiClient {
     String? endDate,
     int page = 1,
     int pageSize = 20,
+    String? type,
+    String? categoryId,
   }) async {
     final query = <String, dynamic>{
       'page': page,
@@ -131,6 +158,8 @@ class RwApiClient {
     if (period != null) query['period'] = period;
     if (startDate != null) query['start_date'] = startDate;
     if (endDate != null) query['end_date'] = endDate;
+    if (type != null && type.isNotEmpty) query['type'] = type;
+    if (categoryId != null && categoryId.isNotEmpty) query['category_id'] = categoryId;
 
     final url = '/api/v1/rw/${Uri.encodeComponent(rwId)}/kas/transactions';
     try {

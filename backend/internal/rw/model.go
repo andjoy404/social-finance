@@ -199,6 +199,22 @@ type KASReport struct {
 	TransactionCount int64  `json:"transaction_count"`
 }
 
+// KASReportResponse is returned by GET /api/v1/rw/{rwId}/kas/report. It carries
+// the period context of the computation alongside the aggregated totals.
+type KASReportResponse struct {
+	*KASReport
+	Period    string `json:"period,omitempty"`
+	StartDate string `json:"start_date,omitempty"`
+	EndDate   string `json:"end_date,omitempty"`
+}
+
+// TransactionFilter optionally narrows the posted-transaction list.
+// Fields are additive filters for GET /api/v1/rw/{rwId}/kas/transactions.
+type TransactionFilter struct {
+	Type       string
+	CategoryID string
+}
+
 // TransactionEntry is a single posted transaction from RW's own independent ledger.
 type TransactionEntry struct {
 	ID              string  `json:"id"`

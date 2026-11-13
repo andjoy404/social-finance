@@ -57,7 +57,10 @@ class FakeRwApiClient extends RwApiClient {
   Future<RwKasReport> getKas(String rwId, {String? period}) async =>
       const RwKasReport(totalIncome: '0', totalExpense: '0', netBalance: '0', transactionCount: 0);
   @override
-  Future<RwTransactionsResponse> getTransactions({required String rwId, String? period, String? startDate, String? endDate, int page = 1, int pageSize = 20}) async =>
+  Future<RwKasReportDetail> getKasReportDetail(String rwId, {String? period, String? startDate, String? endDate}) async =>
+      const RwKasReportDetail(period: '', startDate: '', endDate: '', openingBalance: '0.00', totalIncome: '0', totalExpense: '0', netBalance: '0', transactionCount: 0);
+  @override
+  Future<RwTransactionsResponse> getTransactions({required String rwId, String? period, String? startDate, String? endDate, int page = 1, int pageSize = 20, String? type, String? categoryId}) async =>
       const RwTransactionsResponse(data: [], pagination: RwPaginationInfo(page: 1, pageSize: 20, total: 0, totalPages: 1));
   @override
   Future<List<RwFundLocation>> getLocations(String rwId, {String? category, bool? isActive}) async => const [];

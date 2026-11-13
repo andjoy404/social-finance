@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
@@ -160,6 +161,97 @@ func (s *Service) GetKASReport(ctx context.Context, ac *auth.AuthContext, rwID, 
 	return report, nil
 }
 
+// GetKASReportDetail returns the period-consistent RW kas report with a
+// carry-forward opening balance (RW opening balance + net posted movements
+// strictly before the window start). Window resolution:
+//   - no period and no dates -> cumulative all-time balance,
+//   - period (YYYY-MM) -> [first of month, first of next month),
+//   - start_date and end_date (YYYY-MM-DD, both required together, start <= end)
+//     -> [start 00:00, end+1day 00:00) Asia/Jakarta, i.e. both endpoints
+//     denote whole days and are fully included. This deliberately differs
+//     from the RT /reports/balance half-open quirk (which excludes the end
+//     day and transactions on it) and is consistent with the RW transactions
+//     endpoint, which already filters whole days via DATE().
+//   - period combined with dates is rejected.
+func (s *Service) GetKASReportDetail(ctx context.Context, ac *auth.AuthContext, rwID, period, startDate, endDate string) (*KASReportResponse, error) {
+	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.read"); err != nil {
+		return nil, err
+	}
+
+	period = strings.TrimSpace(period)
+	startDate = strings.TrimSpace(startDate)
+	endDate = strings.TrimSpace(endDate)
+
+	if period == "" && startDate == "" && endDate == "" {
+		return s.computeKASReportDetail(ctx, ac, rwID, "", "", "", nil, nil)
+	}
+	if period != "" && (startDate != "" || endDate != "") {
+		return nil, fmt.Errorf("%w: cannot combine period with start_date or end_date", ErrValidation)
+	}
+	if (startDate != "") != (endDate != "") {
+		return nil, fmt.Errorf("%w: start_date and end_date must be provided together", ErrValidation)
+	}
+
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil || loc == nil {
+		loc = time.FixedZone("WIB", 7*3600)
+	}
+
+	if period != "" {
+		if _, err := ValidatePeriod(period); err != nil {
+			return nil, fmt.Errorf("%w: invalid period format, expected YYYY-MM", ErrValidation)
+		}
+		t, err := time.ParseInLocation("2006-01", period, loc)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid period format, expected YYYY-MM", ErrValidation)
+		}
+		st := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc)
+		et := st.AddDate(0, 1, 0)
+		return s.computeKASReportDetail(ctx, ac, rwID, period, "", "", &st, &et)
+	}
+
+	if _, err := ValidateDate(startDate); err != nil {
+		return nil, fmt.Errorf("%w: invalid start_date format, expected YYYY-MM-DD", ErrValidation)
+	}
+	if _, err := ValidateDate(endDate); err != nil {
+		return nil, fmt.Errorf("%w: invalid end_date format, expected YYYY-MM-DD", ErrValidation)
+	}
+	st, err := time.ParseInLocation("2006-01-02", startDate, loc)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid start_date format, expected YYYY-MM-DD", ErrValidation)
+	}
+	et, err := time.ParseInLocation("2006-01-02", endDate, loc)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid end_date format, expected YYYY-MM-DD", ErrValidation)
+	}
+	if st.After(et) {
+		return nil, fmt.Errorf("%w: start_date must not be after end_date", ErrValidation)
+	}
+	// Whole-day inclusive window: [start 00:00, end+1day 00:00). A single-day
+	// range (start == end) covers that whole day.
+	et = et.AddDate(0, 0, 1)
+	return s.computeKASReportDetail(ctx, ac, rwID, "", startDate, endDate, &st, &et)
+}
+
+func (s *Service) computeKASReportDetail(ctx context.Context, ac *auth.AuthContext, rwID, period, startDate, endDate string, startBound, endBound *time.Time) (*KASReportResponse, error) {
+	tx, err := s.pool.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	report, err := s.repo.GetKASReportCarry(ctx, tx, rwID, startBound, endBound)
+	if err != nil {
+		return nil, fmt.Errorf("kas report: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return &KASReportResponse{KASReport: report, Period: period, StartDate: startDate, EndDate: endDate}, nil
+}
+
 // SetOpeningBalance sets or updates the RW opening balance.
 func (s *Service) SetOpeningBalance(ctx context.Context, ac *auth.AuthContext, rwID, amount string) error {
 	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.write"); err != nil {
@@ -217,6 +309,7 @@ func (s *Service) AllocateOpeningBalance(ctx context.Context, ac *auth.AuthConte
 // GetTransactions returns a paginated list of posted transactions from RW's independent ledger.
 func (s *Service) GetTransactions(ctx context.Context, ac *auth.AuthContext, rwID string,
 	period string, page, pageSize int, startDate, endDate string, search string,
+	opts ...TransactionFilter,
 ) ([]*TransactionEntry, int, error) {
 	if err := s.requirePermission(ctx, ac, rwID, "rw.kas.read"); err != nil {
 		return nil, 0, err
@@ -228,7 +321,7 @@ func (s *Service) GetTransactions(ctx context.Context, ac *auth.AuthContext, rwI
 	}
 	defer tx.Rollback()
 
-	list, total, err := s.repo.GetTransactions(ctx, tx, rwID, period, page, pageSize, startDate, endDate, search)
+	list, total, err := s.repo.GetTransactions(ctx, tx, rwID, period, page, pageSize, startDate, endDate, search, opts...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("get transactions: %w", err)
 	}

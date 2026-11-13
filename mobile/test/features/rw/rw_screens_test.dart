@@ -44,6 +44,22 @@ class MockRwApiClient extends RwApiClient {
   }
 
   @override
+  Future<RwKasReportDetail> getKasReportDetail(String rwId,
+      {String? period, String? startDate, String? endDate}) async {
+    return const RwKasReportDetail(
+      period: '2026-10',
+      startDate: '',
+      endDate: '',
+      openingBalance: '1000000.00',
+      totalIncome: '5000000.00',
+      totalExpense: '2000000.00',
+      netBalance: '3000000.00',
+      totalBalance: '4000000.00',
+      transactionCount: 8,
+    );
+  }
+
+  @override
   Future<RwTransactionsResponse> getTransactions({
     required String rwId,
     String? period,
@@ -51,6 +67,8 @@ class MockRwApiClient extends RwApiClient {
     String? endDate,
     int page = 1,
     int pageSize = 20,
+    String? type,
+    String? categoryId,
   }) async {
     return RwTransactionsResponse(
       data: [
@@ -318,7 +336,7 @@ void main() {
     });
 
     testWidgets('RwKasScreen renders with MenuAppBarTitle, KAS summary, and action buttons', (tester) async {
-      tester.view.physicalSize = const Size(1200, 1000);
+      tester.view.physicalSize = const Size(1200, 1500);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
         tester.view.resetPhysicalSize();

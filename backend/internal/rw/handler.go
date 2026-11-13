@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"social-finance/internal/auth"
 	"social-finance/internal/database"
 	httpx "social-finance/internal/http"
@@ -172,6 +173,41 @@ func (h *Handler) AllocateOpeningBalance(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// GetKASReportDetail handles GET /api/v1/rw/{rwId}/kas/report
+//
+// Period-consistent report for the formal Laporan KAS RW document. Emits the
+// RW opening balance (plus net posted movements strictly before the window),
+// windowed posted income/expense, closing balance and transaction count.
+// Window parameters mirror the RT /reports/balance contract on the wire:
+//   - no params          -> cumulative all-time,
+//   - period=YYYY-MM     -> that month, whole days, Asia/Jakarta,
+//   - start_date+end_date (YYYY-MM-DD, both required, start <= end)
+//     -> whole-day inclusive window.
+func (h *Handler) GetKASReportDetail(w http.ResponseWriter, r *http.Request) {
+	ac, ok := getAuthContext(r)
+	if !ok {
+		httpx.ErrorJSON(w, http.StatusUnauthorized, "unauthorized", "missing authentication")
+		return
+	}
+
+	rwID := chi.URLParam(r, "rwId")
+	if rwID == "" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "rwId is required")
+		return
+	}
+
+	report, err := h.svc.GetKASReportDetail(r.Context(), ac, rwID,
+		r.URL.Query().Get("period"), r.URL.Query().Get("start_date"), r.URL.Query().Get("end_date"))
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data": report,
+	})
+}
+
 // GetKASTransactions handles GET /api/v1/rw/{rwId}/kas/transactions
 func (h *Handler) GetKASTransactions(w http.ResponseWriter, r *http.Request) {
 	ac, ok := getAuthContext(r)
@@ -210,10 +246,24 @@ func (h *Handler) GetKASTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	transType := r.URL.Query().Get("type")
+	if transType != "" && transType != "income" && transType != "expense" {
+		httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "type must be 'income' or 'expense'")
+		return
+	}
+
+	categoryID := r.URL.Query().Get("category_id")
+	if categoryID != "" {
+		if _, err := uuid.Parse(categoryID); err != nil {
+			httpx.ErrorJSON(w, http.StatusBadRequest, "bad_request", "invalid category_id format, expected UUID")
+			return
+		}
+	}
+
 	search := r.URL.Query().Get("search")
 	page, pageSize := parsePagination(r)
 
-	list, total, err := h.svc.GetTransactions(r.Context(), ac, rwID, period, page, pageSize, startDate, endDate, search)
+	list, total, err := h.svc.GetTransactions(r.Context(), ac, rwID, period, page, pageSize, startDate, endDate, search, TransactionFilter{Type: transType, CategoryID: categoryID})
 	if err != nil {
 		h.handleError(w, err)
 		return

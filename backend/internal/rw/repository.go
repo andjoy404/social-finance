@@ -177,6 +177,113 @@ func (r *Repository) GetKASReport(ctx context.Context, tx *sql.Tx, rwID, period 
 	return &report, nil
 }
 
+// GetKASReportCarry computes the RW kas summary with carry-forward opening
+// balance for windowed queries: opening = opening reported on rw_opening_balances
+// plus net posted movements strictly before the window start. For all-time
+// (startTime == nil) opening equals the inception opening balance and movements
+// cover all posted transactions.
+//
+// endTime is exclusive; pass nil endTime for an open-ended window. Transfers
+// are never recorded in rw_transactions so they cannot be double-counted here.
+func (r *Repository) GetKASReportCarry(ctx context.Context, tx *sql.Tx, rwID string, startTime, endTime *time.Time) (*KASReport, error) {
+	var report KASReport
+	var txCount int64
+
+	// 1. Inception opening balance from RW's own ledger
+	var inception string
+	err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(amount), 0)::numeric(15,2)::text
+		 FROM rw_opening_balances
+		 WHERE rw_id = $1`, rwID,
+	).Scan(&inception)
+	if err != nil {
+		return nil, fmt.Errorf("kas opening balance: %w", err)
+	}
+	carryCents, _, err := ParseMoney(inception)
+	if err != nil {
+		return nil, fmt.Errorf("parse opening balance: %w", err)
+	}
+
+	// 2. Carry-forward: opening = inception + net posted movements before window start
+	args := []interface{}{rwID}
+	carryCond := ""
+	if startTime != nil {
+		// prior net strictly before the window start
+		var priorInc, priorExp string
+		err = tx.QueryRowContext(ctx,
+			`SELECT
+				COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text
+			 FROM rw_transactions t
+			 WHERE t.rw_id = $1 AND t.status = 'posted' AND t.occurred_at < $2`,
+			rwID, startTime.Format("2006-01-02T15:04:05-07:00"),
+		).Scan(&priorInc, &priorExp)
+		if err != nil {
+			return nil, fmt.Errorf("kas prior net movement: %w", err)
+		}
+		pInc, _, err := ParseMoney(priorInc)
+		if err != nil {
+			return nil, fmt.Errorf("parse prior income: %w", err)
+		}
+		pExp, _, err := ParseMoney(priorExp)
+		if err != nil {
+			return nil, fmt.Errorf("parse prior expense: %w", err)
+		}
+		carryCents += pInc - pExp
+
+		args = append(args, startTime.Format("2006-01-02T15:04:05-07:00"))
+		carryCond = fmt.Sprintf(" AND t.occurred_at >= $%d", len(args))
+		if endTime != nil {
+			args = append(args, endTime.Format("2006-01-02T15:04:05-07:00"))
+			carryCond += fmt.Sprintf(" AND t.occurred_at < $%d", len(args))
+		}
+	}
+
+	// 3. Window movements (posted only)
+	var totalIncome, totalExpense string
+	if carryCond == "" {
+		err = tx.QueryRowContext(ctx,
+			`SELECT
+				COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COUNT(CASE WHEN status = 'posted' THEN 1 END)
+			 FROM rw_transactions t
+			 WHERE t.rw_id = $1 AND t.status = 'posted'`,
+			rwID,
+		).Scan(&totalIncome, &totalExpense, &txCount)
+	} else {
+		err = tx.QueryRowContext(ctx,
+			fmt.Sprintf(`SELECT
+				COALESCE(SUM(CASE WHEN type = 'income' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COALESCE(SUM(CASE WHEN type = 'expense' AND status = 'posted' THEN amount ELSE 0 END), 0)::numeric(15,2)::text,
+				COUNT(CASE WHEN status = 'posted' THEN 1 END)
+			 FROM rw_transactions t
+			 WHERE t.rw_id = $1 AND t.status = 'posted'%s`, carryCond),
+			args...,
+		).Scan(&totalIncome, &totalExpense, &txCount)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("kas window movements: %w", err)
+	}
+
+	iCents, _, err := ParseMoney(totalIncome)
+	if err != nil {
+		return nil, fmt.Errorf("parse income: %w", err)
+	}
+	eCents, _, err := ParseMoney(totalExpense)
+	if err != nil {
+		return nil, fmt.Errorf("parse expense: %w", err)
+	}
+
+	report.OpeningBalance = FormatMoney(carryCents)
+	report.TotalIncome = FormatMoney(iCents)
+	report.TotalExpense = FormatMoney(eCents)
+	report.NetBalance = FormatMoney(iCents - eCents)
+	report.TotalBalance = FormatMoney(carryCents + iCents - eCents)
+	report.TransactionCount = txCount
+	return &report, nil
+}
+
 // =========================================================================
 // RW Fund Locations CRUD & Queries
 // =========================================================================
@@ -1084,7 +1191,7 @@ func (r *Repository) CreateTransaction(ctx context.Context, tx *sql.Tx, rwID, us
 	return &entry, nil
 }
 
-func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID string, period string, page, pageSize int, startDate, endDate string, search string) ([]*TransactionEntry, int, error) {
+func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID string, period string, page, pageSize int, startDate, endDate string, search string, opts ...TransactionFilter) ([]*TransactionEntry, int, error) {
 	baseQuery := `
 		SELECT t.id, t.rw_id, t.location_id, fl.name as location_name,
 		       t.source_rt_id, rt.name as source_rt_name,
@@ -1129,6 +1236,16 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 		args = append(args, endDate)
 		pos++
 	}
+	if len(opts) > 0 && opts[0].Type != "" {
+		baseQuery += fmt.Sprintf(" AND t.type = $%d", pos)
+		args = append(args, opts[0].Type)
+		pos++
+	}
+	if len(opts) > 0 && opts[0].CategoryID != "" {
+		baseQuery += fmt.Sprintf(" AND t.category_id = $%d", pos)
+		args = append(args, opts[0].CategoryID)
+		pos++
+	}
 	if search = strings.TrimSpace(search); search != "" {
 		searchPattern := "%" + search + "%"
 		baseQuery += fmt.Sprintf(" AND (t.description ILIKE $%d OR COALESCE(t.reference_no, '') ILIKE $%d OR COALESCE(fl.name, '') ILIKE $%d OR COALESCE(rt.name, '') ILIKE $%d)", pos, pos, pos, pos)
@@ -1162,6 +1279,16 @@ func (r *Repository) GetTransactions(ctx context.Context, tx *sql.Tx, rwID strin
 	if endDate != "" {
 		countQuery += fmt.Sprintf(" AND DATE(t.occurred_at) <= $%d", cpos)
 		countArgs = append(countArgs, endDate)
+		cpos++
+	}
+	if len(opts) > 0 && opts[0].Type != "" {
+		countQuery += fmt.Sprintf(" AND t.type = $%d", cpos)
+		countArgs = append(countArgs, opts[0].Type)
+		cpos++
+	}
+	if len(opts) > 0 && opts[0].CategoryID != "" {
+		countQuery += fmt.Sprintf(" AND t.category_id = $%d", cpos)
+		countArgs = append(countArgs, opts[0].CategoryID)
 		cpos++
 	}
 	if search != "" {
