@@ -71,6 +71,7 @@ class AuthUser {
   final String? jabatan;
   final String? houseNumber;
   final String? avatarPath;
+  final String? avatarThumbPath;
   final List<String> effectivePermissions;
   final bool effectivePermissionsAvailable;
 
@@ -92,6 +93,7 @@ class AuthUser {
     this.jabatan,
     this.houseNumber,
     this.avatarPath,
+    this.avatarThumbPath,
     this.effectivePermissions = const [],
     this.effectivePermissionsAvailable = false,
   });
@@ -162,6 +164,7 @@ class AuthUser {
       jabatan: json['jabatan'] as String?,
       houseNumber: (json['house_number'] ?? json['houseNumber']) as String?,
       avatarPath: json['avatar_path'] as String?,
+      avatarThumbPath: json['avatar_thumb_path'] as String?,
       effectivePermissions: effectivePermissions,
       effectivePermissionsAvailable: effectivePermissionsAvailable,
     );
@@ -185,6 +188,7 @@ class AuthUser {
     if (jabatan != null) 'jabatan': jabatan,
     if (houseNumber != null) 'house_number': houseNumber,
     if (avatarPath != null) 'avatar_path': avatarPath,
+    if (avatarThumbPath != null) 'avatar_thumb_path': avatarThumbPath,
     'effective_permissions': effectivePermissions,
   };
 }

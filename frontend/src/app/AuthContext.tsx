@@ -19,6 +19,7 @@ export interface AuthUser {
   email: string
   phone?: string | null
   avatarPath?: string | null
+  avatarThumbPath?: string | null
   systemRole: string | null
   role: string
   jabatan: string | null
@@ -168,6 +169,7 @@ function mapUser(raw: ApiUser): AuthUser {
     email: raw.email,
     phone: raw.phone ?? null,
     avatarPath: raw.avatar_path ?? null,
+    avatarThumbPath: raw.avatar_thumb_path ?? null,
     systemRole: raw.system_role ?? null,
     role: raw.role,
     jabatan: raw.jabatan ?? null,

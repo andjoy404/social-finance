@@ -91,7 +91,7 @@ func (h *Handler) PosImage(w http.ResponseWriter, r *http.Request) {
 	var referenced int
 	ctx := r.Context()
 	if err := h.pool.Raw().QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM residents WHERE rt_id = $1 AND is_active = true AND avatar_path = $2`,
+		`SELECT COUNT(*) FROM residents WHERE rt_id = $1 AND is_active = true AND (avatar_path = $2 OR avatar_thumb_path = $2)`,
 		dc.RTID, key,
 	).Scan(&referenced); err != nil || referenced == 0 {
 		httpx.WriteError(w, http.StatusNotFound, "not_found", "image not found")

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,8 +12,9 @@ import 'package:social_finance/core/utils/rw_utils.dart';
 import 'package:social_finance/core/widgets/app_badge.dart';
 import 'package:social_finance/core/widgets/app_card.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
-import 'package:social_finance/core/widgets/resident_avatar.dart';
+
 import 'package:social_finance/core/widgets/section_header.dart';
+import 'package:social_finance/core/widgets/resident_avatar.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/dashboard/data/community_repository.dart';
 import 'package:social_finance/core/widgets/community_image.dart';
@@ -219,8 +221,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         AppCard(
           padding: EdgeInsets.zero,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: const PublicRekeningList(),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.max,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [const PublicRekeningList()],
+            ),
           ),
         ),
         const SizedBox(height: _sectionGap),
@@ -323,7 +329,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                     ],
                   ),
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                   child: Stack(
                     children: [
                       Row(
@@ -381,7 +387,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     ],
                                   ],
                                 ),
-                                const Spacer(),
                                 Text(
                                   banner.title,
                                   style: const TextStyle(
@@ -389,7 +394,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                   ),
-                                  maxLines: 2,
+                                  maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 4),
@@ -399,7 +404,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     color: Colors.white.withValues(alpha: 0.85),
                                     fontSize: 12,
                                   ),
-                                  maxLines: 2,
+                                  maxLines: 4,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ],
@@ -550,6 +555,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   ) {
     final officers = security?.officers ?? const <SecurityOfficer>[];
     final isAvailable = (security?.isAvailable ?? false) && officers.isNotEmpty;
+    final wargaAsync = ref.watch(wargaListProvider);
+    final wargaMap = switch (wargaAsync) {
+      AsyncData(:final value) => {
+          for (final r in value) (r.userId ?? ''): r,
+        },
+      _ => <String, MappedResident>{},
+    };
+
+    Map<String, String> resolveOfficerData(SecurityOfficer o) {
+      final resident = wargaMap[o.id];
+      final avatarPath = o.avatarPath ?? resident?.avatarPath;
+      final avatarThumbPath = o.avatarThumbPath ?? resident?.avatarThumbPath;
+      final phone = o.phone ?? resident?.phoneNumber ?? '';
+      final name = o.name;
+      return {
+        'avatarPath': avatarPath ?? '',
+        'avatarThumbPath': avatarThumbPath ?? '',
+        'phone': phone,
+        'name': name,
+      };
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -559,10 +585,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         AppCard(
           padding: EdgeInsets.zero,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             child: !isAvailable
                 ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Container(
                         padding: const EdgeInsets.all(8),
@@ -590,83 +616,66 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ],
                   )
                 : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.max,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       for (var i = 0; i < officers.length; i++) ...[
-                        if (i > 0) const SizedBox(height: 6),
-                        Builder(
-                          builder: (context) {
-                            final o = officers[i];
-                            final phone = o.phone?.trim();
-                            final hasPhone = phone != null && phone.isNotEmpty;
-                            return Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 5,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.accent.withValues(alpha: 0.05),
-                                border: Border.all(
-                                  color: AppColors.accent.withValues(alpha: 0.35),
-                                  width: 1.2,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.base,
-                                ),
-                              ),
-                              child: Row(
+                        if (i > 0) const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Builder(
+                            builder: (context) {
+                              final o = officers[i];
+                              final data = resolveOfficerData(o);
+                              final name = data['name'];
+                              final avatarPath = data['avatarPath'] ?? '';
+                              final avatarThumbPath = data['avatarThumbPath'] ?? '';
+                              final phone = data['phone'] ?? '';
+                              final hasPhone = phone.trim().isNotEmpty;
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   ResidentAvatar(
-                                    name: o.name,
-                                    avatarPath: o.avatarPath,
+                                    name: name ?? '',
+                                    avatarPath: avatarPath.isNotEmpty ? avatarPath : null,
+                                    avatarThumbPath: avatarThumbPath.isNotEmpty ? avatarThumbPath : null,
                                     size: 38,
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.badge_outlined,
-                                              size: 14,
-                                              color: AppColors.accent,
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Expanded(
-                                              child: Text(
-                                                o.name,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: theme
-                                                    .textTheme
-                                                    .bodyMedium
-                                                    ?.copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                              ),
-                                            ),
-                                          ],
+                                        Text(
+                                          name ?? '',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.accent,
+                                          ),
                                         ),
                                         if (hasPhone) ...[
                                           const SizedBox(height: 2),
                                           Row(
+                                            mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Icon(
-                                                Icons.phone_outlined,
-                                                size: 14,
+                                              const Icon(
+                                                Icons.phone,
+                                                size: 11,
                                                 color: AppColors.success,
                                               ),
-                                              const SizedBox(width: 6),
+                                              const SizedBox(width: 3),
                                               Text(
-                                                phone,
-                                                style:
-                                                    theme.textTheme.bodySmall?.copyWith(
-                                                  color: AppColors.success,
-                                                  fontWeight: FontWeight.w600,
+                                                phone.trim(),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontFamily: 'monospace',
+                                                  letterSpacing: 0.6,
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 11,
+                                                  color: AppColors.warning,
                                                 ),
                                               ),
                                             ],
@@ -675,10 +684,28 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                       ],
                                     ),
                                   ),
+                                  if (hasPhone)
+                                    GestureDetector(
+                                      onTap: () {
+                                        Clipboard.setData(ClipboardData(text: phone.trim()));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Nomor telepon $name disalin'),
+                                            behavior: SnackBarBehavior.floating,
+                                            duration: const Duration(seconds: 2),
+                                          ),
+                                        );
+                                      },
+                                      child: Icon(
+                                        Icons.copy_rounded,
+                                        size: 16,
+                                        color: AppColors.accent,
+                                      ),
+                                    ),
                                 ],
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         ),
                       ],
                     ],
@@ -829,6 +856,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           node: node,
                           theme: theme,
                           isDark: isDark,
+                          wargaResidents: wargaResidents,
                         ),
                       ),
                     );
@@ -886,6 +914,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required String jabatan,
     required Color color,
     required bool isDark,
+    required List<MappedResident> wargaResidents,
   }) {
     final activeMembers = members.where((m) => m.isActiveMember).toList();
     if (activeMembers.isEmpty) return;
@@ -901,6 +930,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
       builder: (ctx) {
         final theme = Theme.of(ctx);
+        // Resolve warga data for phone & house number
+        final memberWargaMap = {
+          for (final w in wargaResidents) (w.userId ?? ''): w,
+        };
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
@@ -930,22 +963,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       final member = activeMembers[i];
                       final name = member.name.trim();
                       final safePhone = isKetua ? member.phone : null;
+                      final warga = memberWargaMap[member.userId];
+                      final houseNumber = warga?.houseNumber.trim() ?? '';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              CircleAvatar(
-                                radius: 24,
-                                backgroundColor: color.withValues(alpha: 0.15),
-                                child: Text(
-                                  name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: color,
-                                  ),
-                                ),
+                              ResidentAvatar(
+                                name: name,
+                                avatarPath: warga?.avatarPath,
+                                avatarThumbPath: warga?.avatarThumbPath,
+                                size: 48,
                               ),
                               const SizedBox(width: 14),
                               Expanded(
@@ -982,6 +1011,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                             fontWeight: FontWeight.bold,
                                           ),
                                     ),
+                                    if (houseNumber.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.home_outlined,
+                                            size: 16,
+                                            color: Colors.amber,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            houseNumber,
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -1033,6 +1081,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required OrgNode node,
     required ThemeData theme,
     required bool isDark,
+    required List<MappedResident> wargaResidents,
   }) {
     final jabatan = node.positionLabel;
     final color = _getJabatanColor(jabatan);
@@ -1047,6 +1096,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           jabatan: jabatan,
           color: color,
           isDark: isDark,
+          wargaResidents: wargaResidents,
         ),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1137,7 +1187,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: AppCard(
                     child: InkWell(
-                      onTap: () => context.push('/home/kegiatan'),
+                      onTap: () => context.push('/home/kegiatan/${act.id}'),
                       borderRadius: BorderRadius.circular(AppRadius.base),
                       child: Padding(
                         padding: const EdgeInsets.all(12),

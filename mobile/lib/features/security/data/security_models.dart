@@ -593,6 +593,7 @@ class PosResidentSummary {
   final bool isHeadOfFamily;
   final String residencyStatus;
   final String? avatarPath;
+  final String? avatarThumbPath;
 
   const PosResidentSummary({
     required this.id,
@@ -601,6 +602,7 @@ class PosResidentSummary {
     required this.isHeadOfFamily,
     required this.residencyStatus,
     this.avatarPath,
+    this.avatarThumbPath,
   });
 
   factory PosResidentSummary.fromJson(Map<String, dynamic> json) {
@@ -611,6 +613,7 @@ class PosResidentSummary {
       isHeadOfFamily: json['is_head_of_family'] as bool? ?? false,
       residencyStatus: json['residency_status']?.toString() ?? '',
       avatarPath: json['avatar_path']?.toString(),
+      avatarThumbPath: json['avatar_thumb_path']?.toString(),
     );
   }
 }
@@ -623,6 +626,7 @@ class PosHouseholdSummary {
   final String occupancyType;
   final int residentCount;
   final String? headAvatarPath;
+  final String? headAvatarThumbPath;
   final List<PosResidentSummary> residents;
 
   const PosHouseholdSummary({
@@ -633,6 +637,7 @@ class PosHouseholdSummary {
     required this.occupancyType,
     required this.residentCount,
     this.headAvatarPath,
+    this.headAvatarThumbPath,
     this.residents = const [],
   });
 
@@ -645,6 +650,7 @@ class PosHouseholdSummary {
       occupancyType: json['occupancy_type']?.toString() ?? '',
       residentCount: (json['resident_count'] as num?)?.toInt() ?? 0,
       headAvatarPath: json['head_avatar_path']?.toString(),
+      headAvatarThumbPath: json['head_avatar_thumb_path']?.toString(),
       residents: (json['residents'] as List? ?? [])
           .whereType<Map<String, dynamic>>()
           .map(PosResidentSummary.fromJson)

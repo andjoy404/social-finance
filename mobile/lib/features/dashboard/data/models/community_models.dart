@@ -628,6 +628,7 @@ class SecurityOfficer {
   final String? shiftStartTime;
   final String? shiftEndTime;
   final String? avatarPath;
+  final String? avatarThumbPath;
 
   const SecurityOfficer({
     required this.id,
@@ -637,6 +638,7 @@ class SecurityOfficer {
     this.shiftStartTime,
     this.shiftEndTime,
     this.avatarPath,
+    this.avatarThumbPath,
   });
 
   factory SecurityOfficer.fromJson(Map<String, dynamic> json) {
@@ -649,6 +651,7 @@ class SecurityOfficer {
           (json['shift_start'] ?? json['shift_start_time']) as String?,
       shiftEndTime: (json['shift_end'] ?? json['shift_end_time']) as String?,
       avatarPath: json['avatar_path']?.toString(),
+      avatarThumbPath: json['avatar_thumb_path']?.toString(),
     );
   }
 }

@@ -191,8 +191,9 @@ type SecurityOfficer struct {
 	ShiftStart  string  `json:"shift_start"`
 	ShiftEnd    string  `json:"shift_end"`
 	Status      string  `json:"status"` // 'hadir', 'terlambat', etc.
-	PhoneNumber *string `json:"phone_number,omitempty"`
-	AvatarPath  *string `json:"avatar_path,omitempty"`
+	PhoneNumber     *string `json:"phone_number,omitempty"`
+	AvatarPath      *string `json:"avatar_path,omitempty"`
+	AvatarThumbPath *string `json:"avatar_thumb_path,omitempty"`
 }
 
 // SecurityOnDutyInfo represents the on-duty security status on the Beranda.

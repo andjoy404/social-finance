@@ -282,7 +282,35 @@ void main() {
     },
   );
 
+  testWidgets(
+    'system list renders trigger category badges and hides Kustomisasi for By System events',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('TEMPLATE'));
+      await tester.pumpAndSettle();
+
+      // SISTEM subtab is the default config subtab.
+      expect(find.text('SISTEM'), findsWidgets);
+      // By System badge on the bill card, Manual Trigger badge on the waste-truck card.
+      expect(find.text('By System'), findsOneWidget);
+      expect(find.text('Manual Trigger'), findsOneWidget);
+      // Kustomisasi is offered only for non-By-System events.
+      expect(find.text('Kustomisasi'), findsOneWidget);
+    },
+  );
+
   testWidgets('opens push notification preview banner modal', (tester) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(buildTestWidget());
     await tester.pumpAndSettle();
     await tester.tap(find.text('TEMPLATE'));
@@ -291,7 +319,9 @@ void main() {
     final previewButtons = find.text('Preview Banner');
     expect(previewButtons, findsAtLeastNWidgets(1));
 
-    await tester.tap(previewButtons.first);
+    // By-System events are placed at the bottom of the system list, so the
+    // preview button belonging to the bill-created card (by_system) is the last.
+    await tester.tap(previewButtons.last);
     await tester.pumpAndSettle();
 
     expect(find.text('Preview Notifikasi'), findsOneWidget);

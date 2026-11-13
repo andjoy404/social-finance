@@ -976,14 +976,45 @@ var RWSystemNotificationTypes = []SystemNotificationType{
 	},
 }
 
-// IsFixedSystemEvent reports whether eventType is one of the permanent system events
-// that cannot be created as custom templates or scheduled.
+// IsFixedSystemEvent reports whether eventType is dispatched automatically by
+// the system as a consequence of a business event/data change (by_system
+// trigger category). Such events cannot be created as custom templates,
+// scheduled, toggled off, or deleted by customary Pengurus actions.
 func IsFixedSystemEvent(eventType string) bool {
-	return eventType == EventBillCreated || eventType == EventPaymentSubmitted || eventType == EventPaymentVerified
+	return IsBySystemTriggerEvent(eventType)
+}
+
+// init populates trigger_category for all registered system types once at
+// startup so the classification is always consistent with dispatch sites and
+// never drifts when manually edited.
+func init() {
+	for i := range SystemNotificationTypes {
+		SystemNotificationTypes[i].TriggerCategory = TriggerCategoryForEvent(SystemNotificationTypes[i].EventType)
+	}
+	for i := range RWSystemNotificationTypes {
+		RWSystemNotificationTypes[i].TriggerCategory = TriggerCategoryForEvent(RWSystemNotificationTypes[i].EventType)
+	}
+}
+
+// orderedSystemTypes returns a copy of types where all By-System events are
+// placed at the end, preserving the relative order of the non-By-System
+// entries and the internal order of the By-System entries.
+func orderedSystemTypes(types []SystemNotificationType) []SystemNotificationType {
+	out := make([]SystemNotificationType, 0, len(types))
+	var bySystem []SystemNotificationType
+	for _, t := range types {
+		if t.TriggerCategory == TriggerCategoryBySystem {
+			bySystem = append(bySystem, t)
+			continue
+		}
+		out = append(out, t)
+	}
+	out = append(out, bySystem...)
+	return out
 }
 
 func (s *service) GetSystemTypes() []SystemNotificationType {
-	return SystemNotificationTypes
+	return orderedSystemTypes(SystemNotificationTypes)
 }
 
 func findSystemType(eventType string) *SystemNotificationType {

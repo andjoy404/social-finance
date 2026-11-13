@@ -750,7 +750,10 @@ func (r *Repository) ImageAccessAllowed(ctx context.Context, tx *sql.Tx, rtID, i
 			WHERE (rt_id = $1 OR rt_id IS NULL) AND (image_url = $2 OR image_url = $3)
 			UNION
 			SELECT 1 FROM residents
-			WHERE rt_id = $1 AND avatar_path IS NOT NULL AND (avatar_path = $2 OR avatar_path = $3)
+			WHERE rt_id = $1 AND (
+				(avatar_path IS NOT NULL AND (avatar_path = $2 OR avatar_path = $3))
+				OR (avatar_thumb_path IS NOT NULL AND (avatar_thumb_path = $2 OR avatar_thumb_path = $3))
+			)
 		)
 	`, rtID, imageKey, urlForm, canManageActivities, canManageAnnouncements).Scan(&allowed)
 	return allowed, err

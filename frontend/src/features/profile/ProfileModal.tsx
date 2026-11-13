@@ -193,6 +193,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
           <ResidentAvatar
             name={user.name}
             avatarPath={user.avatarPath ?? null}
+            avatarThumbPath={user.avatarThumbPath ?? null}
             size={84}
           />
           <div style={{ flex: 1, minWidth: 0 }}>

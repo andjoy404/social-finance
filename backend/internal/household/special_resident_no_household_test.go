@@ -33,7 +33,7 @@ func TestSpecialResidentCreationWithoutHousehold(t *testing.T) {
 	runID := time.Now().UnixNano()
 
 	for idx, jab := range []string{"keamanan", "operasional", "kebersihan"} {
-		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"31730000000000%02d","phone":"0812999900%02d","email":"petugas.%s.%d.nh@test.com","jabatan":"%s"}`, jab, idx, idx, jab, runID, jab)
+		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"31730000000000%02d","phone":"0812%04d%02d","email":"petugas.%s.%d.nh@test.com","jabatan":"%s"}`, jab, idx, runID%10000, idx, jab, runID, jab)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+pengurusToken)
@@ -300,4 +300,162 @@ func TestSpecialResidentCreateAccessRoles(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSpecialResident_PasswordProvidedAndOmitted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires seeded test database")
+	}
+	pool := testPool(t)
+	db := pool.Raw()
+	ctx := context.Background()
+	rtID := setupTestRT(t, pool, "RT Special Passwords", 1, "SPW")
+
+	h := NewHandler(pool)
+	r := chi.NewRouter()
+	r.Use(auth.RequireAuth)
+	r.Post("/api/v1/residents/special", h.CreateSpecialResident)
+
+	pengurusToken := makeTenantToken(t, "test-pengurus-pw", "test-pengurus-mem-pw", rtID, auth.RolePengurus)
+	runID := time.Now().UnixNano()
+
+	// 1. Password provided: valid password
+	t.Run("password provided explicitly", func(t *testing.T) {
+		const customPass = "SecureSpecialPass2026!"
+		email := fmt.Sprintf("petugas.pw.%d@test.com", runID)
+		phone := fmt.Sprintf("0812%08d", runID%100000000)
+		nik := fmt.Sprintf("317300%010d", runID%10000000000)
+
+		body := fmt.Sprintf(`{
+			"full_name": "Petugas Password Explicit",
+			"nik": "%s",
+			"phone": "%s",
+			"email": "%s",
+			"jabatan": "keamanan",
+			"password": "%s"
+		}`, nik, phone, email, customPass)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+pengurusToken)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201 Created, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		// Ensure password or password_hash is never exposed in response
+		var respMap map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &respMap); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		if _, exists := respMap["password"]; exists {
+			t.Fatalf("API response must not contain 'password' field")
+		}
+		if _, exists := respMap["password_hash"]; exists {
+			t.Fatalf("API response must not contain 'password_hash' field")
+		}
+
+		// Verify database stores hash and never plaintext
+		var storedHash string
+		var userID string
+		err := db.QueryRowContext(ctx, `SELECT id, password_hash FROM users WHERE email = $1`, email).Scan(&userID, &storedHash)
+		if err != nil {
+			t.Fatalf("lookup user by email: %v", err)
+		}
+		if storedHash == "" || storedHash == customPass {
+			t.Fatalf("password must be securely hashed and never stored as plaintext, got %q", storedHash)
+		}
+
+		// Test login via email + custom password
+		if loginCode := loginAndGetCode(t, pool, email, customPass); loginCode != http.StatusOK {
+			t.Fatalf("login with email + explicit password failed: %d", loginCode)
+		}
+
+		// Test login via phone + custom password
+		if loginCode := loginAndGetCode(t, pool, phone, customPass); loginCode != http.StatusOK {
+			t.Fatalf("login with phone + explicit password failed: %d", loginCode)
+		}
+
+		// Test login with wrong password fails
+		if loginCode := loginAndGetCode(t, pool, email, "WrongPass999!"); loginCode == http.StatusOK {
+			t.Fatalf("login with wrong password should fail with 401, got 200")
+		}
+
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(ctx, `DELETE FROM residents WHERE user_id = $1`, userID)
+			_, _ = db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, userID)
+			_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+		})
+	})
+
+	// 2. Password omitted / empty: generates secure random initial password (no static shared default)
+	t.Run("password omitted generates random initial password", func(t *testing.T) {
+		email := fmt.Sprintf("petugas.nopw.%d@test.com", runID)
+		phone := fmt.Sprintf("0813%08d", runID%100000000)
+		nik := fmt.Sprintf("317301%010d", runID%10000000000)
+
+		body := fmt.Sprintf(`{
+			"full_name": "Petugas No Password",
+			"nik": "%s",
+			"phone": "%s",
+			"email": "%s",
+			"jabatan": "operasional"
+		}`, nik, phone, email)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+pengurusToken)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201 Created, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var storedHash string
+		var userID string
+		err := db.QueryRowContext(ctx, `SELECT id, password_hash FROM users WHERE email = $1`, email).Scan(&userID, &storedHash)
+		if err != nil {
+			t.Fatalf("lookup user by email: %v", err)
+		}
+		if storedHash == "" {
+			t.Fatalf("user must have a non-empty random password_hash generated")
+		}
+
+		// Prove that static default "Password123!" does NOT work (confirming no static default was used)
+		if loginCode := loginAndGetCode(t, pool, email, "Password123!"); loginCode == http.StatusOK {
+			t.Fatalf("login with static default password should fail for account with random password, got 200")
+		}
+
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(ctx, `DELETE FROM residents WHERE user_id = $1`, userID)
+			_, _ = db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, userID)
+			_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
+		})
+	})
+
+	// 3. Password too short (< 8 characters)
+	t.Run("password too short rejected", func(t *testing.T) {
+		email := fmt.Sprintf("petugas.short.%d@test.com", runID)
+		phone := fmt.Sprintf("0814%08d", runID%100000000)
+		nik := fmt.Sprintf("317302%010d", runID%10000000000)
+
+		body := fmt.Sprintf(`{
+			"full_name": "Petugas Short Password",
+			"nik": "%s",
+			"phone": "%s",
+			"email": "%s",
+			"jabatan": "kebersihan",
+			"password": "short"
+		}`, nik, phone, email)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+pengurusToken)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request for short password, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
 }

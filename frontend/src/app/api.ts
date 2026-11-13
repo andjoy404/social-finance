@@ -16,6 +16,7 @@ export interface ApiUser {
   jabatan?: string | null
   effective_permissions?: string[]
   avatar_path?: string | null
+  avatar_thumb_path?: string | null
   rt: { id: string; name: string } | null
   rt_id?: string
   rt_name?: string
@@ -838,6 +839,7 @@ export interface ApiResident {
   occupancy_status?: 'OWNER' | 'TENANT' | null
   house_number?: string | null
   avatar_path?: string | null
+  avatar_thumb_path?: string | null
 }
 
 export interface ApiCreateResidentBody {
@@ -884,7 +886,7 @@ export async function apiUploadResidentPhoto(
   token: string,
   residentId: string,
   file: File,
-): Promise<{ status: string; avatar_path: string; key: string }> {
+): Promise<{ status: string; avatar_path: string; avatar_thumb_path?: string; key: string }> {
   const formData = new FormData()
   formData.append('file', file)
   const res = await authenticatedApiRequest(BASE + `/residents/${residentId}/photo`, {
@@ -893,8 +895,9 @@ export async function apiUploadResidentPhoto(
     body: formData,
     ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(30_000) } : {}),
   })
-  const data = await json<{ status: string; avatar_path: string; key: string }>(res)
+  const data = await json<{ status: string; avatar_path: string; avatar_thumb_path?: string; key: string }>(res)
   if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to upload resident photo')
+  apiInvalidateCommunityImageSignCache()
   return data
 }
 
@@ -910,6 +913,7 @@ export async function apiDeleteResidentPhoto(
   })
   const data = await json<{ status: string }>(res)
   if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to delete resident photo')
+  apiInvalidateCommunityImageSignCache()
   return data
 }
 
@@ -1813,6 +1817,8 @@ export async function apiTriggerWasteTruckArrival(
 
 // --- Notification Management API ---
 
+export type NotificationTriggerCategory = 'by_system' | 'terjadwal' | 'manual_trigger'
+
 export interface ApiSystemNotificationType {
   event_type: string
   name: string
@@ -1825,6 +1831,7 @@ export interface ApiSystemNotificationType {
   is_configurable: boolean
   supports_image?: boolean
   supports_test?: boolean
+  trigger_category?: NotificationTriggerCategory
 }
 
 export interface ApiNotificationTemplate {
@@ -3466,6 +3473,7 @@ export interface SecurityOfficer {
   email?: string | null
   is_active?: boolean
   avatar_path?: string | null
+  avatar_thumb_path?: string | null
 }
 
 export interface SecurityOnDutyInfo {
@@ -3722,19 +3730,54 @@ export async function apiGetCommunityImageBlob(
   return { blob, contentType }
 }
 
+const communityImageSignCache = new Map<string, { url: string; expires_at: number }>()
+const inFlightCommunityImageSigns = new Map<string, Promise<{ url: string; expires_at: number }>>()
+
+export function apiInvalidateCommunityImageSignCache(key?: string): void {
+  if (key) {
+    const k = communityImageKey(key)
+    communityImageSignCache.delete(k)
+    inFlightCommunityImageSigns.delete(k)
+  } else {
+    communityImageSignCache.clear()
+    inFlightCommunityImageSigns.clear()
+  }
+}
+
 // Request a short-lived signed URL for a community image. The backend only
 // issues a signature after the caller passes the same content authorization
 // as the Bearer mode of the image endpoint. Used for <img> rendering.
+// Responses are cached in-memory and deduplicated in-flight to prevent redundant signing requests.
 export async function apiSignCommunityImage(token: string, key: string): Promise<{ url: string; expires_at: number }> {
-  const res = await authenticatedApiRequest(BASE + '/community/images/sign', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: communityImageKey(key) }),
-    ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
-  })
-  const data = await json<{ url: string; expires_at: number }>(res)
-  if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to authorize image')
-  return data
+  const normKey = communityImageKey(key)
+  const cached = communityImageSignCache.get(normKey)
+  if (cached && Date.now() < cached.expires_at * 1000 - 30_000) {
+    return cached
+  }
+  const inFlight = inFlightCommunityImageSigns.get(normKey)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const signPromise = (async () => {
+    try {
+      const res = await authenticatedApiRequest(BASE + '/community/images/sign', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: normKey }),
+        ...(typeof AbortSignal !== 'undefined' ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {}),
+      })
+      const data = await json<{ url: string; expires_at: number }>(res)
+      if (!res.ok || !data) throw new ApiError('unexpected', 'Failed to authorize image')
+      communityImageSignCache.set(normKey, data)
+      return data
+    } finally {
+      inFlightCommunityImageSigns.delete(normKey)
+    }
+  })()
+
+  inFlightCommunityImageSigns.set(normKey, signPromise)
+  return signPromise
 }
 
 export async function apiGetOrganizationStructure(token: string): Promise<OrganizationStructure> {

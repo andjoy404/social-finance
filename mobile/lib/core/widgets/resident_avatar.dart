@@ -11,12 +11,14 @@ import 'resident_image_viewer.dart';
 class ResidentAvatar extends StatelessWidget {
   final String name;
   final String? avatarPath;
+  final String? avatarThumbPath;
   final double size;
 
   const ResidentAvatar({
     super.key,
     required this.name,
     this.avatarPath,
+    this.avatarThumbPath,
     this.size = 40,
   });
 
@@ -38,16 +40,18 @@ class ResidentAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final radius = size / 2;
     final theme = Theme.of(context);
-    final path = (avatarPath ?? '').trim();
+    final fullPath = (avatarPath ?? '').trim();
+    final thumbPath = (avatarThumbPath ?? '').trim();
+    final primaryPath = thumbPath.isNotEmpty ? thumbPath : fullPath;
 
-    if (path.isNotEmpty) {
+    if (primaryPath.isNotEmpty) {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => ResidentImageViewer(
-                imageRef: path,
+                imageRef: fullPath.isNotEmpty ? fullPath : thumbPath,
                 title: name.isEmpty ? 'Foto Profil' : name,
               ),
             ),
@@ -58,7 +62,8 @@ class ResidentAvatar extends StatelessWidget {
             width: size,
             height: size,
             child: CommunityImage(
-              imageRef: path,
+              imageRef: primaryPath,
+              fallbackRef: thumbPath.isNotEmpty && fullPath.isNotEmpty ? fullPath : null,
               width: size,
               height: size,
               fit: BoxFit.cover,

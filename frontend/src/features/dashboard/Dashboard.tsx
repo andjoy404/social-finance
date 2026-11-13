@@ -348,6 +348,7 @@ export function Dashboard() {
                     <ResidentAvatar
                       name={name}
                       avatarPath={officer.avatar_path ?? null}
+                      avatarThumbPath={officer.avatar_thumb_path ?? null}
                       size={44}
                     />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>

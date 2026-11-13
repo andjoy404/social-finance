@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1546,13 +1547,33 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	canonEmail := NormalizeEmail(req.Email)
-	if strings.TrimSpace(req.Password) == "" {
-		httpx.WriteValidationError(w, "password is required", nil)
-		return
-	}
-	if len(req.Password) < auth.MinPasswordLength {
-		httpx.WriteValidationError(w, fmt.Sprintf("password must be at least %d characters", auth.MinPasswordLength), nil)
-		return
+	var passwordHash string
+	trimmedPassword := strings.TrimSpace(req.Password)
+	if trimmedPassword != "" {
+		if len(trimmedPassword) < auth.MinPasswordLength {
+			httpx.WriteValidationError(w, fmt.Sprintf("password must be at least %d characters", auth.MinPasswordLength), nil)
+			return
+		}
+		var hashErr error
+		passwordHash, hashErr = auth.Hash(trimmedPassword)
+		if hashErr != nil {
+			httpx.WriteValidationError(w, hashErr.Error(), nil)
+			return
+		}
+	} else {
+		// When no password is provided, generate a cryptographically random initial password.
+		// Plaintext is never stored, and credentials can be established via authorized reset flow.
+		randBytes := make([]byte, 32)
+		if _, err := crand.Read(randBytes); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to generate initial password")
+			return
+		}
+		var hashErr error
+		passwordHash, hashErr = auth.Hash(base64.StdEncoding.EncodeToString(randBytes))
+		if hashErr != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to hash initial password")
+			return
+		}
 	}
 	isActive := true
 	if req.IsActive != nil {
@@ -1637,13 +1658,6 @@ func (h *Handler) CreateSpecialResident(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// The password the pengurus typed in the form is the one the officer logs
-	// in with; hashed with the same Argon2id/bcrypt routine as all accounts.
-	passwordHash, err := auth.Hash(req.Password)
-	if err != nil {
-		httpx.WriteValidationError(w, err.Error(), nil)
-		return
-	}
 	userID, err := auth.CreateNewUser(ctx, tx, canonEmail, &canonPhone, passwordHash, strings.TrimSpace(req.FullName), "")
 	if err != nil {
 		if isPGUniqueViolation(err) {

@@ -25,6 +25,7 @@ import '../utils/permissions.dart';
 /// completing after the asset or auth state changed (generation guard).
 class CommunityImage extends ConsumerStatefulWidget {
   final String imageRef; // stored ref: full API path or raw storage key
+  final String? fallbackRef; // optional fallback key if primary fails to load
   final double? width;
   final double? height;
   final BoxFit fit;
@@ -33,6 +34,7 @@ class CommunityImage extends ConsumerStatefulWidget {
   const CommunityImage({
     super.key,
     required this.imageRef,
+    this.fallbackRef,
     this.width,
     this.height,
     this.fit = BoxFit.cover,
@@ -64,7 +66,7 @@ class _CommunityImageState extends ConsumerState<CommunityImage> {
   @override
   void didUpdateWidget(covariant CommunityImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.imageRef != widget.imageRef) {
+    if (oldWidget.imageRef != widget.imageRef || oldWidget.fallbackRef != widget.fallbackRef) {
       _evictCurrentProvider();
       _startResolve();
     }
@@ -129,7 +131,18 @@ class _CommunityImageState extends ConsumerState<CommunityImage> {
   }
 
   Future<_ImageResult?> _resolve() async {
-    final key = _extractKey(widget.imageRef);
+    final result = await _resolveKey(widget.imageRef);
+    if (result != null) return result;
+    if (widget.fallbackRef != null &&
+        widget.fallbackRef!.trim().isNotEmpty &&
+        widget.fallbackRef!.trim() != widget.imageRef.trim()) {
+      return _resolveKey(widget.fallbackRef!);
+    }
+    return null;
+  }
+
+  Future<_ImageResult?> _resolveKey(String refStr) async {
+    final key = _extractKey(refStr);
     if (key.isEmpty) return null;
 
     final apiClient = ref.read(apiClientProvider);

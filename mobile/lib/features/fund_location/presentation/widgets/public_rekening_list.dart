@@ -98,67 +98,18 @@ class PublicRekeningList extends ConsumerWidget {
       );
     }
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ...list.map((r) {
           final bank = (r.bankName ?? '').trim();
           final number = (r.accountNumber ?? '').trim();
           final holder = (r.accountHolder ?? '').trim();
-          final subColor = theme.colorScheme.onSurfaceVariant;
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: AppColors.accent.withValues(alpha: 0.08),
-                    border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                  ),
-                  child: const Icon(Icons.account_balance, size: 18, color: AppColors.accent),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        r.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        [bank, number].where((s) => s.isNotEmpty).join('  •  '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontFamily: 'monospace',
-                          letterSpacing: 0.6,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (holder.isNotEmpty)
-                        Text(
-                          'A/N $holder',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(color: subColor),
-                        ),
-                    ],
-                  ),
-                ),
-                if (number.isNotEmpty)
-                  IconButton(
-                    tooltip: 'Salin nomor rekening',
-                    icon: const Icon(Icons.copy, size: 17),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () {
+            child: GestureDetector(
+              onTap: number.isNotEmpty
+                  ? () {
                       Clipboard.setData(ClipboardData(text: number));
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -167,9 +118,78 @@ class PublicRekeningList extends ConsumerWidget {
                           duration: const Duration(seconds: 2),
                         ),
                       );
-                    },
+                    }
+                  : null,
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withValues(alpha: 0.08),
+                      border: Border.all(
+                        color: AppColors.accent.withValues(alpha: 0.3),
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: const Icon(
+                      Icons.account_balance,
+                      size: 18,
+                      color: AppColors.accent,
+                    ),
                   ),
-              ],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          bank.isNotEmpty ? bank : r.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.darkText,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          number,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            letterSpacing: 0.6,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                            color: AppColors.warning,
+                          ),
+                        ),
+                        if (holder.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'A/N $holder',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF8B8B9E),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (number.isNotEmpty)
+                    Icon(
+                      Icons.copy_rounded,
+                      size: 16,
+                      color: AppColors.accent,
+                    ),
+                ],
+              ),
             ),
           );
         }),

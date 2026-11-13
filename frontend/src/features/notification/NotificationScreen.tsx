@@ -51,9 +51,12 @@ import {
 import { formatJakartaDateTime } from '@/utils/jakartaTime'
 import { renderNotificationBody } from './notificationUrl'
 import {
-  isFixedSystemEvent,
+  isBySystemTriggerEvent,
   getNotificationBadgeVariant,
+  sortSystemTypesLast,
 } from './notificationSeverity'
+import { SystemEventSelect } from './SystemEventSelect'
+import { TriggerCategoryBadge } from './TriggerCategoryBadge'
 
 function getDeliveryStatusDisplay(status: string | null | undefined, isAdmin = false) {
   // Warga (non-admin): always hide internal delivery status, show TERKIRIM for everything.
@@ -201,15 +204,22 @@ const knownEventNames: Record<string, string> = {
   }
 
   const customizableSystemTypes = useMemo(
-    () => systemTypes.filter((st) => !isFixedSystemEvent(st.event_type)),
+    () => systemTypes.filter((st) => !isBySystemTriggerEvent(st.event_type)),
     [systemTypes]
   )
   const schedulableSystemTypes = useMemo(
-    () => systemTypes.filter((st) => !isFixedSystemEvent(st.event_type)),
+    () => systemTypes.filter((st) => !isBySystemTriggerEvent(st.event_type)),
+    [systemTypes]
+  )
+
+  // Notifikasi Sistem list ordering: By-System events placed at the very bottom,
+  // preserving the relative order of the rest (previous ordering requirement).
+  const orderedSystemTypes = useMemo(
+    () => sortSystemTypesLast(systemTypes),
     [systemTypes]
   )
   const customTemplates = useMemo(
-    () => templates.filter((t) => !isFixedSystemEvent(t.event_type)),
+    () => templates.filter((t) => !isBySystemTriggerEvent(t.event_type)),
     [templates]
   )
 
@@ -871,7 +881,7 @@ const knownEventNames: Record<string, string> = {
           {activeTab === 'system' && (
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-                {systemTypes.map((st) => (
+                {orderedSystemTypes.map((st) => (
                   <div
                     key={st.event_type}
                     style={{
@@ -889,7 +899,10 @@ const knownEventNames: Record<string, string> = {
                         <div style={{ fontWeight: 600, fontSize: 16, color: 'var(--sf-text)' }}>
                           {st.name}
                         </div>
-                        <Badge variant="blue">FCM PUSH</Badge>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                          <Badge variant="blue">FCM PUSH</Badge>
+                          <TriggerCategoryBadge eventType={st.event_type} />
+                        </div>
                       </div>
 
                       <div style={{ fontSize: 13, color: 'var(--sf-text-muted)', marginBottom: 12 }}>
@@ -940,14 +953,16 @@ const knownEventNames: Record<string, string> = {
                         >
                           Preview Banner
                         </button>
-                        <button
-                          type="button"
-                          className="sf-btn-primary"
-                          style={{ flex: 1 }}
-                          onClick={() => handleOpenCreate(st.event_type)}
-                        >
-                          Kustomisasi
-                        </button>
+                        {!isBySystemTriggerEvent(st.event_type) && (
+                          <button
+                            type="button"
+                            className="sf-btn-primary"
+                            style={{ flex: 1 }}
+                            onClick={() => handleOpenCreate(st.event_type)}
+                          >
+                            Kustomisasi
+                          </button>
+                        )}
                       </div>
                       {(st.event_type === 'waste_truck_arrival' || st.event_type === 'manual_push') && (
                         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -1231,7 +1246,12 @@ const knownEventNames: Record<string, string> = {
                         return (
                           <tr key={s.id} style={{ borderBottom: '1px solid var(--sf-border)' }}>
                             <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--sf-text)' }}>{s.name}</td>
-                            <td style={{ padding: '12px 16px' }}><Badge variant={getNotificationBadgeVariant(s.event_type)}>{eventName}</Badge></td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+                                <Badge variant={getNotificationBadgeVariant(s.event_type)}>{eventName}</Badge>
+                                <TriggerCategoryBadge eventType={s.event_type} />
+                              </div>
+                            </td>
                             <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--sf-text-muted)' }}>{templateName}</td>
                             <td style={{ padding: '12px 16px', fontSize: 12 }}>{days}</td>
                             <td style={{ padding: '12px 16px', fontSize: 12 }}>{timeStr}</td>
@@ -1648,10 +1668,11 @@ const knownEventNames: Record<string, string> = {
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                   Jenis Event Notifikasi
                 </label>
-                <select
+                <SystemEventSelect
+                  id="create-template-event-select"
                   value={createForm.event_type}
-                  onChange={(e) => {
-                    const ev = e.target.value
+                  options={customizableSystemTypes}
+                  onChange={(ev) => {
                     const found = systemTypes.find((t) => t.event_type === ev)
                     setCreateForm((prev) => ({
                       ...prev,
@@ -1660,14 +1681,8 @@ const knownEventNames: Record<string, string> = {
                       body: found?.default_body || prev.body,
                     }))
                   }}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
-                >
-                  {customizableSystemTypes.map((st) => (
-                    <option key={st.event_type} value={st.event_type}>
-                      {st.name} ({st.event_type})
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Jenis Event Notifikasi"
+                />
               </div>
 
               <div style={{ marginBottom: 14 }}>
@@ -2181,10 +2196,11 @@ const knownEventNames: Record<string, string> = {
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                   Jenis Notifikasi
                 </label>
-                <select
+                <SystemEventSelect
+                  id="create-schedule-event-select"
                   value={scheduleForm.event_type}
-                  onChange={(e) => {
-                    const ev = e.target.value
+                  options={schedulableSystemTypes}
+                  onChange={(ev) => {
                     const found = systemTypes.find((t) => t.event_type === ev)
                     setScheduleForm((prev) => ({
                       ...prev,
@@ -2192,14 +2208,8 @@ const knownEventNames: Record<string, string> = {
                       template_id: (found ? templates.find((t) => t.event_type === ev && t.is_active)?.id : '') || '',
                     }))
                   }}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--sf-border)', background: 'var(--sf-bg)', color: 'var(--sf-text)' }}
-                >
-                  {schedulableSystemTypes.map((st) => (
-                    <option key={st.event_type} value={st.event_type}>
-                      {st.name} ({st.event_type})
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Jenis Notifikasi"
+                />
               </div>
 
               <div style={{ marginBottom: 14 }}>

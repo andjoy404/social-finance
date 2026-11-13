@@ -65,6 +65,7 @@ class BackendResident {
   final String? startDate;
   final String? endDate;
   final String? avatarPath;
+  final String? avatarThumbPath;
 
   const BackendResident({
     required this.id,
@@ -83,6 +84,7 @@ class BackendResident {
     this.startDate,
     this.endDate,
     this.avatarPath,
+    this.avatarThumbPath,
   });
 
   factory BackendResident.fromJson(Map<String, dynamic> json) {
@@ -103,6 +105,7 @@ class BackendResident {
       startDate: json['start_date'] as String?,
       endDate: json['end_date'] as String?,
       avatarPath: json['avatar_path']?.toString(),
+      avatarThumbPath: json['avatar_thumb_path']?.toString(),
     );
   }
 }
@@ -374,6 +377,7 @@ class MappedResident {
   final String? startDate;
   final String? endDate;
   final String? avatarPath;
+  final String? avatarThumbPath;
 
   const MappedResident({
     required this.id,
@@ -394,6 +398,7 @@ class MappedResident {
     this.startDate,
     this.endDate,
     this.avatarPath,
+    this.avatarThumbPath,
   });
 
   String get maskedNik {
@@ -551,6 +556,7 @@ class MappedResident {
       rtName: resident.rtName,
       jabatan: mappedJabatan,
       avatarPath: resident.avatarPath,
+      avatarThumbPath: resident.avatarThumbPath,
       startDate: household?.startDate ?? resident.startDate,
       endDate: household?.endDate ?? resident.endDate,
     );

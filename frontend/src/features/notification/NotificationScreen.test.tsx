@@ -278,8 +278,24 @@ describe('NotificationScreen', () => {
       expect(screen.getByText('Penerbitan Tagihan Iuran')).toBeInTheDocument()
     })
 
+    // By-System events are placed at the bottom of the list. Pick the preview
+    // button whose card subtree contains the expected system type name.
     const previewButtons = screen.getAllByRole('button', { name: /preview banner/i })
-    fireEvent.click(previewButtons[0])
+    const billPreviewButton = previewButtons.find((button) => {
+      let el: HTMLElement | null = button
+      while (el) {
+        const text = el.textContent ?? ''
+        // Stop at the nearest ancestor that mentions either event name;
+        // the shared grid ancestor contains both, so walking past the card would be a false match.
+        if (text.includes('Penerbitan Tagihan Iuran') || text.includes('Kedatangan Mobil Sampah')) {
+          return text.includes('Penerbitan Tagihan Iuran')
+        }
+        el = el.parentElement
+      }
+      return false
+    })
+    expect(billPreviewButton).toBeDefined()
+    fireEvent.click(billPreviewButton as HTMLButtonElement)
 
     await waitFor(() => {
       expect(screen.getByText(/Preview Push Notification: Penerbitan Tagihan Iuran/i)).toBeInTheDocument()

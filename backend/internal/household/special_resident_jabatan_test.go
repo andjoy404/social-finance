@@ -260,7 +260,7 @@ func TestMigration056AndSpecialResidentPermissions(t *testing.T) {
 	var createdID string
 	runID := time.Now().UnixNano()
 	for idx, jab := range []string{"keamanan", "operasional", "kebersihan"} {
-		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"317300000000005%d","phone":"0812999900%d","email":"petugas.%s.056.%d@test.com","jabatan":"%s"}`, jab, idx, idx, jab, runID, jab)
+		body := fmt.Sprintf(`{"full_name":"Petugas %s","nik":"317300000000005%d","phone":"0812%04d00%d","email":"petugas.%s.056.%d@test.com","jabatan":"%s"}`, jab, idx, runID%10000, idx, jab, runID, jab)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/residents/special", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+pengurusToken)

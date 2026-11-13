@@ -155,6 +155,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ResidentAvatar(
                 name: userName,
                 avatarPath: user?['avatar_path'] as String?,
+                avatarThumbPath: user?['avatar_thumb_path'] as String?,
                 size: 80,
               ),
               const SizedBox(height: 16),

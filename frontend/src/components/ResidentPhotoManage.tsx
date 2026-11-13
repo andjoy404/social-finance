@@ -8,8 +8,8 @@ type ResidentPhotoManageProps = {
   residentId: string
   fullName: string
   avatarPath?: string | null
-  /** Called after a successful upload or delete with the new avatar path (or null when cleared). */
-  onChanged: (newAvatarPath: string | null) => void
+  /** Called after a successful upload or delete with the new avatar path and optional thumbnail path (or null when cleared). */
+  onChanged: (newAvatarPath: string | null, newThumbPath?: string | null) => void
   /** Compact button styling to fit dense rows. */
   compact?: boolean
 }
@@ -72,7 +72,7 @@ export function ResidentPhotoManage({ residentId, fullName, avatarPath, onChange
       setPreviewOpen(false)
       revokePreview()
       setPendingFile(null)
-      onChanged(res.avatar_path)
+      onChanged(res.avatar_path, res.avatar_thumb_path ?? null)
       message.success('Foto tersimpan')
     } catch (err) {
       // Keep the old photo visible until the server confirms success.
@@ -92,7 +92,7 @@ export function ResidentPhotoManage({ residentId, fullName, avatarPath, onChange
     setDeleting(true)
     try {
       await apiDeleteResidentPhoto(session.accessToken, residentId)
-      onChanged(null)
+      onChanged(null, null)
       message.success('Foto dihapus')
     } catch (err) {
       const text = err instanceof Error ? err.message : 'Gagal menghapus foto.'

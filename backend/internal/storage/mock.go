@@ -324,6 +324,104 @@ func (m *MockStorage) UploadCommunityImage(ctx context.Context, rtID, category, 
 	return meta, nil
 }
 
+func (m *MockStorage) UploadCommunityImageWithThumb(ctx context.Context, rtID, category, filename string, r io.Reader, size int64, makeThumb bool) (*ImageUploadResult, error) {
+	if m.UploadErr != nil {
+		return nil, m.UploadErr
+	}
+	if category != "activity" && category != "announcement" && category != "banner" && category != "profile" && category != "avatar" && category != "resident" {
+		category = "general"
+	}
+	if size <= 0 {
+		return nil, ErrEmptyFile
+	}
+	limit := m.MaxFileSize
+	if limit <= 0 {
+		limit = DefaultMaxFileSize
+	}
+	if size > limit {
+		return nil, ErrFileTooLarge
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r, size+1))
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if int64(len(data)) != size {
+		return nil, fmt.Errorf("read body: expected %d bytes, got %d", size, len(data))
+	}
+
+	headerLen := len(data)
+	if headerLen > 512 {
+		headerLen = 512
+	}
+	contentType := http.DetectContentType(data[:headerLen])
+	if contentType == "application/octet-stream" && len(data) >= 12 {
+		if string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+			contentType = "image/webp"
+		}
+	}
+
+	ext, ok := allowedMimeTypes[contentType]
+	if !ok {
+		return nil, ErrInvalidFormat
+	}
+
+	sanitizedName := filepath.Base(filename)
+	randomBytes := make([]byte, 16)
+	_, _ = rand.Read(randomBytes)
+	randomHex := hex.EncodeToString(randomBytes)
+
+	now := time.Now()
+	baseKey := fmt.Sprintf("community/%s/%s/%d_%s", rtID, category, now.UnixNano(), randomHex)
+	origKey := baseKey + ext
+
+	imageDecodeSem <- struct{}{}
+	defer func() { <-imageDecodeSem }()
+	img, err := decodeAndValidateImage(data)
+	if err != nil {
+		return nil, err
+	}
+
+	origMeta := &ObjectMetadata{
+		Key:          origKey,
+		OriginalName: sanitizedName,
+		ContentType:  contentType,
+		Size:         int64(len(data)),
+		UploadedAt:   now,
+	}
+
+	m.mu.Lock()
+	m.objects[origKey] = append([]byte(nil), data...)
+	m.metadata[origKey] = origMeta
+	m.mu.Unlock()
+
+	res := &ImageUploadResult{OriginalKey: origKey, Original: *origMeta}
+	if makeThumb {
+		thumbBytes, err := makeThumbnailJPEG(img)
+		if err != nil {
+			m.mu.Lock()
+			delete(m.objects, origKey)
+			delete(m.metadata, origKey)
+			m.mu.Unlock()
+			return nil, err
+		}
+		thumbKey := baseKey + "_thumb.jpg"
+		thumbMeta := &ObjectMetadata{
+			Key:          thumbKey,
+			OriginalName: sanitizedName,
+			ContentType:  "image/jpeg",
+			Size:         int64(len(thumbBytes)),
+			UploadedAt:   now,
+		}
+		m.mu.Lock()
+		m.objects[thumbKey] = thumbBytes
+		m.metadata[thumbKey] = thumbMeta
+		m.mu.Unlock()
+		res.ThumbKey = thumbKey
+	}
+	return res, nil
+}
+
 func (m *MockStorage) GetCommunityImage(ctx context.Context, key string) (*ObjectReader, error) {
 	if m.GetErr != nil {
 		return nil, m.GetErr

@@ -152,6 +152,7 @@ describe('Special Resident positions (Keamanan, Operasional, Kebersihan)', () =>
     ])
 
     fireEvent.change(select, { target: { value: 'kebersihan' } })
+    expect(select.value).toBe('kebersihan')
     fireEvent.click(screen.getByRole('button', { name: 'Simpan Perubahan' }))
 
     await waitFor(() => {

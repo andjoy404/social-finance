@@ -445,7 +445,8 @@ func (r *Repository) listOfficers(ctx context.Context, rtID string, redactContac
 		       CASE WHEN $2 THEN NULL ELSE u.phone END,
 		       u.is_active,
 		       (SELECT r.id FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1),
-		       (SELECT r.avatar_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1)
+		       (SELECT r.avatar_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1),
+		       (SELECT r.avatar_thumb_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1)
 		FROM user_rt_memberships urm
 		JOIN users u ON u.id = urm.user_id
 		WHERE urm.rt_id = $1
@@ -464,8 +465,9 @@ func (r *Repository) listOfficers(ctx context.Context, rtID string, redactContac
 		var o SecurityOfficer
 		var phone sql.NullString
 		var avatarPath sql.NullString
+		var avatarThumbPath sql.NullString
 		var residentID sql.NullString
-		if err := rows.Scan(&o.UserID, &o.MembershipID, &o.RTID, &o.FullName, &o.Email, &phone, &o.IsActive, &residentID, &avatarPath); err != nil {
+		if err := rows.Scan(&o.UserID, &o.MembershipID, &o.RTID, &o.FullName, &o.Email, &phone, &o.IsActive, &residentID, &avatarPath, &avatarThumbPath); err != nil {
 			return nil, err
 		}
 		if residentID.Valid && strings.TrimSpace(residentID.String) != "" {
@@ -475,6 +477,10 @@ func (r *Repository) listOfficers(ctx context.Context, rtID string, redactContac
 		if avatarPath.Valid && strings.TrimSpace(avatarPath.String) != "" {
 			v := avatarPath.String
 			o.AvatarPath = &v
+		}
+		if avatarThumbPath.Valid && strings.TrimSpace(avatarThumbPath.String) != "" {
+			v := avatarThumbPath.String
+			o.AvatarThumbPath = &v
 		}
 		if phone.Valid && strings.TrimSpace(phone.String) != "" {
 			v := phone.String
@@ -2852,7 +2858,8 @@ func (r *Repository) GetOnDutyOfficers(ctx context.Context, rtID string, now tim
 		SELECT s.user_id, u.full_name, s.shift_name_snapshot,
 		       to_char(s.start_time_snapshot, 'HH24:MI'), to_char(s.end_time_snapshot, 'HH24:MI'),
 		       COALESCE(ar.status, 'belum_hadir'), u.phone,
-		       (SELECT r.avatar_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1)
+		       (SELECT r.avatar_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1),
+		       (SELECT r.avatar_thumb_path FROM residents r WHERE r.user_id = u.id AND r.is_active = true LIMIT 1)
 		FROM security_schedules s
 		JOIN users u ON u.id = s.user_id
 		JOIN security_attendance_records ar ON ar.schedule_id = s.id
@@ -2877,12 +2884,17 @@ func (r *Repository) GetOnDutyOfficers(ctx context.Context, rtID string, now tim
 		var item OnDutyOfficerSummary
 		var phone sql.NullString
 		var avatarPath sql.NullString
-		if err := rows.Scan(&item.UserID, &item.FullName, &item.ShiftName, &item.ShiftStart, &item.ShiftEnd, &item.Status, &phone, &avatarPath); err != nil {
+		var avatarThumbPath sql.NullString
+		if err := rows.Scan(&item.UserID, &item.FullName, &item.ShiftName, &item.ShiftStart, &item.ShiftEnd, &item.Status, &phone, &avatarPath, &avatarThumbPath); err != nil {
 			return nil, err
 		}
 		if avatarPath.Valid && strings.TrimSpace(avatarPath.String) != "" {
 			v := avatarPath.String
 			item.AvatarPath = &v
+		}
+		if avatarThumbPath.Valid && strings.TrimSpace(avatarThumbPath.String) != "" {
+			v := avatarThumbPath.String
+			item.AvatarThumbPath = &v
 		}
 		if phone.Valid && strings.TrimSpace(phone.String) != "" {
 			v := phone.String

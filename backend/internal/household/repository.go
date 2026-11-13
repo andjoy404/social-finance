@@ -1224,7 +1224,7 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 	var rpStart, rpEnd sql.NullTime
 
 	err := tx.QueryRowContext(ctx,
-		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path,
+		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path, r.avatar_thumb_path,
 		        ho.household_id, rp.start_date, rp.end_date, r.user_id,
 		        rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 		 FROM residents r
@@ -1242,7 +1242,7 @@ func ResidentGetByID(ctx context.Context, tx *sql.Tx, id, rtID string) (*Residen
 		id, rtID,
 	).Scan(
 		&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email, &item.IsActive,
-		&item.CreatedAt, &item.UpdatedAt, &item.AvatarPath,
+		&item.CreatedAt, &item.UpdatedAt, &item.AvatarPath, &item.AvatarThumbPath,
 		&hhID,
 		&rpStart, &rpEnd,
 		&userID,
@@ -1302,7 +1302,7 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 	var rpStart, rpEnd sql.NullTime
 
 	err := tx.QueryRowContext(ctx,
-		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path,
+		`SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path, r.avatar_thumb_path,
 		        ho.household_id, rp.start_date, rp.end_date, r.user_id,
 		        rt.rt, rt.rw, rt.name, urm.jabatan, ph.house_number
 		 FROM residents r
@@ -1320,7 +1320,7 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 		id,
 	).Scan(
 		&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email, &item.IsActive,
-		&item.CreatedAt, &item.UpdatedAt, &item.AvatarPath,
+		&item.CreatedAt, &item.UpdatedAt, &item.AvatarPath, &item.AvatarThumbPath,
 		&hhID, &rpStart, &rpEnd,
 		&userID,
 		&rtNumber, &rw, &rtName,
@@ -1368,7 +1368,7 @@ func ResidentGetByIDAll(ctx context.Context, tx *sql.Tx, id string) (*Resident, 
 
 // ResidentList returns residents filtered by RT with optional household_id, active filter, and search.
 func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
-	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path,
+	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path, r.avatar_thumb_path,
 	                 ho.household_id, rp.start_date, rp.end_date, r.user_id,
 	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 	          FROM residents r
@@ -1428,7 +1428,7 @@ func ResidentList(ctx context.Context, tx *sql.Tx, rtID string, householdID *str
 		var startDate, endDate sql.NullTime
 		if err := rows.Scan(
 			&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email,
-			&item.IsActive, &item.CreatedAt, &item.UpdatedAt, &item.AvatarPath,
+			&item.IsActive, &item.CreatedAt, &item.UpdatedAt, &item.AvatarPath, &item.AvatarThumbPath,
 			&hhID, &startDate, &endDate,
 			&userID,
 			&rtNumber, &rw, &rtName,
@@ -1518,7 +1518,7 @@ func ResidentCount(ctx context.Context, tx *sql.Tx, rtID string, householdID *st
 
 // ResidentListAll returns residents across all RTs with optional filters and pagination.
 func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isActive *bool, search *string, offset, limit int) ([]*Resident, error) {
-	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path,
+	query := `SELECT r.id, r.rt_id, r.full_name, r.phone, r.nik, r.email, r.is_active, r.created_at, r.updated_at, r.avatar_path, r.avatar_thumb_path,
 	                 ho.household_id, rp.start_date, rp.end_date, r.user_id,
 	                 rt.rt, rt.rw, rt.name, urm.jabatan, ho.occupancy_status, ph.house_number
 	          FROM residents r
@@ -1576,7 +1576,7 @@ func ResidentListAll(ctx context.Context, tx *sql.Tx, householdID *string, isAct
 		var startDate, endDate sql.NullTime
 		if err := rows.Scan(
 			&item.ID, &item.RTID, &item.FullName, &item.Phone, &item.Nik, &item.Email,
-			&item.IsActive, &item.CreatedAt, &item.UpdatedAt, &item.AvatarPath,
+			&item.IsActive, &item.CreatedAt, &item.UpdatedAt, &item.AvatarPath, &item.AvatarThumbPath,
 			&hhID, &startDate, &endDate,
 			&userID,
 			&rtNumber, &rw, &rtName,

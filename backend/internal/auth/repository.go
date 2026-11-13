@@ -487,6 +487,7 @@ type UserForMe struct {
 	Phone                *string        `json:"phone,omitempty"`
 	HouseNumber          *string        `json:"house_number,omitempty"`
 	AvatarPath           *string        `json:"avatar_path,omitempty"`
+	AvatarThumbPath      *string        `json:"avatar_thumb_path,omitempty"`
 	TenantRole           Role           `json:"role"`
 	SystemRole           string         `json:"system_role,omitempty"` // "super_admin" if present
 	Jabatan              *string        `json:"jabatan"`               // RT organizational position, null if not assigned
@@ -506,7 +507,7 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	query := `
 		SELECT u.id, u.full_name, u.email, u.phone, u.system_role, urm.role,
 			urm.jabatan, rt.id, rt.name, rt.rw, rt.rt, rt.rw_id, w.name AS rw_name,
-			h.house_number, avatar.avatar_path
+			h.house_number, avatar.avatar_path, avatar.avatar_thumb_path
 		FROM users u
 		JOIN user_rt_memberships urm ON urm.id = $2
 		JOIN rts rt ON rt.id = urm.rt_id
@@ -529,7 +530,7 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 			LIMIT 1
 		) h ON true
 		LEFT JOIN LATERAL (
-			SELECT r.avatar_path
+			SELECT r.avatar_path, r.avatar_thumb_path
 			FROM residents r
 			WHERE (
 				r.user_id = u.id
@@ -552,10 +553,11 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	var roleStr string
 	var houseNum sql.NullString
 	var avatarPath sql.NullString
+	var avatarThumbPath sql.NullString
 	err := tx.QueryRowContext(ctx, query, userID, membershipID).Scan(
 		&u.ID, &u.Fullname, &u.Email, &u.Phone, &sysRole,
 		&roleStr, &jabatanStr, &u.RTID, &u.RTName, &u.RT_rw, &u.RT_rt,
-		&u.RWID, &u.RWName, &houseNum, &avatarPath,
+		&u.RWID, &u.RWName, &houseNum, &avatarPath, &avatarThumbPath,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -579,6 +581,10 @@ func GetProfile(ctx context.Context, tx *sql.Tx, userID, membershipID string) (*
 	if avatarPath.Valid && strings.TrimSpace(avatarPath.String) != "" {
 		av := strings.TrimSpace(avatarPath.String)
 		u.AvatarPath = &av
+	}
+	if avatarThumbPath.Valid && strings.TrimSpace(avatarThumbPath.String) != "" {
+		avThumb := strings.TrimSpace(avatarThumbPath.String)
+		u.AvatarThumbPath = &avThumb
 	}
 
 	// Load all active RW memberships for this user.

@@ -608,6 +608,7 @@ class _ResidentCard extends ConsumerWidget {
               ResidentAvatar(
                 name: resident.name,
                 avatarPath: resident.avatarPath,
+                avatarThumbPath: resident.avatarThumbPath,
                 size: 40,
               ),
               const SizedBox(width: AppSpacing.md),

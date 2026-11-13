@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -156,12 +159,15 @@ func multipartBody(t *testing.T, fieldName, filename, contentType string, data [
 }
 
 func tinyJPEG() []byte {
-	// 1x1 JPEG (valid magic bytes: FF D8 FF).
-	return []byte{
-		0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
-		0x01, 0x01, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00, 0xFF, 0xDA, 0x00, 0x08,
-		0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0xD9,
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 16; x++ {
+			img.Set(x, y, color.RGBA{R: 40, G: 120, B: 200, A: 255})
+		}
 	}
+	var buf bytes.Buffer
+	_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85})
+	return buf.Bytes()
 }
 
 func (env *profilePhotoEnv) requestMultipart(t *testing.T, req *http.Request, contentType, token string) *httptest.ResponseRecorder {
@@ -209,8 +215,8 @@ func TestProfilePhoto_MenuSyncPhotoVisibility(t *testing.T) {
 	_ = ctx
 
 	before := doMe(env.wargaToken)
-	if before["avatar_path"] != nil {
-		t.Fatalf("expected no avatar_path before upload, got %v", before["avatar_path"])
+	if before["avatar_path"] != nil || before["avatar_thumb_path"] != nil {
+		t.Fatalf("expected no avatar before upload, got orig=%v thumb=%v", before["avatar_path"], before["avatar_thumb_path"])
 	}
 
 	// 1) Ketua A uploads photo for a resident linked to warga A
@@ -220,13 +226,26 @@ func TestProfilePhoto_MenuSyncPhotoVisibility(t *testing.T) {
 	if res.Code != http.StatusCreated {
 		t.Fatalf("ketua upload = %d: %s", res.Code, res.Body.String())
 	}
+	var upBody map[string]any
+	if err := json.Unmarshal(res.Body.Bytes(), &upBody); err != nil {
+		t.Fatalf("unmarshal upload response: %v", err)
+	}
+	upOrig, _ := upBody["avatar_path"].(string)
+	upThumb, _ := upBody["avatar_thumb_path"].(string)
+	if upOrig == "" || upThumb == "" {
+		t.Fatalf("expected both avatar_path and avatar_thumb_path in upload response: %v", upBody)
+	}
 
 	// Warga A's auth user must link to a resident — our fixture seeds a resident
-	// with user_id = wargaA. Re-query avatar_path via /auth/me.
+	// with user_id = wargaA. Re-query avatar_path & avatar_thumb_path via /auth/me.
 	after := doMe(env.wargaToken)
 	av, ok := after["avatar_path"].(string)
-	if !ok || av == "" {
-		t.Fatalf("expected avatar_path after upload, got %v", after["avatar_path"])
+	if !ok || av == "" || av != upOrig {
+		t.Fatalf("expected avatar_path %q after upload, got %v", upOrig, after["avatar_path"])
+	}
+	avThumb, okThumb := after["avatar_thumb_path"].(string)
+	if !okThumb || avThumb == "" || avThumb != upThumb {
+		t.Fatalf("expected avatar_thumb_path %q after upload, got %v", upThumb, after["avatar_thumb_path"])
 	}
 
 	// 2) Ketua A deletes photo — warga me must NOT carry it anymore.
@@ -235,8 +254,8 @@ func TestProfilePhoto_MenuSyncPhotoVisibility(t *testing.T) {
 		t.Fatalf("ketua clear = %d: %s", res.Code, res.Body.String())
 	}
 	afterDelete := doMe(env.wargaToken)
-	if afterDelete["avatar_path"] != nil {
-		t.Fatalf("expected avatar_path cleared, got %v", afterDelete["avatar_path"])
+	if afterDelete["avatar_path"] != nil || afterDelete["avatar_thumb_path"] != nil {
+		t.Fatalf("expected avatar cleared, got orig=%v thumb=%v", afterDelete["avatar_path"], afterDelete["avatar_thumb_path"])
 	}
 
 	// 3) RT B ketua cannot see the avatar of RT A user (isolation proof).
@@ -268,21 +287,29 @@ func TestProfilePhoto_KetuaCanManageOwnRTOnly(t *testing.T) {
 	var up map[string]any
 	_ = json.Unmarshal(res.Body.Bytes(), &up)
 	key, _ := up["avatar_path"].(string)
+	thumbKey, _ := up["avatar_thumb_path"].(string)
 	if key == "" || !strings.HasPrefix(key, "community/"+env.rtA+"/profile/") {
 		t.Fatalf("unexpected avatar key %q (want community/<rtA>/profile/...jpg)", key)
 	}
-
-	// Avatar reference persisted.
-	var stored *string
-	if err := env.pool.Raw().QueryRowContext(ctx,
-		`SELECT avatar_path FROM residents WHERE id = $1`, env.residentA).Scan(&stored); err != nil || stored == nil {
-		t.Fatalf("avatar not persisted: err=%v stored=%v", err, stored)
+	if thumbKey == "" || !strings.HasSuffix(thumbKey, "_thumb.jpg") {
+		t.Fatalf("unexpected thumb key %q (want *_thumb.jpg)", thumbKey)
 	}
 
-	// Member of the same RT (warga) can read the referenced photo via Bearer.
+	// Avatar references persisted.
+	var stored, storedThumb *string
+	if err := env.pool.Raw().QueryRowContext(ctx,
+		`SELECT avatar_path, avatar_thumb_path FROM residents WHERE id = $1`, env.residentA).Scan(&stored, &storedThumb); err != nil || stored == nil || storedThumb == nil {
+		t.Fatalf("avatar not persisted: err=%v stored=%v thumb=%v", err, stored, storedThumb)
+	}
+
+	// Member of the same RT (warga) can read the referenced photo and thumbnail via Bearer.
 	res = env.doJSONPhoto(t, "GET", "/api/v1/community/images/"+key, env.wargaToken)
 	if res.Code != http.StatusOK {
 		t.Fatalf("warga read photo = %d: %s", res.Code, res.Body.String())
+	}
+	res = env.doJSONPhoto(t, "GET", "/api/v1/community/images/"+thumbKey, env.wargaToken)
+	if res.Code != http.StatusOK {
+		t.Fatalf("warga read thumb = %d: %s", res.Code, res.Body.String())
 	}
 
 	// Avatar key is not guessable for another RT.
@@ -301,9 +328,14 @@ func TestProfilePhoto_KetuaCanManageOwnRTOnly(t *testing.T) {
 	var up2 map[string]any
 	_ = json.Unmarshal(res.Body.Bytes(), &up2)
 	oldKey := key
+	oldThumb := thumbKey
 	key, _ = up2["avatar_path"].(string)
+	thumbKey, _ = up2["avatar_thumb_path"].(string)
 	if key == "" || key == oldKey {
 		t.Fatalf("expected new key, got %q (old=%q)", key, oldKey)
+	}
+	if thumbKey == "" || thumbKey == oldThumb {
+		t.Fatalf("expected new thumb key, got %q (old=%q)", thumbKey, oldThumb)
 	}
 
 	// Clear photo.
@@ -311,13 +343,13 @@ func TestProfilePhoto_KetuaCanManageOwnRTOnly(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("ketua clear = %d: %s", res.Code, res.Body.String())
 	}
-	var storedAfter *string
+	var storedAfter, storedThumbAfter *string
 	if err := env.pool.Raw().QueryRowContext(ctx,
-		`SELECT avatar_path FROM residents WHERE id = $1`, env.residentA).Scan(&storedAfter); err != nil {
+		`SELECT avatar_path, avatar_thumb_path FROM residents WHERE id = $1`, env.residentA).Scan(&storedAfter, &storedThumbAfter); err != nil {
 		t.Fatalf("scan avatar: %v", err)
 	}
-	if storedAfter != nil {
-		t.Fatalf("expected avatar cleared, got %q", *storedAfter)
+	if storedAfter != nil || storedThumbAfter != nil {
+		t.Fatalf("expected avatar cleared, got orig=%v thumb=%v", storedAfter, storedThumbAfter)
 	}
 
 	// ---- B. Clear before ever uploaded is OK ----
@@ -377,7 +409,7 @@ func TestProfilePhoto_KetuaCanManageOwnRTOnly(t *testing.T) {
 	}
 
 	// ---- F0. Upload > 5 MiB is rejected before any storage write ----
-	bigData := bytes.Repeat(tinyJPEG(), 210000) // ~6.7 MB
+	bigData := bytes.Repeat(tinyJPEG(), 10000) // ~6.2 MB
 	bigJpg, bigCT := multipartBody(t, "file", "big.jpg", "image/jpeg", bigData)
 	req = httptest.NewRequest("POST", "/api/v1/residents/"+env.residentA+"/photo", bytes.NewReader(bigJpg.Bytes()))
 	res = env.requestMultipart(t, req, bigCT, env.ketuaToken)

@@ -67,6 +67,7 @@ export function AppLayout() {
               <ResidentAvatar
                 name={user.name}
                 avatarPath={user.avatarPath ?? null}
+                avatarThumbPath={user.avatarThumbPath ?? null}
                 size={28}
                 className="header-user-avatar"
               />

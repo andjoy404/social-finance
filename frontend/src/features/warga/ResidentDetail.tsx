@@ -224,6 +224,7 @@ export function ResidentDetail() {
           <ResidentAvatar
             name={resident.full_name}
             avatarPath={resident.avatar_path ?? null}
+            avatarThumbPath={resident.avatar_thumb_path ?? null}
             size={84}
           />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -231,8 +232,8 @@ export function ResidentDetail() {
               residentId={resident.id}
               fullName={resident.full_name}
               avatarPath={resident.avatar_path ?? null}
-              onChanged={(newPath) =>
-                setResident((prev) => (prev ? { ...prev, avatar_path: newPath } : prev))
+              onChanged={(newPath, newThumb) =>
+                setResident((prev) => (prev ? { ...prev, avatar_path: newPath, avatar_thumb_path: newThumb } : prev))
               }
             />
           </div>

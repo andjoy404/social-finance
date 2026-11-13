@@ -1141,8 +1141,9 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 				ShiftStart:  item.ShiftStart,
 				ShiftEnd:    item.ShiftEnd,
 				Status:      item.Status,
-				PhoneNumber: item.PhoneNumber,
-				AvatarPath:  item.AvatarPath,
+				PhoneNumber:     item.PhoneNumber,
+				AvatarPath:      item.AvatarPath,
+				AvatarThumbPath: item.AvatarThumbPath,
 			})
 		}
 		return out, nil

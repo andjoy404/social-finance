@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -180,7 +181,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := h.store.UploadCommunityImage(ctx, rtID, "profile", fileHeader.Filename, file, fileHeader.Size)
+	meta, err := h.store.UploadCommunityImageWithThumb(ctx, rtID, "profile", fileHeader.Filename, file, fileHeader.Size, true)
 	if err != nil {
 		httpx.WriteValidationError(w, err.Error(), nil)
 		return
@@ -189,55 +190,76 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	// Persist reference and audit atomically.
 	tx, err := h.pool.BeginTx(ctx)
 	if err != nil {
+		if meta.ThumbKey != "" {
+			h.cleanupObject(ctx, rtID, "delete_new_thumb_after_begin_tx_failure", meta.ThumbKey)
+		}
+		h.cleanupObject(ctx, rtID, "delete_new_original_after_begin_tx_failure", meta.OriginalKey)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not begin transaction")
 		return
 	}
 	defer tx.Rollback()
 
 	var currentKey *string
+	var currentThumbKey *string
 	err = tx.QueryRowContext(ctx,
-		`SELECT avatar_path FROM residents WHERE id = $1 AND rt_id = $2 FOR UPDATE`,
-		id, rtID).Scan(&currentKey)
+		`SELECT avatar_path, avatar_thumb_path FROM residents WHERE id = $1 AND rt_id = $2 FOR UPDATE`,
+		id, rtID).Scan(&currentKey, &currentThumbKey)
 	if err != nil {
+		if meta.ThumbKey != "" {
+			h.cleanupObject(ctx, rtID, "delete_new_thumb_after_load_failure", meta.ThumbKey)
+		}
+		h.cleanupObject(ctx, rtID, "delete_new_original_after_load_failure", meta.OriginalKey)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not load resident")
 		return
 	}
 	oldKey := ""
+	oldThumbKey := ""
 	if currentKey != nil {
 		oldKey = strings.TrimSpace(*currentKey)
 	}
+	if currentThumbKey != nil {
+		oldThumbKey = strings.TrimSpace(*currentThumbKey)
+	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE residents SET avatar_path = $1, updated_at = now() WHERE id = $2`,
-		meta.Key, id); err != nil {
+		`UPDATE residents SET avatar_path = $1, avatar_thumb_path = $2, updated_at = now() WHERE id = $3`,
+		meta.OriginalKey, nullIfEmpty(meta.ThumbKey), id); err != nil {
+		if meta.ThumbKey != "" {
+			h.cleanupObject(ctx, rtID, "delete_new_thumb_after_update_failure", meta.ThumbKey)
+		}
+		h.cleanupObject(ctx, rtID, "delete_new_original_after_update_failure", meta.OriginalKey)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not save avatar reference")
 		return
 	}
 	if err := auditLog(ctx, tx, rtID, ac.UserID, "resident.profile_photo.change", id,
-		oldKeyPtr(oldKey), &meta.Key, httpReqIP(r)); err != nil {
+		oldKeyPtr(oldKey), &meta.OriginalKey, httpReqIP(r)); err != nil {
+		if meta.ThumbKey != "" {
+			h.cleanupObject(ctx, rtID, "delete_new_thumb_after_audit_failure", meta.ThumbKey)
+		}
+		h.cleanupObject(ctx, rtID, "delete_new_original_after_audit_failure", meta.OriginalKey)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not record audit log")
 		return
 	}
 	if err := tx.Commit(); err != nil {
+		if meta.ThumbKey != "" {
+			h.cleanupObject(ctx, rtID, "delete_new_thumb_after_commit_failure", meta.ThumbKey)
+		}
+		h.cleanupObject(ctx, rtID, "delete_new_original_after_commit_failure", meta.OriginalKey)
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not commit transaction")
 		return
 	}
 
-	// Best-effort cleanup of the superseded key. Never delete the freshly set
-	// reference and never delete a key someone else still references.
-	if oldKey != "" && oldKey != meta.Key {
-		var otherRefs int
-		if err := h.pool.Raw().QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM residents WHERE avatar_path = $1`, oldKey).Scan(&otherRefs); err == nil && otherRefs == 0 {
-			_ = h.store.DeleteCommunityImage(context.Background(), oldKey)
-		}
-	}
+	// Best-effort cleanup of superseded keys after commit. Never delete fresh
+	// references and never delete keys still referenced by any resident.
+	h.cleanupSuperseded(ctx, rtID, "avatar_path", oldKey, meta.OriginalKey)
+	h.cleanupSuperseded(ctx, rtID, "avatar_thumb_path", oldThumbKey, meta.ThumbKey)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":      "uploaded",
-		"avatar_path": meta.Key,
-		"key":         meta.Key,
+		"status":            "uploaded",
+		"avatar_path":       meta.OriginalKey,
+		"avatar_thumb_path": meta.ThumbKey,
+		"key":               meta.OriginalKey,
 	})
 }
 
@@ -273,21 +295,26 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	var oldKey *string
+	var oldThumbKey *string
 	err = tx.QueryRowContext(ctx,
-		`SELECT avatar_path FROM residents WHERE id = $1 AND rt_id = $2 FOR UPDATE`,
-		id, rtID).Scan(&oldKey)
+		`SELECT avatar_path, avatar_thumb_path FROM residents WHERE id = $1 AND rt_id = $2 FOR UPDATE`,
+		id, rtID).Scan(&oldKey, &oldThumbKey)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not load resident")
 		return
 	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE residents SET avatar_path = NULL, updated_at = now() WHERE id = $1`, id); err != nil {
+		`UPDATE residents SET avatar_path = NULL, avatar_thumb_path = NULL, updated_at = now() WHERE id = $1`, id); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "could not clear avatar reference")
 		return
 	}
 	old := ""
+	oldThumb := ""
 	if oldKey != nil {
 		old = strings.TrimSpace(*oldKey)
+	}
+	if oldThumbKey != nil {
+		oldThumb = strings.TrimSpace(*oldThumbKey)
 	}
 	if err := auditLog(ctx, tx, rtID, ac.UserID, "resident.profile_photo.clear", id,
 		oldKeyPtr(old), nil, httpReqIP(r)); err != nil {
@@ -300,11 +327,10 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if old != "" {
-		var otherRefs int
-		if err := h.pool.Raw().QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM residents WHERE avatar_path = $1`, old).Scan(&otherRefs); err == nil && otherRefs == 0 {
-			_ = h.store.DeleteCommunityImage(context.Background(), old)
-		}
+		h.cleanupSuperseded(ctx, rtID, "avatar_path", old, "")
+	}
+	if oldThumb != "" {
+		h.cleanupSuperseded(ctx, rtID, "avatar_thumb_path", oldThumb, "")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -317,4 +343,52 @@ func oldKeyPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func nullIfEmpty(s string) any {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
+}
+
+func (h *Handler) cleanupObject(ctx context.Context, rtID, operation, key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	if err := h.store.DeleteCommunityImage(ctx, key); err != nil {
+		slog.Warn("profile photo cleanup failed",
+			"operation", operation,
+			"object_key", key,
+			"rt_id", rtID,
+			"error", err,
+		)
+	}
+}
+
+func (h *Handler) cleanupSuperseded(ctx context.Context, rtID, column, oldKey, keepKey string) {
+	oldKey = strings.TrimSpace(oldKey)
+	keepKey = strings.TrimSpace(keepKey)
+	if oldKey == "" || (keepKey != "" && oldKey == keepKey) {
+		return
+	}
+	if column != "avatar_path" && column != "avatar_thumb_path" {
+		return
+	}
+	var otherRefs int
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM residents WHERE %s = $1`, column)
+	if err := h.pool.Raw().QueryRowContext(ctx, query, oldKey).Scan(&otherRefs); err != nil {
+		slog.Warn("profile photo cleanup reference check failed",
+			"operation", "check_superseded_refs",
+			"object_key", oldKey,
+			"rt_id", rtID,
+			"column", column,
+			"error", err,
+		)
+		return
+	}
+	if otherRefs == 0 {
+		h.cleanupObject(ctx, rtID, "delete_superseded_"+column, oldKey)
+	}
 }

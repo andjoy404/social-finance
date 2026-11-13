@@ -233,6 +233,8 @@ Indexes:
 | `household_id` | `uuid` | NOT NULL, FK → `households.id` | Household membership |
 | `full_name` | `text` | NOT NULL | |
 | `phone` | `text` | NULL | |
+| `avatar_path` | `text` | NULL | Storage key for original profile photo (Migration 079) |
+| `avatar_thumb_path` | `text` | NULL | Storage key for 200x200 JPEG thumbnail (Migration 082) |
 | `is_active` | `boolean` | NOT NULL, default `true` | Soft delete flag |
 | `created_at` | `timestamptz` | NOT NULL, default `now()` | |
 | `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
@@ -241,6 +243,7 @@ Indexes:
 - `idx_residents_rt_id` on `(rt_id)`
 - `idx_residents_household_id` on `(household_id)`
 - `idx_residents_rt_household_active` on `(rt_id, household_id, is_active)`
+- `idx_residents_avatar_thumb_path` on `(avatar_thumb_path) WHERE avatar_thumb_path IS NOT NULL`
 
 **Behavior:** Residents are tied to a specific household. Cross-tenant assignment is enforced at the repository level (household must belong to the requesting RT). Read endpoints default to filtering active residents only; write reject updates on inactive residents.
 

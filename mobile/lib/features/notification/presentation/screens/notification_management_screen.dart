@@ -100,46 +100,46 @@ class _NotificationManagementScreenState
     }
   }
 
-  late final _authSubscription =
-      ref.listenManual<AsyncValue<Map<String, dynamic>?>?>(
-    authRepositoryProvider,
-    (previous, next) {
-      final user = next?.valueOrNull;
-      if (user == null) {
-        // Logged out – clear everything.
-        if (mounted) {
-          setState(() {
-            _currentUserId = null;
-            _logs = [];
-            _schedules = [];
-            _isLoadingLogs = false;
-            _isLoadingSchedules = false;
-            _logsError = null;
-            _schedulesError = null;
-          });
-        }
-        return;
-      }
-      final userId = user['id'] as String?;
-      // Only load data when the user identity actually changes.
-      if (_dataBelongsTo(userId)) {
-        return;
-      }
-      final newAdmin = canUserAccessNotificationAdmin(user);
-      if (mounted) {
-        setState(() {
-          _clearState();
-          _currentUserId = userId;
-        });
-        if (newAdmin) {
-          _loadHistoryForTab(_historyTabController.index);
-          _loadSchedules();
-        } else {
-          _loadLogs();
-        }
-      }
-    },
-  );
+  late final _authSubscription = ref
+      .listenManual<AsyncValue<Map<String, dynamic>?>?>(
+        authRepositoryProvider,
+        (previous, next) {
+          final user = next?.valueOrNull;
+          if (user == null) {
+            // Logged out – clear everything.
+            if (mounted) {
+              setState(() {
+                _currentUserId = null;
+                _logs = [];
+                _schedules = [];
+                _isLoadingLogs = false;
+                _isLoadingSchedules = false;
+                _logsError = null;
+                _schedulesError = null;
+              });
+            }
+            return;
+          }
+          final userId = user['id'] as String?;
+          // Only load data when the user identity actually changes.
+          if (_dataBelongsTo(userId)) {
+            return;
+          }
+          final newAdmin = canUserAccessNotificationAdmin(user);
+          if (mounted) {
+            setState(() {
+              _clearState();
+              _currentUserId = userId;
+            });
+            if (newAdmin) {
+              _loadHistoryForTab(_historyTabController.index);
+              _loadSchedules();
+            } else {
+              _loadLogs();
+            }
+          }
+        },
+      );
 
   @override
   void initState() {
@@ -217,9 +217,7 @@ class _NotificationManagementScreenState
         final isAdminViewing = category != null;
         final filtered = isAdminViewing
             ? resp.data
-            : resp.data.where(
-                (log) => log.userId == snapshotUserId,
-              ).toList();
+            : resp.data.where((log) => log.userId == snapshotUserId).toList();
         setState(() {
           _logs = filtered;
           _isLoadingLogs = false;
@@ -670,11 +668,19 @@ class _NotificationManagementScreenState
     bool isUploadingImage = false;
     String? imageUploadError;
 
+    final creatableTypes = (systemTypes ?? const <SystemNotificationType>[])
+        .where(
+          (st) => !isBySystemTriggerEvent(
+            st.eventType,
+            apiTriggerCategory: st.triggerCategory,
+          ),
+        )
+        .toList();
     String selectedEvent =
         template?.eventType ??
         defaultEventType ??
-        (systemTypes?.isNotEmpty == true
-            ? systemTypes!.first.eventType
+        (creatableTypes.isNotEmpty
+            ? creatableTypes.first.eventType
             : 'iuran_bill_created');
 
     if (!isEditing && (template?.title == null || template!.title.isEmpty)) {
@@ -787,15 +793,38 @@ class _NotificationManagementScreenState
                             child: DropdownButton<String>(
                               isExpanded: true,
                               value: selectedEvent,
-                              items: systemTypes.map((st) {
-                                return DropdownMenuItem<String>(
-                                  value: st.eventType,
-                                  child: Text(
-                                    st.name,
-                                    style: theme.textTheme.bodyMedium,
-                                  ),
-                                );
-                              }).toList(),
+                              items: systemTypes
+                                  .where(
+                                    (st) => !isBySystemTriggerEvent(
+                                      st.eventType,
+                                      apiTriggerCategory: st.triggerCategory,
+                                    ),
+                                  )
+                                  .map((st) {
+                                    return DropdownMenuItem<String>(
+                                      value: st.eventType,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              st.name,
+                                              style: theme.textTheme.bodyMedium,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          _buildTriggerCategoryBadge(
+                                            st.eventType,
+                                            isDark,
+                                            apiTriggerCategory:
+                                                st.triggerCategory,
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  })
+                                  .toList(),
                               onChanged: (val) {
                                 if (val != null) {
                                   setSheetState(() {
@@ -984,7 +1013,8 @@ class _NotificationManagementScreenState
                                     final bytes = await picked.readAsBytes();
                                     if (bytes.lengthInBytes > 5 * 1024 * 1024) {
                                       setSheetState(() {
-                                        imageUploadError = 'Ukuran gambar maksimal 5 MB';
+                                        imageUploadError =
+                                            'Ukuran gambar maksimal 5 MB';
                                         isUploadingImage = false;
                                       });
                                       return;
@@ -1068,7 +1098,8 @@ class _NotificationManagementScreenState
                                     final bytes = await picked.readAsBytes();
                                     if (bytes.lengthInBytes > 5 * 1024 * 1024) {
                                       setSheetState(() {
-                                        imageUploadError = 'Ukuran gambar maksimal 5 MB';
+                                        imageUploadError =
+                                            'Ukuran gambar maksimal 5 MB';
                                         isUploadingImage = false;
                                       });
                                       return;
@@ -1129,13 +1160,15 @@ class _NotificationManagementScreenState
                                         return;
                                       }
                                       final bytes = await picked.readAsBytes();
-                                    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
-                                      setSheetState(() {
-                                        imageUploadError = 'Ukuran gambar maksimal 5 MB';
-                                        isUploadingImage = false;
-                                      });
-                                      return;
-                                    }
+                                      if (bytes.lengthInBytes >
+                                          5 * 1024 * 1024) {
+                                        setSheetState(() {
+                                          imageUploadError =
+                                              'Ukuran gambar maksimal 5 MB';
+                                          isUploadingImage = false;
+                                        });
+                                        return;
+                                      }
                                       final repo = ref.read(
                                         notificationRepositoryProvider,
                                       );
@@ -1188,13 +1221,15 @@ class _NotificationManagementScreenState
                                         return;
                                       }
                                       final bytes = await picked.readAsBytes();
-                                    if (bytes.lengthInBytes > 5 * 1024 * 1024) {
-                                      setSheetState(() {
-                                        imageUploadError = 'Ukuran gambar maksimal 5 MB';
-                                        isUploadingImage = false;
-                                      });
-                                      return;
-                                    }
+                                      if (bytes.lengthInBytes >
+                                          5 * 1024 * 1024) {
+                                        setSheetState(() {
+                                          imageUploadError =
+                                              'Ukuran gambar maksimal 5 MB';
+                                          isUploadingImage = false;
+                                        });
+                                        return;
+                                      }
                                       final repo = ref.read(
                                         notificationRepositoryProvider,
                                       );
@@ -1490,8 +1525,14 @@ class _NotificationManagementScreenState
           indicatorColor: AppColors.accent,
           indicatorWeight: 3,
           tabs: const [
-            Tab(icon: Icon(Icons.notifications_outlined, size: 20), text: 'NOTIFIKASI'),
-            Tab(icon: Icon(Icons.bookmark_border_rounded, size: 20), text: 'TEMPLATE'),
+            Tab(
+              icon: Icon(Icons.notifications_outlined, size: 20),
+              text: 'NOTIFIKASI',
+            ),
+            Tab(
+              icon: Icon(Icons.bookmark_border_rounded, size: 20),
+              text: 'TEMPLATE',
+            ),
           ],
         ),
       ),
@@ -1589,11 +1630,19 @@ class _NotificationManagementScreenState
                                   'Belum ada notifikasi sistem yang terdaftar.',
                             );
                           }
+                          // By-System trigger events go at the very bottom;
+                          // relative order of the rest is preserved.
+                          final orderedTypes =
+                              sortSystemTypesLastBy<SystemNotificationType>(
+                                types,
+                                (t) => t.eventType,
+                                triggerCategoryOf: (t) => t.triggerCategory,
+                              );
                           return ListView.builder(
                             padding: const EdgeInsets.all(16),
-                            itemCount: types.length,
+                            itemCount: orderedTypes.length,
                             itemBuilder: (context, index) {
-                              final st = types[index];
+                              final st = orderedTypes[index];
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: AppCard(
@@ -1614,10 +1663,24 @@ class _NotificationManagementScreenState
                                                   ),
                                             ),
                                           ),
-                                          const AppBadge(
-                                            label: 'FCM PUSH',
-                                            backgroundColor: AppColors.accent,
-                                            textColor: Colors.white,
+                                          Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.end,
+                                            children: [
+                                              const AppBadge(
+                                                label: 'FCM PUSH',
+                                                backgroundColor:
+                                                    AppColors.accent,
+                                                textColor: Colors.white,
+                                              ),
+                                              const SizedBox(height: 4),
+                                              _buildTriggerCategoryBadge(
+                                                st.eventType,
+                                                isDark,
+                                                apiTriggerCategory:
+                                                    st.triggerCategory,
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),
@@ -1776,32 +1839,37 @@ class _NotificationManagementScreenState
                                               ),
                                             ),
                                           ),
-                                          SizedBox(
-                                            width: 135,
-                                            child: ElevatedButton(
-                                              onPressed: () =>
-                                                  _showAddEditTemplateDialog(
-                                                    defaultEventType:
-                                                        st.eventType,
-                                                    systemTypes: types,
-                                                  ),
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor:
-                                                    AppColors.accent,
-                                                foregroundColor: Colors.white,
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 10,
+                                          if (!isBySystemTriggerEvent(
+                                            st.eventType,
+                                            apiTriggerCategory:
+                                                st.triggerCategory,
+                                          ))
+                                            SizedBox(
+                                              width: 135,
+                                              child: ElevatedButton(
+                                                onPressed: () =>
+                                                    _showAddEditTemplateDialog(
+                                                      defaultEventType:
+                                                          st.eventType,
+                                                      systemTypes: types,
                                                     ),
-                                              ),
-                                              child: const Text(
-                                                'Kustomisasi',
-                                                softWrap: true,
-                                                textAlign: TextAlign.center,
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor:
+                                                      AppColors.accent,
+                                                  foregroundColor: Colors.white,
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 12,
+                                                        vertical: 10,
+                                                      ),
+                                                ),
+                                                child: const Text(
+                                                  'Kustomisasi',
+                                                  softWrap: true,
+                                                  textAlign: TextAlign.center,
+                                                ),
                                               ),
                                             ),
-                                          ),
                                         ],
                                       ),
                                       if (st.eventType == 'manual_push' ||
@@ -1937,9 +2005,7 @@ class _NotificationManagementScreenState
                                             systemTypes: systemTypes,
                                           ),
                                       icon: const Icon(Icons.add),
-                                      label: const Text(
-                                        'Tambah Template',
-                                      ),
+                                      label: const Text('Tambah Template'),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: AppColors.accent,
                                         foregroundColor: Colors.white,
@@ -1954,41 +2020,57 @@ class _NotificationManagementScreenState
                           return Column(
                             children: [
                               Padding(
-                                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  16,
+                                  16,
+                                  4,
+                                ),
                                 child: Row(
                                   children: [
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             'Template Kustom (${customTemplates.length})',
-                                            style: theme.textTheme.titleSmall?.copyWith(
-                                              fontWeight: FontWeight.bold,
-                                            ),
+                                            style: theme.textTheme.titleSmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
                                           ),
                                           Text(
                                             'Kelola template pesan kustom RT',
-                                            style: theme.textTheme.bodySmall?.copyWith(
-                                              color: isDark
-                                                  ? AppColors.darkTextMuted
-                                                  : AppColors.lightTextMuted,
-                                              fontSize: 11,
-                                            ),
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: isDark
+                                                      ? AppColors.darkTextMuted
+                                                      : AppColors
+                                                            .lightTextMuted,
+                                                  fontSize: 11,
+                                                ),
                                           ),
                                         ],
                                       ),
                                     ),
                                     ElevatedButton.icon(
-                                      onPressed: () => _showAddEditTemplateDialog(
-                                        systemTypes: systemTypes,
-                                      ),
+                                      onPressed: () =>
+                                          _showAddEditTemplateDialog(
+                                            systemTypes: systemTypes,
+                                          ),
                                       icon: const Icon(Icons.add, size: 16),
-                                      label: const Text('Tambah Template', style: TextStyle(fontSize: 12)),
+                                      label: const Text(
+                                        'Tambah Template',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: AppColors.accent,
                                         foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -2000,216 +2082,246 @@ class _NotificationManagementScreenState
                                   itemCount: customTemplates.length,
                                   itemBuilder: (context, index) {
                                     final tmpl = customTemplates[index];
-                              final stName = systemTypes
-                                  .firstWhere(
-                                    (s) => s.eventType == tmpl.eventType,
-                                    orElse: () => SystemNotificationType(
-                                      eventType: tmpl.eventType,
-                                      name: tmpl.eventType,
-                                      trigger: '',
-                                      recipientsRule: '',
-                                      defaultTitle: '',
-                                      defaultBody: '',
-                                      allowedVariables: const [],
-                                    ),
-                                  )
-                                  .name;
+                                    final stName = systemTypes
+                                        .firstWhere(
+                                          (s) => s.eventType == tmpl.eventType,
+                                          orElse: () => SystemNotificationType(
+                                            eventType: tmpl.eventType,
+                                            name: tmpl.eventType,
+                                            trigger: '',
+                                            recipientsRule: '',
+                                            defaultTitle: '',
+                                            defaultBody: '',
+                                            allowedVariables: const [],
+                                          ),
+                                        )
+                                        .name;
 
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: AppCard(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              tmpl.name,
-                                              style: theme.textTheme.titleMedium
+                                    return Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 12,
+                                      ),
+                                      child: AppCard(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    tmpl.name,
+                                                    style: theme
+                                                        .textTheme
+                                                        .titleMedium
+                                                        ?.copyWith(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                  ),
+                                                ),
+                                                Switch(
+                                                  value: tmpl.isActive,
+                                                  activeColor: AppColors.accent,
+                                                  onChanged: (val) async {
+                                                    final messenger =
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        );
+                                                    try {
+                                                      final repo = ref.read(
+                                                        notificationRepositoryProvider,
+                                                      );
+                                                      await repo
+                                                          .toggleTemplateActive(
+                                                            tmpl.id,
+                                                          );
+                                                      if (!mounted) return;
+                                                      ref.invalidate(
+                                                        notificationTemplatesProvider,
+                                                      );
+                                                    } catch (e) {
+                                                      if (!mounted) return;
+                                                      messenger.showSnackBar(
+                                                        SnackBar(
+                                                          content: Text(
+                                                            e.toString(),
+                                                          ),
+                                                        ),
+                                                      );
+                                                    }
+                                                  },
+                                                ),
+                                              ],
+                                            ),
+                                            Wrap(
+                                              spacing: 6,
+                                              children: [
+                                                AppBadge(
+                                                  label: stName,
+                                                  backgroundColor:
+                                                      getNotificationSeverityBgColor(
+                                                        tmpl.eventType,
+                                                        isDark,
+                                                      ),
+                                                  textColor:
+                                                      getNotificationSeverityColor(
+                                                        tmpl.eventType,
+                                                      ),
+                                                ),
+                                                _buildTriggerCategoryBadge(
+                                                  tmpl.eventType,
+                                                  isDark,
+                                                ),
+                                                if (tmpl.imageUrl != null &&
+                                                    tmpl.imageUrl!.isNotEmpty)
+                                                  AppBadge(
+                                                    label: 'Gambar Terlampir',
+                                                    backgroundColor: AppColors
+                                                        .info
+                                                        .withValues(
+                                                          alpha: 0.15,
+                                                        ),
+                                                    textColor: AppColors.info,
+                                                  ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              tmpl.title,
+                                              style: theme.textTheme.bodyMedium
                                                   ?.copyWith(
                                                     fontWeight: FontWeight.bold,
                                                   ),
                                             ),
-                                          ),
-                                          Switch(
-                                            value: tmpl.isActive,
-                                            activeColor: AppColors.accent,
-                                            onChanged: (val) async {
-                                              final messenger =
-                                                  ScaffoldMessenger.of(context);
-                                              try {
-                                                final repo = ref.read(
-                                                  notificationRepositoryProvider,
-                                                );
-                                                await repo.toggleTemplateActive(
-                                                  tmpl.id,
-                                                );
-                                                if (!mounted) return;
-                                                ref.invalidate(
-                                                  notificationTemplatesProvider,
-                                                );
-                                              } catch (e) {
-                                                if (!mounted) return;
-                                                messenger.showSnackBar(
-                                                  SnackBar(
-                                                    content: Text(e.toString()),
+                                            const SizedBox(height: 2),
+                                            NotificationBodyText(
+                                              text: tmpl.body,
+                                              eventType: tmpl.eventType,
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color: isDark
+                                                        ? AppColors
+                                                              .darkTextMuted
+                                                        : AppColors
+                                                              .lightTextMuted,
                                                   ),
-                                                );
-                                              }
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                      Wrap(
-                                        spacing: 6,
-                                        children: [
-                                          AppBadge(
-                                            label: stName,
-                                            backgroundColor:
-                                                getNotificationSeverityBgColor(
-                                              tmpl.eventType,
-                                              isDark,
+                                              onOpenUrl: (url) {
+                                                ref
+                                                    .read(
+                                                      pushNotificationServiceProvider,
+                                                    )
+                                                    .openExternalUrl(url);
+                                              },
                                             ),
-                                            textColor:
-                                                getNotificationSeverityColor(
-                                              tmpl.eventType,
-                                            ),
-                                          ),
-                                          if (tmpl.imageUrl != null &&
-                                              tmpl.imageUrl!.isNotEmpty)
-                                            AppBadge(
-                                              label: 'Gambar Terlampir',
-                                              backgroundColor: AppColors.info
-                                                  .withValues(alpha: 0.15),
-                                              textColor: AppColors.info,
-                                            ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        tmpl.title,
-                                        style: theme.textTheme.bodyMedium
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      NotificationBodyText(
-                                        text: tmpl.body,
-                                        eventType: tmpl.eventType,
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color: isDark
-                                                  ? AppColors.darkTextMuted
-                                                  : AppColors.lightTextMuted,
-                                            ),
-                                        onOpenUrl: (url) {
-                                          ref
-                                              .read(
-                                                pushNotificationServiceProvider,
-                                              )
-                                              .openExternalUrl(url);
-                                        },
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
-                                        children: [
-                                          if (isSuperAdmin &&
-                                              (tmpl.eventType ==
-                                                      'manual_push' ||
-                                                  tmpl.eventType ==
-                                                      'waste_truck_arrival'))
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.send_outlined,
-                                                size: 20,
-                                                color: AppColors.info,
-                                              ),
-                                              tooltip:
-                                                  'Test Notifikasi (Super Admin)',
-                                              onPressed: () => _handleTestPush(
-                                                eventType: tmpl.eventType,
-                                                title: tmpl.title,
-                                                body: tmpl.body,
-                                                imageUrl: tmpl.imageUrl,
-                                              ),
-                                            ),
-                                          if (tmpl.eventType == 'manual_push')
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.campaign_outlined,
-                                                size: 20,
-                                                color: AppColors.accent,
-                                              ),
-                                              tooltip:
-                                                  'Kirim Notifikasi Siaran',
-                                              onPressed: () =>
-                                                  _confirmSendBroadcastDialog(
-                                                    eventType: tmpl.eventType,
-                                                    title: tmpl.title,
-                                                    body: tmpl.body,
-                                                    imageUrl: tmpl.imageUrl,
+                                            const SizedBox(height: 12),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.end,
+                                              children: [
+                                                if (isSuperAdmin &&
+                                                    (tmpl.eventType ==
+                                                            'manual_push' ||
+                                                        tmpl.eventType ==
+                                                            'waste_truck_arrival'))
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                      Icons.send_outlined,
+                                                      size: 20,
+                                                      color: AppColors.info,
+                                                    ),
+                                                    tooltip:
+                                                        'Test Notifikasi (Super Admin)',
+                                                    onPressed: () =>
+                                                        _handleTestPush(
+                                                          eventType:
+                                                              tmpl.eventType,
+                                                          title: tmpl.title,
+                                                          body: tmpl.body,
+                                                          imageUrl:
+                                                              tmpl.imageUrl,
+                                                        ),
                                                   ),
-                                            ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.preview_rounded,
-                                              size: 20,
-                                              color: AppColors.info,
-                                            ),
-                                            tooltip: 'Preview Banner',
-                                            onPressed: () => _showPreviewBanner(
-                                              title: tmpl.title,
-                                              body: tmpl.body,
-                                              eventName: tmpl.name,
-                                              imageUrl: tmpl.imageUrl,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.edit_outlined,
-                                              size: 20,
-                                              color: AppColors.accent,
-                                            ),
-                                            tooltip: 'Ubah Template',
-                                            onPressed: () =>
-                                                _showAddEditTemplateDialog(
-                                                  template: tmpl,
-                                                  systemTypes: systemTypes,
+                                                if (tmpl.eventType ==
+                                                    'manual_push')
+                                                  IconButton(
+                                                    icon: const Icon(
+                                                      Icons.campaign_outlined,
+                                                      size: 20,
+                                                      color: AppColors.accent,
+                                                    ),
+                                                    tooltip:
+                                                        'Kirim Notifikasi Siaran',
+                                                    onPressed: () =>
+                                                        _confirmSendBroadcastDialog(
+                                                          eventType:
+                                                              tmpl.eventType,
+                                                          title: tmpl.title,
+                                                          body: tmpl.body,
+                                                          imageUrl:
+                                                              tmpl.imageUrl,
+                                                        ),
+                                                  ),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.preview_rounded,
+                                                    size: 20,
+                                                    color: AppColors.info,
+                                                  ),
+                                                  tooltip: 'Preview Banner',
+                                                  onPressed: () =>
+                                                      _showPreviewBanner(
+                                                        title: tmpl.title,
+                                                        body: tmpl.body,
+                                                        eventName: tmpl.name,
+                                                        imageUrl: tmpl.imageUrl,
+                                                      ),
                                                 ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                              size: 20,
-                                              color: AppColors.danger,
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.edit_outlined,
+                                                    size: 20,
+                                                    color: AppColors.accent,
+                                                  ),
+                                                  tooltip: 'Ubah Template',
+                                                  onPressed: () =>
+                                                      _showAddEditTemplateDialog(
+                                                        template: tmpl,
+                                                        systemTypes:
+                                                            systemTypes,
+                                                      ),
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.delete_outline,
+                                                    size: 20,
+                                                    color: AppColors.danger,
+                                                  ),
+                                                  tooltip: 'Hapus Template',
+                                                  onPressed: () =>
+                                                      _confirmDeleteTemplate(
+                                                        tmpl,
+                                                      ),
+                                                ),
+                                              ],
                                             ),
-                                            tooltip: 'Hapus Template',
-                                            onPressed: () =>
-                                                _confirmDeleteTemplate(tmpl),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
-                                    ],
-                                  ),
+                                    );
+                                  },
                                 ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
 
-              // TAB 3: PENJADWALAN NOTIFIKASI
+                    // TAB 3: PENJADWALAN NOTIFIKASI
                     RefreshIndicator(
                       onRefresh: () async {
                         ref.invalidate(notificationSchedulesProvider);
@@ -2226,7 +2338,6 @@ class _NotificationManagementScreenState
               ),
             ],
           ),
-
         ],
       ),
     );
@@ -2271,11 +2382,17 @@ class _NotificationManagementScreenState
               ElevatedButton.icon(
                 onPressed: () => _showAddEditScheduleDialog(),
                 icon: const Icon(Icons.add, size: 16),
-                label: const Text('Tambah Jadwal', style: TextStyle(fontSize: 12)),
+                label: const Text(
+                  'Tambah Jadwal',
+                  style: TextStyle(fontSize: 12),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.accent,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                 ),
               ),
             ],
@@ -2299,223 +2416,287 @@ class _NotificationManagementScreenState
               itemBuilder: (context, index) {
                 final s = _schedules[index];
                 final eventName = _knownEventNames[s.eventType] ?? s.eventType;
-                final days = s.sendDays.isNotEmpty ? s.sendDays.join(', ') : '-';
+                final days = s.sendDays.isNotEmpty
+                    ? s.sendDays.join(', ')
+                    : '-';
                 return AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Top row: name + switch toggle
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      s.name,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: textColor,
-                      ),
-                    ),
-                  ),
-                  Switch(
-                    value: s.isActive,
-                    activeColor: AppColors.accent,
-                    onChanged: (val) async {
-                      final messenger = ScaffoldMessenger.of(context);
-                      try {
-                        final repo = ref.read(notificationRepositoryProvider);
-                        await repo.toggleScheduleActive(s.id);
-                        if (!mounted) return;
-                        ref.invalidate(notificationSchedulesProvider);
-                      } catch (e) {
-                        if (!mounted) return;
-                        messenger.showSnackBar(
-                          SnackBar(content: Text(e.toString())),
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // Info section
-              Row(
-                children: [
-                  AppBadge(
-                    label: eventName,
-                    backgroundColor: getNotificationSeverityBgColor(
-                      s.eventType,
-                      isDark,
-                    ),
-                    textColor: getNotificationSeverityColor(s.eventType),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Tanggal: $days | Jam: ${s.sendHour.toString().padLeft(2, '0')}:${s.sendMinute.toString().padLeft(2, '0')} WIB',
-                style: theme.textTheme.bodySmall?.copyWith(color: muted),
-              ),
-              if (s.timezone.isNotEmpty && s.timezone != 'Asia/Jakarta') ...[
-                const SizedBox(height: 2),
-                Text(
-                  'Timezone: ${s.timezone}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: muted,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-              if (s.lastExecutedAt != null) ...[
-                const SizedBox(height: 4),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(
-                      Icons.access_time,
-                      size: 14,
-                      color: AppColors.accent,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Top row: name + switch toggle
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Text(
-                                'Terakhir: ${_formatDateTime(s.lastExecutedAt!)}',
-                                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                          Expanded(
+                            child: Text(
+                              s.name,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
                               ),
-                              if (s.lastExecutedStatus != null) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: s.lastExecutedStatus == 'success'
-                                        ? AppColors.success.withValues(alpha: 0.12)
-                                        : s.lastExecutedStatus == 'partial'
-                                        ? AppColors.warning.withValues(alpha: 0.15)
-                                        : s.lastExecutedStatus == 'no_device'
-                                        ? Colors.blue.withValues(alpha: 0.12)
-                                        : s.lastExecutedStatus == 'no_recipients'
-                                        ? Colors.grey.withValues(alpha: 0.12)
-                                        : AppColors.danger.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(
-                                      color: s.lastExecutedStatus == 'success'
-                                          ? AppColors.success.withValues(alpha: 0.3)
-                                          : s.lastExecutedStatus == 'partial'
-                                          ? AppColors.warning.withValues(alpha: 0.3)
-                                          : s.lastExecutedStatus == 'no_device'
-                                          ? Colors.blue.withValues(alpha: 0.3)
-                                          : s.lastExecutedStatus == 'no_recipients'
-                                          ? Colors.grey.withValues(alpha: 0.3)
-                                          : AppColors.danger.withValues(alpha: 0.3),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    s.lastExecutedStatus == 'success'
-                                        ? 'BERHASIL'
-                                        : s.lastExecutedStatus == 'partial'
-                                        ? 'SEBAGIAN'
-                                        : s.lastExecutedStatus == 'no_device'
-                                        ? 'IN-APP'
-                                        : s.lastExecutedStatus == 'no_recipients'
-                                        ? 'NIHIL'
-                                        : 'GAGAL',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: s.lastExecutedStatus == 'success'
-                                          ? AppColors.success
-                                          : s.lastExecutedStatus == 'partial'
-                                          ? AppColors.warning
-                                          : s.lastExecutedStatus == 'no_device'
-                                          ? Colors.blue.shade700
-                                          : s.lastExecutedStatus == 'no_recipients'
-                                          ? Colors.grey.shade700
-                                          : AppColors.danger,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
+                            ),
                           ),
-                          if (s.lastExecutedSummary != null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              s.lastExecutedStatus == 'no_recipients'
-                                  ? 'Tidak ada penerima yang memenuhi kriteria'
-                                  : s.lastExecutedStatus == 'no_device'
-                                  ? '${s.lastExecutedSummary!.noDeviceCount} warga (tanpa perangkat)'
-                                  : '${s.lastExecutedSummary!.sentCount} terkirim'
-                                      '${s.lastExecutedSummary!.failedCount > 0 ? ', ${s.lastExecutedSummary!.failedCount} gagal' : ''}'
-                                      '${s.lastExecutedSummary!.noDeviceCount > 0 ? ', ${s.lastExecutedSummary!.noDeviceCount} tanpa perangkat' : ''}',
-                              style: theme.textTheme.bodySmall?.copyWith(color: muted, fontSize: 11),
-                            ),
-                          ],
-                          if (s.lastExecutedError != null && s.lastExecutedError!.isNotEmpty && s.lastExecutedSummary == null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              s.lastExecutedError!,
-                              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.danger, fontSize: 11),
-                            ),
-                          ],
+                          Switch(
+                            value: s.isActive,
+                            activeColor: AppColors.accent,
+                            onChanged: (val) async {
+                              final messenger = ScaffoldMessenger.of(context);
+                              try {
+                                final repo = ref.read(
+                                  notificationRepositoryProvider,
+                                );
+                                await repo.toggleScheduleActive(s.id);
+                                if (!mounted) return;
+                                ref.invalidate(notificationSchedulesProvider);
+                              } catch (e) {
+                                if (!mounted) return;
+                                messenger.showSnackBar(
+                                  SnackBar(content: Text(e.toString())),
+                                );
+                              }
+                            },
+                          ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 12),
-              // Action buttons - horizontal below info
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  IconButton(
-                    icon: const Icon(
-                      Icons.preview_rounded,
-                      size: 20,
-                      color: AppColors.info,
-                    ),
-                    tooltip: 'Preview Notifikasi',
-                    onPressed: () {
-                      final tmpl = templatesAsync.value
-                          ?.where((t) => t.id == s.templateId)
-                          .firstOrNull;
-                      _showPreviewBanner(
-                        title: tmpl?.title ?? '',
-                        body: tmpl?.body ?? '',
-                        eventName: eventName,
-                        imageUrl: tmpl?.imageUrl,
-                      );
-                    },
+                      const SizedBox(height: 8),
+                      // Info section
+                      Wrap(
+                        spacing: 6,
+                        children: [
+                          AppBadge(
+                            label: eventName,
+                            backgroundColor: getNotificationSeverityBgColor(
+                              s.eventType,
+                              isDark,
+                            ),
+                            textColor: getNotificationSeverityColor(
+                              s.eventType,
+                            ),
+                          ),
+                          _buildTriggerCategoryBadge(s.eventType, isDark),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Tanggal: $days | Jam: ${s.sendHour.toString().padLeft(2, '0')}:${s.sendMinute.toString().padLeft(2, '0')} WIB',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: muted,
+                        ),
+                      ),
+                      if (s.timezone.isNotEmpty &&
+                          s.timezone != 'Asia/Jakarta') ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Timezone: ${s.timezone}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: muted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                      if (s.lastExecutedAt != null) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.access_time,
+                              size: 14,
+                              color: AppColors.accent,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'Terakhir: ${_formatDateTime(s.lastExecutedAt!)}',
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(color: muted),
+                                      ),
+                                      if (s.lastExecutedStatus != null) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 1,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color:
+                                                s.lastExecutedStatus ==
+                                                    'success'
+                                                ? AppColors.success.withValues(
+                                                    alpha: 0.12,
+                                                  )
+                                                : s.lastExecutedStatus ==
+                                                      'partial'
+                                                ? AppColors.warning.withValues(
+                                                    alpha: 0.15,
+                                                  )
+                                                : s.lastExecutedStatus ==
+                                                      'no_device'
+                                                ? Colors.blue.withValues(
+                                                    alpha: 0.12,
+                                                  )
+                                                : s.lastExecutedStatus ==
+                                                      'no_recipients'
+                                                ? Colors.grey.withValues(
+                                                    alpha: 0.12,
+                                                  )
+                                                : AppColors.danger.withValues(
+                                                    alpha: 0.12,
+                                                  ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                            border: Border.all(
+                                              color:
+                                                  s.lastExecutedStatus ==
+                                                      'success'
+                                                  ? AppColors.success
+                                                        .withValues(alpha: 0.3)
+                                                  : s.lastExecutedStatus ==
+                                                        'partial'
+                                                  ? AppColors.warning
+                                                        .withValues(alpha: 0.3)
+                                                  : s.lastExecutedStatus ==
+                                                        'no_device'
+                                                  ? Colors.blue.withValues(
+                                                      alpha: 0.3,
+                                                    )
+                                                  : s.lastExecutedStatus ==
+                                                        'no_recipients'
+                                                  ? Colors.grey.withValues(
+                                                      alpha: 0.3,
+                                                    )
+                                                  : AppColors.danger.withValues(
+                                                      alpha: 0.3,
+                                                    ),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            s.lastExecutedStatus == 'success'
+                                                ? 'BERHASIL'
+                                                : s.lastExecutedStatus ==
+                                                      'partial'
+                                                ? 'SEBAGIAN'
+                                                : s.lastExecutedStatus ==
+                                                      'no_device'
+                                                ? 'IN-APP'
+                                                : s.lastExecutedStatus ==
+                                                      'no_recipients'
+                                                ? 'NIHIL'
+                                                : 'GAGAL',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color:
+                                                  s.lastExecutedStatus ==
+                                                      'success'
+                                                  ? AppColors.success
+                                                  : s.lastExecutedStatus ==
+                                                        'partial'
+                                                  ? AppColors.warning
+                                                  : s.lastExecutedStatus ==
+                                                        'no_device'
+                                                  ? Colors.blue.shade700
+                                                  : s.lastExecutedStatus ==
+                                                        'no_recipients'
+                                                  ? Colors.grey.shade700
+                                                  : AppColors.danger,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  if (s.lastExecutedSummary != null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      s.lastExecutedStatus == 'no_recipients'
+                                          ? 'Tidak ada penerima yang memenuhi kriteria'
+                                          : s.lastExecutedStatus == 'no_device'
+                                          ? '${s.lastExecutedSummary!.noDeviceCount} warga (tanpa perangkat)'
+                                          : '${s.lastExecutedSummary!.sentCount} terkirim'
+                                                '${s.lastExecutedSummary!.failedCount > 0 ? ', ${s.lastExecutedSummary!.failedCount} gagal' : ''}'
+                                                '${s.lastExecutedSummary!.noDeviceCount > 0 ? ', ${s.lastExecutedSummary!.noDeviceCount} tanpa perangkat' : ''}',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: muted,
+                                            fontSize: 11,
+                                          ),
+                                    ),
+                                  ],
+                                  if (s.lastExecutedError != null &&
+                                      s.lastExecutedError!.isNotEmpty &&
+                                      s.lastExecutedSummary == null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      s.lastExecutedError!,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: AppColors.danger,
+                                            fontSize: 11,
+                                          ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      // Action buttons - horizontal below info
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.preview_rounded,
+                              size: 20,
+                              color: AppColors.info,
+                            ),
+                            tooltip: 'Preview Notifikasi',
+                            onPressed: () {
+                              final tmpl = templatesAsync.value
+                                  ?.where((t) => t.id == s.templateId)
+                                  .firstOrNull;
+                              _showPreviewBanner(
+                                title: tmpl?.title ?? '',
+                                body: tmpl?.body ?? '',
+                                eventName: eventName,
+                                imageUrl: tmpl?.imageUrl,
+                              );
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.edit_outlined,
+                              size: 20,
+                              color: AppColors.accent,
+                            ),
+                            tooltip: 'Ubah Jadwal',
+                            onPressed: () =>
+                                _showAddEditScheduleDialog(schedule: s),
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              size: 20,
+                              color: AppColors.danger,
+                            ),
+                            tooltip: 'Hapus Jadwal',
+                            onPressed: () => _confirmDeleteSchedule(s),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.edit_outlined,
-                      size: 20,
-                      color: AppColors.accent,
-                    ),
-                    tooltip: 'Ubah Jadwal',
-                    onPressed: () => _showAddEditScheduleDialog(schedule: s),
-                  ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      size: 20,
-                      color: AppColors.danger,
-                    ),
-                    tooltip: 'Hapus Jadwal',
-                    onPressed: () => _confirmDeleteSchedule(s),
-                  ),
-                ],
-              ),
-              ],
-            ),
-          );
-        },
+                );
+              },
             ),
           ),
       ],
@@ -2639,11 +2820,13 @@ class _NotificationManagementScreenState
     var executionAt = schedule?.executionAt;
     List<CommunityActivity> activities = const [];
     try {
-      final page = await ref.read(communityRepositoryProvider).listActivities(
-        status: 'upcoming',
-        publicationStatus: 'published',
-        pageSize: 100,
-      );
+      final page = await ref
+          .read(communityRepositoryProvider)
+          .listActivities(
+            status: 'upcoming',
+            publicationStatus: 'published',
+            pageSize: 100,
+          );
       activities = page.items
           .where((a) => a.publicationStatus == 'published')
           .toList();
@@ -2659,8 +2842,25 @@ class _NotificationManagementScreenState
       templates = await ref.read(notificationTemplatesProvider.future);
     } catch (_) {}
 
-    final schedulableTypes =
-        systemTypes.where((t) => !isFixedSystemEvent(t.eventType)).toList();
+    final schedulableTypes = systemTypes
+        .where(
+          (t) => !isBySystemTriggerEvent(
+            t.eventType,
+            apiTriggerCategory: t.triggerCategory,
+          ),
+        )
+        .toList();
+    // Legacy schedules may exist for events that are now by_system. Keep the
+    // current value representable so editing such a schedule does not crash
+    // the dropdown: append the current event to the list when missing.
+    final legacyEventType = schedule?.eventType;
+    if (legacyEventType != null &&
+        !schedulableTypes.any((t) => t.eventType == legacyEventType)) {
+      final legacy = systemTypes.where((t) => t.eventType == legacyEventType);
+      if (legacy.isNotEmpty) {
+        schedulableTypes.add(legacy.first);
+      }
+    }
     String? selectedEventType = schedule?.eventType;
     if (selectedEventType == null && schedulableTypes.isNotEmpty) {
       selectedEventType = schedulableTypes.first.eventType;
@@ -2713,7 +2913,24 @@ class _NotificationManagementScreenState
                               .map(
                                 (t) => DropdownMenuItem(
                                   value: t.eventType,
-                                  child: Text(t.name),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          t.name,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _buildTriggerCategoryBadge(
+                                        t.eventType,
+                                        Theme.of(context).brightness ==
+                                            Brightness.dark,
+                                        apiTriggerCategory: t.triggerCategory,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               )
                               .toList(),
@@ -2848,95 +3065,95 @@ class _NotificationManagementScreenState
                       ],
                       // Send days — hidden for activity_reminder
                       if (selectedEventType != 'activity_reminder') ...[
-                      // Send days
-                      const Text(
-                        'Tanggal Pengiriman (1-31)',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
+                        // Send days
+                        const Text(
+                          'Tanggal Pengiriman (1-31)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: List.generate(31, (i) {
-                          final day = i + 1;
-                          final selected = selectedDays.contains(day);
-                          return ChoiceChip(
-                            label: Text(day.toString()),
-                            selected: selected,
-                            onSelected: (sel) {
-                              setSheetState(() {
-                                if (sel) {
-                                  selectedDays.add(day);
-                                } else {
-                                  selectedDays.remove(day);
-                                }
-                              });
-                            },
-                            selectedColor: AppColors.accent.withValues(
-                              alpha: 0.2,
-                            ),
-                          );
-                        }),
-                      ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: List.generate(31, (i) {
+                            final day = i + 1;
+                            final selected = selectedDays.contains(day);
+                            return ChoiceChip(
+                              label: Text(day.toString()),
+                              selected: selected,
+                              onSelected: (sel) {
+                                setSheetState(() {
+                                  if (sel) {
+                                    selectedDays.add(day);
+                                  } else {
+                                    selectedDays.remove(day);
+                                  }
+                                });
+                              },
+                              selectedColor: AppColors.accent.withValues(
+                                alpha: 0.2,
+                              ),
+                            );
+                          }),
+                        ),
                       ],
                       const SizedBox(height: 12),
                       // Time + timezone — hidden for activity_reminder
                       if (selectedEventType != 'activity_reminder') ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<int>(
-                              value: sendHour,
-                              items: List.generate(24, (h) => h)
-                                  .map(
-                                    (h) => DropdownMenuItem(
-                                      value: h,
-                                      child: Text(
-                                        '${h.toString().padLeft(2, '0')}:00',
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<int>(
+                                value: sendHour,
+                                items: List.generate(24, (h) => h)
+                                    .map(
+                                      (h) => DropdownMenuItem(
+                                        value: h,
+                                        child: Text(
+                                          '${h.toString().padLeft(2, '0')}:00',
+                                        ),
                                       ),
-                                    ),
-                                  )
-                                  .toList(),
-                              decoration: const InputDecoration(
-                                labelText: 'Jam',
+                                    )
+                                    .toList(),
+                                decoration: const InputDecoration(
+                                  labelText: 'Jam',
+                                ),
+                                onChanged: (v) => sendHour = v ?? sendHour,
                               ),
-                              onChanged: (v) => sendHour = v ?? sendHour,
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: DropdownButtonFormField<int>(
-                              value: sendMinute,
-                              items: List.generate(60, (m) => m)
-                                  .map(
-                                    (m) => DropdownMenuItem(
-                                      value: m,
-                                      child: Text(
-                                        ':${m.toString().padLeft(2, '0')}',
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: DropdownButtonFormField<int>(
+                                value: sendMinute,
+                                items: List.generate(60, (m) => m)
+                                    .map(
+                                      (m) => DropdownMenuItem(
+                                        value: m,
+                                        child: Text(
+                                          ':${m.toString().padLeft(2, '0')}',
+                                        ),
                                       ),
-                                    ),
-                                  )
-                                  .toList(),
-                              decoration: const InputDecoration(
-                                labelText: 'Menit',
-                              ),
-                              onChanged: (v) => sendMinute = v ?? sendMinute,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: timezoneCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Timezone',
+                                    )
+                                    .toList(),
+                                decoration: const InputDecoration(
+                                  labelText: 'Menit',
+                                ),
+                                onChanged: (v) => sendMinute = v ?? sendMinute,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: timezoneCtrl,
+                                decoration: const InputDecoration(
+                                  labelText: 'Timezone',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                       const SizedBox(height: 12),
                       SwitchListTile(
@@ -3043,8 +3260,12 @@ class _NotificationManagementScreenState
                               sendHour: sendHour,
                               sendMinute: sendMinute,
                               timezone: tz,
-                              activityId: isActivityReminder ? selectedActivityId : null,
-                              executionAt: isActivityReminder ? executionAt : null,
+                              activityId: isActivityReminder
+                                  ? selectedActivityId
+                                  : null,
+                              executionAt: isActivityReminder
+                                  ? executionAt
+                                  : null,
                             );
                             if (isEdit) {
                               await repo.updateSchedule(
@@ -3058,8 +3279,12 @@ class _NotificationManagementScreenState
                                   sendHour: sendHour,
                                   sendMinute: sendMinute,
                                   timezone: tz,
-                                  activityId: isActivityReminder ? selectedActivityId : null,
-                                  executionAt: isActivityReminder ? executionAt : null,
+                                  activityId: isActivityReminder
+                                      ? selectedActivityId
+                                      : null,
+                                  executionAt: isActivityReminder
+                                      ? executionAt
+                                      : null,
                                 ),
                               );
                             } else {
@@ -3127,6 +3352,22 @@ class _NotificationManagementScreenState
     return formatJakartaIsoDateHour(dt);
   }
 
+  Widget _buildTriggerCategoryBadge(
+    String eventType,
+    bool isDark, {
+    String? apiTriggerCategory,
+  }) {
+    final category = getNotificationTriggerCategory(
+      eventType,
+      apiTriggerCategory: apiTriggerCategory,
+    );
+    return AppBadge(
+      label: getNotificationTriggerCategoryLabel(category),
+      backgroundColor: getNotificationTriggerCategoryBgColor(category, isDark),
+      textColor: getNotificationTriggerCategoryColor(category),
+    );
+  }
+
   Widget _buildLogsTab({
     required ThemeData theme,
     required bool isDark,
@@ -3158,7 +3399,24 @@ class _NotificationManagementScreenState
                             ...systemTypes.map((st) {
                               return DropdownMenuItem(
                                 value: st.eventType,
-                                child: Text(st.name),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        st.name,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _buildTriggerCategoryBadge(
+                                      st.eventType,
+                                      Theme.of(context).brightness ==
+                                          Brightness.dark,
+                                      apiTriggerCategory: st.triggerCategory,
+                                    ),
+                                  ],
+                                ),
                               );
                             })
                           else
@@ -3269,7 +3527,9 @@ class _NotificationManagementScreenState
                           _ => deliveryStatus,
                         };
                         deliveryStatusColor = switch (deliveryStatus) {
-                          'SENT' || 'APPROVED' || 'RECORDED' => AppColors.success,
+                          'SENT' ||
+                          'APPROVED' ||
+                          'RECORDED' => AppColors.success,
                           'FAILED' || 'REJECTED' => AppColors.danger,
                           'PARTIAL' => AppColors.warning,
                           'NO_DEVICE' => AppColors.warning,
@@ -3343,7 +3603,9 @@ class _NotificationManagementScreenState
                                           Container(
                                             width: 8,
                                             height: 8,
-                                            margin: const EdgeInsets.only(right: 6),
+                                            margin: const EdgeInsets.only(
+                                              right: 6,
+                                            ),
                                             decoration: const BoxDecoration(
                                               color: AppColors.accent,
                                               shape: BoxShape.circle,
@@ -3357,7 +3619,8 @@ class _NotificationManagementScreenState
                                             style: theme.textTheme.bodyMedium
                                                 ?.copyWith(
                                                   fontWeight:
-                                                      !showReadState || log.isRead
+                                                      !showReadState ||
+                                                          log.isRead
                                                       ? FontWeight.w600
                                                       : FontWeight.bold,
                                                 ),

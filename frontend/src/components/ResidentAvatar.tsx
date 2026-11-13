@@ -8,6 +8,8 @@ type ResidentAvatarProps = {
   name: string
   /** Stored residents.avatar_path — storage key or full /api/v1/community/images/... path. */
   avatarPath?: string | null
+  /** Stored residents.avatar_thumb_path — thumbnail storage key or full URL. */
+  avatarThumbPath?: string | null
   size?: number
   className?: string
   style?: React.CSSProperties
@@ -26,32 +28,45 @@ function initialsFor(name: string | null | undefined): string {
 /**
  * Avatar for a resident (warga biasa or petugas keamanan).
  *
- * Renders the stored profile photo when available (resolved through the
- * existing authorized community-images pipeline), otherwise a deterministic
- * initials fallback. Built from plain div/img so it composes with any
- * theme context and stays robust in jsdom-based tests.
+ * Renders the stored profile photo thumbnail (200x200 JPEG) when available,
+ * falling back to the original photo and then initials. Built from plain
+ * div/img so it composes with any theme context and stays robust in tests.
+ * Full image viewer always loads the original full-resolution photo.
  */
-export function ResidentAvatar({ name, avatarPath, size = 40, className, style }: ResidentAvatarProps) {
+export function ResidentAvatar({ name, avatarPath, avatarThumbPath, size = 40, className, style }: ResidentAvatarProps) {
   const [resolved, setResolved] = useState<string | null>(null)
   const [viewerOpen, setViewerOpen] = useState<boolean>(false)
 
   useEffect(() => {
     setResolved(null)
-    if (!avatarPath) return
+    const primary = (avatarThumbPath ?? '').trim() || (avatarPath ?? '').trim()
+    if (!primary) return
     const session = getSessionPair()
     if (!session?.accessToken) return
     let cancelled = false
-    apiSignCommunityImage(session.accessToken, avatarPath)
+    apiSignCommunityImage(session.accessToken, primary)
       .then((res) => {
         if (!cancelled) setResolved(res.url)
       })
       .catch(() => {
-        if (!cancelled) setResolved(null)
+        // Fallback to original avatarPath if primary was thumbnail and failed
+        const fallback = (avatarPath ?? '').trim()
+        if (fallback && fallback !== primary) {
+          apiSignCommunityImage(session.accessToken, fallback)
+            .then((res) => {
+              if (!cancelled) setResolved(res.url)
+            })
+            .catch(() => {
+              if (!cancelled) setResolved(null)
+            })
+        } else {
+          if (!cancelled) setResolved(null)
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [avatarPath])
+  }, [avatarPath, avatarThumbPath])
 
   const initials = initialsFor(name)
   const fontSize = Math.max(11, Math.round(size * 0.38))
@@ -88,6 +103,19 @@ export function ResidentAvatar({ name, avatarPath, size = 40, className, style }
 
   const openViewer = resolved ? () => setViewerOpen(true) : undefined
 
+  const handleError = () => {
+    const fallback = (avatarPath ?? '').trim()
+    const primary = (avatarThumbPath ?? '').trim()
+    const session = getSessionPair()
+    if (primary && fallback && primary !== fallback && session?.accessToken) {
+      apiSignCommunityImage(session.accessToken, fallback)
+        .then((res) => setResolved(res.url))
+        .catch(() => setResolved(null))
+    } else {
+      setResolved(null)
+    }
+  }
+
   const avatar = (
     <img
       src={resolved}
@@ -107,7 +135,7 @@ export function ResidentAvatar({ name, avatarPath, size = 40, className, style }
           : undefined
       }
       onClick={openViewer}
-      onError={() => setResolved(null)}
+      onError={handleError}
       style={{
         ...common,
         objectFit: 'cover',
@@ -123,7 +151,7 @@ export function ResidentAvatar({ name, avatarPath, size = 40, className, style }
       {avatar}
       {createPortal(
         <FullImageViewer
-          avatarPath={avatarPath ?? ''}
+          avatarPath={(avatarPath ?? '').trim() || (avatarThumbPath ?? '').trim()}
           alt={name}
           onClose={() => setViewerOpen(false)}
         />,

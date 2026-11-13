@@ -548,8 +548,12 @@ class _SecurityManagementScreenState
       return;
     }
     final name = TextEditingController(text: item?.name ?? '');
-    final start = TextEditingController(text: item?.startTime ?? '08:00');
-    final end = TextEditingController(text: item?.endTime ?? '16:00');
+    TimeOfDay startTime = TimeOfDay.fromDateTime(
+      DateTime.parse('${item?.startTime ?? '08:00'}:00'),
+    );
+    TimeOfDay endTime = TimeOfDay.fromDateTime(
+      DateTime.parse('${item?.endTime ?? '16:00'}:00'),
+    );
     final tolerance = TextEditingController(
       text: '${item?.latenessToleranceMinutes ?? 15}',
     );
@@ -566,15 +570,37 @@ class _SecurityManagementScreenState
                 controller: name,
                 decoration: const InputDecoration(labelText: 'Nama shift'),
               ),
-              TextField(
-                controller: start,
-                decoration: const InputDecoration(labelText: 'Jam mulai HH:MM'),
+              ListTile(
+                title: const Text('Jam mulai'),
+                subtitle: Text(DateFormat('HH:mm').format(
+                  DateTime(2000, 1, 1, startTime.hour, startTime.minute),
+                )),
+                trailing: const Icon(Icons.access_time, color: AppColors.accent),
+                onTap: () async {
+                  final picked = await showTimePicker(
+                    context: ctx,
+                    initialTime: startTime,
+                  );
+                  if (picked != null) {
+                    setDialog(() => startTime = picked);
+                  }
+                },
               ),
-              TextField(
-                controller: end,
-                decoration: const InputDecoration(
-                  labelText: 'Jam selesai HH:MM',
-                ),
+              ListTile(
+                title: const Text('Jam selesai'),
+                subtitle: Text(DateFormat('HH:mm').format(
+                  DateTime(2000, 1, 1, endTime.hour, endTime.minute),
+                )),
+                trailing: const Icon(Icons.access_time, color: AppColors.accent),
+                onTap: () async {
+                  final picked = await showTimePicker(
+                    context: ctx,
+                    initialTime: endTime,
+                  );
+                  if (picked != null) {
+                    setDialog(() => endTime = picked);
+                  }
+                },
               ),
               TextField(
                 controller: tolerance,
@@ -608,8 +634,8 @@ class _SecurityManagementScreenState
     }
     final payload = {
       'name': name.text.trim(),
-      'start_time': start.text.trim(),
-      'end_time': end.text.trim(),
+      'start_time': '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}',
+      'end_time': '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
       'crosses_midnight': crosses,
       'lateness_tolerance_minutes': int.tryParse(tolerance.text) ?? 15,
       'check_in_window_before_minutes': 60,

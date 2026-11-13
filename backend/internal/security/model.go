@@ -211,8 +211,9 @@ type SecurityOfficer struct {
 	FullName     string  `json:"full_name"`
 	Email        string  `json:"email"`
 	Phone        *string `json:"phone,omitempty"`
-	IsActive     bool    `json:"is_active"`
-	AvatarPath   *string `json:"avatar_path,omitempty"`
+	IsActive        bool    `json:"is_active"`
+	AvatarPath      *string `json:"avatar_path,omitempty"`
+	AvatarThumbPath *string `json:"avatar_thumb_path,omitempty"`
 }
 
 type SecuritySchedule struct {
@@ -437,8 +438,9 @@ type OnDutyOfficerSummary struct {
 	ShiftStart  string
 	ShiftEnd    string
 	Status      string
-	PhoneNumber *string
-	AvatarPath  *string `json:"avatar_path,omitempty"`
+	PhoneNumber     *string
+	AvatarPath      *string `json:"avatar_path,omitempty"`
+	AvatarThumbPath *string `json:"avatar_thumb_path,omitempty"`
 }
 
 // ── Request Payloads ──────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ class SystemNotificationType {
   final List<String> allowedVariables;
   final bool supportsImage;
   final bool supportsTest;
+  final String triggerCategory;
 
   const SystemNotificationType({
     required this.eventType,
@@ -21,6 +22,7 @@ class SystemNotificationType {
     required this.allowedVariables,
     this.supportsImage = false,
     this.supportsTest = false,
+    this.triggerCategory = '',
   });
 
   factory SystemNotificationType.fromJson(Map<String, dynamic> json) {
@@ -38,6 +40,7 @@ class SystemNotificationType {
           const [],
       supportsImage: json['supports_image'] as bool? ?? false,
       supportsTest: json['supports_test'] as bool? ?? false,
+      triggerCategory: json['trigger_category'] as String? ?? '',
     );
   }
 
@@ -51,6 +54,7 @@ class SystemNotificationType {
     'allowed_variables': allowedVariables,
     'supports_image': supportsImage,
     'supports_test': supportsTest,
+    'trigger_category': triggerCategory,
   };
 }
 
@@ -411,7 +415,8 @@ class NotificationSchedule {
           : null,
       lastExecutedStatus: json['last_executed_status'] as String?,
       lastExecutedError: json['last_executed_error'] as String?,
-      lastExecutedSummary: json['last_executed_summary'] != null &&
+      lastExecutedSummary:
+          json['last_executed_summary'] != null &&
               json['last_executed_summary'] is Map<String, dynamic>
           ? ScheduleExecutionSummary.fromJson(
               json['last_executed_summary'] as Map<String, dynamic>,
@@ -438,7 +443,8 @@ class NotificationSchedule {
     'send_minute': sendMinute,
     'timezone': timezone,
     if (activityId != null) 'activity_id': activityId,
-    if (executionAt != null) 'execution_at': executionAt!.toUtc().toIso8601String(),
+    if (executionAt != null)
+      'execution_at': executionAt!.toUtc().toIso8601String(),
     'last_executed_at': lastExecutedAt?.toUtc().toIso8601String(),
     'last_executed_status': lastExecutedStatus,
     'last_executed_error': lastExecutedError,
@@ -523,7 +529,8 @@ class CreateNotificationScheduleInput {
     'send_minute': sendMinute,
     'timezone': timezone,
     if (activityId != null) 'activity_id': activityId,
-    if (executionAt != null) 'execution_at': executionAt!.toUtc().toIso8601String(),
+    if (executionAt != null)
+      'execution_at': executionAt!.toUtc().toIso8601String(),
   };
 }
 
@@ -558,7 +565,8 @@ class UpdateNotificationScheduleInput {
     if (sendMinute != null) map['send_minute'] = sendMinute;
     if (timezone != null) map['timezone'] = timezone;
     if (activityId != null) map['activity_id'] = activityId;
-    if (executionAt != null) map['execution_at'] = executionAt!.toUtc().toIso8601String();
+    if (executionAt != null)
+      map['execution_at'] = executionAt!.toUtc().toIso8601String();
     return map;
   }
 }
@@ -704,9 +712,8 @@ bool isPengurusUser(Map<String, dynamic>? user) {
 /// (Super Admin or Ketua RT).
 bool canUserAccessNotificationAdmin(Map<String, dynamic>? user) {
   if (isSuperAdminUser(user)) return true;
-  final permissions = (user?['effective_permissions'] as List?)
-          ?.whereType<String>()
-          .toSet() ??
+  final permissions =
+      (user?['effective_permissions'] as List?)?.whereType<String>().toSet() ??
       const <String>{};
   return permissions.contains('notification.manage');
 }

@@ -43,6 +43,62 @@ const (
 	HistoryCategoryMine   = "mine"
 )
 
+// Trigger categories shown to pengurus in the notification UI.
+const (
+	TriggerCategoryBySystem      = "by_system"
+	TriggerCategoryTerjadwal     = "terjadwal"
+	TriggerCategoryManualTrigger = "manual_trigger"
+)
+
+// TriggerCategoryForEvent classifies the actual dispatch mechanism for a system
+// event. It must stay aligned with the dispatch call sites (automatic handlers,
+// scheduler/interval processors, and explicit officer/user actions) and not
+// merely with display names.
+func TriggerCategoryForEvent(eventType string) string {
+	switch eventType {
+	case EventBillCreated,
+		EventPaymentSubmitted,
+		EventPaymentVerified,
+		EventActivityCreated,
+		EventActivityUpdated,
+		EventActivityCancelled,
+		EventActivityCompleted:
+		return TriggerCategoryBySystem
+	case EventPaymentReminder,
+		EventUpcomingDue3Months,
+		EventOverdue3Months,
+		EventActivityReminder:
+		return TriggerCategoryTerjadwal
+	case EventWasteTruckArrival,
+		EventManualPush:
+		return TriggerCategoryManualTrigger
+	case EventRWCashIn,
+		EventRWCashOut:
+		return TriggerCategoryManualTrigger
+	}
+	return ""
+}
+
+// TriggerCategoryBySystemEvents lists all events dispatched automatically by the
+// application as a consequence of a business event/data change.
+func TriggerCategoryBySystemEvents() []string {
+	return []string{
+		EventBillCreated,
+		EventPaymentSubmitted,
+		EventPaymentVerified,
+		EventActivityCreated,
+		EventActivityUpdated,
+		EventActivityCancelled,
+		EventActivityCompleted,
+	}
+}
+
+// IsBySystemTriggerEvent reports whether eventType is dispatched automatically
+// by the system as a consequence of a business event.
+func IsBySystemTriggerEvent(eventType string) bool {
+	return TriggerCategoryForEvent(eventType) == TriggerCategoryBySystem
+}
+
 // Device platforms.
 const (
 	PlatformAndroid = "android"
@@ -163,6 +219,10 @@ type SystemNotificationType struct {
 	IsConfigurable   bool     `json:"is_configurable"`
 	SupportsImage    bool     `json:"supports_image"`
 	SupportsTest     bool     `json:"supports_test"`
+	// TriggerCategory is the dispatch mechanism: by_system (automatic on
+	// business change), terjadwal (scheduler/interval), or manual_trigger
+	// (explicit officer/user action).
+	TriggerCategory string `json:"trigger_category"`
 }
 
 // NotificationTemplate represents a configurable template row in database.

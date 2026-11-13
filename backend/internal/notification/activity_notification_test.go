@@ -113,6 +113,15 @@ func TestActivityEventTypesRegistered(t *testing.T) {
 	for _, tp := range types {
 		actEv[tp.EventType] = tp
 	}
+	// By-System events are permanent and cannot be created/scheduled/toggled/deleted
+	// by default Pengurus actions. Activity reminder (terjadwal) stays configurable.
+	expectFixed := map[string]bool{
+		EventActivityCreated:   true,
+		EventActivityUpdated:   true,
+		EventActivityReminder:  false,
+		EventActivityCancelled: true,
+		EventActivityCompleted: true,
+	}
 	for _, ev := range []string{
 		EventActivityCreated, EventActivityUpdated, EventActivityReminder,
 		EventActivityCancelled, EventActivityCompleted,
@@ -126,7 +135,7 @@ func TestActivityEventTypesRegistered(t *testing.T) {
 		} {
 			require.Contains(t, st.AllowedVariables, v, "event %s must expose variable %s", ev, v)
 		}
-		require.False(t, IsFixedSystemEvent(ev))
+		require.Equal(t, expectFixed[ev], IsFixedSystemEvent(ev), "IsFixedSystemEvent(%s)", ev)
 	}
 }
 
@@ -595,17 +604,28 @@ func TestActivityEventTemplateValidationRejectsUnknownVariables(t *testing.T) {
 	svc := NewService(NewRepository(pool), NewMockPushProvider())
 	_, err := svc.CreateTemplate(context.Background(), rtID, CreateTemplateInput{
 		Name:      "Invalid Variable Template",
-		EventType: EventActivityCreated,
+		EventType: EventActivityReminder,
 		Channel:   "push",
 		Title:     "{{nama_kegiatan}}",
 		Body:      "Halo {{not_a_known_variable}} there",
 	})
 	require.Error(t, err, "template with unknown variable must be rejected")
 
-	// A valid template with allowed activity variables should succeed.
+	// By System trigger events (activity_created) are permanent system events:
+	// pengurus cannot create custom templates for them even with valid variables.
+	_, err = svc.CreateTemplate(context.Background(), rtID, CreateTemplateInput{
+		Name:      "Custom Forbidden",
+		EventType: EventActivityCreated,
+		Channel:   "push",
+		Title:     "{{nama_kegiatan}}",
+		Body:      "Kegiatan {{nama_kegiatan}}",
+	})
+	require.Error(t, err, "by_system events cannot be customized via custom template creation")
+
+	// A valid template with allowed activity reminder variables should succeed.
 	created, err := svc.CreateTemplate(context.Background(), rtID, CreateTemplateInput{
 		Name:      "Valid Activity Template",
-		EventType: EventActivityCreated,
+		EventType: EventActivityReminder,
 		Channel:   "push",
 		Title:     "{{nama_kegiatan}}",
 		Body:      "Kegiatan {{nama_kegiatan}} pada {{tanggal_kegiatan}} di {{lokasi_kegiatan}}",

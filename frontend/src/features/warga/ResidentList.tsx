@@ -919,6 +919,7 @@ function ResidentRow({ resident, showNik, onDetail, canSeePhone, canSeeEmail, on
             <ResidentAvatar
               name={resident.full_name}
               avatarPath={resident.avatar_path ?? null}
+              avatarThumbPath={resident.avatar_thumb_path ?? null}
               size={32}
             />
           </span>

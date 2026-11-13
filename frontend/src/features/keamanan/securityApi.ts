@@ -53,6 +53,7 @@ export interface SecurityOfficer {
   phone?: string | null
   is_active: boolean
   avatar_path?: string | null
+  avatar_thumb_path?: string | null
 }
 
 export interface SecuritySchedule {

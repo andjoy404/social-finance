@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
+import dayjs from 'dayjs'
 import {
   Alert,
   Badge,
   Button,
   Card,
   Col,
+  DatePicker,
   Descriptions,
   Empty,
   Form,
@@ -20,6 +22,7 @@ import {
   Table,
   Tabs,
   Tag,
+  TimePicker,
   Typography,
   message,
 } from 'antd'
@@ -369,8 +372,8 @@ export function KelolaKeamananPage() {
     setEditingShift(null)
     shiftForm.setFieldsValue({
       name: '',
-      start_time: '20:00',
-      end_time: '06:00',
+      start_time: dayjs('20:00', 'HH:mm'),
+      end_time: dayjs('06:00', 'HH:mm'),
       crosses_midnight: true,
       lateness_tolerance_minutes: 15,
       check_in_window_before_minutes: 30,
@@ -386,8 +389,8 @@ export function KelolaKeamananPage() {
     setEditingShift(shift)
     shiftForm.setFieldsValue({
       ...shift,
-      start_time: shift.start_time.slice(0, 5),
-      end_time: shift.end_time.slice(0, 5),
+      start_time: dayjs(shift.start_time.slice(0, 5), 'HH:mm'),
+      end_time: dayjs(shift.end_time.slice(0, 5), 'HH:mm'),
     })
     setShiftModalOpen(true)
   }
@@ -617,6 +620,7 @@ export function KelolaKeamananPage() {
           <ResidentAvatar
             name={record.full_name}
             avatarPath={record.avatar_path ?? null}
+            avatarThumbPath={record.avatar_thumb_path ?? null}
             size={36}
           />
           <strong>{v}</strong>
@@ -644,11 +648,11 @@ export function KelolaKeamananPage() {
             fullName={record.full_name}
             avatarPath={record.avatar_path ?? null}
             compact
-            onChanged={(newPath) => {
+            onChanged={(newPath, newThumb) => {
               setOfficers((prev) =>
                 prev.map((o) =>
                   o.user_id === record.user_id
-                    ? { ...o, avatar_path: newPath }
+                    ? { ...o, avatar_path: newPath, avatar_thumb_path: newThumb }
                     : o,
                 ),
               )
@@ -1495,12 +1499,22 @@ export function KelolaKeamananPage() {
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item name="start_time" label="Jam Mulai (WIB)" rules={[{ required: true }]}>
-                <Input type="time" />
+                <TimePicker
+                  style={{ width: '100%' }}
+                  format="HH:mm"
+                  placeholder="Jam mulai"
+                  allowClear={false}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item name="end_time" label="Jam Selesai (WIB)" rules={[{ required: true }]}>
-                <Input type="time" />
+                <TimePicker
+                  style={{ width: '100%' }}
+                  format="HH:mm"
+                  placeholder="Jam selesai"
+                  allowClear={false}
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -1587,10 +1601,10 @@ export function KelolaKeamananPage() {
             />
           </Form.Item>
           <Form.Item name="start_date" label="Tanggal Mulai Tugas" rules={[{ required: true, message: 'Pilih tanggal mulai' }]}>
-            <Input type="date" />
+            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
           </Form.Item>
           <Form.Item name="end_date" label="Tanggal Berakhir Tugas" dependencies={['start_date']} rules={[{ required: true, message: 'Pilih tanggal berakhir' }, ({ getFieldValue }) => ({ validator(_, value) { const start = getFieldValue('start_date'); return !start || !value || value >= start ? Promise.resolve() : Promise.reject(new Error('Tanggal berakhir tidak boleh sebelum tanggal mulai')) } })]}>
-            <Input type="date" />
+            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
           </Form.Item>
           <Form.Item name="notes" label="Catatan (Opsional)">
             <Input.TextArea rows={2} maxLength={300} />

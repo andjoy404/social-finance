@@ -115,6 +115,10 @@ func (m *mockStorageService) UploadCommunityImage(ctx context.Context, rtID, cat
 	return nil, storage.ErrNotFound
 }
 
+func (m *mockStorageService) UploadCommunityImageWithThumb(ctx context.Context, rtID, category, filename string, r io.Reader, size int64, makeThumb bool) (*storage.ImageUploadResult, error) {
+	return nil, storage.ErrNotFound
+}
+
 func (m *mockStorageService) GetCommunityImage(ctx context.Context, key string) (*storage.ObjectReader, error) {
 	return nil, storage.ErrNotFound
 }

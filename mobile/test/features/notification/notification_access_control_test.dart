@@ -245,6 +245,11 @@ void main() {
           'rt_id': 'a95c1cb5-2f67-4ea5-9197-bfec537b6d7b',
         };
 
+        tester.view.physicalSize = const Size(800, 1400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
         await tester.pumpWidget(_createApp(user: ketuaUser));
         await tester.pumpAndSettle();
 

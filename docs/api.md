@@ -280,7 +280,9 @@ Response (200 OK):
   "jabatan": null,
   "effective_permissions": [
     "finance.read"
-  ]
+  ],
+  "avatar_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo.jpg",
+  "avatar_thumb_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo_thumb.jpg"
 }
 ```
 
@@ -899,7 +901,9 @@ Response (200 OK): the resident object:
   "updated_at": "2026-09-16T10:00:00Z",
   "rt_number": "03",
   "rw": 16,
-  "rt_name": "Wisma Rukun Tunggal"
+  "rt_name": "Wisma Rukun Tunggal",
+  "avatar_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo.jpg",
+  "avatar_thumb_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo_thumb.jpg"
 }
 ```
 
@@ -968,6 +972,26 @@ Role: **Pengurus** only
   - Email must be unused. Existing accounts are not reused or moved between RTs; duplicate email returns `409 Conflict`.
   - The new membership uses role `warga` and the selected `jabatan`; an initial random password is set and is not returned. Use the authorized password-reset flow to establish credentials.
 - `PATCH /api/v1/residents/special/{id}` — Updates a special resident and/or their `jabatan` (`'keamanan'`, `'operasional'`, or `'kebersihan'`). Uses the same access roles and tenant scope; cross-RT IDs return `404`.
+
+### 6.12 Resident Profile Photo Management
+
+- `POST /api/v1/residents/{id}/photo` — Upload resident profile photo.
+  - Authentication: **Required (Bearer token)** with `resident.profile_photo.manage` permission (Ketua RT).
+  - Content-Type: `multipart/form-data` with form field `file` (max 5 MB; JPEG, PNG, or WebP).
+  - Processing: Stores original image and automatically generates an optimized 200×200 center-cropped JPEG thumbnail (quality 82).
+  - Response (200 OK):
+    ```json
+    {
+      "resident_id": "550e8400-e29b-41d4-a716-446655440001",
+      "avatar_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo.jpg",
+      "avatar_thumb_path": "community/550e8400-e29b-41d4-a716-446655440000/profile/1700000000_photo_thumb.jpg",
+      "updated_at": "2026-11-13T10:00:00Z"
+    }
+    ```
+- `DELETE /api/v1/residents/{id}/photo` — Remove resident profile photo.
+  - Authentication: **Required (Bearer token)** with `resident.profile_photo.manage` permission (Ketua RT).
+  - Clears both `avatar_path` and `avatar_thumb_path` in DB and deletes both objects from storage.
+  - Response: 204 No Content.
 
 ---
 

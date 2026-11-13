@@ -108,84 +108,129 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
     const redPrimary = Color(0xFFDC2626);
     const redDarkText = Color(0xFFB91C1C);
     try {
+      final dialogBg = isDark
+          ? const Color(0xFF450A0A)
+          : const Color(0xFFFDC2C2);
       await showDialog<void>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
+        barrierColor: Colors.black.withValues(alpha: 0.5),
+        builder: (dialogContext) => Dialog(
           key: const Key('overdue-warning-detail-dialog'),
-          titlePadding: const EdgeInsets.fromLTRB(20, 14, 8, 0),
-          title: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Peringatan Tunggakan Iuran',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              IconButton(
-                key: const Key('overdue-warning-dialog-close'),
-                tooltip: 'Tutup',
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                icon: const Icon(Icons.close),
-              ),
-            ],
-          ),
-          contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-          content: SingleChildScrollView(
-            clipBehavior: Clip.antiAlias,
+          backgroundColor: dialogBg,
+          elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ── Header: title + close ──
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
                   decoration: BoxDecoration(
-                    color: redPrimary.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: redPrimary.withValues(alpha: 0.35)),
-                  ),
-                  child: Text(
-                    'Tunggakan 3 Bulan+',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? AppColors.danger : redDarkText,
+                    border: Border(
+                      bottom: BorderSide(
+                        color: (isDark ? AppColors.danger : redPrimary).withValues(alpha: 0.25),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Anda memiliki tagihan iuran yang belum lunas selama 3 bulan atau lebih. Mohon segera lakukan pembayaran agar kewajiban iuran tidak semakin menumpuk.',
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Total Tunggakan: ${RupiahFormatter.formatIdr(summary.totalOutstanding)}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? AppColors.danger : redDarkText,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: redPrimary,
+                        size: 36,
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Peringatan Tunggakan Iuran',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key('overdue-warning-dialog-close'),
+                        tooltip: 'Tutup',
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        icon: const Icon(Icons.close, size: 22),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text('Jumlah tagihan: ${summary.overdueBillCount}'),
+                // ── Content ──
+                SingleChildScrollView(
+                  clipBehavior: Clip.antiAlias,
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: redPrimary.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: redPrimary.withValues(alpha: 0.35)),
+                        ),
+                        child: Text(
+                          'Tunggakan 3 Bulan+',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? AppColors.danger : redDarkText,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'Anda memiliki tagihan iuran yang belum lunas selama 3 bulan atau lebih. Mohon segera lakukan pembayaran agar kewajiban iuran tidak semakin menumpuk.',
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Total Tunggakan: ${RupiahFormatter.formatIdr(summary.totalOutstanding)}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? AppColors.danger : redDarkText,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('Jumlah tagihan: ${summary.overdueBillCount}'),
+                    ],
+                  ),
+                ),
+                // ── Action ──
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    key: const Key('overdue-warning-action-btn'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      context.go('/home/iuran');
+                    },
+                    icon: const Icon(Icons.arrow_forward, size: 18),
+                    label: const Text('Lihat Tagihan Saya'),
+                  ),
+                ),
               ],
             ),
           ),
-          actions: [
-            FilledButton.icon(
-              key: const Key('overdue-warning-action-btn'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.danger,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                context.go('/home/iuran');
-              },
-              icon: const Icon(Icons.arrow_forward),
-              label: const Text('Lihat Tagihan Saya'),
-            ),
-          ],
         ),
       );
     } finally {

@@ -120,6 +120,7 @@ type Resident struct {
 	OccupancyStatus *string   `json:"occupancy_status,omitempty"`
 	HouseNumber     *string   `json:"house_number,omitempty"`
 	AvatarPath      *string   `json:"avatar_path,omitempty"`
+	AvatarThumbPath *string   `json:"avatar_thumb_path,omitempty"`
 }
 
 // CreateResidentInput holds the fields for creating a new resident.

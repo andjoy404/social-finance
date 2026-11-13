@@ -69,11 +69,20 @@ func TestPhoneNormalization_LoginVariants(t *testing.T) {
 	defer pool.Close()
 
 	rtID := setupTestRT(t, pool, "PhoneLogin RT", 1, "PHN")
+	const expectedCanonical = "081234567890"
 	for _, phoneRaw := range []string{"+6281234567890", "6281234567890", "081234567890"} {
 		n := time.Now().UnixNano()
 		row := fmt.Sprintf("PhoneLogin-%d", n)
 		testEmail := fmt.Sprintf("phonelogin-%d@example.com", n)
 		testNik := fmt.Sprintf("3171010101%06d", n%1000000)
+
+		// Isolate iteration fixture: clean up any existing user/resident with this phone or email
+		cleanFixture := func() {
+			_, _ = pool.Raw().ExecContext(context.Background(), `DELETE FROM users WHERE phone = $1 OR email = $2`, expectedCanonical, testEmail)
+			_, _ = pool.Raw().ExecContext(context.Background(), `DELETE FROM residents WHERE rt_id = $1 AND (nik = $2 OR phone = $3)`, rtID, testNik, expectedCanonical)
+		}
+		cleanFixture()
+		defer cleanFixture()
 
 		// Import one resident via XLSX import with only the phone column set.
 		f := excelize.NewFile()
@@ -104,8 +113,8 @@ func TestPhoneNormalization_LoginVariants(t *testing.T) {
 		if savedPhone == nil {
 			t.Fatalf("expected canonical phone stored for %s", testEmail)
 		}
-		if *savedPhone != "081234567890" {
-			t.Fatalf("phone saved as %q, want 081234567890 (from input %q)", *savedPhone, phoneRaw)
+		if *savedPhone != expectedCanonical {
+			t.Fatalf("phone saved as %q, want %s (from input %q)", *savedPhone, expectedCanonical, phoneRaw)
 		}
 
 		// Resident must carry the canonical phone too.
@@ -115,8 +124,8 @@ func TestPhoneNormalization_LoginVariants(t *testing.T) {
 		if err != nil {
 			t.Fatalf("lookup resident phone: %v", err)
 		}
-		if resPhone != "081234567890" {
-			t.Fatalf("resident phone saved as %q, want 081234567890 (from input %q)", resPhone, phoneRaw)
+		if resPhone != expectedCanonical {
+			t.Fatalf("resident phone saved as %q, want %s (from input %q)", resPhone, expectedCanonical, phoneRaw)
 		}
 
 		// Login via identifier (Android & Web share the same endpoint).
@@ -131,6 +140,8 @@ func TestPhoneNormalization_LoginVariants(t *testing.T) {
 		if rec := loginAndGetCode(t, pool, testEmail, "WrongPassword999!"); rec == http.StatusOK {
 			t.Fatalf("wrong password accepted")
 		}
+
+		cleanFixture()
 	}
 }
 

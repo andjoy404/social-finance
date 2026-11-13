@@ -1408,108 +1408,100 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
   );
 }
 
-/// Compact rekening info — 3 baris vertikal.
+/// Compact rekening info — 3 baris vertikal, format sama dengan Beranda.
 class _RekeningBar extends ConsumerWidget {
   const _RekeningBar();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
     final async = ref.watch(publicRekeningProvider);
     return async.when(
       data: (list) {
         if (list.isEmpty) return const SizedBox.shrink();
         final first = list.first;
-        final name = (first.name ?? '').trim();
         final bank = (first.bankName ?? '').trim();
         final number = (first.accountNumber ?? '').trim();
         final holder = (first.accountHolder ?? '').trim();
-        return GestureDetector(
-          onTap: number.isNotEmpty
-              ? () {
-                  Clipboard.setData(ClipboardData(text: number));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Nomor rekening $number disalin'),
-                      behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                }
-              : null,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-              border: Border.all(
-                color: AppColors.accent.withValues(alpha: 0.25),
-                width: 0.5,
+        final name = bank.isNotEmpty ? bank : (first.name ?? 'Rekening RT');
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: GestureDetector(
+            onTap: number.isNotEmpty
+                ? () {
+                    Clipboard.setData(ClipboardData(text: number));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Nomor rekening $number disalin'),
+                        behavior: SnackBarBehavior.floating,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                : null,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: AppColors.accent.withValues(alpha: 0.2),
+                ),
+                borderRadius: BorderRadius.circular(AppRadius.base),
+                color: AppColors.accent.withValues(alpha: 0.06),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 1. Nama Rekening
-                Text(
-                  name.isEmpty ? 'Rekening RT' : name,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFFA970FF),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                // 2. Bank • Nomor Rekening + Copy
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        [bank, number].where((s) => s.isNotEmpty).join('  •  '),
-                        style: const TextStyle(
-                          fontSize: 9,
-                          fontFamily: 'monospace',
-                          color: Color(0xFFE0E0E0),
-                          fontWeight: FontWeight.w600,
+              padding: const EdgeInsets.all(AppSpacing.base),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.darkText,
+                          ),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                        const SizedBox(height: 2),
+                        Text(
+                          number,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            letterSpacing: 0.6,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                            color: AppColors.warning,
+                          ),
+                        ),
+                        if (holder.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'A/N $holder',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                theme.textTheme.bodySmall?.copyWith(
+                                  color: const Color(0xFF8B8B9E),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (number.isNotEmpty) ...[
-                      const SizedBox(width: 2),
-                      GestureDetector(
-                        onTap: () {
-                          Clipboard.setData(ClipboardData(text: number));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Nomor rekening $number disalin'),
-                              behavior: SnackBarBehavior.floating,
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                        child: const Icon(
-                          Icons.copy,
-                          size: 12,
-                          color: Color(0xFF8B8B9E),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                // 3. A/N
-                Text(
-                  holder.isNotEmpty ? 'A/N $holder' : '',
-                  style: const TextStyle(
-                    fontSize: 9,
-                    color: Color(0xFF8B8B9E),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                  if (number.isNotEmpty)
+                    Icon(
+                      Icons.copy_rounded,
+                      size: 16,
+                      color: AppColors.accent,
+                    ),
+                ],
+              ),
             ),
           ),
         );
