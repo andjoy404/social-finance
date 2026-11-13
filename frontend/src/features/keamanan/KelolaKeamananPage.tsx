@@ -427,16 +427,40 @@ export function KelolaKeamananPage() {
     }
   }
 
+  const toScheduleDateValue = (val: unknown): dayjs.Dayjs | null => {
+    if (val == null || val === '') return null
+    if (dayjs.isDayjs(val)) return val.isValid() ? val : null
+    if (val instanceof Date) {
+      if (Number.isNaN(val.getTime())) return null
+      const d = dayjs(val)
+      return d.isValid() ? d.startOf('day') : null
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim()
+      if (!trimmed) return null
+      // Preserve calendar date and avoid timezone shifting for ISO/datetime strings.
+      const dateMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/)
+      if (dateMatch) {
+        const d = dayjs(dateMatch[1], 'YYYY-MM-DD', true)
+        return d.isValid() ? d : null
+      }
+      const d = dayjs(trimmed)
+      return d.isValid() ? d.startOf('day') : null
+    }
+    return null
+  }
+
+  const toApiScheduleDate = (val: unknown): string => {
+    const d = toScheduleDateValue(val)
+    return d ? d.format('YYYY-MM-DD') : ''
+  }
+
   const handleCreateSchedule = async () => {
     try {
       const vals = await scheduleForm.validateFields()
       setSubmitting(true)
-      const startDateStr = dayjs.isDayjs(vals.start_date)
-        ? vals.start_date.format('YYYY-MM-DD')
-        : (vals.start_date || '')
-      const endDateStr = dayjs.isDayjs(vals.end_date)
-        ? vals.end_date.format('YYYY-MM-DD')
-        : (vals.end_date || '')
+      const startDateStr = toApiScheduleDate(vals.start_date)
+      const endDateStr = toApiScheduleDate(vals.end_date)
       if (editingSchedule) {
         await apiUpdateSecuritySchedule(editingSchedule.id, {
           user_id: vals.user_id,
@@ -477,8 +501,8 @@ export function KelolaKeamananPage() {
       scheduleForm.setFieldsValue({
         user_id: selected.user_id,
         shift_config_id: selected.shift_config_id,
-        start_date: selected.assignment_start_date || selected.shift_date,
-        end_date: selected.assignment_end_date || selected.shift_date,
+        start_date: toScheduleDateValue(selected.assignment_start_date || selected.shift_date),
+        end_date: toScheduleDateValue(selected.assignment_end_date || selected.shift_date),
       })
       setScheduleModalOpen(true)
     } catch (err) {
