@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
-import { OverdueWarningCard, isPlainWargaUser } from '../OverdueWarningCard'
+import { OverdueWarningCard } from '../OverdueWarningCard'
 import * as AuthContextModule from '@/app/AuthContext'
 import * as ApiModule from '@/app/api'
 
@@ -100,24 +100,65 @@ describe('OverdueWarningCard (Web Global Warning Card)', () => {
     expect(screen.queryByTestId('overdue-warning-card')).not.toBeInTheDocument()
   })
 
-  it('4. does not render and does not fetch for pengurus, Ketua RT, Bendahara, RW pengurus, or Super Admin', () => {
-    const nonWargaUsers: AuthContextModule.AuthUser[] = [
-      { ...baseWargaUser, role: 'pengurus' },
-      { ...baseWargaUser, role: 'bendahara' },
-      { ...baseWargaUser, systemRole: 'super_admin', role: 'super_admin' },
-      { ...baseWargaUser, role: 'warga', jabatan: 'ketua' },
-      { ...baseWargaUser, role: 'warga', jabatan: 'bendahara' },
+  it('4a. renders RT-wide card for sekretaris (jabatan + finance.read) with RT summary', async () => {
+    const sekretarisUser: AuthContextModule.AuthUser = {
+      ...baseWargaUser,
+      role: 'warga',
+      jabatan: 'sekretaris',
+      effectivePermissions: ['finance.read', 'finance.create', 'organization.contact.read'],
+      rtId: 'rt-002',
+      rtCode: '002',
+    }
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
+      user: sekretarisUser,
+      loading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
+
+    vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
+      has_overdue_3_months: true,
+      total_outstanding: 3900000,
+      overdue_bill_count: 39,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <OverdueWarningCard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('overdue-warning-card')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Peringatan Tunggakan Iuran Warga/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Terdapat tagihan wajib iuran warga di RT Anda/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/3\.900\.000/)).toBeInTheDocument()
+    expect(screen.getByText('39 tagihan')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Lihat Tunggakan Warga/i })).toBeInTheDocument()
+  })
+
+  it('4b. does not render and does not fetch for pengurus without finance.read, RW-only ketua, or Super Admin', () => {
+    const noAccessUsers: AuthContextModule.AuthUser[] = [
+      { ...baseWargaUser, role: 'pengurus', jabatan: null, effectivePermissions: ['warga.read'] },
+      { ...baseWargaUser, role: 'warga', jabatan: 'ketua', effectivePermissions: ['organization.read'] },
+      { ...baseWargaUser, role: 'warga', jabatan: 'bendahara', effectivePermissions: [] },
+      { ...baseWargaUser, systemRole: 'super_admin', role: 'super_admin', effectivePermissions: ['finance.read'] },
       {
         ...baseWargaUser,
         role: 'warga',
+        jabatan: null,
+        effectivePermissions: ['organization.read'],
         rwMemberships: [{ rw_id: 'rw-1', rw_name: 'RW 01', jabatan: 'ketua' }],
       },
     ]
 
     const apiSpy = vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary')
 
-    for (const u of nonWargaUsers) {
-      expect(isPlainWargaUser(u)).toBe(false)
+    for (const u of noAccessUsers) {
       vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
         user: u,
         loading: false,
@@ -135,6 +176,33 @@ describe('OverdueWarningCard (Web Global Warning Card)', () => {
       unmount()
     }
 
+    expect(apiSpy).not.toHaveBeenCalled()
+  })
+
+  it('4c. does not render and does not fetch for role-only pengurus without explicit jabatan/permission', () => {
+    const roleOnlyPengurus: AuthContextModule.AuthUser = {
+      ...baseWargaUser,
+      jabatan: null,
+      role: 'pengurus',
+      effectivePermissions: ['warga.read'],
+    }
+    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
+      user: roleOnlyPengurus,
+      loading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
+
+    const apiSpy = vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary')
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <OverdueWarningCard />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByTestId('overdue-warning-card')).not.toBeInTheDocument()
     expect(apiSpy).not.toHaveBeenCalled()
   })
 

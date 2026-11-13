@@ -24,10 +24,10 @@ func mustDateWIB(t *testing.T, raw string) time.Time {
 // 1 & 2 & 3. Calendar month arithmetic: -3 months, +3 months, and end-of-month edge cases
 func TestAddCalendarMonthsAndThresholds(t *testing.T) {
 	tests := []struct {
-		name            string
-		dueDate         string
-		expectedUpc3m   string
-		expectedOver3m  string
+		name           string
+		dueDate        string
+		expectedUpc3m  string
+		expectedOver3m string
 	}{
 		{
 			name:           "mid-month standard (15 Oct -> 15 Jul upcoming, 15 Jan next year overdue)",
@@ -286,10 +286,13 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	warga1UserID, warga1MID, warga1OccID := createWargaWithOccupancy(rtA, "11", "warga", "", "2025-01-01")
 	warga2UserID, warga2MID, _ := createWargaWithOccupancy(rtA, "22", "warga", "", "2025-01-01")
 	ketuaUserID, ketuaMID, ketuaOccID := createWargaWithOccupancy(rtA, "33", "warga", "ketua", "2025-01-01")
+	sekretarisUserID, sekretarisMID, _ := createWargaWithOccupancy(rtA, "55", "warga", "sekretaris", "2025-01-01")
+	sosialUserID, sosialMID, _ := createWargaWithOccupancy(rtA, "66", "warga", "sosial", "2025-01-01")
+	rtBSekretarisUserID, rtBSekretarisMID, _ := createWargaWithOccupancy(rtB, "77", "warga", "sekretaris", "2025-01-01")
 	rtBWargaUserID, _, rtBOccID := createWargaWithOccupancy(rtB, "44", "warga", "", "2025-01-01")
 
 	defer func() {
-		for _, uid := range []string{warga1UserID, warga2UserID, ketuaUserID, rtBWargaUserID} {
+		for _, uid := range []string{warga1UserID, warga2UserID, ketuaUserID, sekretarisUserID, sosialUserID, rtBSekretarisUserID, rtBWargaUserID} {
 			_, _ = db.ExecContext(ctx, `DELETE FROM user_rt_memberships WHERE user_id = $1`, uid)
 			_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, uid)
 		}
@@ -465,7 +468,9 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	require.Equal(t, int64(0), sumW2.TotalOutstanding)
 	require.Equal(t, 0, sumW2.OverdueBillCount)
 
-	// Case D: Ketua RT (warga role with jabatan=ketua) -> has_overdue_3_months: false
+	// Case D: Ketua RT 002 (warga role, jabatan=ketua, has finance.read via position_permissions)
+	// sees the RT-wide summary covering all occupancies in RT A (3 bills, Rp 800.000),
+	// including bills owed by other warga (Warga 1 personal Rp 300.000 + Ketua's own Rp 500.000).
 	ketuaToken := makeToken(t, auth.TokenClaims{
 		UserID:  ketuaUserID,
 		MID:     ketuaMID,
@@ -481,7 +486,69 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 
 	var sumKetua OverdueWarningSummary
 	require.NoError(t, json.Unmarshal(recKetua.Body.Bytes(), &sumKetua))
-	require.False(t, sumKetua.HasOverdue3Months)
-	require.Equal(t, int64(0), sumKetua.TotalOutstanding)
-	require.Equal(t, 0, sumKetua.OverdueBillCount)
+	require.True(t, sumKetua.HasOverdue3Months)
+	require.Equal(t, int64(800000), sumKetua.TotalOutstanding)
+	require.Equal(t, 3, sumKetua.OverdueBillCount)
+
+	// Case E: Sekretaris RT A (jabatan=sekretaris, has finance.read) -> RT-wide summary, same numbers
+	sekretarisToken := makeToken(t, auth.TokenClaims{
+		UserID:  sekretarisUserID,
+		MID:     sekretarisMID,
+		RTID:    rtA,
+		Role:    string(auth.RoleWarga),
+		Jabatan: "sekretaris",
+	})
+	reqSek := httptest.NewRequest(http.MethodGet, "/api/v1/bills/overdue-summary", nil)
+	reqSek.Header.Set("Authorization", "Bearer "+sekretarisToken)
+	recSek := httptest.NewRecorder()
+	router.ServeHTTP(recSek, reqSek)
+	require.Equal(t, http.StatusOK, recSek.Code)
+
+	var sumSek OverdueWarningSummary
+	require.NoError(t, json.Unmarshal(recSek.Body.Bytes(), &sumSek))
+	require.True(t, sumSek.HasOverdue3Months)
+	require.Equal(t, int64(800000), sumSek.TotalOutstanding)
+	require.Equal(t, 3, sumSek.OverdueBillCount)
+
+	// Case F: Pengurus RT A WITHOUT finance.read permission (jabatan=sosial) ->
+	// only personal bills; Social position has no finance.read -> no RT-wide summary.
+	sosialToken := makeToken(t, auth.TokenClaims{
+		UserID:  sosialUserID,
+		MID:     sosialMID,
+		RTID:    rtA,
+		Role:    string(auth.RoleWarga),
+		Jabatan: "sosial",
+	})
+	reqSos := httptest.NewRequest(http.MethodGet, "/api/v1/bills/overdue-summary", nil)
+	reqSos.Header.Set("Authorization", "Bearer "+sosialToken)
+	recSos := httptest.NewRecorder()
+	router.ServeHTTP(recSos, reqSos)
+	require.Equal(t, http.StatusOK, recSos.Code)
+
+	var sumSos OverdueWarningSummary
+	require.NoError(t, json.Unmarshal(recSos.Body.Bytes(), &sumSos))
+	require.False(t, sumSos.HasOverdue3Months)
+	require.Equal(t, int64(0), sumSos.TotalOutstanding)
+	require.Equal(t, 0, sumSos.OverdueBillCount)
+
+	// Case G: Sekretaris RT B (jabatan=sekretaris) -> sees ONLY RT B's bills (Rp 750.000 / 1 bill),
+	// cannot see RT A bills.
+	rtBSekretarisToken := makeToken(t, auth.TokenClaims{
+		UserID:  rtBSekretarisUserID,
+		MID:     rtBSekretarisMID,
+		RTID:    rtB,
+		Role:    string(auth.RoleWarga),
+		Jabatan: "sekretaris",
+	})
+	reqRtBSek := httptest.NewRequest(http.MethodGet, "/api/v1/bills/overdue-summary", nil)
+	reqRtBSek.Header.Set("Authorization", "Bearer "+rtBSekretarisToken)
+	recRtBSek := httptest.NewRecorder()
+	router.ServeHTTP(recRtBSek, reqRtBSek)
+	require.Equal(t, http.StatusOK, recRtBSek.Code)
+
+	var sumRtBSek OverdueWarningSummary
+	require.NoError(t, json.Unmarshal(recRtBSek.Body.Bytes(), &sumRtBSek))
+	require.True(t, sumRtBSek.HasOverdue3Months)
+	require.Equal(t, int64(750000), sumRtBSek.TotalOutstanding)
+	require.Equal(t, 1, sumRtBSek.OverdueBillCount)
 }

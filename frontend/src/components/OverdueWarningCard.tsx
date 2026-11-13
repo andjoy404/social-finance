@@ -39,6 +39,27 @@ export function isPlainWargaUser(user: AuthUser | null | undefined): boolean {
   return true
 }
 
+/**
+ * RT staff (pengurus/bendahara) with staff finance read access. Mirrors the
+ * backend rule for the RT-wide overdue summary: caller must hold a jabatan whose
+ * position_permissions grant finance.read. Role-only pengurus without an explicit
+ * jabatan/permission is NOT eligible (staff read is permission-driven, not role-driven).
+ * Super Admin is excluded.
+ */
+export function isStaffFinanceRTUser(user: AuthUser | null | undefined): boolean {
+  if (!user) return false
+  const sysRole = (user.systemRole ?? '').trim().toLowerCase()
+  if (sysRole === 'super_admin') return false
+  const jabatan = (user.jabatan ?? '').trim().toLowerCase()
+  if (!jabatan) return false
+  const perms = new Set(
+    (Array.isArray(user.effectivePermissions) ? user.effectivePermissions : []).map((p) =>
+      (p ?? '').trim().toLowerCase(),
+    ),
+  )
+  return perms.has('finance.read')
+}
+
 const FOCUS_REFRESH_THROTTLE_MS = 2000
 
 export function OverdueWarningCard() {
@@ -49,12 +70,14 @@ export function OverdueWarningCard() {
   const lastFetchedAtRef = useRef(0)
 
   const eligibleWarga = isPlainWargaUser(user)
+  const isStaffRT = isStaffFinanceRTUser(user)
+  const eligible = eligibleWarga || isStaffRT
   const userId = user?.id ?? null
   const rtId = user?.rtId ?? user?.rt?.id ?? null
 
   const fetchSummary = useCallback(
     async (force = false) => {
-      if (!eligibleWarga || !userId) {
+      if (!eligible || !userId) {
         setSummary(null)
         return
       }
@@ -82,21 +105,21 @@ export function OverdueWarningCard() {
         }
       }
     },
-    [eligibleWarga, userId, rtId],
+    [eligible, userId, rtId],
   )
 
   // Initial load on login / user or RT context change
   useEffect(() => {
-    if (!eligibleWarga || !userId) {
+    if (!eligible || !userId) {
       setSummary(null)
       return
     }
     void fetchSummary(true)
-  }, [eligibleWarga, userId, rtId, fetchSummary])
+  }, [eligible, userId, rtId, fetchSummary])
 
   // Refresh on window focus / visibilitychange and on explicit iuran data updates
   useEffect(() => {
-    if (!eligibleWarga || !userId) return
+    if (!eligible || !userId) return
 
     const handleVisibilityOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
@@ -118,10 +141,10 @@ export function OverdueWarningCard() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus)
       window.removeEventListener(IURAN_DATA_UPDATED_EVENT, handleIuranDataUpdated)
     }
-  }, [eligibleWarga, userId, fetchSummary])
+  }, [eligible, userId, fetchSummary])
 
   if (
-    !eligibleWarga ||
+    !eligible ||
     !summary ||
     !summary.has_overdue_3_months ||
     summary.total_outstanding <= 0 ||
@@ -169,7 +192,7 @@ export function OverdueWarningCard() {
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
             <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--sf-text-primary, #1f2937)' }}>
-              Peringatan Tunggakan Iuran
+              {isStaffRT ? 'Peringatan Tunggakan Iuran Warga' : 'Peringatan Tunggakan Iuran'}
             </span>
             <span
               style={{
@@ -196,7 +219,9 @@ export function OverdueWarningCard() {
               color: 'var(--sf-text-secondary, #4b5563)',
             }}
           >
-            Anda memiliki tagihan iuran yang belum lunas selama 3 bulan atau lebih. Mohon segera lakukan pembayaran agar kewajiban iuran tidak semakin menumpuk.
+              {isStaffRT
+                ? 'Terdapat tagihan wajib iuran warga di RT Anda yang belum lunas selama 3 bulan atau lebih. Mohon koordinasikan penagihan kepada warga terkait.'
+                : 'Anda memiliki tagihan iuran yang belum lunas selama 3 bulan atau lebih. Mohon segera lakukan pembayaran agar kewajiban iuran tidak semakin menumpuk.'}
           </p>
 
           <div
@@ -241,7 +266,7 @@ export function OverdueWarningCard() {
             whiteSpace: 'nowrap',
           }}
         >
-          <span>Lihat Tagihan Saya</span>
+          <span>{isStaffRT ? 'Lihat Tunggakan Warga' : 'Lihat Tagihan Saya'}</span>
           <ArrowRightOutlined style={{ fontSize: 12 }} />
         </button>
       </div>
