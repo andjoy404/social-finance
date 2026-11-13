@@ -11,6 +11,7 @@ import {
   clearSessionPair,
   getSessionPair,
   apiGenerateResidentResetCode,
+  notifyIuranDataUpdated,
   type ApiGenerateResetCodeResponse,
   type ApiResident,
   type ApiUpdateHouseholdBody,
@@ -533,8 +534,9 @@ export function ResidentDetail() {
               // Refresh resident details from API
               const updated = await getResident(pair.accessToken, resident.id)
               setResident(updated || updatedResident)
-              setIsEditing(false)
-              window.dispatchEvent(new CustomEvent('warga:refresh'))
+            notifyIuranDataUpdated()
+            setIsEditing(false)
+            window.dispatchEvent(new CustomEvent('warga:refresh'))
             } catch (err: any) {
               setEditError(err?.message || 'Gagal menyimpan perubahan data warga.')
             } finally {

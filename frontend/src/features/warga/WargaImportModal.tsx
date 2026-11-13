@@ -235,6 +235,11 @@ export function WargaImportModal({
       setObligationWarnings(warnings)
       setShowObligationPopup(warnings.length > 0)
       setStep('success')
+      // Notify any mounted Warga table to refetch immediately so the updated
+      // Tanggal Mulai is reflected without waiting for the user to click "Selesai".
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('warga:refresh'))
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message)

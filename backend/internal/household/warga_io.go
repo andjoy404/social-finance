@@ -1153,6 +1153,13 @@ func processExistingResident(
 		if syncErr != nil {
 			return nil, fmt.Errorf("sync bills for %s: %w", res.ResidentName, syncErr)
 		}
+		// Ensure bills are resynced regardless of whether household_occupancies.start_date
+		// changed. This catches cases where SyncOccupancyDatesAndBills did not update
+		// the occupancy start_date (non-head resident path) but the resident own
+		// residency_periods.start_date was changed above.
+		if err := syncOccupancyBills(ctx, tx, rtID, hoID); err != nil {
+			return nil, fmt.Errorf("resync bills for %s: %w", res.ResidentName, err)
+		}
 	}
 
 	// --- 2. Jabatan: upsert membership if provided, do nothing if empty ---

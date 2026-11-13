@@ -433,6 +433,20 @@ export function ResidentList() {
     return () => window.removeEventListener('warga:refresh', handleRefresh)
   }, [fetchResidents, page, pageSize])
 
+  // Refetch when user returns to the tab (e.g. after Android changes data in
+  // another window/tab). Throttled to avoid excessive refetches.
+  const focusAtRef = useRef(0)
+  useEffect(() => {
+    const handleFocus = () => {
+      const now = Date.now()
+      if (now - focusAtRef.current < 2000) return
+      focusAtRef.current = now
+      void fetchResidents(page, pageSize)
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [fetchResidents, page, pageSize])
+
   const handleFilter = (filter: FilterType) => {
     setFilterType(filter)
     setPage(1)
