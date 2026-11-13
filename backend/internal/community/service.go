@@ -1078,12 +1078,11 @@ func (s *Service) GetHomeDashboard(ctx context.Context, rtID, userFullName, user
 	}
 	if s.onDutyReader != nil {
 		if officers, err := s.onDutyReader(ctx, rtID); err == nil && len(officers) > 0 {
-			// Phone numbers are personal contact data: expose only to authorized viewers.
-			if !canViewContact {
-				for i := range officers {
-					officers[i].PhoneNumber = nil
-				}
-			}
+			// Officers who are actually on duty are shown as an emergency
+			// hotline: their phone number is exposed to every authenticated
+			// member of the RT. Callers need not hold
+			// organization.contact.read (that permission only governs the
+			// personal data of the organization structure, not the duty hotline).
 			securityInfo.IsAvailable = true
 			securityInfo.Message = "Petugas keamanan sedang bertugas."
 			securityInfo.Officers = officers

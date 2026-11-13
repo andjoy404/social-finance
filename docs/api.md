@@ -1440,7 +1440,7 @@ Authorization is permission-driven (single source of truth: `position_permission
 `PermissionResolver`; Super Admin bypasses). There are no hardcoded jabatan shortcuts.
 
 ### 14.1 Read Endpoints (all authenticated RT members)
-- `GET /api/v1/home/dashboard` — greeting, banners (in-window only), upcoming activities (published), organization structure, security on-duty placeholder.
+- `GET /api/v1/home/dashboard` — greeting, banners (in-window only), upcoming activities (published), organization structure, security on-duty (name, shift, avatar + phone number always included as the warga duty hotline).
 - `GET /api/v1/activities?page=&page_size=&status=&publication_status=` — paginated. Warga only ever see published activities; status filter uses the dynamic execution status (`upcoming`, `ongoing`, `completed`, `cancelled`). Draft visibility requires `activities.create|update`.
 - `GET /api/v1/activities/{id}` — detail. Draft/non-published returns 404 for non-managers.
 - `GET /api/v1/announcements?page=&page_size=&status=` — paginated. Warga only see announcements inside the tayang window (`scheduled_start <= now < scheduled_end`); managers can filter by status.
