@@ -7,6 +7,8 @@ import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 
 import '../../data/security_models.dart';
 import '../providers/security_providers.dart';
+import '../utils/attendance_order.dart';
+import '../widgets/attendance_status_badge.dart';
 import 'security_qr_scanner_screen.dart';
 
 class SecurityAbsenScreen extends ConsumerStatefulWidget {
@@ -65,22 +67,6 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
         _error = e.toString();
         _loading = false;
       });
-    }
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'hadir':
-        return AppColors.info;
-      case 'sudah_absen_pulang':
-        return AppColors.success;
-      case 'terlambat':
-      case 'belum_absen_pulang':
-        return AppColors.warning;
-      case 'tidak_hadir':
-        return AppColors.danger;
-      default:
-        return Colors.grey;
     }
   }
 
@@ -472,25 +458,10 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                         ),
                       ),
                       if (currentRecord != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _statusColor(
-                              currentRecord.status,
-                            ).withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            currentRecord.statusLabel,
-                            style: TextStyle(
-                              color: _statusColor(currentRecord.status),
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                            ),
-                          ),
+                        AttendanceStatusBadge(
+                          statusCode: currentRecord.status,
+                          statusLabel: currentRecord.statusLabel,
+                          fontSize: 12,
                         ),
                     ],
                   ),
@@ -661,7 +632,8 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
   }
 
   Widget _buildHistoryAndCorrectionTab() {
-    final history = _overview?.recentHistory ?? [];
+    final history = [...?_overview?.recentHistory]
+      ..sort(compareAttendanceRecency);
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView(
@@ -685,8 +657,19 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
                   title: Text('${rec.shiftDate} · ${rec.shiftName}'),
-                  subtitle: Text(
-                    'Masuk: ${_formatTime(rec.checkedInAt)} | Pulang: ${_formatTime(rec.checkedOutAt)}\nStatus: ${rec.statusLabel}',
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AttendanceStatusBadge(
+                        statusCode: rec.status,
+                        statusLabel: rec.statusLabel,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Masuk: ${_formatTime(rec.checkedInAt)} | Pulang: ${_formatTime(rec.checkedOutAt)}',
+                      ),
+                    ],
                   ),
                   isThreeLine: true,
                   trailing: TextButton(

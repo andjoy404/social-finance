@@ -13,6 +13,8 @@ import 'package:social_finance/core/widgets/accent_action_fab.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
 import '../../data/security_models.dart';
 import '../providers/security_providers.dart';
+import '../utils/attendance_order.dart';
+import '../widgets/attendance_status_badge.dart';
 
 class SecurityManagementScreen extends ConsumerStatefulWidget {
   const SecurityManagementScreen({super.key});
@@ -184,6 +186,7 @@ class _SecurityManagementScreenState
               page: _guestPage,
             )
           : const GuestBookPage([], 0, 1);
+      attendance.sort(compareAttendanceRecency);
       if (!mounted) {
         return;
       }
@@ -1185,8 +1188,19 @@ class _SecurityManagementScreenState
                       (s) => Card(
                         child: ListTile(
                           title: Text('${s.officerName} · ${s.shiftName}'),
-                          subtitle: Text(
-                            '${s.assignmentStartDate} – ${s.assignmentEndDate}\n${s.shiftDate} · ${s.startTime}–${s.endTime} · ${s.attendanceStatusLabel ?? s.attendanceStatus}',
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${s.assignmentStartDate} – ${s.assignmentEndDate}\n${s.shiftDate} · ${s.startTime}–${s.endTime}',
+                              ),
+                              const SizedBox(height: 4),
+                              AttendanceStatusBadge(
+                                statusCode: s.attendanceStatus,
+                                statusLabel: s.attendanceStatusLabel,
+                              ),
+                            ],
                           ),
                           trailing: _canWrite
                               ? IconButton(
@@ -1280,8 +1294,19 @@ class _SecurityManagementScreenState
                           title: Text(
                             '${a.officerName} · ${a.shiftName} · ${a.shiftDate}',
                           ),
-                          subtitle: Text(
-                            '${a.statusLabel}\nMasuk: ${a.checkedInAt == null ? '-' : DateFormat('dd/MM HH:mm').format(a.checkedInAt!)} · Keluar: ${a.checkedOutAt == null ? '-' : DateFormat('dd/MM HH:mm').format(a.checkedOutAt!)}',
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AttendanceStatusBadge(
+                                statusCode: a.status,
+                                statusLabel: a.statusLabel,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Masuk: ${a.checkedInAt == null ? '-' : DateFormat('dd/MM HH:mm').format(a.checkedInAt!)} · Keluar: ${a.checkedOutAt == null ? '-' : DateFormat('dd/MM HH:mm').format(a.checkedOutAt!)}',
+                              ),
+                            ],
                           ),
                           onTap: () => showDialog<void>(
                             context: context,
