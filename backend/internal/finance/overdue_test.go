@@ -286,7 +286,7 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	warga1UserID, warga1MID, warga1OccID := createWargaWithOccupancy(rtA, "11", "warga", "", "2025-01-01")
 	warga2UserID, warga2MID, _ := createWargaWithOccupancy(rtA, "22", "warga", "", "2025-01-01")
 	ketuaUserID, ketuaMID, ketuaOccID := createWargaWithOccupancy(rtA, "33", "warga", "ketua", "2025-01-01")
-	sekretarisUserID, sekretarisMID, _ := createWargaWithOccupancy(rtA, "55", "warga", "sekretaris", "2025-01-01")
+	sekretarisUserID, sekretarisMID, sekretarisOccID := createWargaWithOccupancy(rtA, "55", "warga", "sekretaris", "2025-01-01")
 	sosialUserID, sosialMID, _ := createWargaWithOccupancy(rtA, "66", "warga", "sosial", "2025-01-01")
 	rtBSekretarisUserID, rtBSekretarisMID, _ := createWargaWithOccupancy(rtB, "77", "warga", "sekretaris", "2025-01-01")
 	rtBWargaUserID, _, rtBOccID := createWargaWithOccupancy(rtB, "44", "warga", "", "2025-01-01")
@@ -405,11 +405,19 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Bill for Ketua RT (overdue 4 months) -> Ketua is management, so endpoint must return false
+	// Bill for Ketua RT (overdue 4 months) — ketua's own occupancy.
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
 		 VALUES ($1, $2, $3, '2025-05', 500000.00, 'unpaid', $4::date, true, true)`,
 		rtA, ketuaOccID, dueID, due4MonthsAgo,
+	)
+	require.NoError(t, err)
+
+	// Bill for Sekretaris RT A (overdue 4 months) — personal occupancy.
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO bills (rt_id, household_occupancy_id, due_id, period, amount, status, due_date, is_obligatory, is_active)
+		 VALUES ($1, $2, $3, '2025-05', 250000.00, 'unpaid', $4::date, true, true)`,
+		rtA, sekretarisOccID, dueID, due4MonthsAgo,
 	)
 	require.NoError(t, err)
 
@@ -468,9 +476,8 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	require.Equal(t, int64(0), sumW2.TotalOutstanding)
 	require.Equal(t, 0, sumW2.OverdueBillCount)
 
-	// Case D: Ketua RT 002 (warga role, jabatan=ketua, has finance.read via position_permissions)
-	// sees the RT-wide summary covering all occupancies in RT A (3 bills, Rp 800.000),
-	// including bills owed by other warga (Warga 1 personal Rp 300.000 + Ketua's own Rp 500.000).
+	// Case D: Ketua RT 002 (jabatan=ketua with finance.read) -> PERSONAL ONLY:
+	// only sees own occupancy (Rp 500.000 / 1 bill), not Warga 1's Rp 300.000.
 	ketuaToken := makeToken(t, auth.TokenClaims{
 		UserID:  ketuaUserID,
 		MID:     ketuaMID,
@@ -487,10 +494,11 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	var sumKetua OverdueWarningSummary
 	require.NoError(t, json.Unmarshal(recKetua.Body.Bytes(), &sumKetua))
 	require.True(t, sumKetua.HasOverdue3Months)
-	require.Equal(t, int64(800000), sumKetua.TotalOutstanding)
-	require.Equal(t, 3, sumKetua.OverdueBillCount)
+	require.Equal(t, int64(500000), sumKetua.TotalOutstanding)
+	require.Equal(t, 1, sumKetua.OverdueBillCount)
 
-	// Case E: Sekretaris RT A (jabatan=sekretaris, has finance.read) -> RT-wide summary, same numbers
+	// Case E: Sekretaris RT A (jabatan=sekretaris with finance.read) -> PERSONAL ONLY:
+	// only sees own occupancy (Rp 250.000 / 1 bill), not Warga 1's or Ketua's bills.
 	sekretarisToken := makeToken(t, auth.TokenClaims{
 		UserID:  sekretarisUserID,
 		MID:     sekretarisMID,
@@ -507,11 +515,11 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	var sumSek OverdueWarningSummary
 	require.NoError(t, json.Unmarshal(recSek.Body.Bytes(), &sumSek))
 	require.True(t, sumSek.HasOverdue3Months)
-	require.Equal(t, int64(800000), sumSek.TotalOutstanding)
-	require.Equal(t, 3, sumSek.OverdueBillCount)
+	require.Equal(t, int64(250000), sumSek.TotalOutstanding)
+	require.Equal(t, 1, sumSek.OverdueBillCount)
 
 	// Case F: Pengurus RT A WITHOUT finance.read permission (jabatan=sosial) ->
-	// only personal bills; Social position has no finance.read -> no RT-wide summary.
+	// personal scope only (no exception for permissions).
 	sosialToken := makeToken(t, auth.TokenClaims{
 		UserID:  sosialUserID,
 		MID:     sosialMID,
@@ -531,8 +539,9 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 	require.Equal(t, int64(0), sumSos.TotalOutstanding)
 	require.Equal(t, 0, sumSos.OverdueBillCount)
 
-	// Case G: Sekretaris RT B (jabatan=sekretaris) -> sees ONLY RT B's bills (Rp 750.000 / 1 bill),
-	// cannot see RT A bills.
+	// Case G: Sekretaris RT B (jabatan=sekretaris) -> PERSONAL ONLY: RT A bills
+	// (Warga 1's Rp 300.000, Ketua's Rp 500.000, Sekretaris RT A's Rp 250.000, jadilah)
+	// are invisible. RT B's occupancy has no overdue bills -> false.
 	rtBSekretarisToken := makeToken(t, auth.TokenClaims{
 		UserID:  rtBSekretarisUserID,
 		MID:     rtBSekretarisMID,
@@ -548,7 +557,7 @@ func TestOverdueWarningSummaryEndpointAndDatabaseIntegration(t *testing.T) {
 
 	var sumRtBSek OverdueWarningSummary
 	require.NoError(t, json.Unmarshal(recRtBSek.Body.Bytes(), &sumRtBSek))
-	require.True(t, sumRtBSek.HasOverdue3Months)
-	require.Equal(t, int64(750000), sumRtBSek.TotalOutstanding)
-	require.Equal(t, 1, sumRtBSek.OverdueBillCount)
+	require.False(t, sumRtBSek.HasOverdue3Months)
+	require.Equal(t, int64(0), sumRtBSek.TotalOutstanding)
+	require.Equal(t, 0, sumRtBSek.OverdueBillCount)
 }

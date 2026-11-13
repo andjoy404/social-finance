@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
-import { useAuth, type AuthUser } from '@/app/AuthContext'
+import { useAuth } from '@/app/AuthContext'
 import {
   apiGetOverdueWarningSummary,
   getSessionPair,
@@ -10,58 +10,15 @@ import {
 } from '@/app/api'
 import { formatRupiah } from '@/features/iuran/iuranTypes'
 
-const MANAGEMENT_JABATANS = new Set([
-  'ketua',
-  'ketua_rt',
-  'ketua rt',
-  'wakil_ketua',
-  'wakil ketua',
-  'sekretaris',
-  'bendahara',
-])
-
-export function isPlainWargaUser(user: AuthUser | null | undefined): boolean {
-  if (!user) return false
-  const sysRole = (user.systemRole ?? '').trim().toLowerCase()
-  if (sysRole === 'super_admin') return false
-  const role = (user.role ?? '').trim().toLowerCase()
-  if (role !== 'warga') return false
-  const jabatan = (user.jabatan ?? '').trim().toLowerCase()
-  if (jabatan && MANAGEMENT_JABATANS.has(jabatan)) return false
-  if (Array.isArray(user.rwMemberships)) {
-    for (const m of user.rwMemberships) {
-      const rwJabatan = (m?.jabatan ?? '').trim().toLowerCase()
-      if (rwJabatan && MANAGEMENT_JABATANS.has(rwJabatan)) {
-        return false
-      }
-    }
-  }
-  return true
-}
-
-/**
- * RT staff (pengurus/bendahara) with staff finance read access. Mirrors the
- * backend rule for the RT-wide overdue summary: caller must hold a jabatan whose
- * position_permissions grant finance.read. Role-only pengurus without an explicit
- * jabatan/permission is NOT eligible (staff read is permission-driven, not role-driven).
- * Super Admin is excluded.
- */
-export function isStaffFinanceRTUser(user: AuthUser | null | undefined): boolean {
-  if (!user) return false
-  const sysRole = (user.systemRole ?? '').trim().toLowerCase()
-  if (sysRole === 'super_admin') return false
-  const jabatan = (user.jabatan ?? '').trim().toLowerCase()
-  if (!jabatan) return false
-  const perms = new Set(
-    (Array.isArray(user.effectivePermissions) ? user.effectivePermissions : []).map((p) =>
-      (p ?? '').trim().toLowerCase(),
-    ),
-  )
-  return perms.has('finance.read')
-}
-
 const FOCUS_REFRESH_THROTTLE_MS = 2000
 
+/**
+ * Global overdue warning based on the authenticated user's OWN household bills.
+ * The summary is personal for every user (warga, pengurus, ketua, sekretaris,
+ * bendahara — regardless of role or permission). The backend resolves the
+ * occupancy/bills from the validated AuthContext and never aggregates across
+ * households or RTs.
+ */
 export function OverdueWarningCard() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -69,15 +26,13 @@ export function OverdueWarningCard() {
   const requestSeqRef = useRef(0)
   const lastFetchedAtRef = useRef(0)
 
-  const eligibleWarga = isPlainWargaUser(user)
-  const isStaffRT = isStaffFinanceRTUser(user)
-  const eligible = eligibleWarga || isStaffRT
   const userId = user?.id ?? null
   const rtId = user?.rtId ?? user?.rt?.id ?? null
+  const hasUser = !!userId
 
   const fetchSummary = useCallback(
     async (force = false) => {
-      if (!eligible || !userId) {
+      if (!hasUser || !userId) {
         setSummary(null)
         return
       }
@@ -105,21 +60,21 @@ export function OverdueWarningCard() {
         }
       }
     },
-    [eligible, userId, rtId],
+    [hasUser, userId, rtId],
   )
 
   // Initial load on login / user or RT context change
   useEffect(() => {
-    if (!eligible || !userId) {
+    if (!hasUser || !userId) {
       setSummary(null)
       return
     }
     void fetchSummary(true)
-  }, [eligible, userId, rtId, fetchSummary])
+  }, [hasUser, userId, rtId, fetchSummary])
 
   // Refresh on window focus / visibilitychange and on explicit iuran data updates
   useEffect(() => {
-    if (!eligible || !userId) return
+    if (!hasUser || !userId) return
 
     const handleVisibilityOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
@@ -141,10 +96,10 @@ export function OverdueWarningCard() {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus)
       window.removeEventListener(IURAN_DATA_UPDATED_EVENT, handleIuranDataUpdated)
     }
-  }, [eligible, userId, fetchSummary])
+  }, [hasUser, userId, fetchSummary])
 
   if (
-    !eligible ||
+    !hasUser ||
     !summary ||
     !summary.has_overdue_3_months ||
     summary.total_outstanding <= 0 ||
@@ -192,7 +147,7 @@ export function OverdueWarningCard() {
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
             <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--sf-text-primary, #1f2937)' }}>
-              {isStaffRT ? 'Peringatan Tunggakan Iuran Warga' : 'Peringatan Tunggakan Iuran'}
+              Peringatan Tunggakan Iuran
             </span>
             <span
               style={{
@@ -219,9 +174,7 @@ export function OverdueWarningCard() {
               color: 'var(--sf-text-secondary, #4b5563)',
             }}
           >
-              {isStaffRT
-                ? 'Terdapat tagihan wajib iuran warga di RT Anda yang belum lunas selama 3 bulan atau lebih. Mohon koordinasikan penagihan kepada warga terkait.'
-                : 'Anda memiliki tagihan iuran yang belum lunas selama 3 bulan atau lebih. Mohon segera lakukan pembayaran agar kewajiban iuran tidak semakin menumpuk.'}
+            Anda memiliki tagihan iuran yang belum lunas selama 3 bulan atau lebih. Mohon segera lakukan pembayaran agar kewajiban iuran tidak semakin menumpuk.
           </p>
 
           <div
@@ -266,7 +219,7 @@ export function OverdueWarningCard() {
             whiteSpace: 'nowrap',
           }}
         >
-          <span>{isStaffRT ? 'Lihat Tunggakan Warga' : 'Lihat Tagihan Saya'}</span>
+          <span>Lihat Tagihan Saya</span>
           <ArrowRightOutlined style={{ fontSize: 12 }} />
         </button>
       </div>

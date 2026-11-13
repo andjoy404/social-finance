@@ -732,10 +732,10 @@ class OverdueWarningSummaryNotifier
     final userKey = ref.watch(
       authRepositoryProvider.select((authAsync) {
         final u = authAsync?.valueOrNull;
-        if (!isPlainWargaUser(u)) return '';
-        final id = (u?['id'] ?? '').toString();
-        final rawRt = u?['rt'];
-        final rtId = (u?['rt_id'] ?? (rawRt is Map ? rawRt['id'] : rawRt) ?? '').toString();
+        if (u == null) return '';
+        final id = (u['id'] ?? '').toString();
+        final rawRt = u['rt'];
+        final rtId = (u['rt_id'] ?? (rawRt is Map ? rawRt['id'] : rawRt) ?? '').toString();
         return '$id:$rtId';
       }),
     );
@@ -749,7 +749,7 @@ class OverdueWarningSummaryNotifier
 
   Future<OverdueWarningSummary> _fetch() async {
     final user = ref.read(authRepositoryProvider)?.valueOrNull;
-    if (!isPlainWargaUser(user)) {
+    if (user == null) {
       state = const AsyncData(OverdueWarningSummary.empty);
       return OverdueWarningSummary.empty;
     }
@@ -772,7 +772,7 @@ class OverdueWarningSummaryNotifier
 
   Future<void> refresh({bool throttled = false}) async {
     final user = ref.read(authRepositoryProvider)?.valueOrNull;
-    if (!isPlainWargaUser(user)) {
+    if (user == null) {
       state = const AsyncData(OverdueWarningSummary.empty);
       return;
     }

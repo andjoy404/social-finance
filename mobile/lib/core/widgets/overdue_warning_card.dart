@@ -9,8 +9,10 @@ import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/features/iuran/data/iuran_api_models.dart';
 import 'package:social_finance/features/iuran/data/iuran_providers.dart';
 
-/// Global overdue warning for plain residents. The summary stays inline while
-/// the full balance and navigation action are shown in a dismissible dialog.
+/// Global overdue warning for the authenticated user's OWN household. The
+/// summary stays inline while the full balance and navigation action are shown
+/// in a dismissible dialog. Eligibility is based solely on the presence of an
+/// authenticated user (backend resolves the personal occupancy/bills).
 class OverdueWarningCard extends ConsumerStatefulWidget {
   const OverdueWarningCard({super.key});
 
@@ -36,7 +38,7 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
       _initialPromptQueued = true;
       final user = ref.read(authRepositoryProvider)?.valueOrNull;
       final id = (user?['id'] ?? '').toString();
-      if (id.isNotEmpty && isPlainWargaUser(user)) {
+      if (id.isNotEmpty && user != null) {
         _observedUserId = id;
         _queueAutoPrompt();
       }
@@ -62,7 +64,7 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
     if (state == AppLifecycleState.resumed && _wasBackgrounded) {
       _wasBackgrounded = false;
       final user = ref.read(authRepositoryProvider)?.valueOrNull;
-      if (isPlainWargaUser(user)) {
+      if (user != null) {
         _queueAutoPrompt(refreshSummary: true);
       }
     }
@@ -84,7 +86,7 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
       final userId = (user?['id'] ?? '').toString();
       if (userId.isEmpty ||
           userId != _observedUserId ||
-          !isPlainWargaUser(user) ||
+          user == null ||
           !_hasOverdue(summary)) {
         return;
       }
@@ -203,12 +205,12 @@ class _OverdueWarningCardState extends ConsumerState<OverdueWarningCard>
       }
       if (userId != _observedUserId) {
         _observedUserId = userId;
-        if (isPlainWargaUser(user)) _queueAutoPrompt();
+        if (user != null) _queueAutoPrompt();
       }
     });
 
     final user = ref.watch(authRepositoryProvider)?.valueOrNull;
-    if (!isPlainWargaUser(user)) return const SizedBox.shrink();
+    if (user == null) return const SizedBox.shrink();
 
     final summary = ref.watch(overdueWarningSummaryProvider).valueOrNull;
     if (!_hasOverdue(summary)) return const SizedBox.shrink();

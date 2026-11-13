@@ -18,7 +18,7 @@ const baseWargaUser: AuthContextModule.AuthUser = {
   systemRole: null,
   role: 'warga',
   jabatan: null,
-  effectivePermissions: ['finance.read'],
+  effectivePermissions: [],
   rt: { id: 'rt-002', name: 'RT 002' },
   rtCode: '002',
   rtId: 'rt-002',
@@ -26,7 +26,17 @@ const baseWargaUser: AuthContextModule.AuthUser = {
   rwMemberships: [],
 }
 
-describe('OverdueWarningCard (Web Global Warning Card)', () => {
+function mockAuth(user: AuthContextModule.AuthUser) {
+  vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
+    user,
+    loading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+  } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
+}
+
+describe('OverdueWarningCard (Web Global Warning Card — personal scope)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.spyOn(ApiModule, 'getSessionPair').mockReturnValue({
@@ -35,14 +45,8 @@ describe('OverdueWarningCard (Web Global Warning Card)', () => {
     })
   })
 
-  it('1. renders warning card for plain warga with >= 3 months overdue bills', async () => {
-    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-      user: baseWargaUser,
-      loading: false,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
+  it('1. renders warning card for warga with >= 3 months overdue bills (personal data)', async () => {
+    mockAuth(baseWargaUser)
 
     const apiSpy = vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
       has_overdue_3_months: true,
@@ -73,14 +77,127 @@ describe('OverdueWarningCard (Web Global Warning Card)', () => {
     expect(screen.getByRole('button', { name: /Lihat Tagihan Saya/i })).toBeInTheDocument()
   })
 
-  it('2 & 3. does not render for warga with no overdue or < 3 months overdue', async () => {
-    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-      user: baseWargaUser,
-      loading: false,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
+  it('1b. ketua RT sees personal summary with their own bills (not RT-wide)', async () => {
+    const ketuaUser: AuthContextModule.AuthUser = {
+      ...baseWargaUser,
+      role: 'warga',
+      jabatan: 'ketua',
+      effectivePermissions: ['finance.read', 'finance.create'],
+    }
+    mockAuth(ketuaUser)
+
+    vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
+      has_overdue_3_months: true,
+      total_outstanding: 700000,
+      overdue_bill_count: 7,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <OverdueWarningCard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('overdue-warning-card')).toBeInTheDocument()
+    })
+    // Same warga copy for pengurus — never RT-wide wording
+    expect(screen.getByText('Peringatan Tunggakan Iuran')).toBeInTheDocument()
+    expect(screen.queryByText('Peringatan Tunggakan Iuran Warga')).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Anda memiliki tagihan iuran yang belum lunas/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/RT Anda/)).not.toBeInTheDocument()
+    expect(screen.getByText(/700\.000/)).toBeInTheDocument()
+    expect(screen.getByText('7 tagihan')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Lihat Tagihan Saya/i })).toBeInTheDocument()
+  })
+
+  it('1c. sekretaris RT with no personal overdue does not see card even if RT has overdue elsewhere', async () => {
+    const sekretarisUser: AuthContextModule.AuthUser = {
+      ...baseWargaUser,
+      role: 'warga',
+      jabatan: 'sekretaris',
+      effectivePermissions: ['finance.read', 'finance.create'],
+    }
+    mockAuth(sekretarisUser)
+
+    // Backend returns personal summary (0 overdue for this occupancy) even though RT has overdue bills
+    vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
+      has_overdue_3_months: false,
+      total_outstanding: 0,
+      overdue_bill_count: 0,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <OverdueWarningCard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(ApiModule.apiGetOverdueWarningSummary).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.queryByTestId('overdue-warning-card')).not.toBeInTheDocument()
+  })
+
+  it('1d. bendahara personal overdue renders with personal copy', async () => {
+    const bendaharaUser: AuthContextModule.AuthUser = {
+      ...baseWargaUser,
+      role: 'warga',
+      jabatan: 'bendahara',
+      effectivePermissions: ['finance.read', 'finance.create'],
+    }
+    mockAuth(bendaharaUser)
+
+    vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
+      has_overdue_3_months: true,
+      total_outstanding: 800000,
+      overdue_bill_count: 8,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <OverdueWarningCard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('overdue-warning-card')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/800\.000/)).toBeInTheDocument()
+    expect(screen.getByText('8 tagihan')).toBeInTheDocument()
+    expect(screen.getByText('Peringatan Tunggakan Iuran')).toBeInTheDocument()
+  })
+
+  it('1e. pengurus tanpa finance.read dengan personal overdue tetap melihat card (tidak ada pengecualian role)', async () => {
+    const pengurusNoPerm: AuthContextModule.AuthUser = {
+      ...baseWargaUser,
+      role: 'warga',
+      jabatan: 'sosial',
+      effectivePermissions: ['warga.read'],
+    }
+    mockAuth(pengurusNoPerm)
+
+    vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
+      has_overdue_3_months: true,
+      total_outstanding: 250000,
+      overdue_bill_count: 2,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <OverdueWarningCard />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('overdue-warning-card')).toBeInTheDocument()
+    })
+  })
+
+  it('2 & 3. does not render for user with no overdue or < 3 months overdue', async () => {
+    mockAuth(baseWargaUser)
 
     vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
       has_overdue_3_months: false,
@@ -100,72 +217,30 @@ describe('OverdueWarningCard (Web Global Warning Card)', () => {
     expect(screen.queryByTestId('overdue-warning-card')).not.toBeInTheDocument()
   })
 
-  it('4a. renders RT-wide card for sekretaris (jabatan + finance.read) with RT summary', async () => {
-    const sekretarisUser: AuthContextModule.AuthUser = {
-      ...baseWargaUser,
-      role: 'warga',
-      jabatan: 'sekretaris',
-      effectivePermissions: ['finance.read', 'finance.create', 'organization.contact.read'],
-      rtId: 'rt-002',
-      rtCode: '002',
-    }
-    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-      user: sekretarisUser,
-      loading: false,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
-
-    vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
-      has_overdue_3_months: true,
-      total_outstanding: 3900000,
-      overdue_bill_count: 39,
-    })
-
-    render(
-      <MemoryRouter initialEntries={['/dashboard']}>
-        <OverdueWarningCard />
-      </MemoryRouter>,
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId('overdue-warning-card')).toBeInTheDocument()
-    })
-    expect(screen.getByText(/Peringatan Tunggakan Iuran Warga/)).toBeInTheDocument()
-    expect(
-      screen.getByText(/Terdapat tagihan wajib iuran warga di RT Anda/i),
-    ).toBeInTheDocument()
-    expect(screen.getByText(/3\.900\.000/)).toBeInTheDocument()
-    expect(screen.getByText('39 tagihan')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Lihat Tunggakan Warga/i })).toBeInTheDocument()
-  })
-
-  it('4b. does not render and does not fetch for pengurus without finance.read, RW-only ketua, or Super Admin', () => {
-    const noAccessUsers: AuthContextModule.AuthUser[] = [
-      { ...baseWargaUser, role: 'pengurus', jabatan: null, effectivePermissions: ['warga.read'] },
-      { ...baseWargaUser, role: 'warga', jabatan: 'ketua', effectivePermissions: ['organization.read'] },
-      { ...baseWargaUser, role: 'warga', jabatan: 'bendahara', effectivePermissions: [] },
-      { ...baseWargaUser, systemRole: 'super_admin', role: 'super_admin', effectivePermissions: ['finance.read'] },
+  it('4. pengurus, Ketua, RW pengurus, dan Super Admin tetap dipanggil Personal (tanpa RT-wide)', () => {
+    const users: AuthContextModule.AuthUser[] = [
+      { ...baseWargaUser, role: 'pengurus' },
+      { ...baseWargaUser, role: 'bendahara' },
+      { ...baseWargaUser, systemRole: 'super_admin', role: 'super_admin' },
+      { ...baseWargaUser, role: 'warga', jabatan: 'ketua', effectivePermissions: ['finance.read'] },
+      { ...baseWargaUser, role: 'warga', jabatan: 'bendahara', effectivePermissions: ['finance.read'] },
       {
         ...baseWargaUser,
         role: 'warga',
         jabatan: null,
-        effectivePermissions: ['organization.read'],
+        effectivePermissions: ['finance.read'],
         rwMemberships: [{ rw_id: 'rw-1', rw_name: 'RW 01', jabatan: 'ketua' }],
       },
     ]
 
-    const apiSpy = vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary')
+    const apiSpy = vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
+      has_overdue_3_months: false,
+      total_outstanding: 0,
+      overdue_bill_count: 0,
+    })
 
-    for (const u of noAccessUsers) {
-      vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-        user: u,
-        loading: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshUser: vi.fn(),
-      } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
+    for (const u of users) {
+      mockAuth(u)
 
       const { unmount } = render(
         <MemoryRouter>
@@ -176,44 +251,11 @@ describe('OverdueWarningCard (Web Global Warning Card)', () => {
       unmount()
     }
 
-    expect(apiSpy).not.toHaveBeenCalled()
-  })
-
-  it('4c. does not render and does not fetch for role-only pengurus without explicit jabatan/permission', () => {
-    const roleOnlyPengurus: AuthContextModule.AuthUser = {
-      ...baseWargaUser,
-      jabatan: null,
-      role: 'pengurus',
-      effectivePermissions: ['warga.read'],
-    }
-    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-      user: roleOnlyPengurus,
-      loading: false,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
-
-    const apiSpy = vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary')
-
-    render(
-      <MemoryRouter initialEntries={['/dashboard']}>
-        <OverdueWarningCard />
-      </MemoryRouter>,
-    )
-
-    expect(screen.queryByTestId('overdue-warning-card')).not.toBeInTheDocument()
-    expect(apiSpy).not.toHaveBeenCalled()
+    expect(apiSpy).toHaveBeenCalledTimes(users.length)
   })
 
   it('6. navigates to /iuran?tab=tagihan when clicking Lihat Tagihan Saya', async () => {
-    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-      user: baseWargaUser,
-      loading: false,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
+    mockAuth(baseWargaUser)
 
     vi.spyOn(ApiModule, 'apiGetOverdueWarningSummary').mockResolvedValue({
       has_overdue_3_months: true,
@@ -235,13 +277,7 @@ describe('OverdueWarningCard (Web Global Warning Card)', () => {
   })
 
   it('7. hides card automatically after payment update event resolves overdue balance', async () => {
-    vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
-      user: baseWargaUser,
-      loading: false,
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: vi.fn(),
-    } as unknown as ReturnType<typeof AuthContextModule.useAuth>)
+    mockAuth(baseWargaUser)
 
     const apiSpy = vi
       .spyOn(ApiModule, 'apiGetOverdueWarningSummary')

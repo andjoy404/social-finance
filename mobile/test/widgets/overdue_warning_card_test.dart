@@ -44,6 +44,7 @@ Widget _buildTestApp({
   required Map<String, dynamic>? user,
   required _FakeIuranRepository fakeRepo,
   String initialLocation = '/home',
+  Key? scopeKey,
 }) {
   final router = GoRouter(
     initialLocation: initialLocation,
@@ -74,6 +75,7 @@ Widget _buildTestApp({
   );
 
   return ProviderScope(
+    key: scopeKey,
     overrides: [
       authRepositoryProvider.overrideWith((ref) => _FakeAuthRepository(user)),
       iuranRepositoryProvider.overrideWithValue(fakeRepo),
@@ -145,9 +147,9 @@ void main() {
     );
 
     testWidgets(
-      '4. does not render and does not fetch for pengurus, Ketua RT, Bendahara, RW pengurus, or Super Admin',
+      '4. pengurus, Ketua RT, Bendahara, RW pengurus, dan Super Admin tetap melihat card berbasis ringkasan personal',
       (tester) async {
-        final nonWargaUsers = <Map<String, dynamic>>[
+        final anyRoleUsers = <Map<String, dynamic>>[
           {...baseWargaUser, 'role': AppRole.pengurus},
           {...baseWargaUser, 'role': AppRole.bendahara},
           {...baseWargaUser, 'role': AppRole.superAdmin, 'system_role': 'super_admin'},
@@ -162,8 +164,8 @@ void main() {
           },
         ];
 
-        for (final u in nonWargaUsers) {
-          expect(isPlainWargaUser(u), isFalse);
+        for (var i = 0; i < anyRoleUsers.length; i++) {
+          final u = anyRoleUsers[i];
           final fakeRepo = _FakeIuranRepository(
             summaryResponse: const OverdueWarningSummary(
               hasOverdue3Months: true,
@@ -173,12 +175,11 @@ void main() {
           );
 
           await tester.pumpWidget(
-            _buildTestApp(user: u, fakeRepo: fakeRepo),
+            _buildTestApp(user: u, fakeRepo: fakeRepo, scopeKey: UniqueKey()),
           );
           await tester.pumpAndSettle();
-
-          expect(find.byKey(const Key('global-overdue-warning-card')), findsNothing);
-          expect(fakeRepo.fetchCalls, 0);
+          expect(find.byKey(const Key('global-overdue-warning-card')), findsOneWidget);
+          expect(fakeRepo.fetchCalls, 1);
         }
       },
     );

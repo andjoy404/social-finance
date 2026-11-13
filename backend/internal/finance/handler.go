@@ -570,36 +570,6 @@ func (h *Handler) hasStaffFinanceRead(ctx context.Context, tx *sql.Tx, ac *auth.
 	return h.hasStaffFinancePermission(ctx, tx, ac, "finance.read")
 }
 
-// hasRTWideOverdueRead determines whether the caller may receive the RT-wide
-// overdue warning summary. Unlike hasStaffFinanceRead it intentionally denies
-// the role-only fallback: monitoring access is permission-driven and requires
-// an explicit jabatan with finance.read (position_permissions). Super Admin is
-// excluded following the existing overdue warning scope (personal warnings are
-// disabled for SA).
-func (h *Handler) hasRTWideOverdueRead(ctx context.Context, tx *sql.Tx, ac *auth.AuthContext) (bool, error) {
-	if ac == nil || ac.UserID == "" || ac.RTID == "" {
-		return false, nil
-	}
-	if ac.SystemRole == auth.SystemRoleSuperAdmin {
-		return false, nil
-	}
-	if ac.Jabatan == "" {
-		return false, nil
-	}
-
-	if tx == nil && h.pool != nil {
-		t, err := h.pool.BeginTx(ctx)
-		if err != nil {
-			return false, err
-		}
-		defer t.Rollback()
-		tx = t
-	}
-
-	pr := auth.NewPermissionResolver(h.pool)
-	return pr.HasPermission(ctx, tx, ac, "finance.read")
-}
-
 // --- Bills Handlers ---
 
 // isWargaForOverdueWarning checks whether the authenticated user should receive
@@ -638,25 +608,6 @@ func (h *Handler) GetOverdueWarningSummary(w http.ResponseWriter, r *http.Reques
 			TotalOutstanding:  0,
 			OverdueBillCount:  0,
 		})
-		return
-	}
-
-	// Staff/pengurus with staff finance read access (e.g. Sekretaris/Ketua/Bendahara)
-	// receive the RT-wide overdue summary covering every occupancy in their scope,
-	// not just their own occupancy. Authorization is derived strictly from the
-	// validated AuthContext; ac.RTID scopes the query and never crosses RTs.
-	staffOK, err := h.hasRTWideOverdueRead(r.Context(), nil, ac)
-	if err != nil {
-		httpx.WriteInternalServerError(w, "failed to compute overdue summary")
-		return
-	}
-	if staffOK {
-		summary, err := GetOverdueWarningSummaryForRT(r.Context(), h.pool.Raw(), ac.RTID, time.Now())
-		if err != nil {
-			httpx.WriteInternalServerError(w, "failed to compute overdue summary")
-			return
-		}
-		writeJSON(w, http.StatusOK, summary)
 		return
 	}
 
