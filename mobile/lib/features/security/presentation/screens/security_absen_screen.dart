@@ -412,8 +412,14 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
           : TabBarView(
               controller: _tabController,
               children: [
-                Expanded(child: _buildAbsenAndScheduleTab(currentUserId)),
-                Expanded(child: _buildHistoryAndCorrectionTab()),
+                RefreshIndicator(
+                  onRefresh: _loadData,
+                  child: _buildAbsenAndScheduleTab(currentUserId),
+                ),
+                RefreshIndicator(
+                  onRefresh: _loadData,
+                  child: _buildHistoryAndCorrectionTab(),
+                ),
               ],
             ),
     );
@@ -432,11 +438,9 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
     final isDoneToday =
         currentRecord != null && currentRecord.status == 'sudah_absen_pulang';
 
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
           // Today Shift Card + QR Action
           Card(
             shape: RoundedRectangleBorder(
@@ -627,18 +631,15 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
               ),
             ),
         ],
-      ),
-    );
+      );
   }
 
   Widget _buildHistoryAndCorrectionTab() {
     final history = [...?_overview?.recentHistory]
       ..sort(compareAttendanceRecency);
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
           const Text(
             'Riwayat Absensi',
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
@@ -706,7 +707,6 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
               ),
             ),
         ],
-      ),
-    );
+      );
   }
 }

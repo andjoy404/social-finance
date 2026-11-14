@@ -237,26 +237,54 @@ class _SecurityGuestBookScreenState
         ),
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    SizedBox(height: 220),
+                    Center(child: CircularProgressIndicator()),
+                  ],
+                )
               : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+              ? RefreshIndicator(
+                  onRefresh: () => _load(),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     children: [
-                      Text(_error!, textAlign: TextAlign.center),
-                      const SizedBox(height: 12),
-                      FilledButton(
-                        onPressed: () => _load(),
-                        child: const Text('Coba Lagi'),
+                      const SizedBox(height: 220),
+                      Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: () => _load(),
+                              child: const Text('Coba Lagi'),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                 )
               : _entries.isEmpty
-              ? const Center(child: Text('Tidak ada catatan Buku Tamu.'))
+              ? RefreshIndicator(
+                  onRefresh: () => _load(),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      SizedBox(height: 220),
+                      Center(child: Text('Tidak ada catatan Buku Tamu.')),
+                    ],
+                  ),
+                )
               : RefreshIndicator(
                   onRefresh: () => _load(),
                   child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: _entries.length,
                     itemBuilder: (ctx, i) {
                       final g = _entries[i];

@@ -58,6 +58,7 @@ class _SecurityManagementScreenState
       userHasPermission(_user, 'security.device.manage');
   bool get _canDecide => userHasPermission(_user, 'security.correction');
   bool get _canGuestRead => userHasPermission(_user, 'security.guest_book');
+  bool _refreshing = false;
 
   @override
   void initState() {
@@ -99,6 +100,118 @@ class _SecurityManagementScreenState
     _perangkatTabs.dispose();
     _guestDebounce?.cancel();
     super.dispose();
+  }
+
+  /// Menjalankan reload secara terbatas (mencegah refresh ganda).
+  Future<void> _guardedRefresh(Future<void> Function() reload) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      await reload();
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  void _showRefreshError(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Gagal memuat ulang: $error')),
+    );
+  }
+
+  Future<void> _reloadAttendance() async {
+    final api = ref.read(securityApiClientProvider);
+    final canReadSchedules =
+        userHasPermission(_user, 'security.schedule.read') || _canWrite;
+    if (!canReadSchedules) {
+      _showRefreshError('Anda tidak memiliki izin memuat data absensi.');
+      return;
+    }
+    try {
+      final period = _period;
+      final attendance = await api.listManagerAttendance(
+        dateFrom: period == null
+            ? null
+            : DateFormat('yyyy-MM-dd').format(period.start),
+        dateTo: period == null
+            ? null
+            : DateFormat('yyyy-MM-dd').format(period.end),
+        userId: _officerFilter,
+        status: _attendanceStatus.isEmpty ? null : _attendanceStatus,
+      );
+      attendance.sort(compareAttendanceRecency);
+      final officers = await api.listManagerOfficers();
+      if (!mounted) return;
+      setState(() {
+        _attendance = attendance;
+        _officers = officers;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _showRefreshError(e);
+    }
+  }
+
+  Future<void> _reloadCorrections() async {
+    final api = ref.read(securityApiClientProvider);
+    final canReadCorrections =
+        _canDecide || userHasPermission(_user, 'security.attendance');
+    if (!canReadCorrections) {
+      _showRefreshError('Anda tidak memiliki izin memuat data koreksi.');
+      return;
+    }
+    try {
+      final corrections = await api.listManagerCorrections();
+      if (!mounted) return;
+      setState(() => _corrections = corrections);
+    } catch (e) {
+      if (!mounted) return;
+      _showRefreshError(e);
+    }
+  }
+
+  Future<void> _reloadDevices() async {
+    if (!_canManageDevices) {
+      _showRefreshError('Anda tidak memiliki izin memuat data perangkat.');
+      return;
+    }
+    try {
+      final devices =
+          await ref.read(securityApiClientProvider).listManagerDevices();
+      if (!mounted) return;
+      setState(() => _devices = devices);
+    } catch (e) {
+      if (!mounted) return;
+      _showRefreshError(e);
+    }
+  }
+
+  Future<void> _reloadGuests({int? page}) async {
+    if (!_canGuestRead) {
+      _showRefreshError('Anda tidak memiliki izin membaca Buku Tamu.');
+      return;
+    }
+    final targetPage = page ?? _guestPage;
+    try {
+      final result =
+          await ref.read(securityApiClientProvider).listManagerGuestBooks(
+            search: _guestSearch,
+            page: targetPage,
+          );
+      if (!mounted) return;
+      final sortedGuests = [...result.data]
+        ..sort(compareGuestBookChronological);
+      setState(() {
+        _guests = sortedGuests;
+        _guestTotal = result.total;
+        _guestPage = targetPage;
+      });
+      _ensureGuestTicker();
+    } catch (e) {
+      if (!mounted) return;
+      _showRefreshError(e);
+    }
   }
 
   void _debounceGuestSearch(String value) {
@@ -1264,9 +1377,18 @@ class _SecurityManagementScreenState
         ],
       ),
       Expanded(
+        child: RefreshIndicator(
+        onRefresh: () => _guardedRefresh(_reloadAttendance),
         child: _attendance.isEmpty
-            ? const Center(child: Text('Belum ada catatan absensi.'))
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 220),
+                  Center(child: Text('Belum ada catatan absensi.')),
+                ],
+              )
             : ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 children: _attendance
                     .map(
                       (a) => Card(
@@ -1308,13 +1430,23 @@ class _SecurityManagementScreenState
                     )
                     .toList(),
               ),
+        ),
       ),
     ],
   );
 
-  Widget _correctionTab() => _corrections.isEmpty
-      ? const Center(child: Text('Tidak ada pengajuan koreksi.'))
+  Widget _correctionTab() => RefreshIndicator(
+    onRefresh: () => _guardedRefresh(_reloadCorrections),
+    child: _corrections.isEmpty
+      ? ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 220),
+            Center(child: Text('Tidak ada pengajuan koreksi.')),
+          ],
+        )
       : ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           children: _corrections
               .map(
                 (c) => Card(
@@ -1345,7 +1477,8 @@ class _SecurityManagementScreenState
                 ),
               )
               .toList(),
-        );
+        ),
+  );
 
   Widget _guestTab() => !_canGuestRead
       ? const Center(child: Text('Tidak memiliki izin membaca Buku Tamu.'))
@@ -1368,16 +1501,39 @@ class _SecurityManagementScreenState
               ),
             ),
             Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? Center(child: Text(_error!))
-                  : _guests.isEmpty
-                  ? const Center(child: Text('Tidak ada catatan Buku Tamu.'))
-                  : ListView(
-                      children: _guests
-                          .map(
-                            (g) => Card(
+              child: RefreshIndicator(
+                onRefresh: () => _guardedRefresh(_reloadGuests),
+                child: _loading
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: const [
+                          SizedBox(height: 220),
+                          Center(child: CircularProgressIndicator()),
+                        ],
+                      )
+                    : _error != null
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          const SizedBox(height: 220),
+                          Center(
+                            child: Text(_error!, textAlign: TextAlign.center),
+                          ),
+                        ],
+                      )
+                    : _guests.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: const [
+                          SizedBox(height: 220),
+                          Center(child: Text('Tidak ada catatan Buku Tamu.')),
+                        ],
+                      )
+                    : ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: _guests
+                            .map(
+                              (g) => Card(
                               child: ListTile(
                                 title: Text(
                                   '${g.guestName} → ${g.destinationLabel}',
@@ -1403,6 +1559,7 @@ class _SecurityManagementScreenState
                           )
                           .toList(),
                     ),
+              ),
             ),
             if (_guestTotal > 25)
               Row(
@@ -1426,10 +1583,19 @@ class _SecurityManagementScreenState
           ],
         );
 
-  Widget _deviceTab() => _devices.isEmpty
-      ? const Center(child: Text('Belum ada perangkat pos.'))
-      : ListView(
-          children: _devices
+  Widget _deviceTab() => RefreshIndicator(
+    onRefresh: () => _guardedRefresh(_reloadDevices),
+    child: _devices.isEmpty
+        ? ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: const [
+              SizedBox(height: 220),
+              Center(child: Text('Belum ada perangkat pos.')),
+            ],
+          )
+        : ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: _devices
               .map(
                 (d) => Card(
                   child: ListTile(
@@ -1459,7 +1625,8 @@ class _SecurityManagementScreenState
                 ),
               )
               .toList(),
-        );
+        ),
+  );
 
   void _ensureGuestTicker() {
     final hasActive = _guests.any((g) => g.checkedOutAt == null);
