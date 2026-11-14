@@ -44,7 +44,7 @@ function CustomMethodTooltip({ active, payload }: MethodTooltipProps) {
       }}
     >
       <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--sf-text)' }}>
-        Metode Pembayaran
+        Metode Transaksi
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#a970ff', fontWeight: 600 }}>
         <span>Transfer</span>
@@ -481,7 +481,7 @@ export function KeuanganScreen() {
 
           {/* Payment Method Breakdown Donut Chart */}
           <div className="sf-card" style={{ padding: 20, display: 'flex', flexDirection: 'column' }}>
-            <h3 style={{ margin: '0 0 16px 0', fontSize: 16, fontWeight: 600 }}>Metode Pembayaran ({metricScopeLabel})</h3>
+            <div style={{ margin: '0 0 16px 0', fontSize: 16, fontWeight: 600 }}>Metode Transaksi ({metricScopeLabel})</div>
             {totalMethodAmount > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between' }}>
                 <div style={{ height: 180 }}>

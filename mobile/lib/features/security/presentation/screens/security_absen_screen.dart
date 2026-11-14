@@ -412,8 +412,8 @@ class _SecurityAbsenScreenState extends ConsumerState<SecurityAbsenScreen>
           : TabBarView(
               controller: _tabController,
               children: [
-                _buildAbsenAndScheduleTab(currentUserId),
-                _buildHistoryAndCorrectionTab(),
+                Expanded(child: _buildAbsenAndScheduleTab(currentUserId)),
+                Expanded(child: _buildHistoryAndCorrectionTab()),
               ],
             ),
     );

@@ -315,7 +315,8 @@ describe('RwKasList - Laporan KAS RW', () => {
     render(<RwKasList rwId="rw-002" />)
     await waitFor(() => expect(screen.getByRole('button', { name: /Laporan KAS/i })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
-    await waitFor(() => expect(screen.getByText('Saldo awal periode')).toBeInTheDocument())
+    const doc = await screen.findByTestId('kas-report-document')
+    expect(within(doc).getByText('Saldo awal periode')).toBeInTheDocument()
     expect(detailSpy).toHaveBeenCalledWith(expect.anything(), 'rw-002', expect.objectContaining({ period: expect.any(String) }))
   })
 
@@ -327,7 +328,8 @@ describe('RwKasList - Laporan KAS RW', () => {
     render(<RwKasList rwId="rw-002" />)
     await waitFor(() => expect(screen.getByText('Penerimaan Iuran Warga')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
-    await waitFor(() => expect(screen.getByText('Saldo awal periode')).toBeInTheDocument())
+    const doc = await screen.findByTestId('kas-report-document')
+    expect(within(doc).getByText('Saldo awal periode')).toBeInTheDocument()
 
     const pdfBtn = screen.getByRole('button', { name: /Ekspor PDF/i })
     fireEvent.click(pdfBtn)
@@ -359,7 +361,8 @@ describe('RwKasList - Laporan KAS RW', () => {
     await waitFor(() => expect(screen.getByText('Semua Periode')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Semua Periode'))
     fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
-    await waitFor(() => expect(screen.getByText('Saldo awal periode')).toBeInTheDocument())
+    const doc = await screen.findByTestId('kas-report-document')
+    expect(within(doc).getByText('Saldo awal periode')).toBeInTheDocument()
     expect(detailSpy).toHaveBeenCalledWith(expect.anything(), 'rw-002', {})
     const listCalls = listSpy.mock.calls.map((c) => c[2])
     expect(listCalls.some((p) => p && p.period === undefined)).toBe(true)
@@ -423,7 +426,8 @@ describe('RwKasList - date range filter', () => {
     fireEvent.change(screen.getByLabelText('Tanggal mulai'), { target: { value: '2026-01-01' } })
     fireEvent.change(screen.getByLabelText('Tanggal selesai'), { target: { value: '2026-12-31' } })
     fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
-    await waitFor(() => expect(screen.getByText(/Tahun 2026/)).toBeInTheDocument())
+    const doc = await screen.findByTestId('kas-report-document')
+    expect(within(doc).getByText(/Tahun 2026/)).toBeInTheDocument()
   })
 
   it('clearing the range restores padam month-mode', async () => {
@@ -515,7 +519,8 @@ describe('RwKasList - report edges', () => {
     render(<RwKasList rwId="rw-002" />)
     await waitFor(() => expect(screen.getByRole('button', { name: /Laporan KAS/i })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
-    await waitFor(() => expect(screen.getByText(/Belum ada transaksi KAS pada/)).toBeInTheDocument())
+    const doc = await screen.findByTestId('kas-report-document')
+    expect(within(doc).getByText(/Belum ada transaksi KAS pada/)).toBeInTheDocument()
   })
 
   it('exports XLSX with RW identity and current data', async () => {
@@ -534,5 +539,144 @@ describe('RwKasList - report edges', () => {
     expect(model.identity.rwLabel).toBe('RW 002')
     expect(model.identity.rtLabel).toBeNull()
     expect(model.identity.orgName).toBe('RW 002 Sukamaju')
+  })
+})
+
+describe('RwKasList/RwKasReport - Cetak (print-only portal)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBase()
+    vi.mocked(AuthContext.useAuth as any).mockReturnValue({
+      user: explicitBenh,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    })
+  })
+
+  it('renders the print-only portal outside #root with the exact report content', async () => {
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue(detail as any)
+    vi.spyOn(rwApi, 'apiListRWTransactions').mockResolvedValue(txList as any)
+
+    render(<RwKasList rwId="rw-002" />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /Laporan KAS/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
+    await screen.findByTestId('kas-report-document')
+
+    // Portal exists, outside #root, and contains the identical document markup
+    const portal = document.querySelector('.sf-kas-print-report') as HTMLElement
+    expect(portal).not.toBeNull()
+    expect(portal).toBeInstanceOf(HTMLElement)
+    expect(portal.querySelector('[data-testid="kas-print-report-document"]')).not.toBeNull()
+    const inside = () => within(portal)
+    expect(inside().getByText('LAPORAN KEUANGAN RW 002')).toBeInTheDocument()
+    expect(inside().getAllByText(/2026/).length).toBeGreaterThan(0)
+    expect(inside().getByText('Saldo awal periode')).toBeInTheDocument()
+    // Detail transaksi (baris statement: kategori per metode penerimaan/pengeluaran) tercetak
+    expect(inside().getAllByText(/Iuran Warga/).length).toBeGreaterThan(0)
+    expect(inside().getByText('Total penerimaan Tunai + Transfer')).toBeInTheDocument()
+    expect(inside().getByText('Total pengeluaran Tunai + Transfer')).toBeInTheDocument()
+    // Nominal / saldo ikut tercetak
+    expect(inside().getAllByText('Rp2.000.000').length).toBeGreaterThan(0)
+    expect(inside().getByText('Rp1.875.000')).toBeInTheDocument()
+    expect(inside().getByText('Rp550.000')).toBeInTheDocument()
+    expect(inside().getByText('Rp3.325.000')).toBeInTheDocument()
+  })
+
+  it('print portal does NOT contain screen-only controls', async () => {
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue(detail as any)
+    vi.spyOn(rwApi, 'apiListRWTransactions').mockResolvedValue(txList as any)
+
+    render(<RwKasList rwId="rw-002" />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /Laporan KAS/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
+    await screen.findByTestId('kas-report-document')
+
+    const portal = document.querySelector('.sf-kas-print-report') as HTMLElement
+    const inside = within(portal)
+    expect(inside.queryByRole('button', { name: /Ekspor PDF/i })).not.toBeInTheDocument()
+    expect(inside.queryByRole('button', { name: /Ekspor XLSX/i })).not.toBeInTheDocument()
+    expect(inside.queryByRole('button', { name: /Cetak/i })).not.toBeInTheDocument()
+    // Search box / filter controls are also absent
+    expect(inside.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('Cetak button calls the window print mechanism', async () => {
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue(detail as any)
+    vi.spyOn(rwApi, 'apiListRWTransactions').mockResolvedValue(txList as any)
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+
+    render(<RwKasList rwId="rw-002" />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /Laporan KAS/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
+    await screen.findByTestId('kas-report-document')
+
+    fireEvent.click(screen.getByRole('button', { name: /Cetak/i }))
+    expect(printSpy).toHaveBeenCalledTimes(1)
+    printSpy.mockRestore()
+  })
+
+  it('print portal updates when the RK reporting period changes', async () => {
+    const { RwKasReport } = await import('./RwKasReport')
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue({
+      ...detail,
+      period: '2026-11',
+    } as any)
+    vi.spyOn(rwApi, 'apiListRWTransactions').mockResolvedValue(txList as any)
+
+    const user = {
+      id: 'user-1',
+      name: 'Bendahara RW 002',
+      role: 'bendahara',
+      jabatan: 'bendahara',
+      rwMemberships: [{ rw_id: 'rw-002', rw_name: 'RW 002 Sukamaju', rw_number: 2, jabatan: 'bendahara', source: 'explicit' }],
+    }
+    vi.mocked(AuthContext.useAuth as any).mockReturnValue({
+      user,
+      isAuthenticated: true,
+      isInitializing: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshUser: vi.fn(),
+    })
+
+    const { rerender } = render(
+      <RwKasReport rwId="rw-002" rwName="RW 002 Sukamaju" period="2026-10" />,
+    )
+    await waitFor(() => expect(screen.getByTestId('kas-print-report-document')).toBeInTheDocument())
+    expect(screen.getAllByText('Periode Oktober 2026').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: /Cetak/i }))
+
+    rerender(<RwKasReport rwId="rw-002" rwName="RW 002 Sukamaju" period="2026-11" />)
+    await waitFor(() => expect(screen.getAllByText('Periode November 2026').length).toBeGreaterThan(0))
+    // Portal also updated
+    const portal = document.querySelector('.sf-kas-print-report') as HTMLElement
+    expect(within(portal).getAllByText('Periode November 2026').length).toBeGreaterThan(0)
+  })
+
+  it('empty period renders an informative empty state in the print portal', async () => {
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue({
+      ...detail,
+      total_income: '0.00',
+      total_expense: '0.00',
+      net_balance: '0.00',
+      total_balance: detail.opening_balance,
+      transaction_count: 0,
+    } as any)
+    vi.spyOn(rwApi, 'apiListRWTransactions').mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 100, total: 0, total_pages: 1 },
+    } as any)
+
+    render(<RwKasList rwId="rw-002" />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /Laporan KAS/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Laporan KAS/i }))
+    await waitFor(() => expect(screen.getByTestId('kas-print-report-document')).toBeInTheDocument())
+
+    const portal = document.querySelector('.sf-kas-print-report') as HTMLElement
+    expect(within(portal).getByText(/Belum ada transaksi KAS pada/)).toBeInTheDocument()
   })
 })

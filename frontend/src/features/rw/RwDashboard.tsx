@@ -56,6 +56,56 @@ function formatTanggal(dateStr: string): string {
   return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function CustomRwMethodTooltip({ active, payload }: {
+  active?: boolean
+  payload?: Array<{ name?: string; value?: number; payload?: { count?: number } }>
+}) {
+  if (!active || !payload || payload.length === 0) return null
+
+  const mk = payload.find((p) => p.name === 'Transfer')
+  const mc = payload.find((p) => p.name === 'Tunai')
+  const transferVal = Number(mk?.value ?? 0)
+  const cashVal = Number(mc?.value ?? 0)
+  const total = transferVal + cashVal
+  const transferPct = total > 0 ? Math.round((transferVal / total) * 100) : 0
+  const cashPct = total > 0 ? 100 - transferPct : 0
+  const transferCount = Number((mk?.payload as { count?: number } | undefined)?.count ?? 0)
+  const cashCount = Number((mc?.payload as { count?: number } | undefined)?.count ?? 0)
+
+  return (
+    <div
+      style={{
+        background: 'var(--sf-surface)',
+        border: '1px solid var(--sf-border)',
+        borderRadius: 'var(--sf-radius-sm)',
+        fontSize: '12px',
+        boxShadow: 'var(--sf-shadow-sm)',
+        padding: '8px 12px',
+        color: 'var(--sf-text)',
+        minWidth: 160,
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--sf-text)' }}>
+        Metode Transaksi
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#a970ff', fontWeight: 600 }}>
+        <span>Transfer</span>
+        <span style={{ fontFamily: 'monospace' }}>Rp.{transferVal.toLocaleString('id-ID')}</span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>
+        {transferPct}% · {transferCount} transaksi
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#5794f2', fontWeight: 600, marginTop: 8 }}>
+        <span>Tunai</span>
+        <span style={{ fontFamily: 'monospace' }}>Rp.{cashVal.toLocaleString('id-ID')}</span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--sf-text-muted)', marginTop: 2 }}>
+        {cashPct}% · {cashCount} transaksi
+      </div>
+    </div>
+  )
+}
+
 export function RwDashboard({
   rwId,
   rwName,
@@ -585,16 +635,8 @@ export function RwDashboard({
                     ))}
                   </Pie>
                   <RechartsTooltip
-                    formatter={(val: number, name: string) => [
-                      `Rp ${Number(val).toLocaleString('id-ID')}`,
-                      name,
-                    ]}
-                    contentStyle={{
-                      background: 'var(--sf-surface)',
-                      border: '1px solid var(--sf-border)',
-                      borderRadius: 'var(--sf-radius-sm)',
-                      fontSize: '12px',
-                    }}
+                    content={<CustomRwMethodTooltip />}
+                    cursor={{ fill: 'var(--sf-accent)', fillOpacity: 0.10 }}
                   />
                 </PieChart>
               </ResponsiveContainer>

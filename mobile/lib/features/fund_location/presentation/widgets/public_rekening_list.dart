@@ -14,10 +14,15 @@ import 'package:social_finance/features/fund_location/data/models/fund_location_
 /// bisa dicopy), dan A/N pemegang rekening.
 class PublicRekeningList extends ConsumerWidget {
   final bool compact;
+
   /// Ultra-compact mode for bottom navbar: single line, no icon, no header.
   final bool ultraCompact;
 
-  const PublicRekeningList({super.key, this.compact = false, this.ultraCompact = false});
+  const PublicRekeningList({
+    super.key,
+    this.compact = false,
+    this.ultraCompact = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -52,7 +57,12 @@ class PublicRekeningList extends ConsumerWidget {
     );
   }
 
-  Widget _buildError(BuildContext context, WidgetRef ref, ThemeData theme, Object error) {
+  Widget _buildError(
+    BuildContext context,
+    WidgetRef ref,
+    ThemeData theme,
+    Object error,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -76,14 +86,21 @@ class PublicRekeningList extends ConsumerWidget {
     );
   }
 
-  Widget _buildList(BuildContext context, ThemeData theme, List<PublicRekening> list) {
+  Widget _buildList(
+    BuildContext context,
+    ThemeData theme,
+    List<PublicRekening> list,
+  ) {
     if (list.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
           children: [
-            Icon(Icons.account_balance_outlined,
-                size: 18, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.account_balance_outlined,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -150,7 +167,7 @@ class PublicRekeningList extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w700,
-                            color: AppColors.darkText,
+                            color: AppColors.info,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -163,7 +180,7 @@ class PublicRekeningList extends ConsumerWidget {
                             letterSpacing: 0.6,
                             fontWeight: FontWeight.w700,
                             fontSize: 11,
-                            color: AppColors.warning,
+                            color: AppColors.accent,
                           ),
                         ),
                         if (holder.isNotEmpty) ...[
@@ -172,22 +189,17 @@ class PublicRekeningList extends ConsumerWidget {
                             'A/N $holder',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style:
-                                theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF8B8B9E),
-                                  fontStyle: FontStyle.italic,
-                                ),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF8B8B9E),
+                              fontStyle: FontStyle.italic,
+                            ),
                           ),
                         ],
                       ],
                     ),
                   ),
                   if (number.isNotEmpty)
-                    Icon(
-                      Icons.copy_rounded,
-                      size: 16,
-                      color: AppColors.accent,
-                    ),
+                    Icon(Icons.copy_rounded, size: 16, color: AppColors.accent),
                 ],
               ),
             ),
@@ -197,7 +209,11 @@ class PublicRekeningList extends ConsumerWidget {
     );
   }
 
-  Widget _buildUltraCompactList(BuildContext context, ThemeData theme, List<PublicRekening> list) {
+  Widget _buildUltraCompactList(
+    BuildContext context,
+    ThemeData theme,
+    List<PublicRekening> list,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -241,7 +257,10 @@ class PublicRekeningList extends ConsumerWidget {
                     'A/N $holder',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 9, color: Color(0xFF8B8B9E)),
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color: Color(0xFF8B8B9E),
+                    ),
                   ),
                 ],
                 if (number.isNotEmpty) ...[

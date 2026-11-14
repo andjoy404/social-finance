@@ -358,6 +358,19 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
             </div>
           </div>
         </div>
+        {canViewReport && (
+          <div className="sf-page-header-right" style={{ marginLeft: 'auto' }}>
+            <button
+              type="button"
+              className="sf-btn sf-btn-outline"
+              onClick={() => setReportModalOpen(true)}
+              aria-label="Laporan KAS"
+            >
+              <BarChartOutlined style={{ fontSize: 12, marginRight: 6 }} />
+              Laporan KAS
+            </button>
+          </div>
+        )}
       </div>
 
       {/* KAS Summary Cards */}
@@ -618,18 +631,6 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
           </div>
 
           <div className="sf-list-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {canViewReport && (
-              <button
-                type="button"
-                className="sf-btn sf-btn-outline"
-                onClick={() => setReportModalOpen(true)}
-                aria-label="Laporan KAS"
-              >
-                <BarChartOutlined style={{ fontSize: 12, marginRight: 6 }} />
-                Laporan KAS
-              </button>
-            )}
-
             <button
               type="button"
               className={`sf-btn sf-kas-period-button ${isAllPeriods ? 'sf-btn-primary' : 'sf-btn-outline'}`}

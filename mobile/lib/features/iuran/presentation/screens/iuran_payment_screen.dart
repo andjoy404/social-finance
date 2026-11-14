@@ -782,7 +782,9 @@ class _IuranPaymentScreenState extends ConsumerState<IuranPaymentScreen> {
                             });
                           },
                           style: SegmentedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.lightBorder),
+                            side: const BorderSide(
+                              color: AppColors.lightBorder,
+                            ),
                           ),
                         ),
                       ),
@@ -1462,7 +1464,7 @@ class _RekeningBar extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w700,
-                            color: AppColors.darkText,
+                            color: AppColors.info,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -1475,7 +1477,7 @@ class _RekeningBar extends ConsumerWidget {
                             letterSpacing: 0.6,
                             fontWeight: FontWeight.w700,
                             fontSize: 11,
-                            color: AppColors.warning,
+                            color: AppColors.accent,
                           ),
                         ),
                         if (holder.isNotEmpty) ...[
@@ -1484,22 +1486,17 @@ class _RekeningBar extends ConsumerWidget {
                             'A/N $holder',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style:
-                                theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFF8B8B9E),
-                                  fontStyle: FontStyle.italic,
-                                ),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF8B8B9E),
+                              fontStyle: FontStyle.italic,
+                            ),
                           ),
                         ],
                       ],
                     ),
                   ),
                   if (number.isNotEmpty)
-                    Icon(
-                      Icons.copy_rounded,
-                      size: 16,
-                      color: AppColors.accent,
-                    ),
+                    Icon(Icons.copy_rounded, size: 16, color: AppColors.accent),
                 ],
               ),
             ),

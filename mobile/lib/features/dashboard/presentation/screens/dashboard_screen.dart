@@ -937,6 +937,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final jNorm = jabatan.trim().toLowerCase();
     final isKetua =
         jNorm == 'ketua' || jNorm == 'ketua rt' || jNorm == 'ketua_rt';
+    final isSecurity = jNorm == 'keamanan' || jNorm == 'seksi_keamanan';
 
     showModalBottomSheet(
       context: context,
@@ -980,13 +981,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       final warga = memberWargaMap[member.userId];
                       final memberPhone =
                           (member.phone ?? warga?.phoneNumber ?? '').trim();
-                      // Privasi: nomor telepon Warga hanya untuk jabatan persis Ketua RT.
-                      // Tidak ditampilkan untuk Keamanan/jabatan lain di detail organisasi
-                      // karena sumber (OrgMember.phone / MappedResident.phoneNumber) adalah
-                      // data pribadi warga dan tidak dapat dibedakan aman dari kontak
-                      // operasional petugas jaga; kontak operasional on-duty tetap ada di
-                      // kartu "Petugas Keamanan Sedang Bertugas" (SecurityOfficer).
-                      final safePhone = isKetua ? memberPhone : null;
+                      final isKetuaPhone = isKetua && memberPhone.isNotEmpty;
+                      final isSecurityPhone =
+                          isSecurity && memberPhone.isNotEmpty;
                       final houseNumber = warga?.houseNumber.trim() ?? '';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1054,33 +1051,97 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                         ],
                                       ),
                                     ],
+                                    // Ketua RT → tampilkan nomor telepon
+                                    if (isKetuaPhone) ...[
+                                      const SizedBox(height: 2),
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          const Icon(
+                                            Icons.phone,
+                                            size: 11,
+                                            color: AppColors.success,
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            memberPhone,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontFamily: 'monospace',
+                                              letterSpacing: 0.6,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 11,
+                                              color: AppColors.warning,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                    // Petugas Keamanan → tampilkan nomor telepon dengan style monospace
+                                    if (isSecurityPhone) ...[
+                                      const SizedBox(height: 2),
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          const Icon(
+                                            Icons.phone,
+                                            size: 11,
+                                            color: AppColors.success,
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Expanded(
+                                            child: Text(
+                                              memberPhone,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontFamily: 'monospace',
+                                                letterSpacing: 0.6,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 11,
+                                                color: AppColors.warning,
+                                              ),
+                                            ),
+                                          ),
+                                          GestureDetector(
+                                            onTap: () {
+                                              Clipboard.setData(
+                                                ClipboardData(
+                                                  text: memberPhone,
+                                                ),
+                                              );
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Nomor telepon $name disalin',
+                                                  ),
+                                                  behavior:
+                                                      SnackBarBehavior.floating,
+                                                  duration: const Duration(
+                                                    seconds: 2,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                            child: Icon(
+                                              Icons.copy_rounded,
+                                              size: 16,
+                                              color: AppColors.accent,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
                             ],
                           ),
-                          // Jabatan Ketua → tampilkan nomor telepon (privasi Warga).
-                          if (safePhone != null && safePhone.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            const Divider(),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.phone_outlined,
-                                  size: 20,
-                                  color: AppColors.accent,
-                                ),
-                                const SizedBox(width: 10),
-                                Text(
-                                  safePhone,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
                         ],
                       );
                     },

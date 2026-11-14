@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import './RwKasReport.css'
 import { getSessionPair } from '@/app/api'
 import {
   apiGetRWKASReportDetail,
@@ -236,6 +238,78 @@ export function RwKasReport(
   const statementRows = useMemo(() => (report ? buildStatementRows(report) : []), [report])
   const recap = useMemo(() => (report ? buildCategoryRecap(report) : null), [report])
 
+
+  // Dokumen laporan — IDENTIK antara tampilan di layar dan dokumen cetak
+  // (portal print), sesuai requirement "Konten yang dicetak harus sama dengan
+  // laporan yang sedang dilihat pengguna".
+  const StatementDocument = ({ testId }: { testId?: string }) => {
+    if (!report) return null
+    return (
+      <div className="sf-kas-doc" data-testid={testId ?? 'kas-report-document'}>
+        <div className="sf-kas-doc-head">
+          <img src={logoUrl} alt="" className="sf-kas-doc-logo" />
+          <div className="sf-kas-doc-title">
+            <div className="sf-kas-doc-title-main">{titleParts}</div>
+            {identity.orgName && <div>{identity.orgName}</div>}
+            {addressLines.map((line, i) => <div key={i}>{line}</div>)}
+            <div>{periodLine}</div>
+          </div>
+        </div>
+
+        {report.reconciles === false && (
+          <div className="sf-error-banner sf-no-print" role="alert">
+            Saldo akhir hasil hitung ({formatRp(report.closingCents)}) berbeda dari saldo akhir server ({formatRp(report.apiClosingCents ?? 0)}). Periksa data sebelum mencetak.
+          </div>
+        )}
+
+        {report.transactionCount === 0 && (
+          <div className="sf-kas-doc-empty">Belum ada transaksi KAS pada {periodLabel(periodeValue)}.</div>
+        )}
+
+        <div className="sf-kas-doc-scroll">
+          <table className="sf-kas-doc-table">
+            <thead>
+              <tr><th style={{ width: 36 }}>No</th><th>Uraian</th><th className="num">Debet</th><th className="num">Kredit</th><th className="num">Saldo</th></tr>
+            </thead>
+            <tbody>
+              {statementRows.map((r, i) => (
+                <tr key={i} className={`kind-${r.kind}`}>
+                  <td className="num">{r.no ?? ''}</td>
+                  <td>{r.label}</td>
+                  <td className="num">{r.debit ? formatRp(r.debit) : ''}</td>
+                  <td className="num">{r.credit ? formatRp(r.credit) : ''}</td>
+                  <td className="num">{r.saldo !== null && r.saldo !== undefined ? formatRp(r.saldo) : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {recap && (
+          <div className="sf-kas-doc-recap">
+            <div className="sf-kas-doc-title-main" style={{ textAlign: 'center', margin: '18px 0 8px' }}>
+              Rekap Pengeluaran per Kategori<br />{periodeValue ? `Periode ${periodLabel(periodeValue)}` : 'Semua Periode'}
+            </div>
+            <div className="sf-kas-doc-scroll">
+              <table className="sf-kas-doc-table recap">
+                <thead>
+                  <tr><th>Kategori</th><th className="num">Tunai</th><th className="num">Transfer</th>{recap.hasOther && <th className="num">Tanpa Metode</th>}</tr>
+                </thead>
+                <tbody>
+                  {recap.rows.map((r) => (
+                    <tr key={r.category}><td>{r.category}</td><td className="num">{formatNum(r.cash)}</td><td className="num">{formatNum(r.transfer)}</td>{recap.hasOther && <td className="num">{formatNum(r.other)}</td>}</tr>
+                  ))}
+                  <tr className="kind-grand"><td>Total Keseluruhan</td><td className="num">{formatNum(recap.grand.cash)}</td><td className="num">{formatNum(recap.grand.transfer)}</td>{recap.hasOther && <td className="num">{formatNum(recap.grand.other)}</td>}</tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        <div className="sf-kas-doc-foot">Dicetak {report.generatedAt.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
+      </div>
+    )
+  }
+
   const handleExport = useCallback(async (kind: 'pdf' | 'xlsx') => {
     if (kind === 'pdf' && !canExportPdf) return
     if (kind === 'xlsx' && !canExportXlsx) return
@@ -317,69 +391,16 @@ export function RwKasReport(
       {loading && <div className="sf-loading-banner sf-no-print">Memuat laporan...</div>}
 
       {/* Laporan KAS RW — Statement */}
-      {!loading && report && (
-        <div className="sf-kas-doc" data-testid="kas-report-document">
-          <div className="sf-kas-doc-head">
-            <img src={logoUrl} alt="" className="sf-kas-doc-logo" />
-            <div className="sf-kas-doc-title">
-              <div className="sf-kas-doc-title-main">{titleParts}</div>
-              {identity.orgName && <div>{identity.orgName}</div>}
-              {addressLines.map((line, i) => <div key={i}>{line}</div>)}
-              <div>{periodLine}</div>
-            </div>
-          </div>
-
-          {report.reconciles === false && (
-            <div className="sf-error-banner sf-no-print" role="alert">
-              Saldo akhir hasil hitung ({formatRp(report.closingCents)}) berbeda dari saldo akhir server ({formatRp(report.apiClosingCents ?? 0)}). Periksa data sebelum mencetak.
-            </div>
-          )}
-
-          {report.transactionCount === 0 && (
-            <div className="sf-kas-doc-empty">Belum ada transaksi KAS pada {periodLabel(periodeValue)}.</div>
-          )}
-
-          <div className="sf-kas-doc-scroll">
-            <table className="sf-kas-doc-table">
-              <thead>
-                <tr><th style={{ width: 36 }}>No</th><th>Uraian</th><th className="num">Debet</th><th className="num">Kredit</th><th className="num">Saldo</th></tr>
-              </thead>
-              <tbody>
-                {statementRows.map((r, i) => (
-                  <tr key={i} className={`kind-${r.kind}`}>
-                    <td className="num">{r.no ?? ''}</td>
-                    <td>{r.label}</td>
-                    <td className="num">{r.debit ? formatRp(r.debit) : ''}</td>
-                    <td className="num">{r.credit ? formatRp(r.credit) : ''}</td>
-                    <td className="num">{r.saldo !== null && r.saldo !== undefined ? formatRp(r.saldo) : ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {recap && (
-            <div className="sf-kas-doc-recap">
-              <div className="sf-kas-doc-title-main" style={{ textAlign: 'center', margin: '18px 0 8px' }}>
-                Rekap Pengeluaran per Kategori<br />{periodeValue ? `Periode ${periodLabel(periodeValue)}` : 'Semua Periode'}
-              </div>
-              <div className="sf-kas-doc-scroll">
-                <table className="sf-kas-doc-table recap">
-                  <thead>
-                    <tr><th>Kategori</th><th className="num">Tunai</th><th className="num">Transfer</th>{recap.hasOther && <th className="num">Tanpa Metode</th>}</tr>
-                  </thead>
-                  <tbody>
-                    {recap.rows.map((r) => (
-                      <tr key={r.category}><td>{r.category}</td><td className="num">{formatNum(r.cash)}</td><td className="num">{formatNum(r.transfer)}</td>{recap.hasOther && <td className="num">{formatNum(r.other)}</td>}</tr>
-                    ))}
-                    <tr className="kind-grand"><td>Total Keseluruhan</td><td className="num">{formatNum(recap.grand.cash)}</td><td className="num">{formatNum(recap.grand.transfer)}</td>{recap.hasOther && <td className="num">{formatNum(recap.grand.other)}</td>}</tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          <div className="sf-kas-doc-foot">Dicetak {report.generatedAt.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}</div>
-        </div>
+      {!loading && report && <StatementDocument testId="kas-report-document" />}
+      {createPortal(
+        <section className="sf-kas-print-report" aria-label="Laporan KAS RW">
+          {report ? (
+            <StatementDocument testId="kas-print-report-document" />
+          ) : !loading ? (
+            <div className="sf-kas-doc-empty">Data laporan belum tersedia untuk dicetak. Muat ulang laporan KAS RW.</div>
+          ) : null}
+        </section>,
+        document.body,
       )}
     </>
   )

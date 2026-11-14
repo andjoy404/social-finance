@@ -1069,8 +1069,9 @@ class _SecurityManagementScreenState
     );
   }
 
-  Widget _shiftTab() {
-    return Column(
+  Widget _shiftTab() => RefreshIndicator(
+    onRefresh: _loadData,
+    child: Column(
       children: [
         Expanded(
           child: _shifts.isEmpty
@@ -1116,91 +1117,99 @@ class _SecurityManagementScreenState
                 ),
         ),
       ],
-    );
-  }
+    ),
+  );
 
-  Widget _scheduleTab() => Column(
-    children: [
-      Wrap(
-        spacing: 8,
-        children: [
-          TextButton.icon(
-            onPressed: _setDateFilter,
-            icon: const Icon(Icons.date_range),
-            label: Text(
-              _period == null
-                  ? 'Periode'
-                  : '${DateFormat('dd/MM').format(_period!.start)}–${DateFormat('dd/MM').format(_period!.end)}',
-            ),
-          ),
-          DropdownButton<String?>(
-            value: _officerFilter,
-            hint: const Text('Semua Petugas'),
-            items: [
-              const DropdownMenuItem(value: null, child: Text('Semua Petugas')),
-              ..._officers.map(
-                (o) =>
-                    DropdownMenuItem(value: o.userId, child: Text(o.fullName)),
+  Widget _scheduleTab() => RefreshIndicator(
+    onRefresh: _loadData,
+    child: Column(
+      children: [
+        Wrap(
+          spacing: 8,
+          children: [
+            TextButton.icon(
+              onPressed: _setDateFilter,
+              icon: const Icon(Icons.date_range),
+              label: Text(
+                _period == null
+                    ? 'Periode'
+                    : '${DateFormat('dd/MM').format(_period!.start)}–${DateFormat('dd/MM').format(_period!.end)}',
               ),
-            ],
-            onChanged: (v) {
-              setState(() => _officerFilter = v);
-              _loadData();
-            },
-          ),
-        ],
-      ),
-      Expanded(
-        child: _schedules.isEmpty
-            ? const Center(child: Text('Tidak ada jadwal.'))
-            : ListView(
-                children: _schedules
-                    .map(
-                      (s) => Card(
-                        child: ListTile(
-                          title: Text('${s.officerName} · ${s.shiftName}'),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                '${s.assignmentStartDate} – ${s.assignmentEndDate}\n${s.shiftDate} · ${s.startTime}–${s.endTime}',
-                              ),
-                              const SizedBox(height: 4),
-                              AttendanceStatusBadge(
-                                statusCode: s.attendanceStatus,
-                                statusLabel: s.attendanceStatusLabel,
-                              ),
-                            ],
-                          ),
-                          trailing: _canWrite
-                              ? IconButton(
-                                  icon: const Icon(Icons.edit),
-                                  onPressed: () => _openScheduleForm(item: s),
-                                )
-                              : const Icon(Icons.chevron_right),
-                          onTap: () => showDialog<void>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: Text(s.officerName),
-                              content: Text(
-                                'Periode tugas ${s.assignmentStartDate} – ${s.assignmentEndDate}\n${s.shiftName} ${s.startTime}–${s.endTime}\nAbsensi: ${s.attendanceStatusLabel ?? '-'}',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx),
-                                  child: const Text('Tutup'),
+            ),
+            DropdownButton<String?>(
+              value: _officerFilter,
+              hint: const Text('Semua Petugas'),
+              items: [
+                const DropdownMenuItem(
+                  value: null,
+                  child: Text('Semua Petugas'),
+                ),
+                ..._officers.map(
+                  (o) => DropdownMenuItem(
+                    value: o.userId,
+                    child: Text(o.fullName),
+                  ),
+                ),
+              ],
+              onChanged: (v) {
+                setState(() => _officerFilter = v);
+                _loadData();
+              },
+            ),
+          ],
+        ),
+        Expanded(
+          child: _schedules.isEmpty
+              ? const Center(child: Text('Tidak ada jadwal.'))
+              : ListView(
+                  children: _schedules
+                      .map(
+                        (s) => Card(
+                          child: ListTile(
+                            title: Text('${s.officerName} · ${s.shiftName}'),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '${s.assignmentStartDate} – ${s.assignmentEndDate}\n${s.shiftDate} · ${s.startTime}–${s.endTime}',
+                                ),
+                                const SizedBox(height: 4),
+                                AttendanceStatusBadge(
+                                  statusCode: s.attendanceStatus,
+                                  statusLabel: s.attendanceStatusLabel,
                                 ),
                               ],
                             ),
+                            trailing: _canWrite
+                                ? IconButton(
+                                    icon: const Icon(Icons.edit),
+                                    onPressed: () => _openScheduleForm(item: s),
+                                  )
+                                : const Icon(Icons.chevron_right),
+                            onTap: () => showDialog<void>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: Text(s.officerName),
+                                content: Text(
+                                  'Periode tugas ${s.assignmentStartDate} – ${s.assignmentEndDate}\n${s.shiftName} ${s.startTime}–${s.endTime}\nAbsensi: ${s.attendanceStatusLabel ?? '-'}',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Tutup'),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    )
-                    .toList(),
-              ),
-      ),
-    ],
+                      )
+                      .toList(),
+                ),
+        ),
+      ],
+    ),
   );
 
   Widget _attendanceTab() => Column(
