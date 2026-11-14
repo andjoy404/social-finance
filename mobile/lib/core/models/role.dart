@@ -64,6 +64,6 @@ String appJabatanDisplayName(String jabatan) {
     case 'seksi_sosial_rt':
       return 'Petugas Sosial';
     default:
-      return jabatan.trim().isNotEmpty ? jabatan.trim() : '-';
+      return jabatan.trim().isNotEmpty ? jabatan.trim() : 'Warga';
   }
 }

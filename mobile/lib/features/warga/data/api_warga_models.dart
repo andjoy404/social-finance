@@ -510,11 +510,11 @@ class MappedResident {
         return AppColors.teal;
       case 'kebersihan':
       case 'kebersihan_rt':
-        return AppColors.success;
+        return AppColors.chartreuse;
       case 'sosial':
       case 'sosial_rt':
       case 'seksi_sosial':
-        return AppColors.danger;
+        return AppColors.lightPink;
       default:
         return AppColors.accent;
     }

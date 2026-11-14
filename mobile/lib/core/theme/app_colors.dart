@@ -47,6 +47,12 @@ class AppColors {
   /// Used for: operational, special staff positions
   static const Color teal = Color(0xFF009688);
 
+  /// Chartreuse — untuk Kebersihan
+  static const Color chartreuse = Color(0xFF9AC531);
+
+  /// Light Pink — untuk Seksi Sosial
+  static const Color lightPink = Color(0xFFFADADD);
+
   // ─────────────────────────────────────────────────────────────────────
   // LIGHT MODE COLORS
   // Source: tokens.css [data-theme='light']
