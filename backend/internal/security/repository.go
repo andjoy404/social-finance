@@ -2068,7 +2068,7 @@ func (r *Repository) ListAttendance(ctx context.Context, rtID string, f Attendan
 		LEFT JOIN security_devices ind ON ind.id = ar.check_in_device_id
 		LEFT JOIN security_devices outd ON outd.id = ar.check_out_device_id
 		WHERE %s
-		ORDER BY ar.shift_date DESC, s.scheduled_start_at DESC, u.full_name ASC
+		ORDER BY ar.shift_date ASC, s.scheduled_start_at ASC, ar.id ASC
 		LIMIT $%d OFFSET $%d
 	`, whereSQL, idx, idx+1)
 
@@ -2569,7 +2569,7 @@ func (r *Repository) ListGuestBooks(ctx context.Context, rtID string, f GuestBoo
 		FROM security_guest_books g
 		JOIN security_devices d ON d.id = g.device_id
 		WHERE %s
-		ORDER BY g.checked_in_at DESC
+		ORDER BY g.checked_in_at ASC, g.id ASC
 		LIMIT $%d OFFSET $%d
 	`, whereSQL, idx, idx+1)
 

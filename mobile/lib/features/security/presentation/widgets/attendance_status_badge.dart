@@ -47,15 +47,16 @@ String attendanceStatusLabelOf(String? raw) {
   }
 }
 
-/// Warna badge per kode status (konsisten Jadwal & Absensi):
-///   Hadir / Sudah Absen Pulang -> hijau (success)
-///   Terlambat / Belum Absen Pulang -> kuning/oranye (warning)
-///   Belum Hadir / Tidak Hadir -> merah (danger)
+/// Warna badge per kode status (konsisten KELOLA→JADWAL & ABSENSI→ABSENSI):
+///   Belum Hadir         -> abu-abu terang (netral)
+///   Tidak Hadir         -> merah (danger)
+///   Hadir               -> hijau (success)
+///   Sudah Absen Pulang  -> biru (info)
+///   Terlambat           -> oranye/amber (status lain, pembeda)
+///   Belum Absen Pulang  -> kuning (status lain, pembeda)
 ///   Lainnya/unknown/null -> abu-abu netral
 ///
-/// Teks sengaja dibuat lebih gelap pada tema terang dan lebih terang pada
-/// tema gelap agar kontras terjaga; latar diberi alpha agar menyatu dengan
-/// permukaan tema.
+/// Label asli status tidak diubah. Teks kontras untuk light/dark theme.
 ({Color background, Color text, Color border}) attendanceStatusColors(
   String? raw, {
   required bool isDark,
@@ -63,27 +64,33 @@ String attendanceStatusLabelOf(String? raw) {
   final Color base;
   switch (normalizeAttendanceStatusCode(raw)) {
     case 'hadir':
-    case 'sudah_absen_pulang':
-      base = AppColors.success;
+      base = AppColors.success; // hijau
       break;
-    case 'terlambat':
-    case 'belum_absen_pulang':
-      base = AppColors.warning;
+    case 'sudah_absen_pulang':
+      base = AppColors.info; // biru
+      break;
+    case 'tidak_hadir':
+      base = AppColors.danger; // merah
       break;
     case 'belum_hadir':
-    case 'tidak_hadir':
-      base = AppColors.danger;
+      base = const Color(0xFFCFD8DC); // abu-abu terang
+      break;
+    case 'terlambat':
+      base = const Color(0xFFF57C00); // oranye (pembeda)
+      break;
+    case 'belum_absen_pulang':
+      base = AppColors.warning; // kuning (pembeda)
       break;
     default:
-      base = const Color(0xFF8A9AB0); // abu-abu netral
+      base = const Color(0xFF90A4AE); // abu-abu netral (unknown/null)
   }
   final text = isDark
-      ? Color.lerp(base, Colors.white, 0.18)!
-      : Color.lerp(base, Colors.black, 0.38)!;
+      ? Color.lerp(base, Colors.white, 0.20)!
+      : Color.lerp(base, Colors.black, 0.45)!;
   return (
-    background: base.withValues(alpha: isDark ? 0.22 : 0.13),
+    background: base.withValues(alpha: isDark ? 0.24 : 0.18),
     text: text,
-    border: base.withValues(alpha: isDark ? 0.55 : 0.45),
+    border: base.withValues(alpha: isDark ? 0.55 : 0.50),
   );
 }
 

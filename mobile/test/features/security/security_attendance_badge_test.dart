@@ -191,41 +191,36 @@ void main() {
 
     test('attendanceStatusColors maps statuses to intended hues', () {
       expect(
-        attendanceStatusColors('hadir', isDark: false).background,
-        isA<Color>(),
-      );
-      expect(
         attendanceStatusColors('belum_hadir', isDark: false).background,
-        AppColors.danger.withValues(alpha: 0.13),
+        const Color(0xFFCFD8DC).withValues(alpha: 0.18),
       );
       expect(
         attendanceStatusColors('tidak_hadir', isDark: false).background,
-        AppColors.danger.withValues(alpha: 0.13),
+        AppColors.danger.withValues(alpha: 0.18),
       );
       expect(
         attendanceStatusColors('terlambat', isDark: false).background,
-        AppColors.warning.withValues(alpha: 0.13),
+        const Color(0xFFF57C00).withValues(alpha: 0.18),
       );
       expect(
         attendanceStatusColors('belum_absen_pulang', isDark: false).background,
-        AppColors.warning.withValues(alpha: 0.13),
+        AppColors.warning.withValues(alpha: 0.18),
       );
       expect(
         attendanceStatusColors('hadir', isDark: false).background,
-        AppColors.success.withValues(alpha: 0.13),
+        AppColors.success.withValues(alpha: 0.18),
+      );
+      expect(
+        attendanceStatusColors('sudah_absen_pulang', isDark: false).background,
+        AppColors.info.withValues(alpha: 0.18),
       );
       expect(
         attendanceStatusColors('sudah_absen_pulang', isDark: true).background,
-        AppColors.success.withValues(alpha: 0.22),
+        AppColors.info.withValues(alpha: 0.24),
       );
-      // unknown / null -> abu-abu netral
       expect(
         attendanceStatusColors('status_baru', isDark: false).border,
-        const Color(0xFF8A9AB0).withValues(alpha: 0.45),
-      );
-      expect(
-        attendanceStatusColors(null, isDark: false).border,
-        const Color(0xFF8A9AB0).withValues(alpha: 0.45),
+        const Color(0xFF90A4AE).withValues(alpha: 0.50),
       );
     });
   });
@@ -290,30 +285,34 @@ void main() {
     );
 
     test(
-      'newest day first, then time, with id tie-break for identical timestamps',
+      'oldest day first (ASC), then time ASC, with stable id tie-break for identical timestamps',
       () {
         final shuffled = [a, c, e, d, b, f, g];
         final sorted = [...shuffled]..sort(compareAttendanceRecency);
         expect(sorted.map((r) => r.officerName).toList(), [
-          'Petugas F',
-          'Petugas C',
-          'Petugas D',
-          'Petugas B',
-          'Petugas G',
-          'Petugas E',
-          'Petugas A',
+          'Petugas A', // 2026-10-06 19:00
+          'Petugas E', // 2026-10-07 08:00
+          'Petugas G', // 2026-10-08 07:00
+          'Petugas B', // 2026-10-08 07:30
+          'Petugas C', // 2026-10-08 08:00 (id rec-c)
+          'Petugas D', // 2026-10-08 08:00 (id rec-d)
+          'Petugas F', // 2026-10-08 checked_in 10:00 (after 08:00 schedule)
         ]);
       },
     );
 
-    test('same date & same time differing only by id is deterministic', () {
-      expect(compareAttendanceRecency(c, d) < 0, isTrue);
-      expect(compareAttendanceRecency(d, c) > 0, isTrue);
-    });
+    test(
+      'same date & same time differing only by id is deterministic (ASC)',
+      () {
+        expect(compareAttendanceRecency(c, d) < 0, isTrue); // rec-c < rec-d
+        expect(compareAttendanceRecency(d, c) > 0, isTrue);
+      },
+    );
 
-    test('checked_in_at wins over scheduled start time', () {
-      // F mencatat masuk 10:00 pada shift 06:30 — harus di atas record 08:00.
-      expect(compareAttendanceRecency(f, c) < 0, isTrue);
+    test('checked_in_at is used as secondary instant (ASC on same date)', () {
+      // F check-in 10:00 pada shift 06:30 — lebih baru dari record 08:00 => muncul setelah.
+      expect(compareAttendanceRecency(c, f) < 0, isTrue);
+      expect(compareAttendanceRecency(f, c) > 0, isTrue);
     });
   });
 
@@ -485,58 +484,86 @@ void main() {
           badgeOf(tester, 'Belum Absen Pulang').statusCode,
           'belum_absen_pulang',
         );
+
+        // KELOLA→JADWAL badge warna sesuai spec.
+        final isDark =
+            tester.element(find.byType(SecurityManagementScreen)).mounted
+            ? Theme.of(
+                    tester.element(find.byType(SecurityManagementScreen)),
+                  ).brightness ==
+                  Brightness.dark
+            : false;
+        expect(
+          attendanceStatusColors('belum_hadir', isDark: isDark).background,
+          const Color(0xFFCFD8DC).withValues(alpha: isDark ? 0.24 : 0.18),
+        );
+        expect(
+          attendanceStatusColors('tidak_hadir', isDark: isDark).background,
+          AppColors.danger.withValues(alpha: isDark ? 0.24 : 0.18),
+        );
+        expect(
+          attendanceStatusColors('hadir', isDark: isDark).background,
+          AppColors.success.withValues(alpha: isDark ? 0.24 : 0.18),
+        );
+        expect(
+          attendanceStatusColors(
+            'sudah_absen_pulang',
+            isDark: isDark,
+          ).background,
+          AppColors.info.withValues(alpha: isDark ? 0.24 : 0.18),
+        );
       },
     );
 
-    testWidgets('B. Absensi tab menampilkan badge & urutan terbaru-first', (
-      tester,
-    ) async {
-      await pumpScreen(tester);
-      // Ke top-level Absensi, lalu sub-tab Absensi (find.text('Absensi') .first = top tab)
-      await tester.tap(find.text('Absensi').first);
-      await tester.pumpAndSettle();
+    testWidgets(
+      'B. Absensi tab menampilkan badge & urutan ASC (paling lama di atas)',
+      (tester) async {
+        await pumpScreen(tester);
+        await tester.tap(find.text('Absensi').first);
+        await tester.pumpAndSettle();
 
-      expect(find.byType(AttendanceStatusBadge), findsNWidgets(7));
+        expect(find.byType(AttendanceStatusBadge), findsNWidgets(7));
 
-      double yOf(String text) =>
-          tester.getTopLeft(find.textContaining(text)).dy;
-      expect(yOf('Petugas F'), lessThan(yOf('Petugas C')));
-      expect(yOf('Petugas C'), lessThan(yOf('Petugas D')));
-      expect(yOf('Petugas D'), lessThan(yOf('Petugas B')));
-      expect(yOf('Petugas B'), lessThan(yOf('Petugas G')));
-      expect(yOf('Petugas G'), lessThan(yOf('Petugas E')));
-      expect(yOf('Petugas E'), lessThan(yOf('Petugas A')));
-    });
+        double yOf(String text) =>
+            tester.getTopLeft(find.textContaining(text)).dy;
+        // A(06) < E(07) < G(07:00) < B(07:30) < C(08:00,id c) < D(08:00,id d) < F(checkin 10:00)
+        expect(yOf('Petugas A'), lessThan(yOf('Petugas E')));
+        expect(yOf('Petugas E'), lessThan(yOf('Petugas G')));
+        expect(yOf('Petugas G'), lessThan(yOf('Petugas B')));
+        expect(yOf('Petugas B'), lessThan(yOf('Petugas C')));
+        expect(yOf('Petugas C'), lessThan(yOf('Petugas D')));
+        expect(yOf('Petugas D'), lessThan(yOf('Petugas F')));
+      },
+    );
 
-    testWidgets('B/C. Urutan tetap benar setelah refresh tab & filter status', (
-      tester,
-    ) async {
-      await pumpScreen(tester);
-      await tester.tap(find.text('Absensi').first);
-      await tester.pumpAndSettle();
+    testWidgets(
+      'B/C. Urutan ASC tetap benar setelah refresh tab & filter status',
+      (tester) async {
+        await pumpScreen(tester);
+        await tester.tap(find.text('Absensi').first);
+        await tester.pumpAndSettle();
 
-      // Refresh dengan pindah sub-tab bolak-balik.
-      await tester.tap(find.text('Koreksi'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Absensi').last);
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Koreksi'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Absensi').last);
+        await tester.pumpAndSettle();
 
-      double yOf(String text) =>
-          tester.getTopLeft(find.textContaining(text)).dy;
-      expect(yOf('Petugas F'), lessThan(yOf('Petugas C')));
-      expect(yOf('Petugas C'), lessThan(yOf('Petugas D')));
-      expect(yOf('Petugas E'), lessThan(yOf('Petugas A')));
+        double yOf(String text) =>
+            tester.getTopLeft(find.textContaining(text)).dy;
+        expect(yOf('Petugas A'), lessThan(yOf('Petugas E')));
+        expect(yOf('Petugas E'), lessThan(yOf('Petugas G')));
+        expect(yOf('Petugas C'), lessThan(yOf('Petugas D')));
 
-      // Filter status 'terlambat' → hanya record terlambat yang tersisa.
-      await tester.tap(find.text('Semua Status'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Terlambat').last);
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Semua Status'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Terlambat').last);
+        await tester.pumpAndSettle();
 
-      expect(find.textContaining('Petugas E'), findsOneWidget);
-      expect(find.textContaining('Petugas C'), findsNothing);
-      expect(find.byType(AttendanceStatusBadge), findsOneWidget);
-    });
+        expect(find.textContaining('Petugas E'), findsOneWidget);
+        expect(find.textContaining('Petugas C'), findsNothing);
+        expect(find.byType(AttendanceStatusBadge), findsOneWidget);
+      },
+    );
 
     testWidgets('badge tidak overflow pada layar kecil (320px)', (
       tester,

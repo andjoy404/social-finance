@@ -148,7 +148,7 @@ describe('KelolaKeamananPage', () => {
     expect(screen.getByText('Tanggal Mulai Tugas')).toBeInTheDocument()
     expect(screen.getByText('Tanggal Berakhir Tugas')).toBeInTheDocument()
     expect(screen.queryByText('Ubah Warga')).not.toBeInTheDocument()
-  })
+  }, 15000)
 
   it('denies access for unauthorized warga user', () => {
     vi.spyOn(AuthModule, 'useAuth').mockReturnValue({

@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../data/security_models.dart';
 import '../providers/security_providers.dart';
+import '../utils/attendance_order.dart';
+import '../widgets/guest_visit_status_badge.dart';
 
 class SecurityGuestBookScreen extends ConsumerStatefulWidget {
   const SecurityGuestBookScreen({super.key});
@@ -71,8 +73,9 @@ class _SecurityGuestBookScreenState
       if (!mounted) {
         return;
       }
+      final sorted = [...result.data]..sort(compareGuestBookChronological);
       setState(() {
-        _entries = result.data;
+        _entries = sorted;
         _total = result.total;
         _totalPages = result.totalPages;
         _page = targetPage;
@@ -120,6 +123,10 @@ class _SecurityGuestBookScreenState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: GuestVisitStatusBadge(checkedOutAt: g.checkedOutAt),
+                ),
                 _line('Tujuan', g.destinationLabel),
                 _line('Keperluan', g.purpose),
                 _line(
@@ -260,9 +267,20 @@ class _SecurityGuestBookScreenState
                         ),
                         child: ListTile(
                           title: Text('${g.guestName} → ${g.destinationLabel}'),
-                          subtitle: Text(
-                            '${g.purpose}\nMasuk ${DateFormat('dd/MM HH:mm').format(g.checkedInAt)} · ${g.checkedOutAt == null ? 'Belum keluar' : 'Keluar ${DateFormat('HH:mm').format(g.checkedOutAt!)}'}\n${_guestDurationLabel(g)}',
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GuestVisitStatusBadge(
+                                checkedOutAt: g.checkedOutAt,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${g.purpose}\nMasuk ${DateFormat('dd/MM HH:mm').format(g.checkedInAt.toLocal())} · ${g.checkedOutAt == null ? 'Belum keluar' : 'Keluar ${DateFormat('HH:mm').format(g.checkedOutAt!.toLocal())}'}\n${_guestDurationLabel(g)}',
+                              ),
+                            ],
                           ),
+                          isThreeLine: true,
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () => _detail(g),
                         ),
@@ -271,26 +289,6 @@ class _SecurityGuestBookScreenState
                   ),
                 ),
         ),
-        if (_totalPages > 1)
-          SafeArea(
-            top: false,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  onPressed: _page > 1 ? () => _load(page: _page - 1) : null,
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                Text('Halaman $_page / $_totalPages · $_total'),
-                IconButton(
-                  onPressed: _page < _totalPages
-                      ? () => _load(page: _page + 1)
-                      : null,
-                  icon: const Icon(Icons.chevron_right),
-                ),
-              ],
-            ),
-          ),
       ],
     ),
   );

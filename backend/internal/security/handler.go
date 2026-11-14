@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -413,6 +414,117 @@ func (h *Handler) CancelSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ExportSchedulesXLSX(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.schedule.read", "security.schedule.write", "security.attendance")
+	if err != nil {
+		httpx.WriteInternalServerError(w, "permission check failed")
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "forbidden: missing schedule permission")
+		return
+	}
+
+	canManage, err := h.hasAnyPermission(r.Context(), ac, "security.schedule.write")
+	if err != nil {
+		httpx.WriteInternalServerError(w, "permission check failed")
+		return
+	}
+
+	q := r.URL.Query()
+	userFilter := strings.TrimSpace(q.Get("user_id"))
+	if !canManage && ac.Jabatan == auth.JabatanKeamanan {
+		userFilter = ac.UserID
+	}
+
+	f := ScheduleFilter{
+		DateFrom:      strings.TrimSpace(q.Get("date_from")),
+		DateTo:        strings.TrimSpace(q.Get("date_to")),
+		UserID:        userFilter,
+		ShiftConfigID: strings.TrimSpace(q.Get("shift_config_id")),
+	}
+
+	file, err := h.svc.ExportSchedulesXLSX(r.Context(), rtID, f)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	defer file.Close()
+
+	filename := fmt.Sprintf("jadwal_petugas_keamanan_%s.xlsx", time.Now().Format("20060102"))
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+
+	if err := file.Write(w); err != nil {
+		slog.Error("failed to write schedule xlsx response", "error", err)
+	}
+}
+
+func (h *Handler) ImportSchedulesPreview(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.schedule.write")
+	if err != nil {
+		httpx.WriteInternalServerError(w, "permission check failed")
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "forbidden: missing security.schedule.write permission")
+		return
+	}
+
+	file, err := readScheduleXLSX(r)
+	if err != nil {
+		httpx.WriteValidationError(w, "Gagal membaca file Excel: "+err.Error(), nil)
+		return
+	}
+	defer file.Close()
+
+	preview, err := h.svc.ParseAndValidateScheduleXLSX(r.Context(), rtID, file)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (h *Handler) ImportSchedulesCommit(w http.ResponseWriter, r *http.Request) {
+	ac, rtID, ok := h.authAndRT(w, r)
+	if !ok {
+		return
+	}
+	allowed, err := h.hasAnyPermission(r.Context(), ac, "security.schedule.write")
+	if err != nil {
+		httpx.WriteInternalServerError(w, "permission check failed")
+		return
+	}
+	if !allowed {
+		httpx.WriteForbidden(w, "forbidden: missing security.schedule.write permission")
+		return
+	}
+
+	var req ScheduleImportCommitRequest
+	if err := decodeJSON(r, &req); err != nil {
+		httpx.WriteValidationError(w, "invalid request body", nil)
+		return
+	}
+
+	result, err := h.svc.CommitScheduleImport(r.Context(), rtID, ac.UserID, req)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // ── Shift Swaps ───────────────────────────────────────────────────────────────

@@ -37,10 +37,15 @@ class AppColors {
   /// Used for: errors, expenses, invalid states, delete actions
   static const Color danger = Color(0xFFF2495C);
 
-  /// Semantic info — Blue
+  /* Semantic info — Blue */
   /// Web: --sf-info (#5794f2)
   /// Used for: information, notifications
   static const Color info = Color(0xFF5794F2);
+
+  /// Semantic teal — Teal
+  /// Web: --sf-teal (#009688)
+  /// Used for: operational, special staff positions
+  static const Color teal = Color(0xFF009688);
 
   // ─────────────────────────────────────────────────────────────────────
   // LIGHT MODE COLORS

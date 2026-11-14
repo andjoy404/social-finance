@@ -47,6 +47,20 @@ export interface ApiRWKASReport {
   transaction_count: number
 }
 
+/** KAS report period-consistent dari seluruh RT di bawah RW. */
+export interface ApiRWKASReportDetail {
+  opening_balance?: string
+  total_income: string
+  total_expense: string
+  net_balance: string
+  total_balance?: string
+  transaction_count: number
+  /** YYYY-MM when a period filter was applied */
+  period?: string
+  start_date?: string
+  end_date?: string
+}
+
 /** Satu transaksi dari RT tertentu di bawah RW. */
 export interface ApiRWTransaction {
   id: string
@@ -218,6 +232,33 @@ export async function apiGetRWKAS(
 }
 
 /**
+ * GET /api/v1/rw/{rwId}/kas/report
+ *
+ * Period-consistent report for the formal Laporan KAS RW document:
+ * carry-forward opening balance plus posted income/expense and closing balance.
+ * Bounds: nothing (all-time), period=YYYY-MM, or start_date+end_date
+ * (YYYY-MM-DD, both required, whole-day inclusive).
+ */
+export async function apiGetRWKASReportDetail(
+  token: string,
+  rwId: string,
+  params: { period?: string; startDate?: string; endDate?: string } = {},
+): Promise<ApiRWKASReportDetail> {
+  const q = new URLSearchParams()
+  if (params.period) q.set('period', params.period)
+  if (params.startDate) q.set('start_date', params.startDate)
+  if (params.endDate) q.set('end_date', params.endDate)
+
+  let url = `${BASE}/rw/${encodeURIComponent(rwId)}/kas/report`
+  if (q.toString()) url += '?' + q.toString()
+
+  const res = await authenticatedFetch(url, token)
+  const body = await res.json()
+  if (!body?.data) throw new Error('RW KAS report response is empty')
+  return body.data as ApiRWKASReportDetail
+}
+
+/**
  * GET /api/v1/rw/{rwId}/kas/transactions
  *
  * Returns paginated list of posted transactions from all RTs in the RW.
@@ -233,6 +274,8 @@ export async function apiListRWTransactions(
     page?: number
     page_size?: number
     search?: string
+    type?: 'income' | 'expense'
+    categoryId?: string
   } = {},
 ): Promise<ApiRWTxPaginated> {
   const q = new URLSearchParams()
@@ -242,6 +285,8 @@ export async function apiListRWTransactions(
   if (params.page) q.set('page', String(params.page))
   if (params.page_size) q.set('page_size', String(params.page_size))
   if (params.search) q.set('search', params.search)
+  if (params.type) q.set('type', params.type)
+  if (params.categoryId) q.set('category_id', params.categoryId)
 
   let url = `${BASE}/rw/${encodeURIComponent(rwId)}/kas/transactions`
   if (q.toString()) url += '?' + q.toString()

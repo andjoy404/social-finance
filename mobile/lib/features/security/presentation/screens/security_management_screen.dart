@@ -11,10 +11,12 @@ import 'package:social_finance/core/theme/app_colors.dart';
 import 'package:social_finance/features/auth/data/mock_auth_repository.dart';
 import 'package:social_finance/core/widgets/accent_action_fab.dart';
 import 'package:social_finance/core/widgets/menu_app_bar_title.dart';
+import '../../data/security_api_client.dart';
 import '../../data/security_models.dart';
 import '../providers/security_providers.dart';
 import '../utils/attendance_order.dart';
 import '../widgets/attendance_status_badge.dart';
+import '../widgets/guest_visit_status_badge.dart';
 
 class SecurityManagementScreen extends ConsumerStatefulWidget {
   const SecurityManagementScreen({super.key});
@@ -119,11 +121,14 @@ class _SecurityManagementScreenState
       if (!mounted) {
         return;
       }
+      final sortedGuests = [...result.data]
+        ..sort(compareGuestBookChronological);
       setState(() {
-        _guests = result.data;
+        _guests = sortedGuests;
         _guestTotal = result.total;
         _loading = false;
       });
+      _ensureGuestTicker();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -187,6 +192,8 @@ class _SecurityManagementScreenState
             )
           : const GuestBookPage([], 0, 1);
       attendance.sort(compareAttendanceRecency);
+      final sortedGuests = [...guestPage.data]
+        ..sort(compareGuestBookChronological);
       if (!mounted) {
         return;
       }
@@ -197,7 +204,7 @@ class _SecurityManagementScreenState
         _attendance = attendance;
         _corrections = corrections;
         _devices = devices;
-        _guests = guestPage.data;
+        _guests = sortedGuests;
         _guestTotal = guestPage.total;
         _loading = false;
       });
@@ -227,11 +234,14 @@ class _SecurityManagementScreenState
       if (!mounted) {
         return;
       }
+      final sortedGuests = [...result.data]
+        ..sort(compareGuestBookChronological);
       setState(() {
-        _guests = result.data;
+        _guests = sortedGuests;
         _guestTotal = result.total;
         _loading = false;
       });
+      _ensureGuestTicker();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -546,121 +556,63 @@ class _SecurityManagementScreenState
     }
   }
 
+  TimeOfDay _parseShiftTime(String? raw, TimeOfDay fallback) {
+    if (raw == null || raw.trim().isEmpty) {
+      return fallback;
+    }
+    final parts = raw.trim().split(':');
+    if (parts.length >= 2) {
+      final hour = int.tryParse(parts[0]);
+      final minute = int.tryParse(parts[1]);
+      if (hour != null &&
+          minute != null &&
+          hour >= 0 &&
+          hour <= 23 &&
+          minute >= 0 &&
+          minute <= 59) {
+        return TimeOfDay(hour: hour, minute: minute);
+      }
+    }
+    return fallback;
+  }
+
   Future<void> _openShiftForm({ShiftConfig? item}) async {
     if (!_canWrite) {
       return;
     }
-    final name = TextEditingController(text: item?.name ?? '');
-    TimeOfDay startTime = TimeOfDay.fromDateTime(
-      DateTime.parse('${item?.startTime ?? '08:00'}:00'),
+    final startTime = _parseShiftTime(
+      item?.startTime,
+      const TimeOfDay(hour: 8, minute: 0),
     );
-    TimeOfDay endTime = TimeOfDay.fromDateTime(
-      DateTime.parse('${item?.endTime ?? '16:00'}:00'),
+    final endTime = _parseShiftTime(
+      item?.endTime,
+      const TimeOfDay(hour: 16, minute: 0),
     );
-    final tolerance = TextEditingController(
-      text: '${item?.latenessToleranceMinutes ?? 15}',
-    );
-    bool crosses = item?.crossesMidnight ?? false;
-    final save = await showDialog<bool>(
+    final api = ref.read(securityApiClientProvider);
+
+    final savedName = await showDialog<String>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialog) => AlertDialog(
-          title: Text(item == null ? 'Tambah Shift' : 'Edit Shift'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(labelText: 'Nama shift'),
-              ),
-              ListTile(
-                title: const Text('Jam mulai'),
-                subtitle: Text(DateFormat('HH:mm').format(
-                  DateTime(2000, 1, 1, startTime.hour, startTime.minute),
-                )),
-                trailing: const Icon(Icons.access_time, color: AppColors.accent),
-                onTap: () async {
-                  final picked = await showTimePicker(
-                    context: ctx,
-                    initialTime: startTime,
-                  );
-                  if (picked != null) {
-                    setDialog(() => startTime = picked);
-                  }
-                },
-              ),
-              ListTile(
-                title: const Text('Jam selesai'),
-                subtitle: Text(DateFormat('HH:mm').format(
-                  DateTime(2000, 1, 1, endTime.hour, endTime.minute),
-                )),
-                trailing: const Icon(Icons.access_time, color: AppColors.accent),
-                onTap: () async {
-                  final picked = await showTimePicker(
-                    context: ctx,
-                    initialTime: endTime,
-                  );
-                  if (picked != null) {
-                    setDialog(() => endTime = picked);
-                  }
-                },
-              ),
-              TextField(
-                controller: tolerance,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Toleransi keterlambatan (menit)',
-                ),
-              ),
-              SwitchListTile(
-                value: crosses,
-                title: const Text('Melewati tengah malam'),
-                onChanged: (v) => setDialog(() => crosses = v),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Simpan'),
-            ),
-          ],
-        ),
+      barrierDismissible: false,
+      builder: (ctx) => _ShiftFormDialog(
+        item: item,
+        api: api,
+        initialStartTime: startTime,
+        initialEndTime: endTime,
       ),
     );
-    if (save != true || name.text.trim().isEmpty) {
-      return;
-    }
-    final payload = {
-      'name': name.text.trim(),
-      'start_time': '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}',
-      'end_time': '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
-      'crosses_midnight': crosses,
-      'lateness_tolerance_minutes': int.tryParse(tolerance.text) ?? 15,
-      'check_in_window_before_minutes': 60,
-      'check_in_window_after_minutes': 120,
-      'absent_cutoff_minutes': 120,
-      'missing_checkout_cutoff_minutes': 180,
-      'is_active': true,
-    };
-    try {
-      final api = ref.read(securityApiClientProvider);
-      if (item == null) {
-        await api.createManagerShift(payload);
-      } else {
-        await api.updateManagerShift(item.id, payload);
-      }
+
+    if (savedName != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            item == null
+                ? 'Shift "$savedName" berhasil ditambahkan'
+                : 'Shift "$savedName" berhasil diperbarui',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
       await _loadData();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
-      }
     }
   }
 
@@ -1122,7 +1074,22 @@ class _SecurityManagementScreenState
       children: [
         Expanded(
           child: _shifts.isEmpty
-              ? const Center(child: Text('Belum ada shift.'))
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Belum ada shift.'),
+                      if (_canWrite) ...[
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed: () => _openShiftForm(),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Tambah Shift'),
+                        ),
+                      ],
+                    ],
+                  ),
+                )
               : ListView(
                   children: _shifts
                       .map(
@@ -1130,11 +1097,15 @@ class _SecurityManagementScreenState
                           child: ListTile(
                             title: Text(s.name),
                             subtitle: Text(
-                              '${s.startTime}–${s.endTime} · Toleransi ${s.latenessToleranceMinutes} menit · ${s.isActive ? 'Aktif' : 'Nonaktif'}',
+                              '${s.startTime.length >= 5 ? s.startTime.substring(0, 5) : s.startTime}–${s.endTime.length >= 5 ? s.endTime.substring(0, 5) : s.endTime} · Toleransi ${s.latenessToleranceMinutes} menit · ${s.isActive ? 'Aktif' : 'Nonaktif'}',
                             ),
+                            onTap: _canWrite
+                                ? () => _openShiftForm(item: s)
+                                : null,
                             trailing: _canWrite
                                 ? IconButton(
                                     icon: const Icon(Icons.edit),
+                                    tooltip: 'Ubah Shift',
                                     onPressed: () => _openShiftForm(item: s),
                                   )
                                 : null,
@@ -1402,9 +1373,20 @@ class _SecurityManagementScreenState
                                 title: Text(
                                   '${g.guestName} → ${g.destinationLabel}',
                                 ),
-                                subtitle: Text(
-                                  '${g.purpose}\nMasuk: ${DateFormat('dd/MM HH:mm').format(g.checkedInAt.toLocal())} · ${g.checkedOutAt == null ? 'Belum keluar' : 'Keluar: ${DateFormat('dd/MM HH:mm').format(g.checkedOutAt!.toLocal())}'}\n${_guestDurationLabel(g)}',
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    GuestVisitStatusBadge(
+                                      checkedOutAt: g.checkedOutAt,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${g.purpose}\nMasuk: ${DateFormat('dd/MM HH:mm').format(g.checkedInAt.toLocal())} · ${g.checkedOutAt == null ? 'Belum keluar' : 'Keluar: ${DateFormat('dd/MM HH:mm').format(g.checkedOutAt!.toLocal())}'}\n${_guestDurationLabel(g)}',
+                                    ),
+                                  ],
                                 ),
+                                isThreeLine: true,
                                 trailing: const Icon(Icons.chevron_right),
                                 onTap: () => _showGuestDetail(g),
                               ),
@@ -1487,6 +1469,274 @@ class _SecurityManagementScreenState
     return guest_duration.guestVisitDurationLabel(
       g.checkedInAt,
       g.checkedOutAt,
+    );
+  }
+}
+
+class _ShiftFormDialog extends StatefulWidget {
+  final ShiftConfig? item;
+  final SecurityApiClient api;
+  final TimeOfDay initialStartTime;
+  final TimeOfDay initialEndTime;
+
+  const _ShiftFormDialog({
+    required this.item,
+    required this.api,
+    required this.initialStartTime,
+    required this.initialEndTime,
+  });
+
+  @override
+  State<_ShiftFormDialog> createState() => _ShiftFormDialogState();
+}
+
+class _ShiftFormDialogState extends State<_ShiftFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _toleranceController;
+  late TimeOfDay _startTime;
+  late TimeOfDay _endTime;
+  late bool _crosses;
+  late bool _isActive;
+  bool _isSubmitting = false;
+  String? _formError;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.item?.name ?? '');
+    _toleranceController = TextEditingController(
+      text: '${widget.item?.latenessToleranceMinutes ?? 15}',
+    );
+    _startTime = widget.initialStartTime;
+    _endTime = widget.initialEndTime;
+    _crosses = widget.item?.crossesMidnight ?? false;
+    _isActive = widget.item?.isActive ?? true;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _toleranceController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    if (_startTime.hour == _endTime.hour &&
+        _startTime.minute == _endTime.minute) {
+      setState(() {
+        _formError = 'Jam mulai dan jam selesai tidak boleh sama';
+      });
+      return;
+    }
+    setState(() {
+      _isSubmitting = true;
+      _formError = null;
+    });
+
+    final payload = {
+      'name': _nameController.text.trim(),
+      'start_time':
+          '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+      'end_time':
+          '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}',
+      'crosses_midnight': _crosses,
+      'lateness_tolerance_minutes':
+          int.tryParse(_toleranceController.text.trim()) ?? 15,
+      'check_in_window_before_minutes': 60,
+      'check_in_window_after_minutes': 120,
+      'absent_cutoff_minutes': 120,
+      'missing_checkout_cutoff_minutes': 180,
+      'is_active': _isActive,
+    };
+
+    try {
+      if (widget.item == null) {
+        await widget.api.createManagerShift(payload);
+      } else {
+        await widget.api.updateManagerShift(widget.item!.id, payload);
+      }
+      if (mounted) {
+        Navigator.pop(context, _nameController.text.trim());
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+          _formError = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.item == null ? 'Tambah Shift' : 'Ubah Shift'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_formError != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _formError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              TextFormField(
+                controller: _nameController,
+                enabled: !_isSubmitting,
+                decoration: const InputDecoration(
+                  labelText: 'Nama shift *',
+                  hintText: 'Contoh: Shift Pagi',
+                ),
+                validator: (v) {
+                  final trimmed = v?.trim() ?? '';
+                  if (trimmed.isEmpty) {
+                    return 'Nama shift wajib diisi';
+                  }
+                  if (trimmed.length < 2 || trimmed.length > 80) {
+                    return 'Nama shift harus antara 2 dan 80 karakter';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Jam mulai *'),
+                subtitle: Text(
+                  '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+                ),
+                trailing: const Icon(
+                  Icons.access_time,
+                  color: AppColors.accent,
+                ),
+                onTap: _isSubmitting
+                    ? null
+                    : () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _startTime,
+                        );
+                        if (picked != null && mounted) {
+                          setState(() {
+                            _startTime = picked;
+                            _formError = null;
+                          });
+                        }
+                      },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Jam selesai *'),
+                subtitle: Text(
+                  '${_endTime.hour.toString().padLeft(2, '0')}:${_endTime.minute.toString().padLeft(2, '0')}',
+                ),
+                trailing: const Icon(
+                  Icons.access_time,
+                  color: AppColors.accent,
+                ),
+                onTap: _isSubmitting
+                    ? null
+                    : () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _endTime,
+                        );
+                        if (picked != null && mounted) {
+                          setState(() {
+                            _endTime = picked;
+                            _formError = null;
+                          });
+                        }
+                      },
+              ),
+              TextFormField(
+                controller: _toleranceController,
+                enabled: !_isSubmitting,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Toleransi keterlambatan (menit) *',
+                ),
+                validator: (v) {
+                  final val = int.tryParse(v?.trim() ?? '');
+                  if (val == null || val < 0 || val > 180) {
+                    return 'Toleransi keterlambatan harus antara 0 dan 180 menit';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _crosses,
+                title: const Text('Melewati tengah malam'),
+                onChanged: _isSubmitting
+                    ? null
+                    : (v) => setState(() => _crosses = v),
+              ),
+              if (widget.item != null)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _isActive,
+                  title: const Text('Status aktif'),
+                  onChanged: _isSubmitting
+                      ? null
+                      : (v) => setState(() => _isActive = v),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSubmitting ? null : () => Navigator.pop(context, null),
+          child: const Text('Batal'),
+        ),
+        FilledButton(
+          onPressed: _isSubmitting ? null : _submit,
+          child: _isSubmitting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('Simpan'),
+        ),
+      ],
     );
   }
 }

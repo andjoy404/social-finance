@@ -46,7 +46,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final user = authState?.valueOrNull;
     final userName = user?['name'] ?? 'Pengguna';
     final role = user?['role'] as AppRole? ?? AppRole.warga;
-    final jabatan = (user?['jabatan'] ?? '').toString().trim().toLowerCase();
+    final rawJabatan = (user?['jabatan'] ?? '').toString().trim();
+    final jabatan = rawJabatan.toLowerCase();
     final isSpecialOfficer = jabatan == 'keamanan' || jabatan == 'kebersihan';
     final rt = user?['rt'] ?? '';
     final rawRw = (user?['rw'] as String?) ?? '';
@@ -163,7 +164,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               Text(userName, style: theme.textTheme.headlineSmall),
               const SizedBox(height: 8),
               AppBadge(
-                label: appRoleDisplayName(role),
+                label: appJabatanDisplayName(rawJabatan),
                 isNeonStyle: isDark,
                 backgroundColor: isDark
                     ? null

@@ -209,6 +209,40 @@ export interface PaginatedResult<T> {
   }
 }
 
+export interface ScheduleExcelRow {
+  row_number: number
+  schedule_id: string
+  officer_name: string
+  officer_user_id: string
+  shift_name: string
+  shift_config_id: string
+  start_date: string
+  end_date: string
+  notes: string
+  action: 'create' | 'update'
+  is_valid: boolean
+  errors: string[]
+}
+
+export interface ScheduleImportPreviewResponse {
+  total_rows: number
+  valid_rows: number
+  rejected_rows: number
+  empty_rows: number
+  rows: ScheduleExcelRow[]
+}
+
+export interface ScheduleImportCommitRequest {
+  rows: ScheduleExcelRow[]
+}
+
+export interface ScheduleImportCommitResponse {
+  message: string
+  created_count: number
+  updated_count: number
+  total_committed: number
+}
+
 async function parseOrThrow<T>(res: Response, fallbackMsg: string): Promise<T> {
   const text = await res.text()
   const parsed = text ? JSON.parse(text) : null
@@ -590,5 +624,48 @@ export async function apiListSecurityGuestBooks(params: {
     headers: authHeaders(),
   })
   return parseOrThrow(res, 'Gagal memuat buku tamu')
+}
+
+export async function apiExportSecuritySchedulesXLSX(params: {
+  date_from?: string
+  date_to?: string
+  user_id?: string
+  shift_config_id?: string
+} = {}): Promise<Blob> {
+  const qs = new URLSearchParams()
+  if (params.date_from) qs.set('date_from', params.date_from)
+  if (params.date_to) qs.set('date_to', params.date_to)
+  if (params.user_id) qs.set('user_id', params.user_id)
+  if (params.shift_config_id) qs.set('shift_config_id', params.shift_config_id)
+  const res = await authenticatedApiRequest(`${BASE}/security/schedules/export?${qs.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    await parseOrThrow(res, 'Gagal mengekspor jadwal petugas')
+  }
+  return res.blob()
+}
+
+export async function apiPreviewSecuritySchedulesXLSX(file: File): Promise<ScheduleImportPreviewResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const headers = authHeaders()
+  delete (headers as Record<string, string>)['Content-Type']
+  const res = await authenticatedApiRequest(`${BASE}/security/schedules/import/preview`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  return parseOrThrow(res, 'Gagal memproses pratinjau file jadwal')
+}
+
+export async function apiCommitSecuritySchedulesXLSX(rows: ScheduleExcelRow[]): Promise<ScheduleImportCommitResponse> {
+  const res = await authenticatedApiRequest(`${BASE}/security/schedules/import/commit`, {
+    method: 'POST',
+    headers: authHeaders(true),
+    body: JSON.stringify({ rows }),
+  })
+  return parseOrThrow(res, 'Gagal menyimpan jadwal yang diimpor')
 }
 

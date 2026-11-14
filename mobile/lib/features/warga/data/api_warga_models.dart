@@ -507,14 +507,14 @@ class MappedResident {
         return AppColors.danger;
       case 'operasional':
       case 'operasional_rt':
-        return AppColors.info;
+        return AppColors.teal;
       case 'kebersihan':
       case 'kebersihan_rt':
         return AppColors.success;
       case 'sosial':
       case 'sosial_rt':
       case 'seksi_sosial':
-        return AppColors.warning;
+        return AppColors.danger;
       default:
         return AppColors.accent;
     }

@@ -1240,6 +1240,10 @@ func buildRouter(pool *database.Pool, authH *auth.Handler, scopingCfg *auth.Scop
 		r.Put("/api/v1/security/shifts/{id}", securityH.UpdateShift)
 
 		r.Get("/api/v1/security/schedules", securityH.ListSchedules)
+		r.Get("/api/v1/security/schedules/export", securityH.ExportSchedulesXLSX)
+		r.Get("/api/v1/security/schedules/export/xlsx", securityH.ExportSchedulesXLSX)
+		r.Post("/api/v1/security/schedules/import/preview", securityH.ImportSchedulesPreview)
+		r.Post("/api/v1/security/schedules/import/commit", securityH.ImportSchedulesCommit)
 		r.Get("/api/v1/security/schedules/{id}", securityH.GetSchedule)
 		r.Post("/api/v1/security/schedules", securityH.CreateSchedule)
 		r.Put("/api/v1/security/schedules/{id}", securityH.UpdateSchedule)

@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { CheckCircleOutlined, WalletOutlined, ArrowDownOutlined, ArrowUpOutlined, EditOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, WalletOutlined, ArrowDownOutlined, ArrowUpOutlined, EditOutlined, BarChartOutlined } from '@ant-design/icons'
 import { Badge } from '@/components/Badge'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
@@ -19,15 +19,16 @@ import { useAuth, hasRwWriteAccess } from '@/app/AuthContext'
 import { getSessionPair, apiListCategories, type ApiFinancialCategory } from '@/app/api'
 import { formatRupiah } from '@/styles/format'
 import { resolveRwLabel } from '@/utils/rwUtils'
+import { RwKasReport, getRwKasReportAccess } from './RwKasReport'
 import {
   apiListRWTransactions,
-  apiGetRWKAS,
+  apiGetRWKASReportDetail,
   apiListRWLocations,
   apiCreateRWTransaction,
   apiUpdateRWOpeningBalance,
   apiListRWRTRs,
   type ApiRWTransaction,
-  type ApiRWKASReport,
+  type ApiRWKASReportDetail,
   type ApiRWLocation,
 } from './rw-api'
 
@@ -55,22 +56,27 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const canCreate = canWrite
   const canUpdate = canWrite
   const canEditSaldoAwal = canWrite
+  const canViewReport = getRwKasReportAccess(user, rwId).canView
   const isReadOnly = !canCreate && !canUpdate
+
+  const [reportModalOpen, setReportModalOpen] = useState<boolean>(false)
 
   // Month filter state
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1)
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [isAllPeriods, setIsAllPeriods] = useState<boolean>(false)
+  const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState<string>('')
   const [filterArus, setFilterArus] = useState<'all' | 'income' | 'expense'>('all')
+  const [filterCategoryId, setFilterCategoryId] = useState<string>('all')
 
   const [page, setPage] = useState<number>(1)
   const pageSize = 20
 
-  const [kasReport, setKasReport] = useState<ApiRWKASReport | null>(null)
+  const [kasReport, setKasReport] = useState<ApiRWKASReportDetail | null>(null)
   const [rawTransactions, setRawTransactions] = useState<ApiRWTransaction[]>([])
   const [totalCount, setTotalCount] = useState<number>(0)
   const [totalPages, setTotalPages] = useState<number>(1)
@@ -108,9 +114,32 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const [txError, setTxError] = useState<string | null>(null)
   const [submittingTx, setSubmittingTx] = useState(false)
 
-  const activePeriodStr = isAllPeriods
-    ? undefined
-    : `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`
+  const isFullYearRange =
+    !!dateRange &&
+    dateRange.start.endsWith('-01-01') &&
+    dateRange.end.endsWith('-12-31') &&
+    dateRange.start.slice(0, 4) === dateRange.end.slice(0, 4)
+
+  // Month-mode period for the report/list calls (YYYY-MM). Range mode and all-periods pass none.
+  const monthPeriodParam = !isAllPeriods && !dateRange
+    ? `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`
+    : undefined
+
+  // Params for the period-consistent /kas/report endpoint (summary cards + modal document).
+  const reportDetailParams = useMemo(
+    () =>
+      dateRange
+        ? { startDate: dateRange.start, endDate: dateRange.end }
+        : monthPeriodParam
+          ? { period: monthPeriodParam }
+          : {},
+    [dateRange, monthPeriodParam],
+  )
+
+  // Report period prop for the document header ('YYYY' for a full-year range).
+  const reportPeriodProp = isFullYearRange
+    ? (dateRange!.start.slice(0, 4) as string)
+    : monthPeriodParam ?? null
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -124,12 +153,15 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
 
     try {
       const [report, txData, locData, rtData, catData] = await Promise.all([
-        apiGetRWKAS(token, rwId, activePeriodStr),
+        apiGetRWKASReportDetail(token, rwId, reportDetailParams),
         apiListRWTransactions(token, rwId, {
           page,
           page_size: pageSize,
-          period: activePeriodStr,
+          period: monthPeriodParam,
+          start_date: dateRange ? dateRange.start : undefined,
+          end_date: dateRange ? dateRange.end : undefined,
           search: search.trim() || undefined,
+          categoryId: filterCategoryId === 'all' ? undefined : filterCategoryId,
         }),
         apiListRWLocations(token, rwId, { is_active: true }),
         apiListRWRTRs(token, rwId),
@@ -148,14 +180,27 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
     } finally {
       setLoading(false)
     }
-  }, [rwId, activePeriodStr, page, pageSize, search])
+  }, [rwId, monthPeriodParam, page, pageSize, search, dateRange, reportDetailParams, filterCategoryId])
 
   useEffect(() => {
     loadData()
   }, [loadData])
 
+  const formatShortDate = (iso: string): string => {
+    const d = new Date(`${iso}T00:00:00`)
+    if (Number.isNaN(d.getTime())) return iso
+    return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+  }
+
+  const modalSubtitle = isAllPeriods
+    ? 'Semua Periode'
+    : dateRange
+      ? `${formatShortDate(dateRange.start)} – ${formatShortDate(dateRange.end)}`
+      : `${MONTH_NAMES[selectedMonth - 1]?.slice(0, 3) ?? ''} ${selectedYear}`
+
   const handleAllPeriods = () => {
     setIsAllPeriods((prev) => !prev)
+    setDateRange(null)
     setPage(1)
   }
 
@@ -293,7 +338,10 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
   const incomeBalNum = parseFloat(kasReport?.total_income || '0') || 0
   const expenseBalNum = parseFloat(kasReport?.total_expense || '0') || 0
   const netBalNum = incomeBalNum - expenseBalNum
-  const totalSaldoNum = openingBalNum + netBalNum
+  // Server-computed closing (carry-forward semantics) takes precedence when present.
+  const totalSaldoNum = kasReport?.total_balance != null
+    ? parseFloat(kasReport.total_balance) || 0
+    : openingBalNum + netBalNum
 
   return (
     <>
@@ -445,6 +493,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
               value={selectedMonth}
               onChange={(e) => {
                 setIsAllPeriods(false)
+                setDateRange(null)
                 setSelectedMonth(parseInt(e.target.value, 10))
                 setPage(1)
               }}
@@ -461,6 +510,7 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
               value={selectedYear}
               onChange={(e) => {
                 setIsAllPeriods(false)
+                setDateRange(null)
                 setSelectedYear(parseInt(e.target.value, 10))
                 setPage(1)
               }}
@@ -471,6 +521,59 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
+
+            {/* Filter Rentang Tanggal */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="date"
+                className="sf-form-input"
+                value={dateRange?.start ?? ''}
+                onChange={(e) => {
+                  const start = e.target.value
+                  setIsAllPeriods(false)
+                  setPage(1)
+                  setDateRange((prev) => {
+                    if (!start) return null
+                    const end = prev?.end && start <= prev.end ? prev.end : start
+                    return { start, end }
+                  })
+                }}
+                style={{ fontSize: 13, height: 34, padding: '4px 8px', width: 150 }}
+                aria-label="Tanggal mulai"
+              />
+              <span style={{ fontSize: 12, color: 'var(--sf-text-muted)' }}>s/d</span>
+              <input
+                type="date"
+                className="sf-form-input"
+                value={dateRange?.end ?? ''}
+                onChange={(e) => {
+                  const end = e.target.value
+                  setIsAllPeriods(false)
+                  setPage(1)
+                  setDateRange((prev) => {
+                    if (!end) return null
+                    const start = prev?.start && prev.start <= end ? prev.start : end
+                    return { start, end }
+                  })
+                }}
+                style={{ fontSize: 13, height: 34, padding: '4px 8px', width: 150 }}
+                aria-label="Tanggal selesai"
+              />
+              {dateRange && (
+                <button
+                  type="button"
+                  className="sf-btn sf-btn-outline"
+                  onClick={() => {
+                    setDateRange(null)
+                    setPage(1)
+                  }}
+                  style={{ padding: '6px 10px', fontSize: 13 }}
+                  aria-label="Hapus rentang tanggal"
+                >
+                  ×
+                </button>
+              )}
+            </div>
 
             {/* Filter Arus */}
             <select
@@ -485,6 +588,25 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
               <option value="expense">Pengeluaran (-)</option>
             </select>
 
+            {/* Filter Kategori */}
+            <select
+              className="sf-form-select"
+              value={filterCategoryId}
+              onChange={(e) => {
+                setFilterCategoryId(e.target.value)
+                setPage(1)
+              }}
+              style={{ fontSize: 13, height: 34, padding: '4px 10px', width: 'auto', minWidth: 150 }}
+              aria-label="Filter Kategori"
+            >
+              <option value="all">Semua Kategori</option>
+              {expenseCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+
             {/* Search */}
             <div style={{ minWidth: 200, maxWidth: 320 }}>
               <SearchBox
@@ -496,6 +618,18 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
           </div>
 
           <div className="sf-list-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {canViewReport && (
+              <button
+                type="button"
+                className="sf-btn sf-btn-outline"
+                onClick={() => setReportModalOpen(true)}
+                aria-label="Laporan KAS"
+              >
+                <BarChartOutlined style={{ fontSize: 12, marginRight: 6 }} />
+                Laporan KAS
+              </button>
+            )}
+
             <button
               type="button"
               className={`sf-btn sf-kas-period-button ${isAllPeriods ? 'sf-btn-primary' : 'sf-btn-outline'}`}
@@ -890,6 +1024,47 @@ export function RwKasList({ rwId, rwName }: { rwId: string; rwName?: string }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal Laporan KAS RW */}
+      {reportModalOpen && (
+        <div className="sf-modal-overlay" onClick={() => setReportModalOpen(false)}>
+          <div
+            className="sf-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 960, width: '95%', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Laporan KAS RW"
+          >
+            <div className="sf-modal-header">
+              <div className="sf-modal-header-copy">
+                <div className="sf-modal-title">Laporan KAS RW</div>
+                <div className="sf-modal-subtitle">
+                  {modalSubtitle}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="sf-modal-close"
+                onClick={() => setReportModalOpen(false)}
+                aria-label="Tutup"
+              >
+                ×
+              </button>
+            </div>
+            <div className="sf-modal-body" style={{ flex: 1, overflow: 'auto', padding: 0 }}>
+              <RwKasReport
+                rwId={rwId}
+                rwName={displayRwLabel}
+                period={reportPeriodProp}
+                startDate={dateRange?.start ?? null}
+                endDate={dateRange?.end ?? null}
+                onClose={() => setReportModalOpen(false)}
+                onNavigateBack={() => setReportModalOpen(false)}
+              />
+            </div>
           </div>
         </div>
       )}

@@ -87,6 +87,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final user = authState?.valueOrNull;
     final userName = user?['name'] ?? 'Pengguna';
     final roleUser = user?['role'] as AppRole? ?? AppRole.warga;
+    final rawJabatan = (user?['jabatan'] ?? '').toString().trim();
     final rt = user?['rt'] ?? '';
     final rawRw = user?['rw']?.toString() ?? '';
     final rw = looksLikeUuid(rawRw)
@@ -138,7 +139,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             ),
                             const Spacer(),
                             AppBadge(
-                              label: appRoleDisplayName(roleUser),
+                              label: appJabatanDisplayName(rawJabatan),
                               isNeonStyle: isDark,
                             ),
                           ],
@@ -557,9 +558,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final isAvailable = (security?.isAvailable ?? false) && officers.isNotEmpty;
     final wargaAsync = ref.watch(wargaListProvider);
     final wargaMap = switch (wargaAsync) {
-      AsyncData(:final value) => {
-          for (final r in value) (r.userId ?? ''): r,
-        },
+      AsyncData(:final value) => {for (final r in value) (r.userId ?? ''): r},
       _ => <String, MappedResident>{},
     };
 
@@ -629,7 +628,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               final data = resolveOfficerData(o);
                               final name = data['name'];
                               final avatarPath = data['avatarPath'] ?? '';
-                              final avatarThumbPath = data['avatarThumbPath'] ?? '';
+                              final avatarThumbPath =
+                                  data['avatarThumbPath'] ?? '';
                               final phone = data['phone'] ?? '';
                               final hasPhone = phone.trim().isNotEmpty;
                               return Row(
@@ -637,23 +637,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 children: [
                                   ResidentAvatar(
                                     name: name ?? '',
-                                    avatarPath: avatarPath.isNotEmpty ? avatarPath : null,
-                                    avatarThumbPath: avatarThumbPath.isNotEmpty ? avatarThumbPath : null,
+                                    avatarPath: avatarPath.isNotEmpty
+                                        ? avatarPath
+                                        : null,
+                                    avatarThumbPath: avatarThumbPath.isNotEmpty
+                                        ? avatarThumbPath
+                                        : null,
                                     size: 38,
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           name ?? '',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
-                                          style: theme.textTheme.bodySmall?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                            color: AppColors.accent,
-                                          ),
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                                color: AppColors.accent,
+                                              ),
                                         ),
                                         if (hasPhone) ...[
                                           const SizedBox(height: 2),
@@ -687,12 +693,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   if (hasPhone)
                                     GestureDetector(
                                       onTap: () {
-                                        Clipboard.setData(ClipboardData(text: phone.trim()));
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        Clipboard.setData(
+                                          ClipboardData(text: phone.trim()),
+                                        );
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
                                           SnackBar(
-                                            content: Text('Nomor telepon $name disalin'),
+                                            content: Text(
+                                              'Nomor telepon $name disalin',
+                                            ),
                                             behavior: SnackBarBehavior.floating,
-                                            duration: const Duration(seconds: 2),
+                                            duration: const Duration(
+                                              seconds: 2,
+                                            ),
                                           ),
                                         );
                                       },
@@ -895,14 +909,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return AppColors.danger;
       case 'operasional':
       case 'operasional_rt':
-        return AppColors.info;
+        return AppColors.teal;
       case 'kebersihan':
       case 'kebersihan_rt':
         return AppColors.success;
       case 'sosial':
       case 'sosial_rt':
       case 'seksi_sosial':
-        return AppColors.warning;
+      case 'seksi_sosial_rt':
+        return AppColors.danger;
       default:
         return AppColors.accent;
     }
@@ -962,8 +977,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     builder: (context) {
                       final member = activeMembers[i];
                       final name = member.name.trim();
-                      final safePhone = isKetua ? member.phone : null;
                       final warga = memberWargaMap[member.userId];
+                      final memberPhone =
+                          (member.phone ?? warga?.phoneNumber ?? '').trim();
+                      // Privasi: nomor telepon Warga hanya untuk jabatan persis Ketua RT.
+                      // Tidak ditampilkan untuk Keamanan/jabatan lain di detail organisasi
+                      // karena sumber (OrgMember.phone / MappedResident.phoneNumber) adalah
+                      // data pribadi warga dan tidak dapat dibedakan aman dari kontak
+                      // operasional petugas jaga; kontak operasional on-duty tetap ada di
+                      // kartu "Petugas Keamanan Sedang Bertugas" (SecurityOfficer).
+                      final safePhone = isKetua ? memberPhone : null;
                       final houseNumber = warga?.houseNumber.trim() ?? '';
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1023,9 +1046,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                           const SizedBox(width: 6),
                                           Text(
                                             houseNumber,
-                                            style: theme.textTheme.bodySmall?.copyWith(
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
                                           ),
                                         ],
                                       ),
@@ -1035,6 +1059,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               ),
                             ],
                           ),
+                          // Jabatan Ketua → tampilkan nomor telepon (privasi Warga).
                           if (safePhone != null && safePhone.isNotEmpty) ...[
                             const SizedBox(height: 16),
                             const Divider(),
@@ -1061,14 +1086,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     },
                   ),
                 ],
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Tutup'),
-                  ),
-                ),
               ],
             ),
           ),

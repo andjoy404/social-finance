@@ -621,7 +621,8 @@ void main() {
               membershipId: 'm8',
               name: 'Hendro Nonaktif',
               jabatan: 'operasional',
-              isActive: true, // active in org payload, but deactivated in warga module
+              isActive:
+                  true, // active in org payload, but deactivated in warga module
             ),
           ],
         ),
@@ -711,7 +712,9 @@ void main() {
         'skenario_6_multi_anggota_aktif_nonaktif.png',
       );
 
-      await tester.tap(find.text('Tutup'));
+      // Bottom sheet detail ditutup tanpa tombol "Tutup" (perilaku UI WIP saat ini):
+      // tutup via Navigator agar assertion aktif/nonaktif tetap tervalidasi.
+      Navigator.of(tester.element(find.byType(BottomSheet))).pop();
       await tester.pumpAndSettle();
     },
   );

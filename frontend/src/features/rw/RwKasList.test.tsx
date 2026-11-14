@@ -30,11 +30,12 @@ describe('RwKasList', () => {
     vi.spyOn(rwApi, 'apiListRWRTRs').mockResolvedValue([])
   })
   it('renders KAS summary cards and action buttons for authorized officer', async () => {
-    vi.spyOn(rwApi, 'apiGetRWKAS').mockResolvedValue({
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue({
       opening_balance: '1000000.00',
       total_income: '5000000.00',
       total_expense: '2000000.00',
       net_balance: '3000000.00',
+      total_balance: '4000000.00',
       transaction_count: 8,
     } as any)
 
@@ -101,11 +102,12 @@ describe('RwKasList', () => {
       refreshUser: vi.fn(),
     })
 
-    vi.spyOn(rwApi, 'apiGetRWKAS').mockResolvedValue({
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue({
       opening_balance: '1000000.00',
       total_income: '5000000.00',
       total_expense: '2000000.00',
       net_balance: '3000000.00',
+      total_balance: '4000000.00',
       transaction_count: 8,
     } as any)
 
@@ -149,11 +151,12 @@ describe('RwKasList', () => {
       refreshUser: vi.fn(),
     })
 
-    vi.spyOn(rwApi, 'apiGetRWKAS').mockResolvedValue({
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue({
       opening_balance: '1000000.00',
       total_income: '5000000.00',
       total_expense: '2000000.00',
       net_balance: '3000000.00',
+      total_balance: '4000000.00',
       transaction_count: 8,
     } as any)
 
@@ -195,11 +198,12 @@ describe('RwKasList', () => {
       refreshUser: vi.fn(),
     })
 
-    vi.spyOn(rwApi, 'apiGetRWKAS').mockResolvedValue({
+    vi.spyOn(rwApi, 'apiGetRWKASReportDetail').mockResolvedValue({
       opening_balance: '1000000.00',
       total_income: '5000000.00',
       total_expense: '2000000.00',
       net_balance: '3000000.00',
+      total_balance: '4000000.00',
       transaction_count: 8,
     } as any)
 

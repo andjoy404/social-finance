@@ -13,12 +13,18 @@ class _Api extends SecurityApiClient {
   int page = 0;
 
   @override
-  Future<GuestBookPage> listManagerGuestBooks({String? search, int page = 1, String? status}) async {
+  Future<GuestBookPage> listManagerGuestBooks({
+    String? search,
+    int page = 1,
+    String? status,
+  }) async {
     this.search = search;
     this.page = page;
     final items = search == null || search.isEmpty
         ? [_activeEntry('A'), _checkedOutEntry('B')]
-        : (search.toLowerCase().contains('kurir') ? [_activeEntry('Kurir Paket')] : <GuestBookEntry>[]);
+        : (search.toLowerCase().contains('kurir')
+              ? [_activeEntry('Kurir Paket')]
+              : <GuestBookEntry>[]);
     return GuestBookPage(items, items.length, 1);
   }
 
@@ -47,31 +53,39 @@ class _Api extends SecurityApiClient {
 }
 
 void main() {
-  testWidgets('Buku Tamu searches, clears, shows empty state and opens read-only detail with duration', (tester) async {
-    final api = _Api();
-    await tester.pumpWidget(ProviderScope(overrides: [securityApiClientProvider.overrideWithValue(api)], child: const MaterialApp(home: SecurityGuestBookScreen())));
-    await tester.pumpAndSettle();
-    expect(find.text('A → Rumah 1'), findsOneWidget);
-    expect(find.text('B → Rumah 2'), findsOneWidget);
-    expect(find.textContaining('Sedang berkunjung'), findsWidgets);
-    expect(find.textContaining('Durasi kunjungan'), findsWidgets);
+  testWidgets(
+    'Buku Tamu searches, clears, shows empty state and opens read-only detail with duration',
+    (tester) async {
+      final api = _Api();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [securityApiClientProvider.overrideWithValue(api)],
+          child: const MaterialApp(home: SecurityGuestBookScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('A → Rumah 1'), findsOneWidget);
+      expect(find.text('B → Rumah 2'), findsOneWidget);
+      expect(find.textContaining('Sedang berkunjung'), findsWidgets);
+      expect(find.textContaining('Durasi kunjungan'), findsWidgets);
 
-    await tester.enterText(find.byType(TextField), 'kurir');
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
-    expect(api.search, 'kurir');
-    expect(find.text('Kurir Paket → Rumah 1'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'kurir');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(api.search, 'kurir');
+      expect(find.text('Kurir Paket → Rumah 1'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.chevron_right).first);
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Perangkat: Pos Utama'), findsOneWidget);
-    expect(find.text('Catat'), findsNothing);
+      await tester.tap(find.byIcon(Icons.chevron_right).first);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Perangkat: Pos Utama'), findsOneWidget);
+      expect(find.text('Catat'), findsNothing);
 
-    await tester.tap(find.text('Tutup'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'tidak-ada');
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
-    expect(find.text('Tidak ada catatan Buku Tamu.'), findsOneWidget);
-  });
+      await tester.tap(find.text('Tutup'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'tidak-ada');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.text('Tidak ada catatan Buku Tamu.'), findsOneWidget);
+    },
+  );
 }

@@ -36,16 +36,19 @@ import {
   CopyOutlined,
   DownloadOutlined,
   EditOutlined,
+  FileExcelOutlined,
   KeyOutlined,
   PlusOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   StopOutlined,
   SwapOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import { hasPermission, isKetuaRTUser, isSuperAdminUser, useAuth } from '@/app/AuthContext'
 import { ResidentAvatar } from '@/components/ResidentAvatar'
 import { ResidentPhotoManage } from '@/components/ResidentPhotoManage'
+import { ScheduleImportModal } from './ScheduleImportModal'
 import {
   apiCancelSecuritySchedule,
   apiCreateSecurityCorrection,
@@ -55,6 +58,7 @@ import {
   apiDecideSecurityCorrection,
   apiDecideSecuritySwap,
   apiExportSecurityAttendanceCSV,
+  apiExportSecuritySchedulesXLSX,
   apiGetSecurityDashboard,
   apiGetSecuritySchedule,
   apiListSecurityAttendance,
@@ -200,6 +204,8 @@ export function KelolaKeamananPage() {
   const [editingSchedule, setEditingSchedule] = useState<SecuritySchedule | null>(null)
   const [scheduleDetail, setScheduleDetail] = useState<SecuritySchedule[] | null>(null)
   const [scheduleForm] = Form.useForm()
+  const [exportingSchedules, setExportingSchedules] = useState(false)
+  const [scheduleImportModalOpen, setScheduleImportModalOpen] = useState(false)
 
   const [deviceModalOpen, setDeviceModalOpen] = useState(false)
   const [deviceForm] = Form.useForm()
@@ -525,6 +531,31 @@ export function KelolaKeamananPage() {
       await loadSchedules(schedulePage)
     } catch (err) {
       msgApi.error(getErrMsg(err, 'Gagal membatalkan jadwal'))
+    }
+  }
+
+  const handleExportSchedules = async () => {
+    setExportingSchedules(true)
+    try {
+      const blob = await apiExportSecuritySchedulesXLSX({
+        date_from: scheduleFilter.date_from,
+        date_to: scheduleFilter.date_to,
+        user_id: scheduleFilter.user_id,
+        shift_config_id: scheduleFilter.shift_config_id,
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `jadwal_petugas_keamanan_${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      msgApi.success('Jadwal berhasil diekspor!')
+    } catch (err) {
+      msgApi.error(getErrMsg(err, 'Gagal mengekspor jadwal'))
+    } finally {
+      setExportingSchedules(false)
     }
   }
 
@@ -1278,17 +1309,32 @@ export function KelolaKeamananPage() {
             children: (
               <Card
                 extra={
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => {
-                      setEditingSchedule(null)
-                      scheduleForm.resetFields()
-                      setScheduleModalOpen(true)
-                    }}
-                  >
-                    Tambah Jadwal
-                  </Button>
+                  <Space>
+                    <Button
+                      icon={<FileExcelOutlined />}
+                      onClick={() => void handleExportSchedules()}
+                      loading={exportingSchedules}
+                    >
+                      Export Excel
+                    </Button>
+                    <Button
+                      icon={<UploadOutlined />}
+                      onClick={() => setScheduleImportModalOpen(true)}
+                    >
+                      Import Excel
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        setEditingSchedule(null)
+                        scheduleForm.resetFields()
+                        setScheduleModalOpen(true)
+                      }}
+                    >
+                      Tambah Jadwal
+                    </Button>
+                  </Space>
                 }
               >
                 <Space wrap style={{ marginBottom: 16 }}>
@@ -1666,6 +1712,13 @@ export function KelolaKeamananPage() {
           </Descriptions>
         )}
       </Modal>
+
+      {/* Import Security Schedules Excel Modal */}
+      <ScheduleImportModal
+        open={scheduleImportModalOpen}
+        onClose={() => setScheduleImportModalOpen(false)}
+        onSuccess={() => void loadSchedules(1)}
+      />
 
       {/* Register Pos Device Modal */}
       <Modal
